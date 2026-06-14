@@ -58,6 +58,27 @@ describe("buildReviewPrompt", () => {
     // Should contain the base prompt
     expect(prompt).toContain("skill evolution agent")
   })
+
+  test("includes a do-not-evolve warning naming each protected skill when the list is non-empty", async () => {
+    const messages: MessageSnapshot[] = [
+      { role: "user", parts: [{ type: "text", text: "hi" }] },
+    ]
+    const prompt = await buildReviewPrompt(messages, "test-project-abc", ["protected-one", "protected-two"])
+    // Names the protected skills.
+    expect(prompt).toContain("protected-one")
+    expect(prompt).toContain("protected-two")
+    // States the prohibition: do not modify them, and do not recreate equivalents.
+    expect(prompt.toLowerCase()).toContain("do not modify")
+    expect(prompt.toLowerCase()).toContain("do not create")
+  })
+
+  test("omits the warning entirely when no skills are protected (boundary)", async () => {
+    const messages: MessageSnapshot[] = [
+      { role: "user", parts: [{ type: "text", text: "hi" }] },
+    ]
+    const prompt = await buildReviewPrompt(messages, "test-project-abc", [])
+    expect(prompt.toLowerCase()).not.toContain("do not modify")
+  })
 })
 
 describe("isReviewSession", () => {

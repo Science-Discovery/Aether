@@ -1,7 +1,8 @@
-import { describe, expect, test } from "bun:test"
+import { describe, expect, test, spyOn } from "bun:test"
 import { SkillEvolutionHook } from "./hook"
 import { Counter } from "./counter"
 import { DEFAULT_NUDGE_INTERVAL } from "./constants"
+import { ConfigReader } from "./config-reader"
 import { SessionID } from "@/session/schema"
 
 describe("SkillEvolutionHook.onStep", () => {
@@ -58,6 +59,28 @@ describe("SkillEvolutionHook.onLoopEnd", () => {
     // 5 < DEFAULT_NUDGE_INTERVAL — counter must not be reset
     expect(Counter.get(id)).toBe(5)
     Counter.reset(id)
+  })
+
+  test("does not trigger when global evolution switch is off", async () => {
+    // Master switch off: even past the threshold, onLoopEnd must early-return
+    // before spawnReview — observable as the counter staying put (not reset to 0).
+    const spy = spyOn(ConfigReader, "isEvolutionEnabled").mockResolvedValue(false)
+    try {
+      const id = ("hook-master-off-" + Math.random()) as SessionID
+      for (let i = 0; i < 12; i++) Counter.increment(id)
+
+      await SkillEvolutionHook.onLoopEnd({
+        sessionID: id,
+        finalResponse: true,
+        aborted: false,
+        projectId: "proj-test",
+      })
+      // switch off → no spawn → counter untouched (would be 0 if it had triggered)
+      expect(Counter.get(id)).toBe(12)
+      Counter.reset(id)
+    } finally {
+      spy.mockRestore()
+    }
   })
 
   test("resets counter only after spawn when threshold is met", async () => {

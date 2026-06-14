@@ -4,6 +4,7 @@ import path from "path"
 import { pathToFileURL } from "url"
 import z from "zod"
 import { Effect, Layer, ServiceMap } from "effect"
+import { parse as parseJsonc } from "jsonc-parser"
 import { NamedError } from "@opencode-ai/util/error"
 import type { Agent } from "@/agent/agent"
 import { Bus } from "@/bus"
@@ -74,6 +75,7 @@ export namespace Skill {
     readonly dirs: () => Effect.Effect<string[]>
     readonly sources: () => Effect.Effect<Source[]>
     readonly available: (agent?: Agent.Info) => Effect.Effect<Info[]>
+    readonly invalidate: () => Effect.Effect<void>
   }
 
   function snapshotPath(directory: string) {
@@ -84,16 +86,21 @@ export namespace Skill {
     return path.join(Global.Path.home, ".aether", "skill-snapshots", `${dirSlug}.json`)
   }
 
-  async function readSnapshot(directory: string): Promise<Record<string, number> | null> {
+  // mtime alone misses edits that reuse the same mtime tick (Windows has coarse
+  // mtime resolution, so a quick rewrite can collide); pairing it with size catches
+  // any content-length change within the same tick.
+  type ManifestEntry = { mtime: number; size: number }
+
+  async function readSnapshot(directory: string): Promise<Record<string, ManifestEntry> | null> {
     try {
       const content = await fs.readFile(snapshotPath(directory), "utf-8")
-      return JSON.parse(content) as Record<string, number>
+      return JSON.parse(content) as Record<string, ManifestEntry>
     } catch {
       return null
     }
   }
 
-  async function writeSnapshot(directory: string, snapshot: Record<string, number>): Promise<void> {
+  async function writeSnapshot(directory: string, snapshot: Record<string, ManifestEntry>): Promise<void> {
     const p = snapshotPath(directory)
     await fs.mkdir(path.dirname(p), { recursive: true })
     await fs.writeFile(p, JSON.stringify(snapshot, null, 2), "utf-8")
@@ -186,12 +193,16 @@ export namespace Skill {
     return paths
   }
 
-  async function buildManifest(directory: string, worktree: string, projectId: string): Promise<Record<string, number>> {
+  async function buildManifest(
+    directory: string,
+    worktree: string,
+    projectId: string,
+  ): Promise<Record<string, ManifestEntry>> {
     const paths = await scanAllSkillPaths(directory, worktree, projectId)
-    const manifest: Record<string, number> = {}
+    const manifest: Record<string, ManifestEntry> = {}
     for (const p of paths) {
       const stat = await fs.stat(p).catch(() => null)
-      if (stat) manifest[p] = stat.mtimeMs
+      if (stat) manifest[p] = { mtime: stat.mtimeMs, size: stat.size }
     }
     return manifest
   }
@@ -203,9 +214,12 @@ export namespace Skill {
     const snapshot = await readSnapshot(directory)
     if (!snapshot) return false
 
-    for (const [p, snapshotMtime] of Object.entries(snapshot)) {
+    for (const [p, entry] of Object.entries(snapshot)) {
+      // Old-format snapshots stored a bare mtime number; treat them as stale so the
+      // next load rewrites them in the {mtime, size} shape (self-healing, harmless).
+      if (typeof entry !== "object") return false
       const stat = await fs.stat(p).catch(() => null)
-      if (!stat || stat.mtimeMs !== snapshotMtime) return false
+      if (!stat || stat.mtimeMs !== entry.mtime || stat.size !== entry.size) return false
     }
 
     const currentPaths = await scanAllSkillPaths(directory, worktree, projectId)
@@ -327,12 +341,29 @@ export namespace Skill {
 
     log.info("init", { count: Object.keys(state.skills).length })
 
-    // Remove disabled skills
+    // Remove disabled skills (by name — legacy "default skills" disable)
     const disabled = new Set(cfg.skills?.disabled ?? [])
     for (const name of disabled) {
       if (state.skills[name]) {
         delete state.skills[name]
         log.info("skill disabled by config", { name })
+      }
+    }
+
+    // Remove disabled skills (by SKILL.md file path — precise per-file disable).
+    // cfg.skills.disabled_files is already the cross-layer union (see
+    // mergeConfigConcatArrays). Canonicalize both sides with Filesystem.resolve
+    // (the same realpath-based normalization the scan applies to skill.location)
+    // so relative/absolute/.. AND symlink variants match — e.g. macOS /var vs
+    // /private/var, Windows casing. Plain path.resolve does not resolve symlinks,
+    // which made disabled_files silently miss on macOS/Windows.
+    const disabledFiles = new Set((cfg.skills?.disabled_files ?? []).map((p) => Filesystem.resolve(p)))
+    if (disabledFiles.size > 0) {
+      for (const [name, skill] of Object.entries(state.skills)) {
+        if (disabledFiles.has(Filesystem.resolve(skill.location))) {
+          delete state.skills[name]
+          log.info("skill disabled by config file path", { name, location: skill.location })
+        }
       }
     }
 
@@ -394,7 +425,14 @@ export namespace Skill {
         return list.filter((skill) => Permission.evaluate("skill", skill.name, agent.permission).action !== "deny")
       })
 
-      return Service.of({ get, all, dirs, sources, available })
+      // Drop the cached state so the next read rebuilds from disk + current
+      // config. Used after a config change (e.g. disable/stop-evolution toggles)
+      // that isFresh() can't auto-detect, since it only watches SKILL.md mtimes.
+      const invalidate = Effect.fn("Skill.invalidate")(function* () {
+        yield* InstanceState.invalidate(state)
+      })
+
+      return Service.of({ get, all, dirs, sources, available, invalidate })
     }),
   )
 
@@ -440,5 +478,95 @@ export namespace Skill {
 
   export async function available(agent?: Agent.Info) {
     return runPromise((skill) => skill.available(agent))
+  }
+
+  export async function invalidate() {
+    return runPromise((skill) => skill.invalidate())
+  }
+
+  export type SkillFileFlag = "disabled_files" | "evolution_disabled_files"
+
+  /**
+   * Resolve which config layer a SKILL.md path belongs to, by matching it against
+   * the loaded skill sources: pick the source whose `dir` contains the file and is
+   * the longest (most specific). global/config-root scopes live in the global
+   * config (shared by all projects); everything else is project-scoped.
+   */
+  async function scopeForFile(file: string): Promise<Scope | undefined> {
+    const resolved = path.resolve(file)
+    const srcs = await sources()
+    let best: Source | undefined
+    for (const s of srcs) {
+      const dir = path.resolve(s.dir)
+      const prefix = dir.endsWith(path.sep) ? dir : dir + path.sep
+      if (resolved === dir || resolved.startsWith(prefix)) {
+        if (!best || dir.length > path.resolve(best.dir).length) best = s
+      }
+    }
+    return best?.scope
+  }
+
+  function isGlobalScope(scope: Scope | undefined): boolean {
+    return scope === "global" || scope === "config-root"
+  }
+
+  /**
+   * Add or remove a SKILL.md path from a per-file skill flag list, writing to the
+   * config layer that matches the skill's scope (global skills → global config,
+   * project skills → the project's aether.json). Shared by the "disable" and
+   * "stop self-evolution" toggles — the only difference is `field`.
+   *
+   * We read+write each layer's OWN current value (not the merged Config.get()),
+   * because the merged value mixes other layers' entries; writing it back to a
+   * single layer would relocate those entries to the wrong layer.
+   */
+  export async function setSkillFileFlag(file: string, field: SkillFileFlag, on: boolean): Promise<void> {
+    const resolved = path.resolve(file)
+    const scope = await scopeForFile(file)
+
+    if (isGlobalScope(scope)) {
+      const current = await Config.getGlobal()
+      const next = nextList(current.skills?.[field], resolved, on)
+      await Config.updateGlobal({ skills: { [field]: next } } as Config.Info)
+      // updateGlobal already reset the global config cache; also drop the merged
+      // (layered) config cache and the skill cache so the toggle takes effect
+      // live, instead of tearing down the whole instance (the UI-flash source).
+      Config.state.reset()
+      await invalidate()
+      return
+    }
+
+    // Project layer: write into the project's OWN config file. We avoid Config.update
+    // here because it writes config.json, which the layered loader never reads.
+    // Prefer an existing aether.jsonc — patch it in place, preserving comments — so a
+    // commented project doesn't get a second, bare aether.json beside it (the loader
+    // reads both, so a spurious file is pure clutter). Otherwise write aether.json.
+    const jsoncPath = path.join(Instance.directory, "aether.jsonc")
+    if (await Filesystem.exists(jsoncPath)) {
+      const text = (await Filesystem.readText(jsoncPath).catch(() => "")) || "{}"
+      const existing = parseJsonc(text) as Config.Info | undefined
+      const next = nextList(existing?.skills?.[field], resolved, on)
+      await Filesystem.write(jsoncPath, Config.patchJsonc(text, next, ["skills", field]))
+    } else {
+      const jsonPath = path.join(Instance.directory, "aether.json")
+      const existing = JSON.parse(await Filesystem.readText(jsonPath).catch(() => "{}")) as Config.Info
+      const next = nextList(existing.skills?.[field], resolved, on)
+      const merged: Config.Info = { ...existing, skills: { ...(existing.skills ?? {}), [field]: next } }
+      await Filesystem.writeJson(jsonPath, merged)
+    }
+    // Refresh the two caches the toggle's effect depends on, instead of tearing
+    // down the whole instance (Instance.dispose → full reload → UI flash):
+    //   1) config cache, so loadSkills re-reads the new disabled_files; and
+    //   2) skill cache, which isFresh() won't auto-refresh (it only watches
+    //      SKILL.md mtimes, not aether.json).
+    Config.state.reset()
+    await invalidate()
+  }
+
+  function nextList(current: string[] | undefined, file: string, on: boolean): string[] {
+    const set = new Set((current ?? []).map((p) => path.resolve(p)))
+    if (on) set.add(file)
+    else set.delete(file)
+    return [...set]
   }
 }

@@ -82,6 +82,18 @@ export namespace Config {
     if (target.disabled_models && source.disabled_models) {
       merged.disabled_models = Array.from(new Set([...target.disabled_models, ...source.disabled_models]))
     }
+    // skills.disabled_files / evolution_disabled_files are sets of disabled SKILL.md
+    // paths — their correct cross-layer merge is a union (each layer's disables all
+    // apply), not "higher layer replaces lower". mergeDeep replaces arrays by default
+    // and these live under the `skills` sub-object, so concat+dedupe them explicitly
+    // on top of mergeDeep's result (leaving every other skills field untouched).
+    const ts = target.skills
+    const ss = source.skills
+    for (const field of ["disabled_files", "evolution_disabled_files"] as const) {
+      if (ts?.[field] && ss?.[field]) {
+        merged.skills = { ...(merged.skills ?? {}), [field]: Array.from(new Set([...ts[field]!, ...ss[field]!])) }
+      }
+    }
     return merged
   }
 
@@ -774,6 +786,18 @@ export namespace Config {
       .optional()
       .describe("URLs to fetch skills from (e.g., https://example.com/.well-known/skills/)"),
     disabled: z.array(z.string()).optional().describe("List of skill names to deactivate"),
+    disabled_files: z
+      .array(z.string())
+      .optional()
+      .describe("List of skill SKILL.md file paths to deactivate (precise per-file disable)"),
+    evolution_disabled_files: z
+      .array(z.string())
+      .optional()
+      .describe("List of skill SKILL.md file paths whose self-evolution is disabled"),
+    evolution_enabled: z
+      .boolean()
+      .optional()
+      .describe("Global master switch for skill self-evolution. When false, no project triggers background review (default: true)"),
     creation_nudge_interval: z
       .number()
       .int()
@@ -786,6 +810,22 @@ export namespace Config {
       .min(1)
       .optional()
       .describe("Maximum number of version snapshots kept per skill before older snapshots are pruned (default: 100)"),
+    review_max_step_chars: z
+      .number()
+      .int()
+      .min(1)
+      .optional()
+      .describe(
+        "Max characters a single step of a background skill review may stream before that step is cut off, guarding against a model that never stops emitting within one step (default: 300000)",
+      ),
+    review_max_total_chars: z
+      .number()
+      .int()
+      .min(1)
+      .optional()
+      .describe(
+        "Max characters a whole background skill review may stream (summed across all steps) before the review is stopped, guarding against a slow grind that never stops taking steps (default: 1000000)",
+      ),
   })
   export type Skills = z.infer<typeof Skills>
 
@@ -1656,7 +1696,7 @@ export namespace Config {
     }
   }
 
-  function patchJsonc(input: string, patch: unknown, path: string[] = []): string {
+  export function patchJsonc(input: string, patch: unknown, path: string[] = []): string {
     if (!isRecord(patch)) {
       const edits = modify(input, path, patch, {
         formattingOptions: {

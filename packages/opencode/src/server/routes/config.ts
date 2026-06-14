@@ -1,8 +1,14 @@
+import path from "path"
 import { Hono } from "hono"
 import { describeRoute, validator, resolver } from "hono-openapi"
 import z from "zod"
 import { Config } from "../../config/config"
 import { Provider } from "../../provider/provider"
+import { Project } from "../../project/project"
+import { EvolvedSkills } from "../../skill-evolution/evolved-skills"
+import { Spawner } from "../../skill-evolution/spawner"
+import { revealPath } from "../../skill-evolution/reveal"
+import { Skill } from "../../skill"
 import { mapValues } from "remeda"
 import { errors } from "../error"
 import { Log } from "../../util/log"
@@ -158,6 +164,149 @@ export const ConfigRoutes = lazy(() =>
       async (c) => {
         const { name, enabled } = c.req.valid("json")
         await Config.toggleSkill(name, enabled)
+        return c.json({ ok: true })
+      },
+    )
+    .get(
+      "/skills/evolution",
+      describeRoute({
+        summary: "List evolved skills",
+        description:
+          "List evolved skills from the project's .aether/skills/ and the global skill-evolution/<projectId>/skills/ directory.",
+        operationId: "config.skills.listEvolution",
+        responses: {
+          200: {
+            description: "List of evolved skills",
+            content: {
+              "application/json": {
+                schema: resolver(
+                  z.array(
+                    z.object({
+                      name: z.string(),
+                      description: z.string(),
+                      content: z.string(),
+                      category: z.string().optional(),
+                      enabled: z.boolean().optional(),
+                      evolution_enabled: z.boolean().optional(),
+                      file: z.string(),
+                    }),
+                  ),
+                ),
+              },
+            },
+          },
+        },
+      }),
+      validator("query", z.object({ directory: z.string().optional() })),
+      async (c) => {
+        const { directory } = c.req.valid("query")
+        if (!directory) return c.json([])
+        // Resolve the project id the same way Skill.available() does, so we read
+        // the exact skill-evolution folder the write side created (method A).
+        const { project } = await Project.fromDirectory(directory)
+        const skills = await EvolvedSkills.list(directory, String(project.id))
+        // Display state is computed purely from config (per-file disable lists),
+        // never from SKILL.md frontmatter: a path in disabled_files renders as off.
+        const cfg = await Config.get()
+        const disabled = new Set((cfg.skills?.disabled_files ?? []).map((p) => path.resolve(p)))
+        const evolutionDisabled = new Set((cfg.skills?.evolution_disabled_files ?? []).map((p) => path.resolve(p)))
+        const withState = skills.map((s) => ({
+          ...s,
+          enabled: !disabled.has(path.resolve(s.file)),
+          evolution_enabled: !evolutionDisabled.has(path.resolve(s.file)),
+        }))
+        return c.json(withState)
+      },
+    )
+    .get(
+      "/skills/evolution/projects",
+      describeRoute({
+        summary: "List per-project skill-evolution output directories",
+        description:
+          "For each known project, return the absolute directory where its background-review (self-evolution) skills are written.",
+        operationId: "config.skills.evolutionDirs",
+        responses: {
+          200: {
+            description: "Per-project evolution output directories",
+            content: {
+              "application/json": {
+                schema: resolver(
+                  z.array(
+                    z.object({
+                      directory: z.string(),
+                      evolutionDir: z.string(),
+                      projectPath: z.string().optional(),
+                    }),
+                  ),
+                ),
+              },
+            },
+          },
+        },
+      }),
+      async (c) => {
+        return c.json(await EvolvedSkills.evolutionDirs(Spawner.skillEvolutionRoot()))
+      },
+    )
+    .post(
+      "/skills/evolution/reveal",
+      describeRoute({
+        summary: "Open a skill-evolution output directory in the system file manager",
+        description:
+          "Open the given directory in the OS file manager from the backend process (cross-platform, WSL-aware), so it works even when the UI is a plain browser tab. Only paths under the skill-evolution root are allowed.",
+        operationId: "config.skills.evolutionReveal",
+        responses: {
+          200: {
+            description: "Whether the directory was opened",
+            content: { "application/json": { schema: resolver(z.object({ ok: z.boolean() })) } },
+          },
+        },
+      }),
+      validator("json", z.object({ dir: z.string() })),
+      async (c) => {
+        const { dir } = c.req.valid("json")
+        return c.json({ ok: await revealPath(dir) })
+      },
+    )
+    .post(
+      "/skills/evolution/toggle",
+      describeRoute({
+        summary: "Toggle evolved skill activation",
+        description: "Enable or disable an evolved skill by its SKILL.md file path.",
+        operationId: "config.skills.toggleEvolved",
+        responses: {
+          200: {
+            description: "Skill toggled",
+            content: { "application/json": { schema: resolver(z.object({ ok: z.boolean() })) } },
+          },
+        },
+      }),
+      validator("json", z.object({ file: z.string(), enabled: z.boolean() })),
+      async (c) => {
+        const { file, enabled } = c.req.valid("json")
+        // enabled=true → skill should load → remove from disabled_files (on=false).
+        await Skill.setSkillFileFlag(file, "disabled_files", !enabled)
+        return c.json({ ok: true })
+      },
+    )
+    .post(
+      "/skills/evolution/toggle-evolution",
+      describeRoute({
+        summary: "Toggle skill self-evolution",
+        description: "Allow or stop an evolved skill from self-evolving, by its SKILL.md file path.",
+        operationId: "config.skills.toggleEvolution",
+        responses: {
+          200: {
+            description: "Skill evolution toggled",
+            content: { "application/json": { schema: resolver(z.object({ ok: z.boolean() })) } },
+          },
+        },
+      }),
+      validator("json", z.object({ file: z.string(), evolutionEnabled: z.boolean() })),
+      async (c) => {
+        const { file, evolutionEnabled } = c.req.valid("json")
+        // evolutionEnabled=true → may self-evolve → remove from evolution_disabled_files.
+        await Skill.setSkillFileFlag(file, "evolution_disabled_files", !evolutionEnabled)
         return c.json({ ok: true })
       },
     )

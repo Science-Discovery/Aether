@@ -55,6 +55,9 @@ import { decodeDataUrl } from "@/util/data-url"
 import { Process } from "@/util/process"
 import { SessionRecovery } from "./recovery"
 import { SkillEvolutionHook } from "../skill-evolution"
+import { isReviewSession } from "../skill-evolution/review-agent"
+import { reviewCharLimits, createReviewCharCounter } from "../skill-evolution/limits"
+import { Config } from "@/config/config"
 
 // @ts-ignore
 globalThis.AI_SDK_LOG_WARNINGS = false
@@ -298,6 +301,12 @@ export namespace SessionPrompt {
     let _finalResponse = false
     let _cachedSkills: string | undefined
     const session = await Session.get(sessionID)
+    // One char accountant for the whole background review, created OUTSIDE the
+    // per-step loop so its whole-review total survives across steps (the
+    // processor is rebuilt every step). Normal sessions get undefined = no cap.
+    const reviewCharCounter = isReviewSession()
+      ? createReviewCharCounter(reviewCharLimits(await Config.get()))
+      : undefined
     while (true) {
       await SessionStatus.set(sessionID, { type: "busy" })
       log.info("loop", { step, sessionID })
@@ -623,6 +632,11 @@ export namespace SessionPrompt {
         sessionID: sessionID,
         model,
         abort,
+        // Char guard only for background reviews: the shared counter (created
+        // outside this loop) cuts a step that never stops emitting AND stops a
+        // "slow grind" whose per-step output is fine but never stops stepping.
+        // Normal sessions leave this undefined (no cap).
+        charCounter: reviewCharCounter,
       })
       using _ = defer(() => InstructionPrompt.clear(processor.message.id))
 
