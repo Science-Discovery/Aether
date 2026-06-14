@@ -55,6 +55,7 @@ function record(projectId: string, name: string, location: string, over: Partial
     use_count_at_last_scan: 0,
     idle_scans: 0,
     last_used_at: null,
+    recent_uses: [],
     state: "active",
     pinned: false,
     archived_at: null,
