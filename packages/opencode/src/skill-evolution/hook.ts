@@ -51,10 +51,12 @@ export namespace SkillEvolutionHook {
     // Global master switch (skills.evolution_enabled). Off → no project evolves.
     if (!(await ConfigReader.isEvolutionEnabled())) return
 
-    // Curator: pure-logic skill-library maintenance, gated internally (7-day
-    // interval) and by the user-facing skills.curator_enabled switch (default
-    // on). Independent of the review counter below. Fire-and-forget — maybeRun
-    // never throws and returns quickly when not due.
+    // Curator: pure-logic skill-library maintenance. Deliberately placed AFTER the
+    // evolution master switch above — turning off skills.evolution_enabled also
+    // stops the curator sweep (by design: no evolution ⇒ no maintenance). Further
+    // gated internally (7-day interval) and by skills.curator_enabled (default on).
+    // Independent of the review *counter* below (a different, count-based signal).
+    // Fire-and-forget — maybeRun never throws and returns quickly when not due.
     void (async () => {
       const enabled = await ConfigReader.getCuratorEnabled().catch(() => true)
       await Curator.maybeRun(Spawner.skillEvolutionRoot(), {
