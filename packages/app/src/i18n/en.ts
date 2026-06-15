@@ -1138,6 +1138,8 @@ export const dict = {
   "settingsSkills.reviewMaxTotalCharsDescription": "Max characters (in thousands, k) a whole background review may output before it is stopped — guards against a review that keeps grinding step after step. Default 1000k.",
   "settingsSkills.evolutionEnabled": "Skill Self-Evolution",
   "settingsSkills.evolutionEnabledDescription": "Master switch. When off, no project triggers background skill review — the settings below have no effect until you turn it back on.",
+  "settingsSkills.curatorEnabled": "Skill Curator",
+  "settingsSkills.curatorEnabledDescription": "Periodically counts skill usage, marks unused skills as stale, and archives skills untouched for 90 days (archived copies can be restored). Turn off to stop all automatic maintenance.",
   "settingsSkills.outputDirsTitle": "Output Directories",
   "settingsSkills.outputDirsDescription": "Where each project's self-evolved skills are written. One directory per project.",
   "settingsSkills.outputDirsEmpty": "No projects yet.",

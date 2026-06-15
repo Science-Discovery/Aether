@@ -826,6 +826,12 @@ export namespace Config {
       .describe(
         "Max characters a whole background skill review may stream (summed across all steps) before the review is stopped, guarding against a slow grind that never stops taking steps (default: 1000000)",
       ),
+    curator_enabled: z
+      .boolean()
+      .optional()
+      .describe(
+        "Whether the skill curator runs its periodic maintenance (counting usage, marking stale, archiving unused skills). Default: true.",
+      ),
   })
   export type Skills = z.infer<typeof Skills>
 
