@@ -117,6 +117,69 @@ describe("ProviderTransform.options - setCacheKey", () => {
     })
     expect(result.store).toBe(false)
   })
+
+  test("should set store=false for azure provider by default", () => {
+    const model = {
+      ...mockModel,
+      providerID: "azure",
+      api: {
+        id: "gpt-5",
+        url: "https://azure.com",
+        npm: "@ai-sdk/azure",
+      },
+    }
+    const result = ProviderTransform.options({
+      model,
+      sessionID,
+      providerOptions: {},
+    })
+    expect(result.store).toBe(false)
+  })
+})
+
+describe("ProviderTransform.options - zai/zhipuai thinking", () => {
+  const sessionID = "test-session-123"
+
+  const createModel = (pid: string) =>
+    ({
+      id: `${pid}/glm-4.6`,
+      providerID: pid,
+      api: {
+        id: "glm-4.6",
+        url: "https://open.bigmodel.cn/api/paas/v4",
+        npm: "@ai-sdk/openai-compatible",
+      },
+      name: "GLM 4.6",
+      capabilities: {
+        temperature: true,
+        reasoning: true,
+        attachment: true,
+        toolcall: true,
+        input: { text: true, audio: false, image: true, video: false, pdf: true },
+        output: { text: true, audio: false, image: false, video: false, pdf: false },
+        interleaved: false,
+      },
+      cost: { input: 0.001, output: 0.002, cache: { read: 0.0001, write: 0.0002 } },
+      limit: { context: 128000, output: 8192 },
+      status: "active",
+      options: {},
+      headers: {},
+    }) as any
+
+  for (const pid of ["zai-coding-plan", "zai", "zhipuai-coding-plan", "zhipuai"]) {
+    test(`${pid} should set thinking cfg`, () => {
+      const result = ProviderTransform.options({
+        model: createModel(pid),
+        sessionID,
+        providerOptions: {},
+      })
+
+      expect(result.thinking).toEqual({
+        type: "enabled",
+        clear_thinking: false,
+      })
+    })
+  }
 })
 
 describe("ProviderTransform.options - google thinkingConfig gating", () => {
@@ -255,6 +318,73 @@ describe("ProviderTransform.options - gpt-5 textVerbosity", () => {
     const result = ProviderTransform.options({ model, sessionID, providerOptions: {} })
     expect(result.textVerbosity).toBeUndefined()
   })
+
+  test("fixture gpt-5.5 uses low verbosity with reasoning summary defaults", async () => {
+    const model = await sample("openai", "gpt-5.5")
+    const result = ProviderTransform.options({ model, sessionID, providerOptions: {} })
+    expect(result.textVerbosity).toBe("low")
+    expect(result.reasoningEffort).toBe("medium")
+    expect(result.reasoningSummary).toBe("auto")
+  })
+
+  test("fixture gpt-5.4 uses low verbosity without reasoning summary defaults", async () => {
+    const model = await sample("openai", "gpt-5.4")
+    const result = ProviderTransform.options({ model, sessionID, providerOptions: {} })
+    expect(result.textVerbosity).toBe("low")
+    expect(result.reasoningEffort).toBeUndefined()
+    expect(result.reasoningSummary).toBeUndefined()
+  })
+})
+
+describe("ProviderTransform.options - gpt-5 reasoningEffort", () => {
+  const sessionID = "test-session-123"
+
+  const createModel = (id: string) =>
+    ({
+      id: `azure/${id}`,
+      providerID: "azure",
+      api: {
+        id,
+        url: "https://azure.com",
+        npm: "@ai-sdk/azure",
+      },
+      name: id,
+      capabilities: {
+        temperature: true,
+        reasoning: true,
+        attachment: true,
+        toolcall: true,
+        input: { text: true, audio: false, image: true, video: false, pdf: false },
+        output: { text: true, audio: false, image: false, video: false, pdf: false },
+        interleaved: false,
+      },
+      cost: { input: 0.03, output: 0.06, cache: { read: 0.001, write: 0.002 } },
+      limit: { context: 128000, output: 4096 },
+      status: "active",
+      options: {},
+      headers: {},
+    }) as any
+
+  test("gpt-5-chat should NOT set reasoningEffort", () => {
+    const result = ProviderTransform.options({
+      model: createModel("gpt-5-chat"),
+      sessionID,
+      providerOptions: {},
+    })
+
+    expect(result.reasoningEffort).toBeUndefined()
+  })
+
+  test("gpt-5.5 should NOT set reasoningEffort for Azure", () => {
+    const result = ProviderTransform.options({
+      model: createModel("gpt-5.5"),
+      sessionID,
+      providerOptions: {},
+    })
+
+    expect(result.reasoningEffort).toBeUndefined()
+    expect(result.reasoningSummary).toBe("auto")
+  })
 })
 
 describe("ProviderTransform.options - gateway", () => {
@@ -356,6 +486,36 @@ describe("ProviderTransform.providerOptions", () => {
     })
   })
 
+  test("maps Bedrock Mantle provider options to OpenAI namespace", () => {
+    const model = createModel({
+      providerID: "amazon-bedrock",
+      api: {
+        id: "openai.gpt-5.5",
+        url: "https://bedrock-mantle.us-east-2.api.aws/openai/v1",
+        npm: "@ai-sdk/amazon-bedrock/mantle",
+      },
+    })
+
+    expect(ProviderTransform.providerOptions(model, { reasoningEffort: "medium" })).toEqual({
+      openai: { reasoningEffort: "medium" },
+    })
+  })
+
+  test("routes ai-gateway-provider options under openaiCompatible", () => {
+    const model = createModel({
+      providerID: "cloudflare-ai-gateway",
+      api: {
+        id: "openai/gpt-5.4",
+        url: "https://gateway.ai.cloudflare.com/v1/compat",
+        npm: "ai-gateway-provider",
+      },
+    })
+
+    expect(ProviderTransform.providerOptions(model, { reasoningEffort: "high" })).toEqual({
+      openaiCompatible: { reasoningEffort: "high" },
+    })
+  })
+
   test("removes responses-only reasoning fields for chat completions models", () => {
     const model = createModel({
       providerID: "custom",
@@ -396,6 +556,11 @@ describe("ProviderTransform.providerOptions", () => {
         include: ["reasoning.encrypted_content"],
       }),
     ).toEqual({
+      openai: {
+        reasoningEffort: "high",
+        reasoningSummary: "auto",
+        include: ["reasoning.encrypted_content"],
+      },
       azure: {
         reasoningEffort: "high",
         reasoningSummary: "auto",
@@ -425,6 +590,9 @@ describe("ProviderTransform.providerOptions", () => {
         { useCompletionUrls: true },
       ),
     ).toEqual({
+      openai: {
+        reasoningEffort: "high",
+      },
       azure: {
         reasoningEffort: "high",
       },
@@ -455,6 +623,9 @@ describe("ProviderTransform.providerOptions", () => {
         model.options,
       ),
     ).toEqual({
+      openai: {
+        reasoningEffort: "high",
+      },
       azure: {
         reasoningEffort: "high",
       },
@@ -556,6 +727,70 @@ describe("ProviderTransform.providerOptions", () => {
 
     expect(ProviderTransform.providerOptions(model, { reasoningFormat: "parsed" })).toEqual({
       groq: { reasoningFormat: "parsed" },
+    })
+  })
+
+  test("fixture vercel gemini 3.1 routes options under google", async () => {
+    const model = await sample("vercel", "google/gemini-3.1-pro-preview")
+    expect(model.api.npm).toBe("@ai-sdk/gateway")
+
+    expect(
+      ProviderTransform.providerOptions(model, {
+        gateway: { order: ["google"] },
+        includeThoughts: true,
+        thinkingLevel: "high",
+      }),
+    ).toEqual({
+      gateway: { order: ["google"] },
+      google: {
+        includeThoughts: true,
+        thinkingLevel: "high",
+      },
+    })
+  })
+
+  test("fixture vercel deepseek v4 routes options under deepseek", async () => {
+    const model = await sample("vercel", "deepseek/deepseek-v4-pro")
+    expect(model.api.npm).toBe("@ai-sdk/gateway")
+
+    expect(ProviderTransform.providerOptions(model, { reasoningEffort: "high" })).toEqual({
+      deepseek: { reasoningEffort: "high" },
+    })
+  })
+
+  test("fixture openrouter gemini 3.1 uses openrouter provider options", async () => {
+    const model = await sample("openrouter", "google/gemini-3.1-pro-preview")
+    expect(model.api.npm).toBe("@openrouter/ai-sdk-provider")
+
+    expect(ProviderTransform.providerOptions(model, { reasoning: { effort: "high" } })).toEqual({
+      openrouter: { reasoning: { effort: "high" } },
+    })
+  })
+
+  test("fixture openrouter deepseek v4 uses openrouter provider options", async () => {
+    const model = await sample("openrouter", "deepseek/deepseek-v4-pro")
+    expect(model.api.npm).toBe("@openrouter/ai-sdk-provider")
+
+    expect(ProviderTransform.providerOptions(model, { reasoning: { effort: "high" } })).toEqual({
+      openrouter: { reasoning: { effort: "high" } },
+    })
+  })
+
+  test("fixture vercel gpt-5.5 routes options under openai", async () => {
+    const model = await sample("vercel", "openai/gpt-5.5")
+    expect(model.api.npm).toBe("@ai-sdk/gateway")
+
+    expect(ProviderTransform.providerOptions(model, { reasoningEffort: "high" })).toEqual({
+      openai: { reasoningEffort: "high" },
+    })
+  })
+
+  test("fixture openrouter gpt-5.5 uses openrouter provider options", async () => {
+    const model = await sample("openrouter", "openai/gpt-5.5")
+    expect(model.api.npm).toBe("@openrouter/ai-sdk-provider")
+
+    expect(ProviderTransform.providerOptions(model, { reasoning: { effort: "high" } })).toEqual({
+      openrouter: { reasoning: { effort: "high" } },
     })
   })
 })
@@ -907,6 +1142,83 @@ describe("ProviderTransform.schema - gemini non-object properties removal", () =
   })
 })
 
+describe("ProviderTransform.schema - moonshot $ref siblings", () => {
+  const moonshotModel = {
+    providerID: "moonshotai",
+    api: {
+      id: "kimi-k2",
+    },
+  } as any
+
+  test("removes sibling descriptions from referenced schemas", () => {
+    const result = ProviderTransform.schema(
+      moonshotModel,
+      {
+        type: "object",
+        properties: {
+          value: {
+            $ref: "#/$defs/Value",
+            description: "Moonshot rejects sibling keywords after ref expansion.",
+          },
+        },
+        $defs: {
+          Value: {
+            description: "Referenced schema description stays here.",
+            type: "object",
+          },
+        },
+      } as any,
+    ) as any
+
+    expect(result.properties.value).toEqual({
+      $ref: "#/$defs/Value",
+    })
+    expect(result.$defs.Value.description).toBe("Referenced schema description stays here.")
+  })
+
+  test("also runs for kimi models outside the moonshot provider", () => {
+    const result = ProviderTransform.schema(
+      {
+        providerID: "openrouter",
+        api: {
+          id: "moonshotai/kimi-k2",
+        },
+      } as any,
+      {
+        type: "object",
+        properties: {
+          value: {
+            $ref: "#/$defs/Value",
+            description: "This sibling is rejected.",
+          },
+        },
+      } as any,
+    ) as any
+
+    expect(result.properties.value).toEqual({
+      $ref: "#/$defs/Value",
+    })
+  })
+
+  test("converts tuple-style array items to a single item schema", () => {
+    const result = ProviderTransform.schema(moonshotModel, {
+      type: "object",
+      properties: {
+        point: {
+          type: "array",
+          items: [{ type: "number" }, { type: "number" }],
+          minItems: 2,
+          maxItems: 2,
+        },
+      },
+    } as any) as any
+
+    expect(result.properties.point.items).toEqual({
+      type: "number",
+    })
+  })
+})
+
 describe("ProviderTransform.message - DeepSeek reasoning content", () => {
   test("fixture deepseek v4 models preserve interleaved reasoning metadata", async () => {
     const flash = await sample("deepseek", "deepseek-v4-flash")
@@ -1052,6 +1364,95 @@ describe("ProviderTransform.message - DeepSeek reasoning content", () => {
       { type: "text", text: "Answer" },
     ])
     expect(result[0].providerOptions?.openaiCompatible?.reasoning_content).toBeUndefined()
+  })
+})
+
+describe("ProviderTransform.message - surrogate sanitization", () => {
+  const model = {
+    id: "test/test-model",
+    providerID: "test",
+    api: {
+      id: "test-model",
+      url: "https://api.test.com",
+      npm: "@ai-sdk/openai-compatible",
+    },
+    name: "Test Model",
+    capabilities: {
+      temperature: true,
+      reasoning: true,
+      attachment: true,
+      toolcall: true,
+      input: { text: true, audio: false, image: true, video: false, pdf: false },
+      output: { text: true, audio: false, image: false, video: false, pdf: false },
+      interleaved: false,
+    },
+    cost: { input: 0.001, output: 0.002, cache: { read: 0.0001, write: 0.0002 } },
+    limit: { context: 128000, output: 8192 },
+    status: "active",
+    options: {},
+    headers: {},
+  } as any
+
+  test("replaces lone surrogates in model-visible text", () => {
+    const lone = "\uD83D"
+    const valid = "🚀"
+    const text = (label: string) => `${label} ${lone} and ${valid}`
+    const expected = (label: string) => `${label} � and ${valid}`
+    const msgs = [
+      { role: "system", content: text("system") },
+      { role: "user", content: text("user string") },
+      {
+        role: "user",
+        content: [
+          { type: "text", text: text("user text") },
+          { type: "image", image: "data:image/png;base64,abcd" },
+        ],
+      },
+      { role: "assistant", content: text("assistant string") },
+      {
+        role: "assistant",
+        content: [
+          { type: "text", text: text("assistant text") },
+          { type: "reasoning", text: text("assistant reasoning") },
+          {
+            type: "tool-result",
+            toolCallId: "call-1",
+            toolName: "Read",
+            output: { type: "content", value: [{ type: "text", text: text("assistant tool content") }] },
+          },
+        ],
+      },
+      {
+        role: "tool",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "call-2",
+            toolName: "Read",
+            output: { type: "text", value: text("tool text") },
+          },
+          {
+            type: "tool-result",
+            toolCallId: "call-3",
+            toolName: "Read",
+            output: { type: "error-text", value: text("tool error") },
+          },
+        ],
+      },
+    ] as any[]
+
+    const result = ProviderTransform.message(msgs, model, {}) as any[]
+
+    expect(result[0].content).toBe(expected("system"))
+    expect(result[1].content).toBe(expected("user string"))
+    expect(result[2].content[0].text).toBe(expected("user text"))
+    expect(result[2].content[1]).toEqual({ type: "image", image: "data:image/png;base64,abcd" })
+    expect(result[3].content[0].text).toBe(expected("assistant string"))
+    expect(result[3].content[1].text).toBe(expected("assistant text"))
+    expect(result[3].content[2].text).toBe(expected("assistant reasoning"))
+    expect(result[3].content[3].output.value[0].text).toBe(expected("assistant tool content"))
+    expect(result[4].content[0].output.value).toBe(expected("tool text"))
+    expect(result[4].content[1].output.value).toBe(expected("tool error"))
   })
 })
 
@@ -2057,11 +2458,11 @@ describe("ProviderTransform.variants", () => {
     expect(result).toEqual({})
   })
 
-  test("mistral returns empty object", () => {
-    const model = createMockModel({
-      id: "mistral/mistral-large",
-      providerID: "mistral",
-      api: {
+    test("mistral returns empty object", () => {
+      const model = createMockModel({
+        id: "mistral/mistral-large",
+        providerID: "mistral",
+        api: {
         id: "mistral-large-latest",
         url: "https://api.mistral.com",
         npm: "@ai-sdk/mistral",
@@ -2084,6 +2485,13 @@ describe("ProviderTransform.variants", () => {
       })
       const result = ProviderTransform.variants(model)
       expect(result).toEqual({})
+    })
+
+    test("fixture mistral small 2603 keeps mistral package without variants", async () => {
+      const model = await sample("mistral", "mistral-small-2603")
+      expect(model.api.npm).toBe("@ai-sdk/mistral")
+      expect(model.capabilities.input.image).toBe(true)
+      expect(ProviderTransform.variants(model)).toEqual({})
     })
 
     test("gpt models return OPENAI_EFFORTS with reasoning", () => {
@@ -2143,6 +2551,103 @@ describe("ProviderTransform.variants", () => {
       const result = ProviderTransform.variants(model)
       expect(Object.keys(result)).toEqual(["low", "high"])
       expect(result.low).toEqual({ reasoning: { effort: "low" } })
+      expect(result.high).toEqual({ reasoning: { effort: "high" } })
+    })
+
+    test("fixture gemini 3.1 returns openrouter reasoning variants", async () => {
+      const model = await sample("openrouter", "google/gemini-3.1-flash-lite-preview")
+      const result = ProviderTransform.variants(model)
+      expect(model.api.npm).toBe("@openrouter/ai-sdk-provider")
+      expect(Object.keys(result)).toEqual(["none", "minimal", "low", "medium", "high", "xhigh"])
+      expect(result.high).toEqual({ reasoning: { effort: "high" } })
+    })
+
+    test("fixture deepseek v4 keeps openrouter package without generic variants", async () => {
+      const model = await sample("openrouter", "deepseek/deepseek-v4-flash")
+      expect(model.api.npm).toBe("@openrouter/ai-sdk-provider")
+      expect(ProviderTransform.variants(model)).toEqual({})
+    })
+
+    test("fixture openrouter gpt-5.4 uses openrouter reasoning variants", async () => {
+      const model = await sample("openrouter", "openai/gpt-5.4")
+      const result = ProviderTransform.variants(model)
+      expect(model.api.npm).toBe("@openrouter/ai-sdk-provider")
+      expect(Object.keys(result)).toEqual(["none", "low", "medium", "high", "xhigh"])
+      expect(result.xhigh).toEqual({ reasoning: { effort: "xhigh" } })
+    })
+
+    test("fixture openrouter gpt-5.4 pro keeps openrouter override", async () => {
+      const model = await sample("openrouter", "openai/gpt-5.4-pro")
+      const result = ProviderTransform.variants(model)
+      expect(model.api.npm).toBe("@openrouter/ai-sdk-provider")
+      expect(model.capabilities.input.pdf).toBe(true)
+      expect(Object.keys(result)).toEqual(["medium", "high", "xhigh"])
+      expect(result.high).toEqual({ reasoning: { effort: "high" } })
+    })
+
+    test("fixture openrouter image model keeps image output without variants", async () => {
+      const model = await sample("openrouter", "black-forest-labs/flux.2-pro")
+      expect(model.api.npm).toBe("@openrouter/ai-sdk-provider")
+      expect(model.capabilities.output.image).toBe(true)
+      expect(model.capabilities.output.text).toBe(false)
+      expect(ProviderTransform.variants(model)).toEqual({})
+    })
+
+    test("fixture openrouter gemini image model returns reasoning variants", async () => {
+      const model = await sample("openrouter", "google/gemini-3.1-flash-image-preview")
+      const result = ProviderTransform.variants(model)
+      expect(model.api.npm).toBe("@openrouter/ai-sdk-provider")
+      expect(model.capabilities.output.image).toBe(true)
+      expect(Object.keys(result)).toEqual(["none", "minimal", "low", "medium", "high", "xhigh"])
+      expect(result.high).toEqual({ reasoning: { effort: "high" } })
+    })
+
+    test("fixture openrouter gpt oss free returns reasoning variants", async () => {
+      const model = await sample("openrouter", "openai/gpt-oss-120b:free")
+      const result = ProviderTransform.variants(model)
+      expect(model.api.npm).toBe("@openrouter/ai-sdk-provider")
+      expect(Object.keys(result)).toEqual(["none", "minimal", "low", "medium", "high", "xhigh"])
+      expect(result.high).toEqual({ reasoning: { effort: "high" } })
+    })
+
+    test("fixture openrouter nvidia reasoning model has no generic variants", async () => {
+      const model = await sample("openrouter", "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free")
+      expect(model.api.npm).toBe("@openrouter/ai-sdk-provider")
+      expect(model.capabilities.input.video).toBe(true)
+      expect(model.capabilities.input.audio).toBe(true)
+      expect(ProviderTransform.variants(model)).toEqual({})
+    })
+
+    test("fixture openrouter sourceful image model keeps image output without variants", async () => {
+      const model = await sample("openrouter", "sourceful/riverflow-v2-max-preview")
+      expect(model.api.npm).toBe("@openrouter/ai-sdk-provider")
+      expect(model.capabilities.input.image).toBe(true)
+      expect(model.capabilities.output.image).toBe(true)
+      expect(model.capabilities.output.text).toBe(false)
+      expect(ProviderTransform.variants(model)).toEqual({})
+    })
+
+    test("fixture openrouter mimo omni preserves multimodal interleaved metadata", async () => {
+      const model = await sample("openrouter", "xiaomi/mimo-v2-omni")
+      expect(model.api.npm).toBe("@openrouter/ai-sdk-provider")
+      expect(model.capabilities.input.audio).toBe(true)
+      expect(model.capabilities.input.pdf).toBe(true)
+      expect(model.capabilities.interleaved).toEqual({ field: "reasoning_details" })
+      expect(ProviderTransform.variants(model)).toEqual({})
+    })
+
+    test("fixture openrouter glm preserves reasoning content metadata without variants", async () => {
+      const model = await sample("openrouter", "z-ai/glm-5")
+      expect(model.api.npm).toBe("@openrouter/ai-sdk-provider")
+      expect(model.capabilities.interleaved).toEqual({ field: "reasoning_content" })
+      expect(ProviderTransform.variants(model)).toEqual({})
+    })
+
+    test("fixture openrouter claude opus 4.7 uses openrouter reasoning variants", async () => {
+      const model = await sample("openrouter", "anthropic/claude-opus-4.7")
+      const result = ProviderTransform.variants(model)
+      expect(model.api.npm).toBe("@openrouter/ai-sdk-provider")
+      expect(Object.keys(result)).toEqual(["none", "minimal", "low", "medium", "high", "xhigh"])
       expect(result.high).toEqual({ reasoning: { effort: "high" } })
     })
   })
@@ -2269,6 +2774,39 @@ describe("ProviderTransform.variants", () => {
       expect(Object.keys(result)).toEqual(["none", "minimal", "low", "medium", "high", "xhigh"])
       expect(result.low).toEqual({ reasoningEffort: "low" })
       expect(result.high).toEqual({ reasoningEffort: "high" })
+    })
+
+    test("fixture vercel gemini 3.1 returns gateway google thinking variants", async () => {
+      const model = await sample("vercel", "google/gemini-3.1-flash-lite-preview")
+      const result = ProviderTransform.variants(model)
+      expect(Object.keys(result)).toEqual(["low", "high"])
+      expect(result.low).toEqual({
+        includeThoughts: true,
+        thinkingLevel: "low",
+      })
+      expect(result.high).toEqual({
+        includeThoughts: true,
+        thinkingLevel: "high",
+      })
+    })
+
+    test("fixture vercel deepseek v4 does not create generic gateway variants", async () => {
+      const model = await sample("vercel", "deepseek/deepseek-v4-flash")
+      expect(ProviderTransform.variants(model)).toEqual({})
+    })
+
+    test("fixture vercel claude opus 4.7 returns summarized adaptive variants", async () => {
+      const model = await sample("vercel", "anthropic/claude-opus-4.7")
+      const result = ProviderTransform.variants(model)
+      expect(model.api.npm).toBe("@ai-sdk/gateway")
+      expect(Object.keys(result)).toEqual(["low", "medium", "high", "xhigh", "max"])
+      expect(result.xhigh).toEqual({
+        thinking: {
+          type: "adaptive",
+          display: "summarized",
+        },
+        effort: "xhigh",
+      })
     })
   })
 
@@ -2413,6 +2951,13 @@ describe("ProviderTransform.variants", () => {
       expect(result.low).toEqual({ reasoningEffort: "low" })
       expect(result.high).toEqual({ reasoningEffort: "high" })
     })
+
+    test("fixture llama 3.1 8b has no reasoning variants", async () => {
+      const model = await sample("cerebras", "llama3.1-8b")
+      expect(model.api.npm).toBe("@ai-sdk/cerebras")
+      expect(model.capabilities.reasoning).toBe(false)
+      expect(ProviderTransform.variants(model)).toEqual({})
+    })
   })
 
   describe("@ai-sdk/togetherai", () => {
@@ -2463,6 +3008,14 @@ describe("ProviderTransform.variants", () => {
       expect(result.low).toEqual({ reasoningEffort: "low" })
       expect(result.high).toEqual({ reasoningEffort: "high" })
     })
+
+    test("fixture grok 4.20 reasoning keeps xai package without generic variants", async () => {
+      const model = await sample("xai", "grok-4.20-0309-reasoning")
+      expect(model.api.npm).toBe("@ai-sdk/xai")
+      expect(model.capabilities.reasoning).toBe(true)
+      expect(model.capabilities.input.image).toBe(true)
+      expect(ProviderTransform.variants(model)).toEqual({})
+    })
   })
 
   describe("@ai-sdk/deepinfra", () => {
@@ -2498,6 +3051,158 @@ describe("ProviderTransform.variants", () => {
       expect(Object.keys(result)).toEqual(["low", "medium", "high"])
       expect(result.low).toEqual({ reasoningEffort: "low" })
       expect(result.high).toEqual({ reasoningEffort: "high" })
+    })
+
+    test("fixture github copilot gpt-5.4 uses compatible reasoning variants", async () => {
+      const model = await sample("github-copilot", "gpt-5.4")
+      const result = ProviderTransform.variants(model)
+      expect(model.api.npm).toBe("@ai-sdk/openai-compatible")
+      expect(model.api.url).toBe("https://api.githubcopilot.com")
+      expect(Object.keys(result)).toEqual(["low", "medium", "high"])
+      expect(result.high).toEqual({ reasoningEffort: "high" })
+    })
+
+    test("fixture fastrouter glm keeps reasoning metadata without variants", async () => {
+      const model = await sample("fastrouter", "z-ai/glm-5")
+      expect(model.api.npm).toBe("@ai-sdk/openai-compatible")
+      expect(model.capabilities.interleaved).toEqual({ field: "reasoning_content" })
+      expect(ProviderTransform.variants(model)).toEqual({})
+    })
+
+    test("fixture scaleway embedding has no tool or reasoning variants", async () => {
+      const model = await sample("scaleway", "qwen3-embedding-8b")
+      expect(model.api.npm).toBe("@ai-sdk/openai-compatible")
+      expect(model.capabilities.toolcall).toBe(false)
+      expect(model.capabilities.reasoning).toBe(false)
+      expect(ProviderTransform.variants(model)).toEqual({})
+    })
+
+    test("fixture 302ai claude opus 4.6 uses compatible reasoning variants", async () => {
+      const model = await sample("302ai", "claude-opus-4-6")
+      const result = ProviderTransform.variants(model)
+      expect(model.api.npm).toBe("@ai-sdk/openai-compatible")
+      expect(model.capabilities.input.pdf).toBe(true)
+      expect(Object.keys(result)).toEqual(["low", "medium", "high"])
+      expect(result.high).toEqual({ reasoningEffort: "high" })
+    })
+
+    test("fixture alibaba cn glm keeps reasoning content metadata", async () => {
+      const model = await sample("alibaba-cn", "glm-5")
+      expect(model.api.npm).toBe("@ai-sdk/openai-compatible")
+      expect(model.capabilities.interleaved).toEqual({ field: "reasoning_content" })
+      expect(ProviderTransform.variants(model)).toEqual({})
+    })
+
+    test("fixture chutes non-reasoning model has no variants", async () => {
+      const model = await sample("chutes", "XiaomiMiMo/MiMo-V2-Flash-TEE")
+      expect(model.api.npm).toBe("@ai-sdk/openai-compatible")
+      expect(model.capabilities.reasoning).toBe(false)
+      expect(ProviderTransform.variants(model)).toEqual({})
+    })
+
+    test("fixture huggingface deepseek keeps reasoning content metadata", async () => {
+      const model = await sample("huggingface", "deepseek-ai/DeepSeek-V4-Pro")
+      expect(model.api.npm).toBe("@ai-sdk/openai-compatible")
+      expect(model.capabilities.interleaved).toEqual({ field: "reasoning_content" })
+      expect(ProviderTransform.variants(model)).toEqual({})
+    })
+
+    test("fixture nano gpt anthropic model uses compatible reasoning variants", async () => {
+      const model = await sample("nano-gpt", "anthropic/claude-opus-4.6")
+      const result = ProviderTransform.variants(model)
+      expect(model.api.npm).toBe("@ai-sdk/openai-compatible")
+      expect(model.capabilities.input.pdf).toBe(true)
+      expect(Object.keys(result)).toEqual(["low", "medium", "high"])
+      expect(result.high).toEqual({ reasoningEffort: "high" })
+    })
+
+    test("fixture nano gpt non-reasoning model has no variants", async () => {
+      const model = await sample("nano-gpt", "amazon/nova-2-lite-v1")
+      expect(model.api.npm).toBe("@ai-sdk/openai-compatible")
+      expect(model.capabilities.reasoning).toBe(false)
+      expect(ProviderTransform.variants(model)).toEqual({})
+    })
+
+    test("fixture cloudflare workers ai gpt oss uses compatible override", async () => {
+      const model = await sample("cloudflare-workers-ai", "@cf/openai/gpt-oss-120b")
+      const result = ProviderTransform.variants(model)
+      expect(model.api.npm).toBe("@ai-sdk/openai-compatible")
+      expect(Object.keys(result)).toEqual(["low", "medium", "high"])
+      expect(result.high).toEqual({ reasoningEffort: "high" })
+    })
+
+    test("fixture kilo claude uses compatible reasoning variants", async () => {
+      const model = await sample("kilo", "anthropic/claude-opus-4.7")
+      const result = ProviderTransform.variants(model)
+      expect(model.api.npm).toBe("@ai-sdk/openai-compatible")
+      expect(model.capabilities.input.pdf).toBe(true)
+      expect(Object.keys(result)).toEqual(["low", "medium", "high"])
+      expect(result.high).toEqual({ reasoningEffort: "high" })
+    })
+
+    test("fixture llmgateway gpt-5 uses compatible reasoning variants", async () => {
+      const model = await sample("llmgateway", "gpt-5")
+      const result = ProviderTransform.variants(model)
+      expect(model.api.npm).toBe("@ai-sdk/openai-compatible")
+      expect(Object.keys(result)).toEqual(["low", "medium", "high"])
+      expect(result.high).toEqual({ reasoningEffort: "high" })
+    })
+  })
+
+  describe("fixture model-level package overrides", () => {
+    test("aihubmix migrated models use aihubmix package override", async () => {
+      const model = await sample("aihubmix", "claude-opus-4-7")
+      expect(model.api.npm).toBe("@aihubmix/ai-sdk-provider")
+      expect(model.capabilities.input.pdf).toBe(true)
+      expect(ProviderTransform.variants(model)).toEqual({})
+    })
+
+    test("cloudflare ai gateway migrated models use gateway package override", async () => {
+      const model = await sample("cloudflare-ai-gateway", "anthropic/claude-opus-4-7")
+      expect(model.api.npm).toBe("ai-gateway-provider")
+      expect(model.api.url).toBe("https://gateway.ai.cloudflare.com/v1/${CLOUDFLARE_ACCOUNT_ID}/${CLOUDFLARE_GATEWAY_ID}/compat/")
+      expect(ProviderTransform.variants(model)).toEqual({
+        low: { reasoningEffort: "low" },
+        medium: { reasoningEffort: "medium" },
+        high: { reasoningEffort: "high" },
+      })
+    })
+  })
+
+  describe("ai-gateway-provider (cloudflare-ai-gateway)", () => {
+    const createModel = (id: string, date = "2024-01-01") =>
+      createMockModel({
+        id: `cloudflare-ai-gateway/${id}`,
+        providerID: "cloudflare-ai-gateway",
+        api: {
+          id,
+          url: "https://gateway.ai.cloudflare.com/v1/compat",
+          npm: "ai-gateway-provider",
+        },
+        release_date: date,
+      })
+
+    for (const item of [
+      { id: "openai/gpt-5.4", efforts: ["none", "low", "medium", "high", "xhigh"] },
+      { id: "openai/gpt-5.2-codex", efforts: ["low", "medium", "high", "xhigh"] },
+      { id: "openai/gpt-5.3-codex", efforts: ["none", "low", "medium", "high", "xhigh"] },
+      { id: "openai/gpt-5-pro", efforts: ["high"] },
+      { id: "openai/gpt-5.2-pro", efforts: ["medium", "high", "xhigh"] },
+      { id: "openai/gpt-5-chat-latest", efforts: [] },
+      { id: "openai/gpt-5.2-chat-latest", efforts: ["medium"] },
+    ]) {
+      test(`${item.id} returns supported reasoning efforts`, () => {
+        const result = ProviderTransform.variants(createModel(item.id, "2026-03-05"))
+        expect(Object.keys(result)).toEqual(item.efforts)
+      })
+    }
+
+    test("non-openai upstream falls back to widely-supported OAI efforts", () => {
+      expect(ProviderTransform.variants(createModel("anthropic/claude-sonnet-4-6"))).toEqual({
+        low: { reasoningEffort: "low" },
+        medium: { reasoningEffort: "medium" },
+        high: { reasoningEffort: "high" },
+      })
     })
   })
 
@@ -2548,10 +3253,52 @@ describe("ProviderTransform.variants", () => {
       const result = ProviderTransform.variants(model)
       expect(Object.keys(result)).toEqual(["minimal", "low", "medium", "high"])
     })
+
+    for (const item of [
+      { id: "gpt-5-1", efforts: ["none", "low", "medium", "high"] },
+      { id: "gpt-5-4", efforts: ["none", "low", "medium", "high", "xhigh"] },
+      { id: "gpt-5.4", efforts: ["none", "low", "medium", "high", "xhigh"] },
+      { id: "gpt-5-5", efforts: ["none", "low", "medium", "high", "xhigh"] },
+    ]) {
+      test(`${item.id} returns supported Azure reasoning efforts`, () => {
+        const result = ProviderTransform.variants(
+          createMockModel({
+            id: item.id,
+            providerID: "azure",
+            api: {
+              id: item.id,
+              url: "https://azure.com",
+              npm: "@ai-sdk/azure",
+            },
+          }),
+        )
+        expect(Object.keys(result)).toEqual(item.efforts)
+      })
+    }
+
+    test("fixture gpt-5.4 returns azure reasoning variants", async () => {
+      const model = await sample("azure", "gpt-5.4")
+      const result = ProviderTransform.variants(model)
+      expect(model.api.npm).toBe("@ai-sdk/azure")
+      expect(Object.keys(result)).toEqual(["none", "low", "medium", "high", "xhigh"])
+      expect(result.high).toEqual({
+        reasoningEffort: "high",
+        reasoningSummary: "auto",
+        include: ["reasoning.encrypted_content"],
+      })
+    })
+
+    test("fixture kimi k2.5 uses model-level openai-compatible provider", async () => {
+      const model = await sample("azure", "kimi-k2.5")
+      expect(model.api.npm).toBe("@ai-sdk/openai-compatible")
+      expect(model.api.url).toBe("https://${AZURE_RESOURCE_NAME}.services.ai.azure.com/models")
+      expect(model.capabilities.interleaved).toBe(true)
+      expect(ProviderTransform.variants(model)).toEqual({})
+    })
   })
 
   describe("@ai-sdk/openai", () => {
-    test("gpt-5-pro returns empty object", () => {
+    test("gpt-5-pro returns only high effort", () => {
       const model = createMockModel({
         id: "gpt-5-pro",
         providerID: "openai",
@@ -2562,7 +3309,7 @@ describe("ProviderTransform.variants", () => {
         },
       })
       const result = ProviderTransform.variants(model)
-      expect(result).toEqual({})
+      expect(Object.keys(result)).toEqual(["high"])
     })
 
     test("standard openai models return custom efforts with reasoningSummary", () => {
@@ -2602,10 +3349,10 @@ describe("ProviderTransform.variants", () => {
 
     test("models after 2025-12-04 include 'xhigh' effort", () => {
       const model = createMockModel({
-        id: "openai/gpt-5-chat",
+        id: "openai/gpt-5-reasoning",
         providerID: "openai",
         api: {
-          id: "gpt-5-chat",
+          id: "gpt-5-reasoning",
           url: "https://api.openai.com",
           npm: "@ai-sdk/openai",
         },
@@ -2613,6 +3360,86 @@ describe("ProviderTransform.variants", () => {
       })
       const result = ProviderTransform.variants(model)
       expect(Object.keys(result)).toEqual(["none", "minimal", "low", "medium", "high", "xhigh"])
+    })
+
+    for (const item of [
+      { id: "o1", date: "2024-12-17", efforts: ["low", "medium", "high"] },
+      { id: "o3-deep-research", date: "2025-06-26", efforts: ["medium"] },
+      { id: "gpt-5.1", date: "2025-11-13", efforts: ["none", "low", "medium", "high"] },
+      { id: "gpt-5.4", date: "2026-03-05", efforts: ["none", "low", "medium", "high", "xhigh"] },
+      { id: "gpt-5.4-pro", date: "2026-03-05", efforts: ["medium", "high", "xhigh"] },
+      { id: "gpt-5-codex", date: "2025-09-23", efforts: ["low", "medium", "high"] },
+      { id: "gpt-5.3-codex", date: "2026-01-22", efforts: ["none", "low", "medium", "high", "xhigh"] },
+      { id: "gpt-5-chat-latest", date: "2025-08-07", efforts: [] },
+      { id: "gpt-5.2-chat-latest", date: "2025-12-11", efforts: ["medium"] },
+    ]) {
+      test(`${item.id} returns supported reasoning efforts`, () => {
+        const result = ProviderTransform.variants(
+          createMockModel({
+            id: item.id,
+            providerID: "openai",
+            api: {
+              id: item.id,
+              url: "https://api.openai.com",
+              npm: "@ai-sdk/openai",
+            },
+            release_date: item.date,
+          }),
+        )
+        expect(Object.keys(result)).toEqual(item.efforts)
+      })
+    }
+
+    test("fixture gpt-5.5 includes current reasoning efforts", async () => {
+      const model = await sample("openai", "gpt-5.5")
+      const result = ProviderTransform.variants(model)
+      expect(Object.keys(result)).toEqual(["none", "low", "medium", "high", "xhigh"])
+      expect(result.xhigh).toEqual({
+        reasoningEffort: "xhigh",
+        reasoningSummary: "auto",
+        include: ["reasoning.encrypted_content"],
+      })
+    })
+
+    test("fixture gpt-5.4 uses reasoning effort variants without responses metadata", async () => {
+      const model = await sample("openai", "gpt-5.4")
+      const result = ProviderTransform.variants(model)
+      expect(Object.keys(result)).toEqual(["none", "low", "medium", "high", "xhigh"])
+      expect(result.high).toEqual({
+        reasoningEffort: "high",
+        reasoningSummary: "auto",
+        include: ["reasoning.encrypted_content"],
+      })
+    })
+
+    test("fixture gpt-image-1 exposes image output without reasoning variants", async () => {
+      const model = await sample("openai", "gpt-image-1")
+      expect(model.api.npm).toBe("@ai-sdk/openai")
+      expect(model.capabilities.output.image).toBe(true)
+      expect(model.capabilities.output.text).toBe(false)
+      expect(ProviderTransform.variants(model)).toEqual({})
+    })
+  })
+
+  describe("@ai-sdk/amazon-bedrock/mantle", () => {
+    test("gpt-5.5 returns OpenAI-style reasoning variants", () => {
+      const model = createMockModel({
+        id: "openai.gpt-5.5",
+        providerID: "amazon-bedrock",
+        api: {
+          id: "openai.gpt-5.5",
+          url: "https://bedrock-mantle.us-east-2.api.aws/openai/v1",
+          npm: "@ai-sdk/amazon-bedrock/mantle",
+        },
+        release_date: "2026-04-23",
+      })
+      const result = ProviderTransform.variants(model)
+      expect(Object.keys(result)).toEqual(["none", "low", "medium", "high", "xhigh"])
+      expect(result.medium).toEqual({
+        reasoningEffort: "medium",
+        reasoningSummary: "auto",
+        include: ["reasoning.encrypted_content"],
+      })
     })
   })
 
@@ -2704,6 +3531,83 @@ describe("ProviderTransform.variants", () => {
         },
       })
     })
+
+    test("fixture claude opus 4.7 returns summarized adaptive variants", async () => {
+      const model = await sample("anthropic", "claude-opus-4-7")
+      const result = ProviderTransform.variants(model)
+      expect(model.api.npm).toBe("@ai-sdk/anthropic")
+      expect(Object.keys(result)).toEqual(["low", "medium", "high", "xhigh", "max"])
+      expect(result.high).toEqual({
+        thinking: {
+          type: "adaptive",
+          display: "summarized",
+        },
+        effort: "high",
+      })
+    })
+
+    test("fixture vertex anthropic claude opus 4.7 returns summarized adaptive variants", async () => {
+      const model = await sample("google-vertex-anthropic", "claude-opus-4-7@default")
+      const result = ProviderTransform.variants(model)
+      expect(model.api.npm).toBe("@ai-sdk/google-vertex/anthropic")
+      expect(Object.keys(result)).toEqual(["low", "medium", "high", "xhigh", "max"])
+      expect(result.max).toEqual({
+        thinking: {
+          type: "adaptive",
+          display: "summarized",
+        },
+        effort: "max",
+      })
+    })
+
+    test("fixture google vertex claude opus 4.7 uses model-level anthropic provider", async () => {
+      const model = await sample("google-vertex", "claude-opus-4-7@default")
+      const result = ProviderTransform.variants(model)
+      expect(model.api.npm).toBe("@ai-sdk/google-vertex/anthropic")
+      expect(Object.keys(result)).toEqual(["low", "medium", "high", "xhigh", "max"])
+      expect(result.high).toEqual({
+        thinking: {
+          type: "adaptive",
+          display: "summarized",
+        },
+        effort: "high",
+      })
+    })
+
+    test("fixture azure claude opus 4.6 uses model-level anthropic provider", async () => {
+      const model = await sample("azure", "claude-opus-4-6")
+      const result = ProviderTransform.variants(model)
+      expect(model.api.npm).toBe("@ai-sdk/anthropic")
+      expect(model.api.url).toBe("https://${AZURE_RESOURCE_NAME}.services.ai.azure.com/anthropic/v1")
+      expect(Object.keys(result)).toEqual(["low", "medium", "high", "max"])
+      expect(result.high).toEqual({
+        thinking: {
+          type: "adaptive",
+        },
+        effort: "high",
+      })
+    })
+
+    test("fixture kimi coding k2p6 uses anthropic thinking variants", async () => {
+      const model = await sample("kimi-for-coding", "k2p6")
+      const result = ProviderTransform.variants(model)
+      expect(model.api.npm).toBe("@ai-sdk/anthropic")
+      expect(model.capabilities.input.video).toBe(true)
+      expect(Object.keys(result)).toEqual(["high", "max"])
+      expect(result.high).toEqual({
+        thinking: {
+          type: "enabled",
+          budgetTokens: 16000,
+        },
+      })
+    })
+
+    test("fixture minimax m2.7 keeps anthropic package without variants", async () => {
+      const model = await sample("minimax", "MiniMax-M2.7")
+      expect(model.api.npm).toBe("@ai-sdk/anthropic")
+      expect(model.api.url).toBe("https://api.minimax.io/anthropic/v1")
+      expect(ProviderTransform.variants(model)).toEqual({})
+    })
   })
 
   describe("@ai-sdk/amazon-bedrock", () => {
@@ -2769,6 +3673,38 @@ describe("ProviderTransform.variants", () => {
       })
     })
 
+    test("fixture bedrock global claude opus 4.7 returns summarized adaptive variants", async () => {
+      const model = await sample("amazon-bedrock", "global.anthropic.claude-opus-4-7")
+      const result = ProviderTransform.variants(model)
+      expect(model.api.npm).toBe("@ai-sdk/amazon-bedrock")
+      expect(Object.keys(result)).toEqual(["low", "medium", "high", "xhigh", "max"])
+      expect(result.xhigh).toEqual({
+        reasoningConfig: {
+          type: "adaptive",
+          maxReasoningEffort: "xhigh",
+          display: "summarized",
+        },
+      })
+    })
+
+    test("fixture bedrock nvidia reasoning model uses reasoningConfig variants", async () => {
+      const model = await sample("amazon-bedrock", "nvidia.nemotron-super-3-120b")
+      const result = ProviderTransform.variants(model)
+      expect(model.api.npm).toBe("@ai-sdk/amazon-bedrock")
+      expect(Object.keys(result)).toEqual(["low", "medium", "high"])
+      expect(result.high).toEqual({
+        reasoningConfig: {
+          type: "enabled",
+          maxReasoningEffort: "high",
+        },
+      })
+    })
+
+    test("fixture bedrock deepseek and minimax models do not create generic variants", async () => {
+      expect(ProviderTransform.variants(await sample("amazon-bedrock", "deepseek.v3.2"))).toEqual({})
+      expect(ProviderTransform.variants(await sample("amazon-bedrock", "minimax.minimax-m2.5"))).toEqual({})
+    })
+
     test("returns WIDELY_SUPPORTED_EFFORTS with reasoningConfig", () => {
       const model = createMockModel({
         id: "bedrock/llama-4",
@@ -2812,7 +3748,7 @@ describe("ProviderTransform.variants", () => {
       expect(result.max).toEqual({
         thinkingConfig: {
           includeThoughts: true,
-          thinkingBudget: 24576,
+          thinkingBudget: 32768,
         },
       })
     })
@@ -2863,9 +3799,10 @@ describe("ProviderTransform.variants", () => {
     test("fixture gemini-3.1 flash lite preview uses small thinkingLevel", async () => {
       const model = await sample("google", "gemini-3.1-flash-lite-preview")
       expect(model.api.npm).toBe("@ai-sdk/google")
-      expect(Object.keys(model.variants ?? {})).toEqual(["low", "medium", "high"])
+      expect(Object.keys(model.variants ?? {})).toEqual(["minimal", "low", "medium", "high"])
       expect(ProviderTransform.smallOptions(model)).toEqual({
         thinkingConfig: {
+          includeThoughts: true,
           thinkingLevel: "minimal",
         },
       })
@@ -2910,6 +3847,20 @@ describe("ProviderTransform.variants", () => {
       const result = ProviderTransform.variants(model)
       expect(Object.keys(result)).toEqual(["low", "high"])
     })
+
+    test("fixture gemini 3.1 flash lite returns medium thinking variants", async () => {
+      const model = await sample("google-vertex", "gemini-3.1-flash-lite")
+      const result = ProviderTransform.variants(model)
+      expect(model.api.npm).toBe("@ai-sdk/google-vertex")
+      expect(model.capabilities.input.audio).toBe(true)
+      expect(Object.keys(result)).toEqual(["minimal", "low", "medium", "high"])
+      expect(result.high).toEqual({
+        thinkingConfig: {
+          includeThoughts: true,
+          thinkingLevel: "high",
+        },
+      })
+    })
   })
 
   describe("@ai-sdk/cohere", () => {
@@ -2925,6 +3876,14 @@ describe("ProviderTransform.variants", () => {
       })
       const result = ProviderTransform.variants(model)
       expect(result).toEqual({})
+    })
+
+    test("fixture aya vision exposes image input without variants", async () => {
+      const model = await sample("cohere", "c4ai-aya-vision-32b")
+      expect(model.api.npm).toBe("@ai-sdk/cohere")
+      expect(model.capabilities.input.image).toBe(true)
+      expect(model.capabilities.toolcall).toBe(false)
+      expect(ProviderTransform.variants(model)).toEqual({})
     })
   })
 
@@ -2948,6 +3907,22 @@ describe("ProviderTransform.variants", () => {
         reasoningEffort: "low",
       })
     })
+
+    test("fixture compound returns groq reasoning variants", async () => {
+      const model = await sample("groq", "groq/compound")
+      const result = ProviderTransform.variants(model)
+      expect(model.api.npm).toBe("@ai-sdk/groq")
+      expect(Object.keys(result)).toEqual(["none", "low", "medium", "high"])
+      expect(result.high).toEqual({ reasoningEffort: "high" })
+    })
+
+    test("fixture whisper exposes audio input without variants", async () => {
+      const model = await sample("groq", "whisper-large-v3")
+      expect(model.api.npm).toBe("@ai-sdk/groq")
+      expect(model.capabilities.input.audio).toBe(true)
+      expect(model.capabilities.input.text).toBe(false)
+      expect(ProviderTransform.variants(model)).toEqual({})
+    })
   })
 
   describe("@ai-sdk/perplexity", () => {
@@ -2963,6 +3938,13 @@ describe("ProviderTransform.variants", () => {
       })
       const result = ProviderTransform.variants(model)
       expect(result).toEqual({})
+    })
+
+    test("fixture sonar deep research has no variants", async () => {
+      const model = await sample("perplexity", "sonar-deep-research")
+      expect(model.api.npm).toBe("@ai-sdk/perplexity")
+      expect(model.capabilities.reasoning).toBe(true)
+      expect(ProviderTransform.variants(model)).toEqual({})
     })
   })
 
@@ -3125,6 +4107,98 @@ describe("ProviderTransform.variants", () => {
       const result = ProviderTransform.variants(model)
       expect(result).toEqual({})
     })
+  })
+})
+
+describe("ProviderTransform.smallOptions - gpt-5 chat/search", () => {
+  const createModel = (id: string) => {
+    const model = {
+      id: `openai/${id}`,
+      providerID: "openai",
+      api: {
+        id,
+        url: "https://api.openai.com",
+        npm: "@ai-sdk/openai",
+      },
+      capabilities: { reasoning: true },
+      limit: { output: 64_000 },
+      release_date: "2026-01-01",
+    } as any
+    model.variants = ProviderTransform.variants(model)
+    return model
+  }
+
+  for (const item of [
+    { id: "gpt-5-chat-latest", options: { store: false } },
+    {
+      id: "gpt-5.1-chat-latest",
+      options: {
+        store: false,
+        reasoningEffort: "medium",
+        reasoningSummary: "auto",
+        include: ["reasoning.encrypted_content"],
+      },
+    },
+    {
+      id: "gpt-5.2-chat-latest",
+      options: {
+        store: false,
+        reasoningEffort: "medium",
+        reasoningSummary: "auto",
+        include: ["reasoning.encrypted_content"],
+      },
+    },
+    {
+      id: "gpt-5-search-api",
+      options: {
+        store: false,
+        reasoningEffort: "none",
+        reasoningSummary: "auto",
+        include: ["reasoning.encrypted_content"],
+      },
+    },
+  ]) {
+    test(`${item.id} returns only supported small options`, () => {
+      expect(ProviderTransform.smallOptions(createModel(item.id))).toEqual(item.options)
+    })
+  }
+})
+
+describe("ProviderTransform.smallOptions - google thinking controls", () => {
+  const createModel = (id: string) => {
+    const model = {
+      id: `google/${id}`,
+      providerID: "google",
+      api: {
+        id,
+        url: "https://generativelanguage.googleapis.com",
+        npm: "@ai-sdk/google",
+      },
+      capabilities: { reasoning: true },
+      limit: { output: 64_000 },
+    } as any
+    model.variants = ProviderTransform.variants(model)
+    return model
+  }
+
+  for (const item of [
+    { id: "gemini-3-pro-preview", options: { thinkingConfig: { includeThoughts: true, thinkingLevel: "low" } } },
+    { id: "gemini-3-flash-preview", options: { thinkingConfig: { includeThoughts: true, thinkingLevel: "minimal" } } },
+    {
+      id: "gemini-3.1-flash-image-preview",
+      options: { thinkingConfig: { includeThoughts: true, thinkingLevel: "minimal" } },
+    },
+    { id: "gemini-3-pro-image-preview", options: { thinkingConfig: { includeThoughts: true, thinkingLevel: "high" } } },
+    { id: "gemini-2.5-pro", options: { thinkingConfig: { includeThoughts: true, thinkingBudget: 16000 } } },
+    { id: "gemini-2.5-flash", options: { thinkingConfig: { includeThoughts: true, thinkingBudget: 16000 } } },
+  ]) {
+    test(`${item.id} returns supported small thinking options`, () => {
+      expect(ProviderTransform.smallOptions(createModel(item.id))).toEqual(item.options)
+    })
+  }
+
+  test("does not synthesize thinking options when variants are empty", () => {
+    expect(ProviderTransform.smallOptions({ ...createModel("gemini-2.5-pro"), variants: {} })).toEqual({})
   })
 })
 

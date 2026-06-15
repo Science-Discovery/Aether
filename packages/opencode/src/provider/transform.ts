@@ -1,4 +1,4 @@
-import type { ModelMessage } from "ai"
+import type { ModelMessage, ToolResultPart } from "ai"
 import { mergeDeep, unique } from "remeda"
 import type { JSONSchema7 } from "@ai-sdk/provider"
 import type { JSONSchema } from "zod/v4/core"
@@ -15,6 +15,10 @@ function mimeToModality(mime: string): Modality | undefined {
   if (mime.startsWith("video/")) return "video"
   if (mime === "application/pdf") return "pdf"
   return undefined
+}
+
+function sanitizeSurrogates(content: string) {
+  return content.replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, "\uFFFD")
 }
 
 function mergeConsecutiveAssistantMessages(msgs: ModelMessage[]): ModelMessage[] {
@@ -63,6 +67,7 @@ export namespace ProviderTransform {
       case "@ai-sdk/azure":
         return "azure"
       case "@ai-sdk/openai":
+      case "@ai-sdk/amazon-bedrock/mantle":
         return "openai"
       case "@ai-sdk/amazon-bedrock":
         return "bedrock"
@@ -77,6 +82,8 @@ export namespace ProviderTransform {
         return "gateway"
       case "@openrouter/ai-sdk-provider":
         return "openrouter"
+      case "ai-gateway-provider":
+        return "openaiCompatible"
     }
     return undefined
   }
@@ -86,6 +93,63 @@ export namespace ProviderTransform {
     model: Provider.Model,
     options: Record<string, unknown>,
   ): ModelMessage[] {
+    const output = (part: ToolResultPart) => {
+      if (part.output.type === "text" || part.output.type === "error-text") {
+        part.output.value = sanitizeSurrogates(part.output.value)
+      }
+      if (part.output.type === "content") {
+        part.output.value = part.output.value.map((item) => {
+          if (item.type === "text") {
+            item.text = sanitizeSurrogates(item.text)
+          }
+          return item
+        })
+      }
+      return part
+    }
+
+    msgs = msgs.map((msg) => {
+      switch (msg.role) {
+        case "tool":
+          if (!Array.isArray(msg.content)) return msg
+          msg.content = msg.content.map((part) => {
+            if (part.type === "tool-result") return output(part)
+            return part
+          })
+          return msg
+        case "system":
+          if (typeof msg.content === "string") {
+            msg.content = sanitizeSurrogates(msg.content)
+          }
+          return msg
+        case "user":
+          if (typeof msg.content === "string") {
+            msg.content = sanitizeSurrogates(msg.content)
+            return msg
+          }
+          msg.content = msg.content.map((part) => {
+            if (part.type === "text") {
+              part.text = sanitizeSurrogates(part.text)
+            }
+            return part
+          })
+          return msg
+        case "assistant":
+          if (typeof msg.content === "string") {
+            msg.content = sanitizeSurrogates(msg.content)
+            return msg
+          }
+          msg.content = msg.content.map((part) => {
+            if (part.type === "text" || part.type === "reasoning") {
+              part.text = sanitizeSurrogates(part.text)
+            }
+            if (part.type === "tool-result") return output(part)
+            return part
+          })
+          return msg
+      }
+    })
+
     // Merge consecutive assistant messages for providers whose SDK does not
     // handle this internally. @ai-sdk/anthropic merges in its own convert
     // function, so we skip it. @ai-sdk/openai-compatible outputs them as-is,
@@ -414,6 +478,84 @@ export namespace ProviderTransform {
 
   const WIDELY_SUPPORTED_EFFORTS = ["low", "medium", "high"]
   const OPENAI_EFFORTS = ["none", "minimal", ...WIDELY_SUPPORTED_EFFORTS, "xhigh"]
+  const OPENAI_GPT5_1_EFFORTS = ["none", ...WIDELY_SUPPORTED_EFFORTS]
+  const OPENAI_GPT5_2_PLUS_EFFORTS = [...OPENAI_GPT5_1_EFFORTS, "xhigh"]
+  const OPENAI_GPT5_PRO_EFFORTS = ["high"]
+  const OPENAI_GPT5_PRO_2_PLUS_EFFORTS = ["medium", "high", "xhigh"]
+  const OPENAI_GPT5_CHAT_EFFORTS = ["medium"]
+  const OPENAI_GPT5_CODEX_XHIGH_EFFORTS = [...WIDELY_SUPPORTED_EFFORTS, "xhigh"]
+  const OPENAI_GPT5_CODEX_3_PLUS_EFFORTS = ["none", ...OPENAI_GPT5_CODEX_XHIGH_EFFORTS]
+  const OPENAI_NONE_EFFORT_RELEASE_DATE = "2025-11-13"
+  const OPENAI_XHIGH_EFFORT_RELEASE_DATE = "2025-12-04"
+  const GPT5_FAMILY_RE = /(?:^|\/)gpt-5(?:[.-]|$)/
+  const GPT5_VERSION_RE = /(?:^|\/)gpt-5[.-](\d+)(?:[.-]|$)/
+  const GPT5_PRO_RE = /(?:^|\/)gpt-5[.-]?pro(?:[.-]|$)/
+  const GPT5_VERSIONED_PRO_RE = /(?:^|\/)gpt-5[.-]\d+[.-]pro(?:[.-]|$)/
+
+  function gpt5Version(api: string) {
+    return Number(GPT5_VERSION_RE.exec(api)?.[1]) || undefined
+  }
+
+  function versionedGpt5ReasoningEfforts(api: string) {
+    if (GPT5_VERSIONED_PRO_RE.test(api)) return OPENAI_GPT5_PRO_2_PLUS_EFFORTS
+    const version = gpt5Version(api)
+    if (version === undefined) return undefined
+    if (version === 1) return OPENAI_GPT5_1_EFFORTS
+    return OPENAI_GPT5_2_PLUS_EFFORTS
+  }
+
+  function gpt5CodexReasoningEfforts(api: string) {
+    if (!GPT5_FAMILY_RE.test(api) || !api.includes("codex")) return undefined
+    const version = gpt5Version(api)
+    if (version !== undefined && version >= 3) return OPENAI_GPT5_CODEX_3_PLUS_EFFORTS
+    if (api.includes("codex-max") || (version !== undefined && version >= 2)) return OPENAI_GPT5_CODEX_XHIGH_EFFORTS
+    return WIDELY_SUPPORTED_EFFORTS
+  }
+
+  function gpt5ChatReasoningEfforts(api: string) {
+    if (!GPT5_FAMILY_RE.test(api) || !api.includes("-chat")) return undefined
+    return gpt5Version(api) === undefined ? [] : OPENAI_GPT5_CHAT_EFFORTS
+  }
+
+  function openaiReasoningEfforts(api: string, date = "") {
+    const id = api.toLowerCase()
+    if (id.includes("deep-research")) return ["medium"]
+    const chat = gpt5ChatReasoningEfforts(id)
+    if (chat) return chat
+    if (GPT5_PRO_RE.test(id)) return OPENAI_GPT5_PRO_EFFORTS
+    const codex = gpt5CodexReasoningEfforts(id)
+    if (codex) return codex
+    const version = versionedGpt5ReasoningEfforts(id)
+    if (version) return version
+    const result = [...WIDELY_SUPPORTED_EFFORTS]
+    if (GPT5_FAMILY_RE.test(id)) result.unshift("minimal")
+    if (date >= OPENAI_NONE_EFFORT_RELEASE_DATE) result.unshift("none")
+    if (date >= OPENAI_XHIGH_EFFORT_RELEASE_DATE) result.push("xhigh")
+    return result
+  }
+
+  function openaiCompatibleReasoningEfforts(api: string) {
+    const id = api.toLowerCase()
+    const chat = gpt5ChatReasoningEfforts(id)
+    if (chat) return chat
+    if (GPT5_PRO_RE.test(id)) return OPENAI_GPT5_PRO_EFFORTS
+    return gpt5CodexReasoningEfforts(id) ?? versionedGpt5ReasoningEfforts(id) ?? OPENAI_EFFORTS
+  }
+
+  function googleThinkingLevelEfforts(api: string) {
+    const id = api.toLowerCase()
+    if (!id.includes("gemini-3")) return ["low", "high"]
+    if (id.includes("flash-image")) return ["minimal", "high"]
+    if (id.includes("pro-image")) return ["high"]
+    if (id.includes("flash")) return ["minimal", "low", "medium", "high"]
+    return ["low", "medium", "high"]
+  }
+
+  function googleThinkingBudgetMax(api: string) {
+    const id = api.toLowerCase()
+    if (id.includes("2.5") && id.includes("pro") && !id.includes("flash")) return 32_768
+    return 24_576
+  }
 
   function opus47(api: string) {
     const version = /opus-(\d+)[.-](\d+)(?:[.@-]|$)|claude-(\d+)[.-](\d+)-opus(?:[.@-]|$)/i.exec(api)
@@ -461,8 +603,24 @@ export namespace ProviderTransform {
 
     switch (model.api.npm) {
       case "@openrouter/ai-sdk-provider":
-        if (!model.id.includes("gpt") && !model.id.includes("gemini-3") && !model.id.includes("claude")) return {}
-        return Object.fromEntries(OPENAI_EFFORTS.map((effort) => [effort, { reasoning: { effort } }]))
+        if (!id.includes("gpt") && !id.includes("gemini-3") && !id.includes("claude")) return {}
+        return Object.fromEntries(
+          (id.includes("gpt") ? openaiCompatibleReasoningEfforts(id) : OPENAI_EFFORTS).map((effort) => [
+            effort,
+            { reasoning: { effort } },
+          ]),
+        )
+
+      case "ai-gateway-provider":
+        if (model.api.id.toLowerCase().startsWith("openai/")) {
+          return Object.fromEntries(
+            openaiReasoningEfforts(model.api.id, model.release_date).map((effort) => [
+              effort,
+              { reasoningEffort: effort },
+            ]),
+          )
+        }
+        return Object.fromEntries(WIDELY_SUPPORTED_EFFORTS.map((effort) => [effort, { reasoningEffort: effort }]))
 
       case "@ai-sdk/gateway":
         if (model.id.includes("anthropic")) {
@@ -568,15 +726,8 @@ export namespace ProviderTransform {
       case "@ai-sdk/azure":
         // https://v5.ai-sdk.dev/providers/ai-sdk-providers/azure
         if (id === "o1-mini") return {}
-        const azureEfforts = ["low", "medium", "high"]
-        if (id.includes("gpt-5-") || id === "gpt-5") {
-          azureEfforts.unshift("minimal")
-        }
-        if (id.includes("gpt-5.4")) {
-          return Object.fromEntries(azureEfforts.map((effort) => [effort, { reasoningEffort: effort }]))
-        }
         return Object.fromEntries(
-          azureEfforts.map((effort) => [
+          openaiReasoningEfforts(id, model.release_date).map((effort) => [
             effort,
             {
               reasoningEffort: effort,
@@ -585,41 +736,22 @@ export namespace ProviderTransform {
             },
           ]),
         )
+      case "@ai-sdk/amazon-bedrock/mantle":
+        return Object.fromEntries(
+          openaiReasoningEfforts(model.api.id, model.release_date).map((effort) => [
+            effort,
+            {
+              reasoningEffort: effort,
+              reasoningSummary: "auto",
+              include: ["reasoning.encrypted_content"],
+            },
+          ]),
+        )
+
       case "@ai-sdk/openai":
         // https://v5.ai-sdk.dev/providers/ai-sdk-providers/openai
-        if (id === "gpt-5-pro") return {}
-        if (id.includes("gpt-5.4")) {
-          const openaiEfforts = iife(() => {
-            const arr = [...WIDELY_SUPPORTED_EFFORTS]
-            if (model.release_date >= "2025-11-13") {
-              arr.unshift("none")
-            }
-            if (model.release_date >= "2025-12-04") {
-              arr.push("xhigh")
-            }
-            return arr
-          })
-          return Object.fromEntries(openaiEfforts.map((effort) => [effort, { reasoningEffort: effort }]))
-        }
-        const openaiEfforts = iife(() => {
-          if (id.includes("codex")) {
-            if (id.includes("5.2") || id.includes("5.3")) return [...WIDELY_SUPPORTED_EFFORTS, "xhigh"]
-            return WIDELY_SUPPORTED_EFFORTS
-          }
-          const arr = [...WIDELY_SUPPORTED_EFFORTS]
-          if (id.includes("gpt-5-") || id === "gpt-5") {
-            arr.unshift("minimal")
-          }
-          if (model.release_date >= "2025-11-13") {
-            arr.unshift("none")
-          }
-          if (model.release_date >= "2025-12-04") {
-            arr.push("xhigh")
-          }
-          return arr
-        })
         return Object.fromEntries(
-          openaiEfforts.map((effort) => [
+          openaiReasoningEfforts(model.api.id, model.release_date).map((effort) => [
             effort,
             {
               reasoningEffort: effort,
@@ -726,18 +858,13 @@ export namespace ProviderTransform {
             max: {
               thinkingConfig: {
                 includeThoughts: true,
-                thinkingBudget: 24576,
+                thinkingBudget: googleThinkingBudgetMax(model.api.id),
               },
             },
           }
         }
-        let levels = ["low", "high"]
-        if (id.includes("3.1")) {
-          levels = ["low", "medium", "high"]
-        }
-
         return Object.fromEntries(
-          levels.map((effort) => [
+          googleThinkingLevelEfforts(model.api.id).map((effort) => [
             effort,
             {
               thinkingConfig: {
@@ -839,12 +966,18 @@ export namespace ProviderTransform {
     if (
       input.model.providerID === "openai" ||
       input.model.api.npm === "@ai-sdk/openai" ||
-      input.model.api.npm === "@ai-sdk/github-copilot"
+      input.model.api.npm === "@ai-sdk/github-copilot" ||
+      input.model.api.npm === "@ai-sdk/amazon-bedrock/mantle"
     ) {
       result["store"] = false
     }
 
-    if (input.model.api.npm === "@openrouter/ai-sdk-provider") {
+    if (input.model.api.npm === "@ai-sdk/azure") {
+      result["store"] = false
+      result["promptCacheKey"] = input.messageCount ? `${input.sessionID}:${input.messageCount}` : input.sessionID
+    }
+
+    if (input.model.api.npm === "@openrouter/ai-sdk-provider" || input.model.api.npm === "@llmgateway/ai-sdk-provider") {
       result["usage"] = {
         include: true,
       }
@@ -860,7 +993,10 @@ export namespace ProviderTransform {
       result["chat_template_args"] = { enable_thinking: true }
     }
 
-    if (["zai", "zhipuai"].includes(input.model.providerID) && input.model.api.npm === "@ai-sdk/openai-compatible") {
+    if (
+      ["zai", "zhipuai"].some((id) => input.model.providerID.includes(id)) &&
+      input.model.api.npm === "@ai-sdk/openai-compatible"
+    ) {
       result["thinking"] = {
         type: "enabled",
         clear_thinking: false,
@@ -909,10 +1045,21 @@ export namespace ProviderTransform {
       result["enable_thinking"] = true
     }
 
+    if (input.model.api.npm === "@ai-sdk/azure" && input.model.api.id.includes("gpt-5.5")) {
+      result["reasoningSummary"] = "auto"
+      return result
+    }
+
     if (input.model.api.id.includes("gpt-5") && !input.model.api.id.includes("gpt-5-chat")) {
       if (!input.model.api.id.includes("gpt-5-pro") && !input.model.api.id.includes("gpt-5.4")) {
         result["reasoningEffort"] = "medium"
         result["reasoningSummary"] = "auto"
+        if (
+          input.model.api.npm === "@ai-sdk/openai" ||
+          input.model.api.npm === "@ai-sdk/amazon-bedrock/mantle"
+        ) {
+          result["include"] = ["reasoning.encrypted_content"]
+        }
       }
 
       // Only set textVerbosity for non-chat gpt-5.x models
@@ -952,42 +1099,26 @@ export namespace ProviderTransform {
   }
 
   export function smallOptions(model: Provider.Model) {
+    const small = Object.values(model.variants ?? {})[0] ?? {}
     if (
       model.providerID === "openai" ||
       model.api.npm === "@ai-sdk/openai" ||
       model.api.npm === "@ai-sdk/github-copilot"
     ) {
-      if (model.api.id.includes("gpt-5")) {
-        if (model.api.id.includes("5.")) {
-          return { store: false, reasoningEffort: "low" }
-        }
-        return { store: false, reasoningEffort: "minimal" }
-      }
-      return { store: false }
+      return mergeDeep({ store: false }, small)
     }
-    if (model.providerID === "google") {
-      const gid = model.api.id.toLowerCase()
-      // thinkingConfig 仅对支持 thinking 的模型生效（gemini-2.5+、gemini-3）
-      if (gid.includes("gemini-3")) {
-        return { thinkingConfig: { thinkingLevel: "minimal" } }
-      }
-      if (gid.includes("2.5")) {
-        return { thinkingConfig: { thinkingBudget: 0 } }
-      }
-      return {}
-    }
-    if (model.providerID === "openrouter") {
-      if (model.api.id.includes("google")) {
+    if (model.providerID === "openrouter" || model.providerID === "llmgateway") {
+      if (Object.keys(small).length === 0 && model.api.id.includes("google")) {
         return { reasoning: { enabled: false } }
       }
-      return { reasoningEffort: "minimal" }
     }
 
     if (model.providerID === "venice") {
+      if (Object.keys(small).length > 0) return small
       return { veniceParameters: { disableThinking: true } }
     }
 
-    return {}
+    return small
   }
 
   // Maps model ID prefix to provider slug used in providerOptions.
@@ -1060,7 +1191,12 @@ export namespace ProviderTransform {
       return result
     }
 
-    const key = sdkKey(model.api.npm) ?? model.providerID
+    const split =
+      model.api.npm === "@ai-sdk/openai-compatible" ||
+      model.api.npm === "@ai-sdk/openai" ||
+      model.api.npm === "@ai-sdk/anthropic"
+    const key = sdkKey(model.api.npm) ?? (split ? model.providerID.split(".")[0] : model.providerID)
+    if (model.api.npm === "@ai-sdk/azure") return { openai: opts, azure: opts }
     return { [key]: opts }
   }
 
@@ -1086,6 +1222,22 @@ export namespace ProviderTransform {
       }
     }
     */
+
+    if (model.providerID === "moonshotai" || model.api.id.toLowerCase().includes("kimi")) {
+      const clean = (obj: unknown): unknown => {
+        if (obj === null || typeof obj !== "object") return obj
+        if (Array.isArray(obj)) return obj.map(clean)
+        if ("$ref" in obj && typeof obj.$ref === "string") return { $ref: obj.$ref }
+        const result = Object.fromEntries(Object.entries(obj).map(([key, value]) => [key, clean(value)]))
+        if (Array.isArray(result.items)) result.items = result.items[0] ?? {}
+        return result
+      }
+
+      const result = clean(schema)
+      if (typeof result === "object" && result !== null && !Array.isArray(result)) {
+        schema = result
+      }
+    }
 
     // Convert integer enums to string enums for Google/Gemini
     if (model.providerID === "google" || model.api.id.includes("gemini")) {
