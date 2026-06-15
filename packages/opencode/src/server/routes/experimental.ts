@@ -141,7 +141,7 @@ export const ExperimentalRoutes = lazy(() =>
       "/worktree",
       describeRoute({
         summary: "Remove worktree",
-        description: "Remove a git worktree and delete its branch.",
+        description: "Remove a git worktree. Optionally delete its branch by passing deleteBranch.",
         operationId: "worktree.remove",
         responses: {
           200: {

@@ -1006,7 +1006,8 @@ export const dict = {
   "settingsSkills.pageTitle": "Skill自进化",
   "settingsSkills.pageTitleDescription": "配置 AI 自动捕捉和优化可复用 Skills 的方式。",
   "settingsSkills.reviewInterval": "审查间隔",
-  "settingsSkills.reviewIntervalDescription": "AI 每隔 N 次工具调用会自动回顾对话，将有价值的操作模式提炼为可复用 Skill。数值越小，提炼越频繁。",
+  "settingsSkills.reviewIntervalDescription":
+    "AI 每隔 N 次工具调用会自动回顾对话，将有价值的操作模式提炼为可复用 Skill。数值越小，提炼越频繁。",
   "settingsSkills.maxVersions": "最大版本数",
   "settingsSkills.maxVersionsDescription": "每个 Skill 保留的最大版本快照数，超出后自动清理旧版本。",
   "settingsSkills.reviewMaxStepChars": "单步字数上限",
@@ -1382,6 +1383,10 @@ export const dict = {
   "workspace.delete.stale.description":
     "目录中缺少 .git 文件，不再是有效的 git worktree。强制删除将移除该目录并清理 git 元数据。",
   "workspace.delete.stale.button": "强制删除",
+  "workspace.delete.branch.title": "删除分支",
+  "workspace.delete.branch.confirm": '是否同时删除分支 "{{branch}}"？',
+  "workspace.delete.branch.keep": "保留分支",
+  "workspace.delete.branch.delete": "删除分支",
   "workspace.reset.title": "重置工作区",
   "workspace.reset.confirm": '重置工作区 "{{name}}"？',
   "workspace.reset.button": "重置工作区",

@@ -133,18 +133,23 @@ export namespace Workspace {
     return fromRow(row)
   })
 
-  export const remove = fn(WorkspaceID.zod, async (id) => {
-    const row = Database.useProject(Instance.project.id, (db) =>
-      db.select().from(WorkspaceTable).where(eq(WorkspaceTable.id, id)).get(),
-    )
-    if (row) {
-      const info = fromRow(row)
-      const adaptor = await getAdaptor(row.type)
-      await adaptor.remove(info)
-      Database.useProject(Instance.project.id, (db) => db.delete(WorkspaceTable).where(eq(WorkspaceTable.id, id)).run())
-      return info
-    }
-  })
+  export const remove = fn(
+    z.object({ id: WorkspaceID.zod, deleteBranch: z.boolean().optional() }),
+    async ({ id, deleteBranch }) => {
+      const row = Database.useProject(Instance.project.id, (db) =>
+        db.select().from(WorkspaceTable).where(eq(WorkspaceTable.id, id)).get(),
+      )
+      if (row) {
+        const info = fromRow(row)
+        const adaptor = await getAdaptor(row.type)
+        await adaptor.remove(info, { deleteBranch })
+        Database.useProject(Instance.project.id, (db) =>
+          db.delete(WorkspaceTable).where(eq(WorkspaceTable.id, id)).run(),
+        )
+        return info
+      }
+    },
+  )
   const log = Log.create({ service: "workspace-sync" })
 
   async function workspaceEventLoop(space: Info, stop: AbortSignal) {

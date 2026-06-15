@@ -1940,6 +1940,7 @@ export class Workspace extends HeyApiClient {
       id: string
       directory?: string
       workspace?: string
+      deleteBranch?: boolean
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -1951,6 +1952,7 @@ export class Workspace extends HeyApiClient {
             { in: "path", key: "id" },
             { in: "query", key: "directory" },
             { in: "query", key: "workspace" },
+            { in: "query", key: "deleteBranch" },
           ],
         },
       ],

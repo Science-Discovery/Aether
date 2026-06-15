@@ -1,5 +1,6 @@
 import { useDialog } from "@tui/ui/dialog"
 import { DialogSelect } from "@tui/ui/dialog-select"
+import { DialogConfirm } from "@tui/ui/dialog-confirm"
 import { useRoute } from "@tui/context/route"
 import { useSync } from "@tui/context/sync"
 import { createEffect, createMemo, createSignal, onMount } from "solid-js"
@@ -253,14 +254,35 @@ export function DialogWorkspaceList() {
               setToDelete(option.value)
               return
             }
-            const result = await sdk.client.experimental.workspace.remove({ id: option.value }).catch(() => undefined)
             setToDelete(undefined)
-            if (result?.error) {
-              toast.show({
-                message: "Failed to delete workspace",
-                variant: "error",
-              })
-              return
+            const workspace = sync.data.workspaceList.find((w) => w.id === option.value)
+            if (workspace?.branch) {
+              const confirmed = await DialogConfirm.show(
+                dialog,
+                "Delete branch",
+                `Also delete branch "${workspace.branch}"?`,
+                "delete",
+              )
+              const deleteBranch = confirmed === true
+              const result = await sdk.client.experimental.workspace
+                .remove({ id: option.value, deleteBranch })
+                .catch(() => undefined)
+              if (result?.error) {
+                toast.show({
+                  message: "Failed to delete workspace",
+                  variant: "error",
+                })
+                return
+              }
+            } else {
+              const result = await sdk.client.experimental.workspace.remove({ id: option.value }).catch(() => undefined)
+              if (result?.error) {
+                toast.show({
+                  message: "Failed to delete workspace",
+                  variant: "error",
+                })
+                return
+              }
             }
             if (currentWorkspaceID() === option.value) {
               route.navigate({

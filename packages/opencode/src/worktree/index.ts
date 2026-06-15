@@ -67,6 +67,7 @@ export namespace Worktree {
     .object({
       directory: z.string(),
       force: z.boolean().optional(),
+      deleteBranch: z.boolean().optional(),
     })
     .meta({
       ref: "WorktreeRemoveInput",
@@ -430,22 +431,31 @@ export namespace Worktree {
 
         const directory = yield* canonical(input.directory)
 
+        const list = yield* git(["worktree", "list", "--porcelain"], { cwd: Instance.worktree })
+        const entries = parseWorktreeList(list.text)
+        const entry = yield* locateWorktree(entries, directory)
+        const branchRef = entry?.branch
+
         if (input.force) {
           yield* stopFsmonitor(directory)
           const dirExists = yield* fsys.exists(directory).pipe(Effect.orDie)
           if (dirExists) yield* disposeAndClean(directory)
           yield* pruneWorktree()
 
+          if (input.deleteBranch && branchRef) {
+            const branchName = branchRef.replace(/^refs\/heads\//, "")
+            const del = yield* git(["branch", "-D", branchName], { cwd: Instance.worktree })
+            if (del.code !== 0) {
+              log.error("failed to delete branch after worktree removal", { branchName, stderr: del.stderr })
+            }
+          }
+
           return { status: "forceOk" as const }
         }
 
-        const list = yield* git(["worktree", "list", "--porcelain"], { cwd: Instance.worktree })
         if (list.code !== 0) {
           throw new RemoveFailedError({ message: list.stderr || list.text || "Failed to read git worktrees" })
         }
-
-        const entries = parseWorktreeList(list.text)
-        const entry = yield* locateWorktree(entries, directory)
 
         if (!entry?.path) {
           const directoryExists = yield* fsys.exists(directory).pipe(Effect.orDie)
@@ -454,6 +464,15 @@ export namespace Worktree {
             yield* disposeAndClean(directory)
           }
           yield* pruneWorktree()
+
+          if (input.deleteBranch && branchRef) {
+            const branchName = branchRef.replace(/^refs\/heads\//, "")
+            const del = yield* git(["branch", "-D", branchName], { cwd: Instance.worktree })
+            if (del.code !== 0) {
+              log.error("failed to delete branch after worktree removal", { branchName, stderr: del.stderr })
+            }
+          }
+
           return { status: "ok" as const }
         }
 
@@ -481,6 +500,14 @@ export namespace Worktree {
 
         yield* cleanDirectory(directory)
         yield* pruneWorktree()
+
+        if (input.deleteBranch && branchRef) {
+          const branchName = branchRef.replace(/^refs\/heads\//, "")
+          const del = yield* git(["branch", "-D", branchName], { cwd: Instance.worktree })
+          if (del.code !== 0) {
+            log.error("failed to delete branch after worktree removal", { branchName, stderr: del.stderr })
+          }
+        }
 
         return { status: "ok" as const }
       })

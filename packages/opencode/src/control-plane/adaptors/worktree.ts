@@ -28,9 +28,9 @@ export const WorktreeAdaptor: Adaptor = {
       branch: config.branch,
     })
   },
-  async remove(info) {
+  async remove(info, options) {
     const config = Config.parse(info)
-    await Worktree.remove({ directory: config.directory })
+    await Worktree.remove({ directory: config.directory, deleteBranch: options?.deleteBranch })
   },
   async fetch(info, input: RequestInfo | URL, init?: RequestInit) {
     const config = Config.parse(info)
