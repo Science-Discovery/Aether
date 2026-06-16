@@ -5,6 +5,7 @@ import { Instance } from "@/project/instance"
 import { Spawner } from "./spawner"
 import { SKILL_REVIEW_PROMPT_BASE } from "./constants"
 import { Filesystem } from "@/util/filesystem"
+import { ConfigMarkdown } from "@/config/markdown"
 import { Log } from "@/util/log"
 import { Database } from "@/storage/db"
 import { ProjectIdentity } from "@/project/identity"
@@ -96,7 +97,25 @@ export interface MessageSnapshot {
 }
 
 /**
+ * Char caps for tool input/output rendered into the review history. The reviewer
+ * only needs to see that a step ran and roughly what came back (so the B/VERIFIED
+ * gate has evidence to point at) — not the full payload. Stored outputs are
+ * already ≤50KB (normal-conversation Truncate.output); we tighten further here.
+ * See REVIEW_CONTEXT_DESIGN.md D3/Q1.
+ */
+const MAX_TOOL_OUTPUT_CHARS = 300
+const MAX_TOOL_INPUT_CHARS = 200
+
+/** Pure char truncation: keep the head, mark how much was dropped. */
+function truncateForReview(s: string, max: number): string {
+  if (s.length <= max) return s
+  return s.slice(0, max) + `…[truncated ${s.length - max} chars]`
+}
+
+/**
  * Serialize a conversation history snapshot into an XML block for the review prompt.
+ * Tool calls carry their (truncated) input + output so the B/VERIFIED gate can
+ * point at a real successful output — see REVIEW_CONTEXT_DESIGN.md D2.
  */
 export function serializeHistory(messages: ReadonlyArray<MessageSnapshot>): string {
   const lines: string[] = ["<conversation_history>"]
@@ -106,7 +125,22 @@ export function serializeHistory(messages: ReadonlyArray<MessageSnapshot>): stri
       if (part.type === "text" && part.text) {
         lines.push(`    <text>${escapeXml(part.text)}</text>`)
       } else if (part.type === "tool") {
-        lines.push(`    <tool_call name="${escapeXml(part.tool ?? "")}" id="${part.callID ?? ""}"/>`)
+        const state = part.state as { input?: unknown; output?: unknown } | undefined
+        const hasInput = state?.input !== undefined && state.input !== null
+        const inputStr = hasInput
+          ? truncateForReview(JSON.stringify(state!.input), MAX_TOOL_INPUT_CHARS)
+          : ""
+        const outputStr =
+          typeof state?.output === "string" ? truncateForReview(state.output, MAX_TOOL_OUTPUT_CHARS) : ""
+        const open = `    <tool_call name="${escapeXml(part.tool ?? "")}" id="${part.callID ?? ""}"`
+        if (!inputStr && !outputStr) {
+          lines.push(`${open}/>`)
+        } else {
+          lines.push(`${open}>`)
+          if (inputStr) lines.push(`      <input>${escapeXml(inputStr)}</input>`)
+          if (outputStr) lines.push(`      <output>${escapeXml(outputStr)}</output>`)
+          lines.push(`    </tool_call>`)
+        }
       }
     }
     lines.push("  </message>")
@@ -146,6 +180,57 @@ async function collectCategories(folderName: string): Promise<string[]> {
   return Array.from(categories)
 }
 
+/** One existing skill's identity, for the "what already exists" inventory. */
+export interface SkillSummary {
+  name: string
+  description: string
+  category?: string
+}
+
+/**
+ * Read the CURRENT sub-project's evolved skills (name + description + category
+ * from each SKILL.md). Sub-project scope only — not global, not shared — so the
+ * reviewer compares against the skills it could actually duplicate. See
+ * REVIEW_CONTEXT_DESIGN.md D5. Uses the project's canonical frontmatter parser
+ * (`ConfigMarkdown.parse`, gray-matter) so only the `---` block is read — never
+ * stray `key:` lines in the markdown body. best-effort: skills whose SKILL.md is
+ * unreadable or has invalid frontmatter are skipped.
+ */
+export async function collectSkillInventory(folderName: string): Promise<SkillSummary[]> {
+  const dir = Spawner.skillEvolutionDir(folderName)
+  const out: SkillSummary[] = []
+  const entries = await fs.readdir(dir, { withFileTypes: true }).catch(() => [])
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue
+    try {
+      const md = await ConfigMarkdown.parse(path.join(dir, entry.name, "SKILL.md"))
+      const data = (md.data ?? {}) as { description?: unknown; category?: unknown }
+      out.push({
+        name: entry.name,
+        description: typeof data.description === "string" ? data.description : "",
+        category: typeof data.category === "string" ? data.category : undefined,
+      })
+    } catch {
+      // Skip skills whose SKILL.md is unreadable or has invalid frontmatter
+    }
+  }
+  return out
+}
+
+/** Render the sub-project skill inventory block for the review prompt. */
+export function serializeSkillInventory(skills: ReadonlyArray<SkillSummary>): string {
+  if (skills.length === 0) return "Existing skills in this project: (none yet)"
+  const lines = [
+    "Existing skills in this project (prefer EDITING one of these over creating a near-duplicate):",
+  ]
+  for (const s of skills) {
+    const cat = s.category ? ` [${s.category}]` : ""
+    const desc = s.description ? `: ${s.description}` : ""
+    lines.push(`  - ${s.name}${cat}${desc}`)
+  }
+  return lines.join("\n")
+}
+
 /**
  * Build the full review prompt for the background agent.
  */
@@ -159,7 +244,8 @@ export async function buildReviewPrompt(
     categories.length > 0
       ? categories.map((c) => `  - ${c}`).join("\n") + "\n"
       : "  (no existing categories yet)\n"
-  const sections = [serializeHistory(messages), "", SKILL_REVIEW_PROMPT_BASE + categoryHint]
+  const inventoryBlock = serializeSkillInventory(await collectSkillInventory(folderName))
+  const sections = [serializeHistory(messages), "", SKILL_REVIEW_PROMPT_BASE + categoryHint, "", inventoryBlock]
   const warning = buildEvolutionLockWarning(evolutionDisabledSkillNames)
   if (warning) sections.push("", warning)
   return sections.join("\n")
@@ -225,6 +311,9 @@ export async function spawnReview(input: {
         text: "text" in p ? (p as any).text : undefined,
         tool: "tool" in p ? (p as any).tool : undefined,
         callID: "callID" in p ? (p as any).callID : undefined,
+        // Carry tool input/output so serializeHistory can show the reviewer real
+        // evidence (truncated). See REVIEW_CONTEXT_DESIGN.md D2.
+        state: "state" in p ? (p as any).state : undefined,
       })),
     }))
 
