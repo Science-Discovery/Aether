@@ -1724,6 +1724,52 @@
                             ]
                         }
                     ]
+                },
+                {
+                    "context_length": 200000,
+                    "deployer": "TATU",
+                    "edu_discount": "0.5000",
+                    "effective_discount": "0.5000",
+                    "model_name": "claude-haiku-4-5",
+                    "protocol_configs": [
+                        {
+                            "api_type": "ANTHROPIC",
+                            "capabilities": [
+                                "IS_VISION",
+                                "FUNCTION_CALL",
+                                "MESSAGES_API"
+                            ],
+                            "currency": "USD",
+                            "enabled": true,
+                            "pricing": {
+                                "pricing_type": "anthropic",
+                                "tiered_pricing": [
+                                    {
+                                        "cache_creation_fees": {
+                                            "ttl_1h": "0.000002",
+                                            "ttl_5m": "0.00000125"
+                                        },
+                                        "cached_input_fee": "0.0000001",
+                                        "input_fee": "0.000001",
+                                        "output_fee": "0.000005",
+                                        "threshold": 0
+                                    }
+                                ]
+                            },
+                            "sent_model_name": "claude-haiku-4-5-20251001",
+                            "supported_operations": [
+                                "ANTHROPIC_MESSAGES"
+                            ],
+                            "tool_call_pricing": [
+                                {
+                                    "fee": "0.01",
+                                    "name": "Web Search",
+                                    "note": "",
+                                    "unit": "\u6b21"
+                                }
+                            ]
+                        }
+                    ]
                 }
             ],
             "context_length": 200000,
@@ -1931,6 +1977,62 @@
                     "deployer": "AIHUBMIX",
                     "edu_discount": "1.0000",
                     "effective_discount": "1",
+                    "model_name": "claude-opus-4-6",
+                    "protocol_configs": [
+                        {
+                            "api_type": "ANTHROPIC",
+                            "capabilities": [
+                                "IS_VISION",
+                                "FUNCTION_CALL",
+                                "MESSAGES_API"
+                            ],
+                            "currency": "USD",
+                            "enabled": true,
+                            "pricing": {
+                                "pricing_type": "anthropic",
+                                "tiered_pricing": [
+                                    {
+                                        "cache_creation_fees": {
+                                            "ttl_1h": "0.000010",
+                                            "ttl_5m": "0.00000625"
+                                        },
+                                        "cached_input_fee": "0.0000005",
+                                        "input_fee": "0.000005",
+                                        "output_fee": "0.000025",
+                                        "threshold": 0
+                                    },
+                                    {
+                                        "cache_creation_fees": {
+                                            "ttl_1h": "0.000010",
+                                            "ttl_5m": "0.00000625"
+                                        },
+                                        "cached_input_fee": "0.0000005",
+                                        "input_fee": "0.000010",
+                                        "output_fee": "0.0000375",
+                                        "threshold": 200000
+                                    }
+                                ]
+                            },
+                            "sent_model_name": "claude-opus-4-6",
+                            "supported_operations": [
+                                "ANTHROPIC_MESSAGES"
+                            ],
+                            "tool_call_pricing": [
+                                {
+                                    "fee": "0.01",
+                                    "name": "Web Search",
+                                    "note": "",
+                                    "unit": "\u6b21"
+                                }
+                            ]
+                        }
+                    ]
+                },
+                {
+                    "context_length": 1000000,
+                    "deployer": "TATU",
+                    "edu_discount": "0.5000",
+                    "effective_discount": "0.5000",
                     "model_name": "claude-opus-4-6",
                     "protocol_configs": [
                         {
@@ -2238,6 +2340,62 @@
                             ]
                         }
                     ]
+                },
+                {
+                    "context_length": 1000000,
+                    "deployer": "TATU",
+                    "edu_discount": "0.5000",
+                    "effective_discount": "0.5000",
+                    "model_name": "claude-opus-4-7",
+                    "protocol_configs": [
+                        {
+                            "api_type": "ANTHROPIC",
+                            "capabilities": [
+                                "IS_VISION",
+                                "FUNCTION_CALL",
+                                "MESSAGES_API"
+                            ],
+                            "currency": "USD",
+                            "enabled": true,
+                            "pricing": {
+                                "pricing_type": "anthropic",
+                                "tiered_pricing": [
+                                    {
+                                        "cache_creation_fees": {
+                                            "ttl_1h": "0.000010",
+                                            "ttl_5m": "0.00000625"
+                                        },
+                                        "cached_input_fee": "0.0000005",
+                                        "input_fee": "0.000005",
+                                        "output_fee": "0.000025",
+                                        "threshold": 0
+                                    },
+                                    {
+                                        "cache_creation_fees": {
+                                            "ttl_1h": "0.000010",
+                                            "ttl_5m": "0.00000625"
+                                        },
+                                        "cached_input_fee": "0.0000005",
+                                        "input_fee": "0.000010",
+                                        "output_fee": "0.0000375",
+                                        "threshold": 200000
+                                    }
+                                ]
+                            },
+                            "sent_model_name": "claude-opus-4-7",
+                            "supported_operations": [
+                                "ANTHROPIC_MESSAGES"
+                            ],
+                            "tool_call_pricing": [
+                                {
+                                    "fee": "0.01",
+                                    "name": "Web Search",
+                                    "note": "",
+                                    "unit": "\u6b21"
+                                }
+                            ]
+                        }
+                    ]
                 }
             ],
             "context_length": 1000000,
@@ -2445,6 +2603,62 @@
                     "deployer": "AIHUBMIX",
                     "edu_discount": "1.0000",
                     "effective_discount": "1",
+                    "model_name": "claude-sonnet-4-6",
+                    "protocol_configs": [
+                        {
+                            "api_type": "ANTHROPIC",
+                            "capabilities": [
+                                "IS_VISION",
+                                "FUNCTION_CALL",
+                                "MESSAGES_API"
+                            ],
+                            "currency": "USD",
+                            "enabled": true,
+                            "pricing": {
+                                "pricing_type": "anthropic",
+                                "tiered_pricing": [
+                                    {
+                                        "cache_creation_fees": {
+                                            "ttl_1h": "0.000006",
+                                            "ttl_5m": "0.00000375"
+                                        },
+                                        "cached_input_fee": "0.0000003",
+                                        "input_fee": "0.000003",
+                                        "output_fee": "0.000015",
+                                        "threshold": 0
+                                    },
+                                    {
+                                        "cache_creation_fees": {
+                                            "ttl_1h": "0.000006",
+                                            "ttl_5m": "0.00000375"
+                                        },
+                                        "cached_input_fee": "0.0000003",
+                                        "input_fee": "0.000006",
+                                        "output_fee": "0.0000225",
+                                        "threshold": 200000
+                                    }
+                                ]
+                            },
+                            "sent_model_name": "claude-sonnet-4-6",
+                            "supported_operations": [
+                                "ANTHROPIC_MESSAGES"
+                            ],
+                            "tool_call_pricing": [
+                                {
+                                    "fee": "0.01",
+                                    "name": "Web Search",
+                                    "note": "",
+                                    "unit": "\u6b21"
+                                }
+                            ]
+                        }
+                    ]
+                },
+                {
+                    "context_length": 1000000,
+                    "deployer": "TATU",
+                    "edu_discount": "0.5000",
+                    "effective_discount": "0.5000",
                     "model_name": "claude-sonnet-4-6",
                     "protocol_configs": [
                         {
@@ -5127,97 +5341,6 @@
                 },
                 {
                     "context_length": 1050000,
-                    "deployer": "CODING_YUNWU",
-                    "edu_discount": "0.1000",
-                    "effective_discount": "0.1000",
-                    "model_name": "gpt-5.4",
-                    "protocol_configs": [
-                        {
-                            "api_type": "OPENAI",
-                            "capabilities": [
-                                "IS_VISION",
-                                "COMPLETION",
-                                "FUNCTION_CALL",
-                                "RESPONSE"
-                            ],
-                            "currency": "USD",
-                            "enabled": true,
-                            "pricing": {
-                                "pricing_type": "openai",
-                                "tiered_pricing": [
-                                    {
-                                        "cache_creation_fee": "0.0000025",
-                                        "cached_input_fee": "0.00000025",
-                                        "explicit_cached_input_fee": "0.00000025",
-                                        "input_fee": "0.0000025",
-                                        "output_fee": "0.000015",
-                                        "threshold": 0
-                                    },
-                                    {
-                                        "cache_creation_fee": "0.0000050",
-                                        "cached_input_fee": "0.00000050",
-                                        "explicit_cached_input_fee": "0.00000050",
-                                        "input_fee": "0.0000050",
-                                        "output_fee": "0.0000225",
-                                        "threshold": 272000
-                                    }
-                                ]
-                            },
-                            "sent_model_name": "gpt-5.4",
-                            "supported_operations": [
-                                "OPENAI_CHAT_COMPLETIONS",
-                                "OPENAI_COMPLETIONS",
-                                "OPENAI_RESPONSES"
-                            ],
-                            "tool_call_pricing": [
-                                {
-                                    "fee": "0.01",
-                                    "name": "Web Search (GPT-5/O \u7cfb\u5217)",
-                                    "note": "",
-                                    "unit": "\u6b21"
-                                },
-                                {
-                                    "fee": "0.025",
-                                    "name": "Web Search (\u9ed8\u8ba4)",
-                                    "note": "",
-                                    "unit": "\u6b21"
-                                },
-                                {
-                                    "fee": "0.000030",
-                                    "name": "Image Generation Output (gpt-image-2)",
-                                    "note": "Responses image_generation \u5de5\u5177\u6309\u56fe\u7247\u8f93\u51fa token \u8ba1\u8d39",
-                                    "unit": "token"
-                                },
-                                {
-                                    "fee": "0.03",
-                                    "name": "Code Interpreter 1G",
-                                    "note": "",
-                                    "unit": "\u6b21"
-                                },
-                                {
-                                    "fee": "0.12",
-                                    "name": "Code Interpreter 4G",
-                                    "note": "",
-                                    "unit": "\u6b21"
-                                },
-                                {
-                                    "fee": "0.48",
-                                    "name": "Code Interpreter 16G",
-                                    "note": "",
-                                    "unit": "\u6b21"
-                                },
-                                {
-                                    "fee": "1.92",
-                                    "name": "Code Interpreter 64G",
-                                    "note": "",
-                                    "unit": "\u6b21"
-                                }
-                            ]
-                        }
-                    ]
-                },
-                {
-                    "context_length": 1050000,
                     "deployer": "AZUREOPENAI",
                     "edu_discount": "0.8500",
                     "effective_discount": "0.8500",
@@ -7214,6 +7337,52 @@
                 },
                 {
                     "context_length": 1000000,
+                    "deployer": "TATU",
+                    "edu_discount": "0.5000",
+                    "effective_discount": "0.5000",
+                    "model_name": "claude-opus-4-8",
+                    "protocol_configs": [
+                        {
+                            "api_type": "ANTHROPIC",
+                            "capabilities": [
+                                "IS_VISION",
+                                "FUNCTION_CALL",
+                                "MESSAGES_API"
+                            ],
+                            "currency": "USD",
+                            "enabled": true,
+                            "pricing": {
+                                "pricing_type": "anthropic",
+                                "tiered_pricing": [
+                                    {
+                                        "cache_creation_fees": {
+                                            "ttl_1h": "0.000010",
+                                            "ttl_5m": "0.00000625"
+                                        },
+                                        "cached_input_fee": "0.0000005",
+                                        "input_fee": "0.000005",
+                                        "output_fee": "0.000025",
+                                        "threshold": 0
+                                    }
+                                ]
+                            },
+                            "sent_model_name": "claude-opus-4-8",
+                            "supported_operations": [
+                                "ANTHROPIC_MESSAGES"
+                            ],
+                            "tool_call_pricing": [
+                                {
+                                    "fee": "0.01",
+                                    "name": "Web Search",
+                                    "note": "",
+                                    "unit": "\u6b21"
+                                }
+                            ]
+                        }
+                    ]
+                },
+                {
+                    "context_length": 1000000,
                     "deployer": "CODING_TATU",
                     "edu_discount": "0.4000",
                     "effective_discount": "0.4000",
@@ -7287,6 +7456,210 @@
                 }
             ],
             "provider": "ANTHROPIC",
+            "secondary_confirmation_required": false
+        },
+        {
+            "backend_model_list": [
+                {
+                    "context_length": 1000000,
+                    "deployer": "AIHUBMIX",
+                    "edu_discount": "1.0000",
+                    "effective_discount": "1",
+                    "model_name": "claude-sonnet-4-5",
+                    "protocol_configs": [
+                        {
+                            "api_type": "ANTHROPIC",
+                            "capabilities": [
+                                "IS_VISION",
+                                "FUNCTION_CALL",
+                                "MESSAGES_API"
+                            ],
+                            "currency": "USD",
+                            "enabled": true,
+                            "pricing": {
+                                "pricing_type": "anthropic",
+                                "tiered_pricing": [
+                                    {
+                                        "cache_creation_fees": {
+                                            "ttl_1h": "0.000006",
+                                            "ttl_5m": "0.00000375"
+                                        },
+                                        "cached_input_fee": "0.0000003",
+                                        "input_fee": "0.000003",
+                                        "output_fee": "0.000015",
+                                        "threshold": 0
+                                    },
+                                    {
+                                        "cache_creation_fees": {
+                                            "ttl_1h": "0.000006",
+                                            "ttl_5m": "0.00000375"
+                                        },
+                                        "cached_input_fee": "0.0000003",
+                                        "input_fee": "0.000006",
+                                        "output_fee": "0.0000225",
+                                        "threshold": 200000
+                                    }
+                                ]
+                            },
+                            "sent_model_name": "claude-sonnet-4-5",
+                            "supported_operations": [
+                                "ANTHROPIC_MESSAGES"
+                            ],
+                            "tool_call_pricing": [
+                                {
+                                    "fee": "0.01",
+                                    "name": "Web Search",
+                                    "note": "",
+                                    "unit": "\u6b21"
+                                }
+                            ]
+                        }
+                    ]
+                }
+            ],
+            "context_length": 1000000,
+            "default_user_rpm": 50,
+            "edu_auth_required": false,
+            "edu_discount": "1",
+            "effective_discount": "1",
+            "enabled": true,
+            "has_permission": true,
+            "is_available": true,
+            "is_user_edu_verified": true,
+            "mark": "Claude\u7684\"\u4e2d\u676f\"\u6a21\u578b\u3002",
+            "model_name": "claude-sonnet-4-5",
+            "model_total_rpm": 5000,
+            "model_type": "CHAT",
+            "protocols": [
+                {
+                    "api_type": "ANTHROPIC",
+                    "capabilities": [
+                        "IS_VISION",
+                        "MESSAGES_API",
+                        "FUNCTION_CALL"
+                    ],
+                    "is_available": true,
+                    "supported_operations": [
+                        "ANTHROPIC_MESSAGES"
+                    ]
+                }
+            ],
+            "provider": "ANTHROPIC",
+            "secondary_confirmation_required": false
+        },
+        {
+            "backend_model_list": [
+                {
+                    "context_length": 1000000,
+                    "deployer": "MINIMAX",
+                    "edu_discount": "1.0000",
+                    "effective_discount": "1",
+                    "model_name": "minimax-m3",
+                    "protocol_configs": [
+                        {
+                            "api_type": "OPENAI",
+                            "capabilities": [
+                                "COMPLETION",
+                                "FUNCTION_CALL",
+                                "IS_VISION"
+                            ],
+                            "currency": "CNY",
+                            "enabled": true,
+                            "pricing": {
+                                "pricing_type": "openai",
+                                "tiered_pricing": [
+                                    {
+                                        "cache_creation_fee": "0.0000042",
+                                        "cached_input_fee": "0.00000084",
+                                        "explicit_cached_input_fee": "0.0000042",
+                                        "input_fee": "0.0000042",
+                                        "output_fee": "0.0000168",
+                                        "threshold": 0
+                                    }
+                                ]
+                            },
+                            "sent_model_name": "MiniMax-M3",
+                            "supported_operations": [
+                                "OPENAI_CHAT_COMPLETIONS",
+                                "OPENAI_COMPLETIONS"
+                            ],
+                            "tool_call_pricing": [
+                                {
+                                    "fee": "0.01",
+                                    "name": "Web Search (GPT-5/O \u7cfb\u5217)",
+                                    "note": "",
+                                    "unit": "\u6b21"
+                                },
+                                {
+                                    "fee": "0.025",
+                                    "name": "Web Search (\u9ed8\u8ba4)",
+                                    "note": "",
+                                    "unit": "\u6b21"
+                                },
+                                {
+                                    "fee": "0.000030",
+                                    "name": "Image Generation Output (gpt-image-2)",
+                                    "note": "Responses image_generation \u5de5\u5177\u6309\u56fe\u7247\u8f93\u51fa token \u8ba1\u8d39",
+                                    "unit": "token"
+                                },
+                                {
+                                    "fee": "0.03",
+                                    "name": "Code Interpreter 1G",
+                                    "note": "",
+                                    "unit": "\u6b21"
+                                },
+                                {
+                                    "fee": "0.12",
+                                    "name": "Code Interpreter 4G",
+                                    "note": "",
+                                    "unit": "\u6b21"
+                                },
+                                {
+                                    "fee": "0.48",
+                                    "name": "Code Interpreter 16G",
+                                    "note": "",
+                                    "unit": "\u6b21"
+                                },
+                                {
+                                    "fee": "1.92",
+                                    "name": "Code Interpreter 64G",
+                                    "note": "",
+                                    "unit": "\u6b21"
+                                }
+                            ]
+                        }
+                    ]
+                }
+            ],
+            "context_length": 1000000,
+            "default_user_rpm": 10,
+            "edu_auth_required": false,
+            "edu_discount": "1",
+            "effective_discount": "1",
+            "enabled": true,
+            "has_permission": true,
+            "is_available": true,
+            "is_user_edu_verified": true,
+            "mark": "MiniMax-M3 \u662f MiniMax \u6700\u65b0\u7684\u524d\u6cbf\u8bed\u8a00\u6a21\u578b\uff0c\u652f\u6301\u539f\u751f\u591a\u6a21\u6001\u8f93\u5165\uff08\u56fe\u50cf/\u89c6\u9891/PDF\uff09\u3001\u767e\u4e07\u7ea7\u4e0a\u4e0b\u6587\u7a97\u53e3\uff0c\u5728\u7f16\u7a0b\u4e0e\u667a\u80fd\u4f53\u4efb\u52a1\u65b9\u9762\u8868\u73b0\u5353\u8d8a\u3002",
+            "model_name": "minimax-m3",
+            "model_total_rpm": 5000,
+            "model_type": "CHAT",
+            "protocols": [
+                {
+                    "api_type": "OPENAI",
+                    "capabilities": [
+                        "IS_VISION",
+                        "COMPLETION",
+                        "FUNCTION_CALL"
+                    ],
+                    "is_available": true,
+                    "supported_operations": [
+                        "OPENAI_CHAT_COMPLETIONS",
+                        "OPENAI_COMPLETIONS"
+                    ]
+                }
+            ],
+            "provider": "MINIMAX",
             "secondary_confirmation_required": false
         },
         {
@@ -7680,6 +8053,131 @@
             ],
             "provider": "ALIBABA",
             "secondary_confirmation_required": false
+        },
+        {
+            "backend_model_list": [
+                {
+                    "context_length": 1000000,
+                    "deployer": "AIHUBMIX",
+                    "edu_discount": "1.0000",
+                    "effective_discount": "1",
+                    "model_name": "claude-fable-5",
+                    "protocol_configs": [
+                        {
+                            "api_type": "ANTHROPIC",
+                            "capabilities": [
+                                "IS_VISION",
+                                "FUNCTION_CALL",
+                                "MESSAGES_API"
+                            ],
+                            "currency": "USD",
+                            "enabled": true,
+                            "pricing": {
+                                "pricing_type": "anthropic",
+                                "tiered_pricing": [
+                                    {
+                                        "cache_creation_fees": {
+                                            "ttl_1h": "0.00002",
+                                            "ttl_5m": "0.0000125"
+                                        },
+                                        "cached_input_fee": "0.000001",
+                                        "input_fee": "0.00001",
+                                        "output_fee": "0.00005",
+                                        "threshold": 0
+                                    }
+                                ]
+                            },
+                            "sent_model_name": "claude-fable-5",
+                            "supported_operations": [
+                                "ANTHROPIC_MESSAGES"
+                            ],
+                            "tool_call_pricing": [
+                                {
+                                    "fee": "0.01",
+                                    "name": "Web Search",
+                                    "note": "",
+                                    "unit": "\u6b21"
+                                }
+                            ]
+                        }
+                    ]
+                },
+                {
+                    "context_length": 1000000,
+                    "deployer": "CODING_TATU",
+                    "edu_discount": "0.4000",
+                    "effective_discount": "0.4000",
+                    "model_name": "claude-fable-5",
+                    "protocol_configs": [
+                        {
+                            "api_type": "ANTHROPIC",
+                            "capabilities": [
+                                "IS_VISION",
+                                "FUNCTION_CALL",
+                                "MESSAGES_API"
+                            ],
+                            "currency": "USD",
+                            "enabled": true,
+                            "pricing": {
+                                "pricing_type": "anthropic",
+                                "tiered_pricing": [
+                                    {
+                                        "cache_creation_fees": {
+                                            "ttl_1h": "0.00002",
+                                            "ttl_5m": "0.0000125"
+                                        },
+                                        "cached_input_fee": "0.0000010",
+                                        "input_fee": "0.000010",
+                                        "output_fee": "0.000050",
+                                        "threshold": 0
+                                    }
+                                ]
+                            },
+                            "sent_model_name": "claude-fable-5",
+                            "supported_operations": [
+                                "ANTHROPIC_MESSAGES"
+                            ],
+                            "tool_call_pricing": [
+                                {
+                                    "fee": "0.01",
+                                    "name": "Web Search",
+                                    "note": "",
+                                    "unit": "\u6b21"
+                                }
+                            ]
+                        }
+                    ]
+                }
+            ],
+            "context_length": 1000000,
+            "default_user_rpm": 1000,
+            "edu_auth_required": false,
+            "edu_discount": "0.4000",
+            "effective_discount": "0.4000",
+            "enabled": false,
+            "has_permission": true,
+            "is_available": true,
+            "is_user_edu_verified": true,
+            "mark": "Claude Fable 5 \u5728\u7f16\u7a0b\u3001\u77e5\u8bc6\u5de5\u4f5c\u3001\u89c6\u89c9\u548c\u8ba1\u7b97\u673a\u4f7f\u7528\u65b9\u9762\u5904\u4e8e\u5148\u8fdb\u6c34\u5e73\u3002",
+            "model_name": "claude-fable-5",
+            "model_total_rpm": 50000,
+            "model_type": "CHAT",
+            "protocols": [
+                {
+                    "api_type": "ANTHROPIC",
+                    "capabilities": [
+                        "IS_VISION",
+                        "MESSAGES_API",
+                        "FUNCTION_CALL"
+                    ],
+                    "is_available": true,
+                    "supported_operations": [
+                        "ANTHROPIC_MESSAGES"
+                    ]
+                }
+            ],
+            "provider": "ANTHROPIC",
+            "secondary_confirmation_required": false
         }
     ],
     "providers": [
@@ -7693,7 +8191,7 @@
             "provider": "ANTHROPIC",
             "secondary_confirmation_confirmed": true,
             "secondary_confirmation_content": "\u6839\u636e\u76f8\u5173\u6cd5\u5f8b\u6cd5\u89c4\uff0c\u672c\u53d1\u5e03\u65b9\u7684\u6a21\u578b\u4ec5\u9650\u884c\u4e1a\u7ec4\u7ec7\u3001\u4f01\u4e1a\u3001\u6559\u80b2\u548c\u79d1\u7814\u673a\u6784\u3001\u516c\u5171\u6587\u5316\u673a\u6784\u3001\u6709\u5173\u4e13\u4e1a\u673a\u6784\u7b49\u7814\u53d1\u3001\u5e94\u7528\u751f\u6210\u5f0f\u4eba\u5de5\u667a\u80fd\u6280\u672f\u3002\u8bf7\u786e\u8ba4\u5c5e\u4e8e\u4e0a\u8ff0\u573a\u666f\uff0c\u4e14\u4e0d\u5f97\u5411\u5883\u5185\u516c\u4f17\u63d0\u4f9b\u751f\u6210\u5f0f\u4eba\u5de5\u667a\u80fd\u670d\u52a1\u3002",
-            "secondary_confirmation_required": true
+            "secondary_confirmation_required": false
         },
         {
             "provider": "DEEPSEEK",
@@ -7705,7 +8203,7 @@
             "provider": "GOOGLE",
             "secondary_confirmation_confirmed": true,
             "secondary_confirmation_content": "\u6839\u636e\u76f8\u5173\u6cd5\u5f8b\u6cd5\u89c4\uff0c\u672c\u53d1\u5e03\u65b9\u7684\u6a21\u578b\u4ec5\u9650\u884c\u4e1a\u7ec4\u7ec7\u3001\u4f01\u4e1a\u3001\u6559\u80b2\u548c\u79d1\u7814\u673a\u6784\u3001\u516c\u5171\u6587\u5316\u673a\u6784\u3001\u6709\u5173\u4e13\u4e1a\u673a\u6784\u7b49\u7814\u53d1\u3001\u5e94\u7528\u751f\u6210\u5f0f\u4eba\u5de5\u667a\u80fd\u6280\u672f\u3002\u8bf7\u786e\u8ba4\u5c5e\u4e8e\u4e0a\u8ff0\u573a\u666f\uff0c\u4e14\u4e0d\u5f97\u5411\u5883\u5185\u516c\u4f17\u63d0\u4f9b\u751f\u6210\u5f0f\u4eba\u5de5\u667a\u80fd\u670d\u52a1\u3002",
-            "secondary_confirmation_required": true
+            "secondary_confirmation_required": false
         },
         {
             "provider": "KIMI",
@@ -7723,7 +8221,7 @@
             "provider": "OPENAI",
             "secondary_confirmation_confirmed": true,
             "secondary_confirmation_content": "\u6839\u636e\u76f8\u5173\u6cd5\u5f8b\u6cd5\u89c4\uff0c\u672c\u53d1\u5e03\u65b9\u7684\u6a21\u578b\u4ec5\u9650\u884c\u4e1a\u7ec4\u7ec7\u3001\u4f01\u4e1a\u3001\u6559\u80b2\u548c\u79d1\u7814\u673a\u6784\u3001\u516c\u5171\u6587\u5316\u673a\u6784\u3001\u6709\u5173\u4e13\u4e1a\u673a\u6784\u7b49\u7814\u53d1\u3001\u5e94\u7528\u751f\u6210\u5f0f\u4eba\u5de5\u667a\u80fd\u6280\u672f\u3002\u8bf7\u786e\u8ba4\u5c5e\u4e8e\u4e0a\u8ff0\u573a\u666f\uff0c\u4e14\u4e0d\u5f97\u5411\u5883\u5185\u516c\u4f17\u63d0\u4f9b\u751f\u6210\u5f0f\u4eba\u5de5\u667a\u80fd\u670d\u52a1\u3002",
-            "secondary_confirmation_required": true
+            "secondary_confirmation_required": false
         },
         {
             "provider": "XIAOMI",
