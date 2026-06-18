@@ -1,6 +1,9 @@
 import fs from "fs/promises"
 import path from "path"
 import { Usage } from "./usage"
+
+/** Per-process counter for unique state.json temp-file names (see usage.ts tmpSeq, #1). */
+let stateTmpSeq = 0
 import { type CuratorConfig, DEFAULT_CURATOR_CONFIG } from "./constants"
 import { ConfigMarkdown } from "../../config/markdown"
 
@@ -41,7 +44,7 @@ export namespace Curator {
   export async function saveState(root: string, state: CuratorState): Promise<void> {
     const dir = curatorDir(root)
     await fs.mkdir(dir, { recursive: true })
-    const tmp = path.join(dir, `.state.${process.pid}.tmp`)
+    const tmp = path.join(dir, `.state.${process.pid}.${stateTmpSeq++}.tmp`)
     await fs.writeFile(tmp, JSON.stringify(state, null, 2), "utf-8")
     await fs.rename(tmp, stateFile(root))
   }
@@ -197,7 +200,7 @@ export namespace Curator {
         () => false,
       )
       if (live) continue
-      if (await Usage.hasArchivedCopy(root, rec.projectId, rec.name)) {
+      if (await Usage.hasArchivedCopy(root, rec)) {
         await Usage.setState(root, key, "archived", now)
         counts.healed++
       } else {

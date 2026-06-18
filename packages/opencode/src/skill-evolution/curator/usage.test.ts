@@ -17,11 +17,12 @@ function exists(p: string): Promise<boolean> {
 }
 
 /** Create an in-scope skill dir <root>/<projectId>/skills/<name>/SKILL.md, return SKILL.md path. */
-async function makeSkill(root: string, projectId: string, name: string): Promise<string> {
+async function makeSkill(root: string, projectId: string, name: string, id?: string): Promise<string> {
   const dir = path.join(root, projectId, "skills", name)
   await fs.mkdir(dir, { recursive: true })
   const loc = path.join(dir, "SKILL.md")
-  await fs.writeFile(loc, `---\nname: ${name}\ndescription: test\n---\nBody\n`, "utf-8")
+  const idLine = id ? `id: ${JSON.stringify(id)}\n` : ""
+  await fs.writeFile(loc, `---\n${idLine}name: ${name}\ndescription: test\n---\nBody\n`, "utf-8")
   return loc
 }
 
@@ -264,6 +265,85 @@ describe("Usage.restoreSkill", () => {
       const data = await Usage.load(tmp.path)
       expect(data["proj1/foo"]!.state).toBe("active")
       expect(data["proj1/foo"]!.archived_at).toBeNull()
+    } finally {
+      await tmp.cleanup()
+    }
+  })
+})
+
+describe("Usage archive identity (#2: keyed by id, not name)", () => {
+  // 两个同名 foo、不同 id：归档后必须落到各自 id 命名的目录，互不覆盖。
+  // bug 态(按名字归档)：第一个进 archive/foo，第二个进 archive/foo-<时间戳>，
+  // 所以 archive/skl_A 不存在 → 红。修复后(按 id)：archive/skl_A、archive/skl_B 都在 → 绿。
+  test("same-name skills with different ids archive into separate id-named dirs (no overwrite)", async () => {
+    const tmp = await makeTmp()
+    try {
+      const locA = await makeSkill(tmp.path, "proj1", "foo", "skl_A")
+      await Usage.bumpUse(tmp.path, locA, undefined, undefined, "skl_A")
+      expect(await Usage.archiveSkill(tmp.path, "proj1/skl_A")).toBe(true)
+
+      // recreate "foo" at the same path with a different id, then archive it too
+      const locB = await makeSkill(tmp.path, "proj1", "foo", "skl_B")
+      await Usage.bumpUse(tmp.path, locB, undefined, undefined, "skl_B")
+      expect(await Usage.archiveSkill(tmp.path, "proj1/skl_B")).toBe(true)
+
+      // both archived copies coexist, each under its own id
+      expect(await exists(path.join(tmp.path, "proj1", "archive", "skl_A", "SKILL.md"))).toBe(true)
+      expect(await exists(path.join(tmp.path, "proj1", "archive", "skl_B", "SKILL.md"))).toBe(true)
+    } finally {
+      await tmp.cleanup()
+    }
+  })
+
+  // 孤儿判定接缝：A(id skl_A)已归档；B(id skl_B、同名 foo)从没归档过(真孤儿)。
+  // hasArchivedCopy 必须按 B 自己的 id 查 → false；bug 态按名字查会看到 A 的副本 → true(红)。
+  test("hasArchivedCopy matches by id, so a reused name does not mask a true orphan", async () => {
+    const tmp = await makeTmp()
+    try {
+      const locA = await makeSkill(tmp.path, "proj1", "foo", "skl_A")
+      await Usage.bumpUse(tmp.path, locA, undefined, undefined, "skl_A")
+      await Usage.archiveSkill(tmp.path, "proj1/skl_A")
+
+      // A has an archived copy; B (different id, same name) never did
+      expect(await Usage.hasArchivedCopy(tmp.path, { projectId: "proj1", id: "skl_A", name: "foo" })).toBe(true)
+      expect(await Usage.hasArchivedCopy(tmp.path, { projectId: "proj1", id: "skl_B", name: "foo" })).toBe(false)
+    } finally {
+      await tmp.cleanup()
+    }
+  })
+
+  // 恢复接缝：id 命名归档后，restoreSkill 必须按 id 找回(否则只改了归档、没改恢复 → 红)。
+  test("restoreSkill finds the id-named archive dir and moves it back", async () => {
+    const tmp = await makeTmp()
+    try {
+      const loc = await makeSkill(tmp.path, "proj1", "foo", "skl_A")
+      await Usage.bumpUse(tmp.path, loc, undefined, undefined, "skl_A")
+      await Usage.archiveSkill(tmp.path, "proj1/skl_A")
+      expect(await exists(loc)).toBe(false)
+
+      expect(await Usage.restoreSkill(tmp.path, "proj1/skl_A")).toBe(true)
+      expect(await exists(loc)).toBe(true)
+      expect((await Usage.load(tmp.path))["proj1/skl_A"]!.state).toBe("active")
+    } finally {
+      await tmp.cleanup()
+    }
+  })
+})
+
+describe("Usage.save (#1: temp file must not collide under concurrency)", () => {
+  // 并发存档不应把账本写坏。注意:本仓库 #3(丢更新)未修,所以不能断言"所有记录都在"
+  // (并发 bumpUse 会互相覆盖记录数);这里只验"文件没被写花"——load 仍是合法 JSON、非空。
+  // 该测试在修复后稳定通过;bug 态(临时文件名写死)能否变红取决于时序,不保证必红。
+  test("concurrent writes leave the ledger as valid, non-empty JSON", async () => {
+    const tmp = await makeTmp()
+    try {
+      const locs = await Promise.all(
+        Array.from({ length: 25 }, (_, i) => makeSkill(tmp.path, "proj1", `s${i}`)),
+      )
+      await Promise.all(locs.map((loc) => Usage.bumpUse(tmp.path, loc)))
+
+      const data = await Usage.load(tmp.path)
+      expect(Object.keys(data).length).toBeGreaterThan(0)
     } finally {
       await tmp.cleanup()
     }

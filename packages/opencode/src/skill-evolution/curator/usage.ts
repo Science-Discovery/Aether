@@ -3,6 +3,15 @@ import os from "os"
 import path from "path"
 
 /**
+ * Per-process monotonic counter for temp-file names. Combined with process.pid +
+ * hostname it makes every save's temp path unique, so two concurrent saves in the
+ * SAME process never write to the same temp file and corrupt it (#1). A counter
+ * (not Date.now/random) is enough: it's incremented synchronously, so concurrent
+ * callers always get distinct values.
+ */
+let tmpSeq = 0
+
+/**
  * A single skill-use coordinate. Pointer only — the full session lives in the
  * session DB and is fetched back by `session_id` when evaluation is needed.
  * No `projectId`: the ledger key already scopes a record to one project. See
@@ -184,7 +193,7 @@ export namespace Usage {
   async function save(root: string, data: Record<string, UsageRecord>): Promise<void> {
     const dir = curatorDir(root)
     await fs.mkdir(dir, { recursive: true })
-    const tmp = path.join(dir, `.usage.${process.pid}.${os.hostname()}.tmp`)
+    const tmp = path.join(dir, `.usage.${process.pid}.${os.hostname()}.${tmpSeq++}.tmp`)
     await fs.writeFile(tmp, JSON.stringify(data, null, 2), "utf-8")
     await fs.rename(tmp, usageFile(root))
   }
@@ -198,6 +207,19 @@ export namespace Usage {
     return path.join(root, projectId, "archive")
   }
 
+  /**
+   * The archive directory name for a record: its stable `id` when present, else the
+   * skill `name` (legacy id-less skills). Keying the on-disk archive by id — the SAME
+   * identity the ledger keys by — means two same-named skills with different ids land
+   * in different archive dirs and can never overwrite or mask each other. This closes
+   * the gap where the ledger went id-keyed but the archive layout stayed name-keyed
+   * (#2), and removes the same-name collision the timestamp-suffix fallback papered
+   * over (#6) for any skill that has an id. See SKILL_IDENTITY_DESIGN.md.
+   */
+  function archiveKey(rec: Pick<UsageRecord, "id" | "name">): string {
+    return rec.id ?? rec.name
+  }
+
   async function pathExists(p: string): Promise<boolean> {
     return fs.access(p).then(
       () => true,
@@ -206,14 +228,18 @@ export namespace Usage {
   }
 
   /**
-   * Whether an archived copy of a skill exists at `<root>/<projectId>/archive/<name>/`.
+   * Whether an archived copy of THIS record exists at `<root>/<projectId>/archive/<id-or-name>/`.
    * Used by orphan cleanup to tell a true orphan (skill deleted out-of-band) from a
    * fake one (record state clobbered back from `archived` to `active` by a concurrent
-   * write while the directory was already moved to archive/). Exact-match only: a
-   * timestamp-suffixed copy from an archive name-collision is not detected.
+   * write while the directory was already moved to archive/). Keyed by the record's id
+   * (via archiveKey), so a different skill that merely REUSES the same name is not
+   * mistaken for having an archived copy (#2).
    */
-  export async function hasArchivedCopy(root: string, projectId: string, name: string): Promise<boolean> {
-    return pathExists(path.join(archiveRoot(root, projectId), name))
+  export async function hasArchivedCopy(
+    root: string,
+    rec: Pick<UsageRecord, "projectId" | "id" | "name">,
+  ): Promise<boolean> {
+    return pathExists(path.join(archiveRoot(root, rec.projectId), archiveKey(rec)))
   }
 
   /**
@@ -227,9 +253,12 @@ export namespace Usage {
     if (!(await pathExists(rec.location))) return false
     const destRoot = archiveRoot(root, rec.projectId)
     await fs.mkdir(destRoot, { recursive: true })
-    let dest = path.join(destRoot, rec.name)
+    const base = archiveKey(rec)
+    let dest = path.join(destRoot, base)
     if (await pathExists(dest)) {
-      dest = path.join(destRoot, `${rec.name}-${now.toISOString().replace(/[:.]/g, "-")}`)
+      // For id-keyed skills `base` is unique so this branch is effectively dead; it
+      // only guards legacy id-less name collisions (and a stray leftover dir).
+      dest = path.join(destRoot, `${base}-${now.toISOString().replace(/[:.]/g, "-")}`)
     }
     await fs.rename(rec.location, dest)
     return true
@@ -298,7 +327,7 @@ export namespace Usage {
     const rec = data[key]
     if (!rec) return false
 
-    const archived = path.join(archiveRoot(root, rec.projectId), rec.name)
+    const archived = path.join(archiveRoot(root, rec.projectId), archiveKey(rec))
     if (!(await pathExists(archived))) return false
     if (await pathExists(rec.location)) return false // don't overwrite a live skill
 
