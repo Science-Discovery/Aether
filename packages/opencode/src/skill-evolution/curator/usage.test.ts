@@ -657,3 +657,61 @@ describe("Usage born_at_project_total (write→read seam)", () => {
     }
   })
 })
+
+// 账本备份 + 自愈 — usage.json 太重要, 损坏不能让历史归零 (#4)
+describe("Usage backup + self-heal", () => {
+  // 接缝: 主文件坏 → load 必须从 .bak 顶上, 而不是返回 {} 把历史抹掉, 并就地自愈主文件。
+  test("load() restores from .bak when the primary file is corrupt", async () => {
+    const tmp = await makeTmp()
+    try {
+      const loc = await makeSkill(tmp.path, "proj1", "foo")
+      await Usage.bumpUse(tmp.path, loc) // 写出一份好账本
+      const usageFile = path.join(tmp.path, "curator", "usage.json")
+      const bakFile = usageFile + ".bak"
+      await fs.copyFile(usageFile, bakFile) // 留一份好备份
+      await fs.writeFile(usageFile, "{ not valid json", "utf-8") // 主文件损坏
+
+      const data = await Usage.load(tmp.path)
+      expect(data["proj1/foo"]).toBeDefined() // 从 .bak 恢复, 不是 {}
+      expect(data["proj1/foo"]!.use_count).toBe(1)
+
+      // 主文件已被自愈成合法 JSON: 直接读盘也能拿到好数据
+      const onDisk = JSON.parse(await fs.readFile(usageFile, "utf-8"))
+      expect(onDisk["proj1/foo"].use_count).toBe(1)
+    } finally {
+      await tmp.cleanup()
+    }
+  })
+
+  // 边界: 主文件不存在 (正常首次运行) 且无备份 → 仍返回 {}, 不去碰备份。
+  test("load() returns {} when primary is missing and there is no .bak", async () => {
+    const tmp = await makeTmp()
+    try {
+      const data = await Usage.load(tmp.path)
+      expect(data).toEqual({})
+    } finally {
+      await tmp.cleanup()
+    }
+  })
+
+  // 接缝: 备份只存"验证过是好的"数据 — 主文件损坏时绝不拿坏数据覆盖好备份。
+  test("backupLedger writes .bak from a good ledger and never overwrites it with a corrupt primary", async () => {
+    const tmp = await makeTmp()
+    try {
+      const loc = await makeSkill(tmp.path, "proj1", "foo")
+      await Usage.bumpUse(tmp.path, loc) // 好账本, use_count 1
+      const usageFile = path.join(tmp.path, "curator", "usage.json")
+      const bakFile = usageFile + ".bak"
+
+      await Usage.backupLedger(tmp.path)
+      expect(await exists(bakFile)).toBe(true)
+      expect(JSON.parse(await fs.readFile(bakFile, "utf-8"))["proj1/foo"].use_count).toBe(1)
+
+      await fs.writeFile(usageFile, "garbage", "utf-8") // 主文件损坏
+      await Usage.backupLedger(tmp.path) // 必须跳过, 不能覆盖好备份
+      expect(JSON.parse(await fs.readFile(bakFile, "utf-8"))["proj1/foo"].use_count).toBe(1)
+    } finally {
+      await tmp.cleanup()
+    }
+  })
+})

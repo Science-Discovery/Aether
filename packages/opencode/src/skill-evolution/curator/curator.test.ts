@@ -354,6 +354,22 @@ describe("Curator.maybeRun", () => {
       await tmp.cleanup()
     }
   })
+
+  // 到期跑完一轮 → 落出一份 usage.json.bak 备份 (#4)
+  test("a due run leaves a usage.json.bak backup", async () => {
+    const tmp = await makeTmp()
+    try {
+      await makeSkill(tmp.path, "proj1", "foo", 100 * DAY)
+      await Curator.saveState(tmp.path, { lastRunAt: ago(8 * DAY), paused: false, runCount: 1 })
+
+      await Curator.maybeRun(tmp.path, { now: NOW })
+
+      const bakFile = path.join(tmp.path, "curator", "usage.json.bak")
+      expect(await exists(bakFile)).toBe(true)
+    } finally {
+      await tmp.cleanup()
+    }
+  })
 })
 
 // 总开关接力 — 写(config 里的 curator_enabled)→ 读(getCuratorEnabled)→ 跑决定(maybeRun 的真实搬文件结果)

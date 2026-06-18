@@ -109,6 +109,41 @@ export namespace Usage {
     return path.join(curatorDir(root), "usage.json")
   }
 
+  /** Last-known-good backup of the ledger; written once per curator run. See #4. */
+  function bakFile(root: string): string {
+    return usageFile(root) + ".bak"
+  }
+
+  /**
+   * Parse + sanitize raw ledger JSON into clean records. Returns null when the text
+   * isn't a usable ledger object (invalid JSON / not an object / array) so callers can
+   * tell "corrupt" apart from "valid but empty {}". Backfills legacy-missing fields.
+   */
+  function parseLedger(raw: string): Record<string, UsageRecord> | null {
+    let data: unknown
+    try {
+      data = JSON.parse(raw)
+    } catch {
+      return null
+    }
+    if (!data || typeof data !== "object" || Array.isArray(data)) return null
+    const clean: Record<string, UsageRecord> = {}
+    for (const [k, v] of Object.entries(data)) {
+      if (v && typeof v === "object") {
+        const rec = v as UsageRecord
+        // Legacy records predate recent_uses; backfill so .push never throws.
+        if (!Array.isArray(rec.recent_uses)) rec.recent_uses = []
+        // Legacy records predate born_at_project_total; backfill to 0
+        // (= "present from the start", see RELATIVE_USAGE_DESIGN.md D4).
+        if (typeof rec.born_at_project_total !== "number") rec.born_at_project_total = 0
+        // Legacy records predate `id`; backfill to null (= key by name, not id).
+        if (typeof rec.id !== "string") rec.id = null
+        clean[k] = rec
+      }
+    }
+    return clean
+  }
+
   /**
    * Resolve a skill location to its ledger key + scope.
    * Returns null when the location is NOT under `<root>/<projectId>/skills/<name>`
@@ -162,31 +197,27 @@ export namespace Usage {
     return rec
   }
 
-  /** Read the whole ledger. Returns {} on missing/corrupt (defensive, never throws). */
+  /**
+   * Read the whole ledger. Never throws (defensive).
+   *  - primary missing (normal first run) → {} (don't touch any backup).
+   *  - primary present + valid → parsed records.
+   *  - primary present but CORRUPT → fall back to the last-known-good `.bak` so one bad
+   *    file can't wipe all usage history (#4); self-heal the primary from it so the next
+   *    save doesn't overwrite good data with {}. Both bad → {}.
+   */
   export async function load(root: string): Promise<Record<string, UsageRecord>> {
     const raw = await fs.readFile(usageFile(root), "utf-8").catch(() => null)
     if (raw === null) return {}
-    try {
-      const data = JSON.parse(raw)
-      if (!data || typeof data !== "object" || Array.isArray(data)) return {}
-      const clean: Record<string, UsageRecord> = {}
-      for (const [k, v] of Object.entries(data)) {
-        if (v && typeof v === "object") {
-          const rec = v as UsageRecord
-          // Legacy records predate recent_uses; backfill so .push never throws.
-          if (!Array.isArray(rec.recent_uses)) rec.recent_uses = []
-          // Legacy records predate born_at_project_total; backfill to 0
-          // (= "present from the start", see RELATIVE_USAGE_DESIGN.md D4).
-          if (typeof rec.born_at_project_total !== "number") rec.born_at_project_total = 0
-          // Legacy records predate `id`; backfill to null (= key by name, not id).
-          if (typeof rec.id !== "string") rec.id = null
-          clean[k] = rec
-        }
-      }
-      return clean
-    } catch {
-      return {}
+    const parsed = parseLedger(raw)
+    if (parsed) return parsed
+    // Primary exists but is corrupt — try the backup.
+    const bakRaw = await fs.readFile(bakFile(root), "utf-8").catch(() => null)
+    const fromBak = bakRaw === null ? null : parseLedger(bakRaw)
+    if (fromBak) {
+      await save(root, fromBak).catch(() => {}) // self-heal the primary; best-effort
+      return fromBak
     }
+    return {}
   }
 
   /** Write the ledger atomically (temp file + rename). Best-effort. */
@@ -196,6 +227,26 @@ export namespace Usage {
     const tmp = path.join(dir, `.usage.${process.pid}.${os.hostname()}.${tmpSeq++}.tmp`)
     await fs.writeFile(tmp, JSON.stringify(data, null, 2), "utf-8")
     await fs.rename(tmp, usageFile(root))
+  }
+
+  /**
+   * Snapshot the ledger to `usage.json.bak`, but ONLY when the primary parses cleanly —
+   * never copy a corrupt primary over a good backup (#4). Called once per curator run
+   * (the weekly maintenance moment). Best-effort, never throws.
+   */
+  export async function backupLedger(root: string): Promise<void> {
+    try {
+      const raw = await fs.readFile(usageFile(root), "utf-8").catch(() => null)
+      if (raw === null) return // nothing to back up yet
+      if (!parseLedger(raw)) return // corrupt primary → keep the existing good backup
+      const dir = curatorDir(root)
+      await fs.mkdir(dir, { recursive: true })
+      const tmp = path.join(dir, `.usage.bak.${process.pid}.${os.hostname()}.${tmpSeq++}.tmp`)
+      await fs.writeFile(tmp, raw, "utf-8")
+      await fs.rename(tmp, bakFile(root))
+    } catch {
+      // Best-effort: a backup failure must never break anything.
+    }
   }
 
   /**
@@ -367,6 +418,13 @@ export namespace Usage {
         // to archive/, so reviving in place would orphan that copy (and a later out-of-band
         // delete could resurrect its stale content). An archived slot is left as-is; recovery
         // goes through restoreSkill, which moves the copy back. See RELATIVE_USAGE_DESIGN.md.
+        //
+        // RARE in practice: a re-created skill gets a FRESH id (newSkillId on create), so it
+        // keys to a new slot and never lands on this tombstone. This branch only fires when the
+        // exact same id (or a legacy id-less name) returns after being tombstoned — e.g. a
+        // git/backup restore or rollback. KNOWN LIMITATION: use_count is carried forward (to
+        // keep the per-project denominator monotonic) yet born is re-stamped, so the prior
+        // life's calls inflate the new life's share slightly — acceptable given the rarity.
         rec.born_at_project_total = projectUseCount(data, scope.projectId)
         rec.state = "active"
         rec.archived_at = null

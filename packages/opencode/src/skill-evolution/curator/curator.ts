@@ -228,6 +228,9 @@ export namespace Curator {
       const counts = await applyAutomaticTransitions(root, { now, config: opts.config })
       const state = await loadState(root)
       await saveState(root, { ...state, lastRunAt: now.toISOString(), runCount: state.runCount + 1 })
+      // Snapshot the now-validated ledger to usage.json.bak (weekly maintenance moment).
+      // If usage.json is ever corrupted, load() self-heals from this backup (#4).
+      await Usage.backupLedger(root)
       return counts
     } catch {
       // Best-effort: a curator failure must never break the session.
