@@ -33,6 +33,12 @@ export namespace Skill {
   export const Info = z.object({
     name: z.string(),
     description: z.string(),
+    /**
+     * Stable unique skill id from frontmatter (`skl_<ulid>`); absent on legacy skills.
+     * `.catch(undefined)` so a non-string id (e.g. an external skill's `id: 123`) is
+     * IGNORED rather than failing the whole skill's parse (which would drop the skill).
+     */
+    id: z.string().optional().catch(undefined),
     location: z.string(),
     content: z.string(),
   })
@@ -243,7 +249,7 @@ export namespace Skill {
 
     if (!md) return
 
-    const parsed = Info.pick({ name: true, description: true }).safeParse(md.data)
+    const parsed = Info.pick({ name: true, description: true, id: true }).safeParse(md.data)
     if (!parsed.success) return
 
     if (state.skills[parsed.data.name]) {
@@ -258,6 +264,7 @@ export namespace Skill {
     state.skills[parsed.data.name] = {
       name: parsed.data.name,
       description: parsed.data.description,
+      id: parsed.data.id,
       location: match,
       content: md.content,
     }

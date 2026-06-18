@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test"
 import fs from "fs/promises"
 import os from "os"
 import path from "path"
-import { Usage } from "./usage"
+import { Usage, type UsageRecord } from "./usage"
 
 async function makeTmp(): Promise<{ path: string; cleanup: () => Promise<void> }> {
   const p = await fs.mkdtemp(path.join(os.tmpdir(), "curator-usage-test-"))
@@ -23,6 +23,24 @@ async function makeSkill(root: string, projectId: string, name: string): Promise
   const loc = path.join(dir, "SKILL.md")
   await fs.writeFile(loc, `---\nname: ${name}\ndescription: test\n---\nBody\n`, "utf-8")
   return loc
+}
+
+/** Build a ledger record for direct projectUseCount unit tests. */
+function rec(projectId: string, name: string, over: Partial<UsageRecord> = {}): UsageRecord {
+  return {
+    projectId,
+    id: null,
+    name,
+    location: `/x/${projectId}/skills/${name}`,
+    use_count: 0,
+    born_at_project_total: 0,
+    last_used_at: null,
+    recent_uses: [],
+    state: "active",
+    pinned: false,
+    archived_at: null,
+    ...over,
+  }
 }
 
 describe("Usage.bumpUse", () => {
@@ -303,6 +321,257 @@ describe("Usage.load", () => {
     try {
       const data = await Usage.load(tmp.path)
       expect(data).toEqual({})
+    } finally {
+      await tmp.cleanup()
+    }
+  })
+})
+
+// SKILL_IDENTITY_DESIGN.md 里程碑5/6 (根因修复): 账本按 id 认人, 同名先后两个 skill 互不撞。
+describe("Usage.bumpUse keys by id (same-name skills don't collide)", () => {
+  // C1/B2: 旧 foo 归档后, 同名新 foo (不同 id) 拿到自己独立的账 —— 不撞、旧账冻结、不污染分母。
+  test("a re-created same-name skill with a different id gets its own record, not the archived one's", async () => {
+    const tmp = await makeTmp()
+    try {
+      const loc = await makeSkill(tmp.path, "proj1", "foo")
+      // 旧 foo (id=skl_A): 用 2 次 → 归档(按它的 id key)
+      await Usage.bumpUse(tmp.path, loc, undefined, undefined, "skl_A")
+      await Usage.bumpUse(tmp.path, loc, undefined, undefined, "skl_A")
+      await Usage.setState(tmp.path, "proj1/skl_A", "archived")
+      // 新 foo (id=skl_B) 在同名位置被用
+      await Usage.bumpUse(tmp.path, loc, undefined, undefined, "skl_B")
+
+      const data = await Usage.load(tmp.path)
+      expect(data["proj1/skl_A"]).toBeDefined() // 两条独立的账
+      expect(data["proj1/skl_B"]).toBeDefined()
+      expect(data["proj1/skl_A"]!.state).toBe("archived") // 旧的仍归档
+      expect(data["proj1/skl_A"]!.use_count).toBe(2) // 旧的次数冻结, 没被新 foo 顶高(不污染分母)
+      expect(data["proj1/skl_B"]!.state).toBe("active") // 新的独立活跃
+      expect(data["proj1/skl_B"]!.use_count).toBe(1)
+      expect(data["proj1/skl_B"]!.id).toBe("skl_B")
+    } finally {
+      await tmp.cleanup()
+    }
+  })
+
+  // bug③: 同一个 id 从改名后的新目录加载 → 刷新 rec.location, 否则 curator 按旧路径误判'目录没了'而抖动
+  test("refreshes location when the same id is loaded from a renamed directory", async () => {
+    const tmp = await makeTmp()
+    try {
+      const fooLoc = await makeSkill(tmp.path, "proj1", "foo")
+      await Usage.bumpUse(tmp.path, fooLoc, undefined, undefined, "skl_x")
+      let data = await Usage.load(tmp.path)
+      expect(data["proj1/skl_x"]!.location).toBe(path.join(tmp.path, "proj1", "skills", "foo"))
+
+      // 文件夹改名 foo→bar (id 仍 skl_x), 从新路径加载
+      const barLoc = await makeSkill(tmp.path, "proj1", "bar")
+      await Usage.bumpUse(tmp.path, barLoc, undefined, undefined, "skl_x")
+      data = await Usage.load(tmp.path)
+      expect(data["proj1/skl_x"]!.location).toBe(path.join(tmp.path, "proj1", "skills", "bar")) // 刷新成当前路径
+    } finally {
+      await tmp.cleanup()
+    }
+  })
+
+  // 兼容: 不传 id(老 skill)→ 仍按名字建 key, 记录 id 字段为 null
+  test("falls back to name-keying when no id is given; record id is null", async () => {
+    const tmp = await makeTmp()
+    try {
+      const loc = await makeSkill(tmp.path, "proj1", "bar")
+      await Usage.bumpUse(tmp.path, loc) // 无 id
+      const data = await Usage.load(tmp.path)
+      expect(data["proj1/bar"]).toBeDefined()
+      expect(data["proj1/bar"]!.id).toBeNull()
+    } finally {
+      await tmp.cleanup()
+    }
+  })
+
+  // 兼容: 老账本记录无 id 字段 → load 回填 null
+  test("load backfills a missing id to null on legacy records", async () => {
+    const tmp = await makeTmp()
+    try {
+      const dir = path.join(tmp.path, "curator")
+      await fs.mkdir(dir, { recursive: true })
+      await fs.writeFile(
+        path.join(dir, "usage.json"),
+        JSON.stringify({
+          "proj1/foo": {
+            projectId: "proj1", name: "foo", location: "/x/proj1/skills/foo",
+            use_count: 3, born_at_project_total: 0, last_used_at: null, recent_uses: [],
+            state: "active", pinned: false, archived_at: null,
+          },
+        }),
+        "utf-8",
+      )
+      const data = await Usage.load(tmp.path)
+      expect(data["proj1/foo"]!.id).toBeNull()
+    } finally {
+      await tmp.cleanup()
+    }
+  })
+})
+
+describe("Usage.projectUseCount", () => {
+  // C1: 同一 projectId 下 use_count 求和 (含 archived)，别项目不计入；无记录 → 0
+  test("sums same-project use_count including archived, excludes other projects", () => {
+    const data = {
+      "p1/a": rec("p1", "a", { use_count: 3 }),
+      "p1/b": rec("p1", "b", { use_count: 2, state: "archived" }), // archived 的历史调用仍计入 (D6)
+      "p2/x": rec("p2", "x", { use_count: 9 }), // 别项目 — 不进 p1 分母
+    }
+    expect(Usage.projectUseCount(data, "p1")).toBe(5)
+    expect(Usage.projectUseCount(data, "p2")).toBe(9)
+    expect(Usage.projectUseCount(data, "p3")).toBe(0) // 无该项目记录 → 0 (边界)
+  })
+})
+
+describe("Usage born_at_project_total (write→read seam)", () => {
+  // B2 (写读接缝): 真跑 累加同项目兄弟 → 再创建新 skill → load 读回；不手填出生水位。
+  // born 必须 = 创建那刻"本项目"已累计的调用数，且不含别项目的调用。
+  test("stamps born = same-project total at creation via bumpUse (not other projects)", async () => {
+    const tmp = await makeTmp()
+    try {
+      const a = await makeSkill(tmp.path, "proj1", "a")
+      const b = await makeSkill(tmp.path, "proj1", "b")
+      const x = await makeSkill(tmp.path, "proj2", "x")
+      // proj1 本项目总数顶到 3+2=5；proj2 单独 9 次 (不该进 proj1 的出生水位)
+      for (let i = 0; i < 3; i++) await Usage.bumpUse(tmp.path, a)
+      for (let i = 0; i < 2; i++) await Usage.bumpUse(tmp.path, b)
+      for (let i = 0; i < 9; i++) await Usage.bumpUse(tmp.path, x)
+
+      // 此刻创建 proj1 的新 skill c —— 出生水位应锁定为 5 (本项目)，与 proj2 的 9 无关
+      const c = await makeSkill(tmp.path, "proj1", "c")
+      await Usage.bumpUse(tmp.path, c)
+
+      const data = await Usage.load(tmp.path)
+      expect(data["proj1/c"]!.born_at_project_total).toBe(5)
+      expect(data["proj1/c"]!.use_count).toBe(1)
+    } finally {
+      await tmp.cleanup()
+    }
+  })
+
+  // B2b: seedIfMissing 创建路径同样写出生水位 (use_count 仍为 0)
+  test("stamps born = same-project total at creation via seedIfMissing", async () => {
+    const tmp = await makeTmp()
+    try {
+      const a = await makeSkill(tmp.path, "proj1", "a")
+      for (let i = 0; i < 4; i++) await Usage.bumpUse(tmp.path, a)
+
+      const d = await makeSkill(tmp.path, "proj1", "d")
+      await Usage.seedIfMissing(tmp.path, d)
+
+      const data = await Usage.load(tmp.path)
+      expect(data["proj1/d"]!.born_at_project_total).toBe(4)
+      expect(data["proj1/d"]!.use_count).toBe(0)
+    } finally {
+      await tmp.cleanup()
+    }
+  })
+
+  // R1 (墓碑复活): 一个被标 deleted 的记录, 同名 skill 在原位置重建后再被使用 →
+  // bumpUse 应把它复活成 active (否则 curator 永远跳过 deleted, 这个真在用的 skill 永世不判)。
+  // 关键: use_count 保留 (分母单调, 兄弟的出生水位算过它), 但 born 重盖给一段新的试用期。
+  test("revives a tombstoned (deleted) record on reuse: state→active, use_count kept, born re-stamped", async () => {
+    const tmp = await makeTmp()
+    try {
+      const loc = await makeSkill(tmp.path, "proj1", "foo") // 同名 skill 在原位置重建
+      const dir = path.join(tmp.path, "curator")
+      await fs.mkdir(dir, { recursive: true })
+      await fs.writeFile(
+        path.join(dir, "usage.json"),
+        JSON.stringify({
+          "proj1/foo": {
+            projectId: "proj1", name: "foo", location: path.dirname(loc),
+            use_count: 5, born_at_project_total: 0, last_used_at: null, recent_uses: [],
+            state: "deleted", pinned: false, archived_at: null,
+          },
+          "proj1/sib": {
+            projectId: "proj1", name: "sib", location: "/x/proj1/skills/sib",
+            use_count: 10, born_at_project_total: 0, last_used_at: null, recent_uses: [],
+            state: "active", pinned: false, archived_at: null,
+          },
+        }),
+        "utf-8",
+      )
+
+      await Usage.bumpUse(tmp.path, loc, "ses_reborn")
+
+      const data = await Usage.load(tmp.path)
+      const rec = data["proj1/foo"]!
+      expect(rec.state).toBe("active") // 复活 → curator 不再跳过它
+      expect(rec.use_count).toBe(6) // 旧计数保留 (5) + 本次 (1)，不是重置成 1 (保分母单调)
+      expect(rec.born_at_project_total).toBe(15) // 重盖 = 复活那刻本项目总数 foo(5)+sib(10) → 新试用期
+      expect(rec.recent_uses).toHaveLength(1) // 旧生命的缓存清掉, 只剩本次事件
+      expect(rec.recent_uses[0]!.session_id).toBe("ses_reborn")
+    } finally {
+      await tmp.cleanup()
+    }
+  })
+
+  // R2 (归档不就地复活): archived 记录的目录已被搬到 archive/。在原位置就地复活会留下
+  // 无人认领的归档副本(日后可能把旧内容当正版恢复)→ 复活只管 deleted, 不管 archived。
+  test("does NOT revive an archived record in place (avoids orphaning its archive copy)", async () => {
+    const tmp = await makeTmp()
+    try {
+      const loc = await makeSkill(tmp.path, "proj1", "foo")
+      const dir = path.join(tmp.path, "curator")
+      await fs.mkdir(dir, { recursive: true })
+      await fs.writeFile(
+        path.join(dir, "usage.json"),
+        JSON.stringify({
+          "proj1/foo": {
+            projectId: "proj1", name: "foo", location: path.dirname(loc),
+            use_count: 3, born_at_project_total: 0, last_used_at: null, recent_uses: [],
+            state: "archived", pinned: false, archived_at: "2026-01-01T00:00:00.000Z",
+          },
+        }),
+        "utf-8",
+      )
+
+      await Usage.bumpUse(tmp.path, loc)
+
+      const data = await Usage.load(tmp.path)
+      const rec = data["proj1/foo"]!
+      expect(rec.state).toBe("archived") // 未被就地复活 (避免遗留孤立归档副本)
+      expect(rec.archived_at).toBe("2026-01-01T00:00:00.000Z") // 保持不变
+    } finally {
+      await tmp.cleanup()
+    }
+  })
+
+  // B3 (只写一次): 已存在记录不重算 born —— 老记录回填 0 后，再 bumpUse 也不会被改成当前总数
+  test("does not recompute born for an existing record (legacy backfilled 0 stays 0)", async () => {
+    const tmp = await makeTmp()
+    try {
+      const foo = await makeSkill(tmp.path, "proj1", "foo")
+      const bar = await makeSkill(tmp.path, "proj1", "bar")
+      const dir = path.join(tmp.path, "curator")
+      await fs.mkdir(dir, { recursive: true })
+      // 老账本：foo 无 born 字段(回填 0)；bar 把本项目总数顶到 4
+      await fs.writeFile(
+        path.join(dir, "usage.json"),
+        JSON.stringify({
+          "proj1/foo": {
+            projectId: "proj1", name: "foo", location: path.dirname(foo),
+            use_count: 5, last_used_at: null, recent_uses: [],
+            state: "active", pinned: false, archived_at: null,
+          },
+          "proj1/bar": {
+            projectId: "proj1", name: "bar", location: path.dirname(bar),
+            use_count: 4, born_at_project_total: 0, last_used_at: null, recent_uses: [],
+            state: "active", pinned: false, archived_at: null,
+          },
+        }),
+        "utf-8",
+      )
+
+      await Usage.bumpUse(tmp.path, foo) // foo 已存在 → 不该把 born 改成当前总数(9)
+
+      const data = await Usage.load(tmp.path)
+      expect(data["proj1/foo"]!.born_at_project_total).toBe(0) // 回填 0 且未被重算
+      expect(data["proj1/foo"]!.use_count).toBe(6)
     } finally {
       await tmp.cleanup()
     }

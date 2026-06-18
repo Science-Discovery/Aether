@@ -25,10 +25,28 @@ export interface UseEvent {
  */
 export interface UsageRecord {
   projectId: string
+  /**
+   * Stable unique skill identity, stamped into SKILL.md at creation (`skl_<ulid>`).
+   * The ledger keys records by id (`<projectId>/<id>`) so a skill archived/deleted
+   * and later RE-CREATED under the same name does NOT collide with the old record.
+   * `null` for legacy skills that predate the id field → those fall back to keying
+   * by name (`<projectId>/<name>`). See SKILL_IDENTITY_DESIGN.md.
+   */
+  id: string | null
   name: string
   /** Absolute path to the skill directory (lets archive/restore locate it). */
   location: string
   use_count: number
+  /**
+   * Sum of all SAME-PROJECT skills' use_count at the instant THIS record was
+   * first created — the skill's "birth water-mark". The curator judges a skill
+   * by its share over the window SINCE birth, within its own project:
+   *   exposure = projectUseCount(now, projectId) − born_at_project_total
+   * Per-project + post-birth so neither a dormant project nor other projects'
+   * calls can dilute its share. Legacy records predate this field → backfilled
+   * to 0 (treated as "present from the start"). See RELATIVE_USAGE_DESIGN.md D2.
+   */
+  born_at_project_total: number
   last_used_at: string | null
   /**
    * Recent-window cache of the last MAX_RECENT_USES use coordinates, oldest
@@ -38,7 +56,14 @@ export interface UsageRecord {
    * are dropped from the front. See SESSION_USAGE_DESIGN.md D17/D19.
    */
   recent_uses: UseEvent[]
-  state: "active" | "stale" | "archived"
+  /**
+   * Lifecycle state. `deleted` is a tombstone: the skill directory is gone with no
+   * archived copy (a true orphan), but the record is RETAINED so its historical
+   * use_count stays in projectUseCount — the per-project denominator must stay
+   * monotonic or siblings' post-birth exposure would shrink/go negative. See
+   * RELATIVE_USAGE_DESIGN.md D6. Tombstones are never scanned or re-judged.
+   */
+  state: "active" | "stale" | "archived" | "deleted"
   /** Skip auto-transitions. Read-only in this version (no setter, see Q2). */
   pinned: boolean
   archived_at: string | null
@@ -51,6 +76,21 @@ export namespace Usage {
    * CuratorConfig (YAGNI). See SESSION_USAGE_DESIGN.md Q-N.
    */
   export const MAX_RECENT_USES = 50
+
+  /**
+   * Sum of `use_count` over every ledger record in ONE project (same projectId),
+   * including archived ones (their calls really happened, so they keep the total
+   * monotonic — see RELATIVE_USAGE_DESIGN.md D6). Pure: operates on already-loaded
+   * ledger data, no file I/O. This is the denominator for a skill's archive share,
+   * and the value stamped into `born_at_project_total` at record creation.
+   */
+  export function projectUseCount(data: Record<string, UsageRecord>, projectId: string): number {
+    let sum = 0
+    for (const rec of Object.values(data)) {
+      if (rec.projectId === projectId) sum += rec.use_count
+    }
+    return sum
+  }
 
   function curatorDir(root: string): string {
     return path.join(root, "curator")
@@ -68,28 +108,49 @@ export namespace Usage {
   function resolveScope(
     root: string,
     location: string,
-  ): { key: string; projectId: string; name: string; skillDir: string } | null {
+    id?: string,
+  ): { key: string; projectId: string; name: string; skillDir: string; id: string | null } | null {
     const skillDir = location.endsWith("SKILL.md") ? path.dirname(location) : location
     const rel = path.relative(root, skillDir)
     const parts = rel.split(path.sep)
     if (parts.length !== 3) return null
     const [projectId, mid, name] = parts
     if (!projectId || mid !== "skills" || !name || projectId.startsWith("..")) return null
-    return { key: `${projectId}/${name}`, projectId, name, skillDir }
+    // Key by id when the skill has one; fall back to name for legacy/id-less skills.
+    const key = id ? `${projectId}/${id}` : `${projectId}/${name}`
+    return { key, projectId, name, skillDir, id: id ?? null }
   }
 
-  function emptyRecord(scope: { projectId: string; name: string; skillDir: string }): UsageRecord {
+  function emptyRecord(scope: { projectId: string; name: string; skillDir: string; id?: string | null }): UsageRecord {
     return {
       projectId: scope.projectId,
+      id: scope.id ?? null,
       name: scope.name,
       location: scope.skillDir,
       use_count: 0,
+      born_at_project_total: 0,
       last_used_at: null,
       recent_uses: [],
       state: "active",
       pinned: false,
       archived_at: null,
     }
+  }
+
+  /**
+   * Build a fresh record for a never-before-seen skill, stamping its birth
+   * water-mark = the same-project total at this instant (computed from `data`
+   * BEFORE the new record is inserted — its own use_count is 0 anyway). This is
+   * the SINGLE place birth is stamped; seedIfMissing and bumpUse both use it so
+   * the two creation paths can never assign different born values. See D2/D5.
+   */
+  function createRecord(
+    data: Record<string, UsageRecord>,
+    scope: { projectId: string; name: string; skillDir: string; id?: string | null },
+  ): UsageRecord {
+    const rec = emptyRecord(scope)
+    rec.born_at_project_total = projectUseCount(data, scope.projectId)
+    return rec
   }
 
   /** Read the whole ledger. Returns {} on missing/corrupt (defensive, never throws). */
@@ -105,6 +166,11 @@ export namespace Usage {
           const rec = v as UsageRecord
           // Legacy records predate recent_uses; backfill so .push never throws.
           if (!Array.isArray(rec.recent_uses)) rec.recent_uses = []
+          // Legacy records predate born_at_project_total; backfill to 0
+          // (= "present from the start", see RELATIVE_USAGE_DESIGN.md D4).
+          if (typeof rec.born_at_project_total !== "number") rec.born_at_project_total = 0
+          // Legacy records predate `id`; backfill to null (= key by name, not id).
+          if (typeof rec.id !== "string") rec.id = null
           clean[k] = rec
         }
       }
@@ -151,6 +217,25 @@ export namespace Usage {
   }
 
   /**
+   * Move a skill's directory to `<root>/<projectId>/archive/<name>/` (DISK ONLY —
+   * does not touch the ledger or save). Returns false if the source directory is
+   * missing. Name collisions get a timestamp suffix. Split out of archiveSkill so
+   * a batch pass (curator) can move the dir here and update the in-memory record
+   * itself, persisting the whole ledger once at the end. Best-effort caller-guarded.
+   */
+  async function moveToArchive(root: string, rec: UsageRecord, now: Date = new Date()): Promise<boolean> {
+    if (!(await pathExists(rec.location))) return false
+    const destRoot = archiveRoot(root, rec.projectId)
+    await fs.mkdir(destRoot, { recursive: true })
+    let dest = path.join(destRoot, rec.name)
+    if (await pathExists(dest)) {
+      dest = path.join(destRoot, `${rec.name}-${now.toISOString().replace(/[:.]/g, "-")}`)
+    }
+    await fs.rename(rec.location, dest)
+    return true
+  }
+
+  /**
    * Archive a skill: move its directory to `<root>/<projectId>/archive/<name>/`
    * and mark the ledger record `archived`. The directory is MOVED (recoverable),
    * never deleted. Returns false if the record or its directory is missing.
@@ -159,16 +244,7 @@ export namespace Usage {
     const data = await load(root)
     const rec = data[key]
     if (!rec) return false
-    if (!(await pathExists(rec.location))) return false
-
-    const destRoot = archiveRoot(root, rec.projectId)
-    await fs.mkdir(destRoot, { recursive: true })
-    let dest = path.join(destRoot, rec.name)
-    if (await pathExists(dest)) {
-      dest = path.join(destRoot, `${rec.name}-${now.toISOString().replace(/[:.]/g, "-")}`)
-    }
-
-    await fs.rename(rec.location, dest)
+    if (!(await moveToArchive(root, rec, now))) return false
     rec.state = "archived"
     rec.archived_at = now.toISOString()
     data[key] = rec
@@ -177,12 +253,12 @@ export namespace Usage {
   }
 
   /** Create a baseline record for an in-scope skill if none exists. No-op otherwise. */
-  export async function seedIfMissing(root: string, location: string): Promise<void> {
-    const scope = resolveScope(root, location)
+  export async function seedIfMissing(root: string, location: string, id?: string): Promise<void> {
+    const scope = resolveScope(root, location, id)
     if (!scope) return
     const data = await load(root)
     if (data[scope.key]) return
-    data[scope.key] = emptyRecord(scope)
+    data[scope.key] = createRecord(data, scope)
     await save(root, data)
   }
 
@@ -240,12 +316,38 @@ export namespace Usage {
     location: string,
     sessionId?: string,
     now: Date = new Date(),
+    id?: string,
   ): Promise<void> {
-    const scope = resolveScope(root, location)
+    const scope = resolveScope(root, location, id)
     if (!scope) return
     try {
       const data = await load(root)
-      const rec = data[scope.key] ?? emptyRecord(scope)
+      let rec = data[scope.key]
+      if (!rec) {
+        // First sight of this skill → create it (born water-mark stamped inside).
+        rec = createRecord(data, scope)
+      } else if (rec.state === "deleted") {
+        // A live skill is being loaded at a key whose record is a `deleted` tombstone (a
+        // true orphan — by definition no archive copy exists) — a new skill has reclaimed
+        // this slot. Revive it into the active lifecycle so the curator judges it again
+        // instead of skipping it forever. Keep use_count (the project denominator must stay
+        // monotonic — siblings' born water-marks already counted it), but re-stamp born for
+        // a fresh trial window and drop the previous life's recent-use cache.
+        //
+        // Only `deleted` is revived, NOT `archived`: an archived skill's directory was MOVED
+        // to archive/, so reviving in place would orphan that copy (and a later out-of-band
+        // delete could resurrect its stale content). An archived slot is left as-is; recovery
+        // goes through restoreSkill, which moves the copy back. See RELATIVE_USAGE_DESIGN.md.
+        rec.born_at_project_total = projectUseCount(data, scope.projectId)
+        rec.state = "active"
+        rec.archived_at = null
+        rec.recent_uses = []
+      }
+      // An existing active/stale record keeps its born untouched.
+      // Refresh location to the current path: with id-keying a record survives a directory
+      // rename, but a stale location would make the curator's orphan check think the skill
+      // is gone and flap it deleted↔revived every pass. See SKILL_IDENTITY_DESIGN.md bug③.
+      rec.location = scope.skillDir
       rec.use_count += 1
       rec.last_used_at = now.toISOString()
       if (sessionId) {
