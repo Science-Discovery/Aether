@@ -459,6 +459,12 @@ export const dict = {
   "toast.session.unshare.success.description": "工作階段已成功取消分享",
   "toast.session.unshare.failed.title": "取消分享失敗",
   "toast.session.unshare.failed.description": "取消分享工作階段時發生錯誤",
+  "toast.session.export.success.title": "工作階段已匯出",
+  "toast.session.export.success.description": "已下載 {{files}}",
+  "toast.session.export.failed.title": "匯出工作階段失敗",
+  "toast.session.import.success.title": "工作階段已匯入",
+  "toast.session.import.success.description": "已開啟匯入的工作階段「{{title}}」",
+  "toast.session.import.failed.title": "匯入工作階段失敗",
 
   "toast.session.listFailed.title": "無法載入 {{project}} 的工作階段",
 
@@ -663,6 +669,15 @@ export const dict = {
   "session.share.action.unpublish": "取消發佈",
   "session.share.action.unpublishing": "正在取消發佈...",
   "session.share.action.view": "檢視",
+  "session.export.action.export": "匯出工作階段",
+  "session.export.action.exporting": "正在匯出...",
+  "session.export.dialog.title": "匯出工作階段",
+  "session.export.dialog.destination": "檔案將由系統下載，瀏覽器可能會詢問是否允許下載多個檔案。",
+  "session.export.mode.json": "僅 JSON",
+  "session.export.mode.both": "JSON + Markdown",
+  "session.export.option.thinking": "包含思考過程",
+  "session.export.option.toolDetails": "包含工具詳細資料",
+  "session.export.option.assistantMetadata": "包含助理中繼資料",
   "session.share.copy.copied": "已複製",
   "session.share.copy.copyLink": "複製連結",
 
@@ -944,6 +959,7 @@ export const dict = {
   "session.delete.confirm": '刪除工作階段 "{{name}}"?',
   "session.delete.button": "刪除工作階段",
 
+  "session.import.action.import": "匯入工作階段",
   "workspace.new": "新增工作區",
   "workspace.type.local": "本地",
   "workspace.type.sandbox": "沙箱",

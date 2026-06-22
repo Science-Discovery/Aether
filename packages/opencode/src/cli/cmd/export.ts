@@ -1,6 +1,7 @@
 import type { Argv } from "yargs"
 import { Session } from "../../session"
 import { SessionID } from "../../session/schema"
+import { buildSessionBackup } from "../../session/backup"
 import { cmd } from "./cmd"
 import { bootstrap } from "../bootstrap"
 import { UI } from "../ui"
@@ -70,13 +71,7 @@ export const ExportCommand = cmd({
         const sessionInfo = await Session.get(sessionID!)
         const messages = await Session.messages({ sessionID: sessionInfo.id })
 
-        const exportData = {
-          info: sessionInfo,
-          messages: messages.map((msg) => ({
-            info: msg.info,
-            parts: msg.parts,
-          })),
-        }
+        const exportData = buildSessionBackup(sessionInfo, messages)
 
         process.stdout.write(JSON.stringify(exportData, null, 2))
         process.stdout.write(EOL)

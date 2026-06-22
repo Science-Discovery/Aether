@@ -38,6 +38,7 @@ import { enqueueRun } from "@/context/terminal"
 import { NewSessionItem, SessionItem, SessionSkeleton } from "./sidebar-items"
 import { childMapByParent, sortedRootSessions, workspaceKey } from "./helpers"
 import { formatServerError } from "@/utils/server-errors"
+import { SessionImportInput } from "@/components/session-import-input"
 import { SidebarBranchView } from "@/pages/session/branch/sidebar-branch-view"
 
 function createBatchSelect(
@@ -447,6 +448,7 @@ const WorkspaceActions = (props: {
 }): JSX.Element => {
   const globalSdk = useGlobalSDK()
   const language = useLanguage()
+  let pick = () => {}
   const [branches, setBranches] = createSignal<string[]>([])
   const [branchLoading, setBranchLoading] = createSignal(false)
 
@@ -507,6 +509,12 @@ const WorkspaceActions = (props: {
         "group-focus-within/workspace:opacity-100 group-focus-within/workspace:pointer-events-auto": true,
       }}
     >
+      <SessionImportInput
+        directory={props.directory}
+        bind={(open) => {
+          pick = open
+        }}
+      />
       <DropdownMenu
         modal={!props.sidebarHovering()}
         open={props.menuOpen()}
@@ -565,6 +573,14 @@ const WorkspaceActions = (props: {
               }}
             >
               <DropdownMenu.ItemLabel>{props.language.t("session.select")}</DropdownMenu.ItemLabel>
+            </DropdownMenu.Item>
+            <DropdownMenu.Item
+              onSelect={() => {
+                props.setMenuOpen(false)
+                pick()
+              }}
+            >
+              <DropdownMenu.ItemLabel>{props.language.t("session.import.action.import")}</DropdownMenu.ItemLabel>
             </DropdownMenu.Item>
             <DropdownMenu.Sub onOpenChange={(open) => open && fetchBranches()}>
               <DropdownMenu.SubTrigger>{props.language.t("workspace.switchBranch")}</DropdownMenu.SubTrigger>

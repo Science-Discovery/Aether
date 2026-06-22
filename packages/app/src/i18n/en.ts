@@ -731,6 +731,12 @@ export const dict = {
   "toast.session.unshare.success.description": "Session unshared successfully!",
   "toast.session.unshare.failed.title": "Failed to unshare session",
   "toast.session.unshare.failed.description": "An error occurred while unsharing the session",
+  "toast.session.export.success.title": "Session exported",
+  "toast.session.export.success.description": "Downloaded {{files}}",
+  "toast.session.export.failed.title": "Failed to export session",
+  "toast.session.import.success.title": "Session imported",
+  "toast.session.import.success.description": 'Opened imported session "{{title}}"',
+  "toast.session.import.failed.title": "Failed to import session",
 
   "toast.session.listFailed.title": "Failed to load sessions for {{project}}",
   "toast.project.reloadFailed.title": "Failed to reload {{project}}",
@@ -1023,6 +1029,16 @@ export const dict = {
   "session.share.action.unpublish": "Unpublish",
   "session.share.action.unpublishing": "Unpublishing...",
   "session.share.action.view": "View",
+  "session.export.action.export": "Export session",
+  "session.export.action.exporting": "Exporting...",
+  "session.export.dialog.title": "Export session",
+  "session.export.dialog.destination":
+    "Files will be downloaded by your system. Your browser may ask to allow multiple downloads.",
+  "session.export.mode.json": "JSON only",
+  "session.export.mode.both": "JSON + Markdown",
+  "session.export.option.thinking": "Include thinking",
+  "session.export.option.toolDetails": "Include tool details",
+  "session.export.option.assistantMetadata": "Include assistant metadata",
   "session.share.copy.copied": "Copied",
   "session.share.copy.copyLink": "Copy link",
 
@@ -1484,6 +1500,7 @@ export const dict = {
   "session.batch.archive": "Archive ({{count}})",
   "session.batch.delete": "Delete ({{count}})",
   "session.batch.delete.confirm": "Delete {{count}} sessions?",
+  "session.import.action.import": "Import session",
 
   "workspace.new": "New workspace",
   "workspace.type.local": "local",

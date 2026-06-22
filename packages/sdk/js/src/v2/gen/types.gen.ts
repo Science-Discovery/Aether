@@ -1592,13 +1592,37 @@ export type Config = {
      */
     disabled?: Array<string>
     /**
-     * LLM steps without skill_manage before background skill review triggers (default: 10, 0 to disable)
+     * List of skill SKILL.md file paths to deactivate (precise per-file disable)
+     */
+    disabled_files?: Array<string>
+    /**
+     * List of skill SKILL.md file paths whose self-evolution is disabled
+     */
+    evolution_disabled_files?: Array<string>
+    /**
+     * Global master switch for skill self-evolution. When false, no project triggers background review (default: true)
+     */
+    evolution_enabled?: boolean
+    /**
+     * LLM steps without skill_manage before background skill review triggers (default: 80, 0 to disable)
      */
     creation_nudge_interval?: number
     /**
      * Maximum number of version snapshots kept per skill before older snapshots are pruned (default: 100)
      */
     max_versions?: number
+    /**
+     * Max characters a single step of a background skill review may stream before that step is cut off, guarding against a model that never stops emitting within one step (default: 300000)
+     */
+    review_max_step_chars?: number
+    /**
+     * Max characters a whole background skill review may stream (summed across all steps) before the review is stopped, guarding against a slow grind that never stops taking steps (default: 1000000)
+     */
+    review_max_total_chars?: number
+    /**
+     * Whether the skill curator runs its periodic maintenance (counting usage, marking stale, archiving unused skills). Default: true.
+     */
+    curator_enabled?: boolean
   }
   watcher?: {
     ignore?: Array<string>
@@ -3543,6 +3567,54 @@ export type ConfigSkillsListEvolutionResponses = {
 export type ConfigSkillsListEvolutionResponse =
   ConfigSkillsListEvolutionResponses[keyof ConfigSkillsListEvolutionResponses]
 
+export type ConfigSkillsEvolutionDirsData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/config/skills/evolution/projects"
+}
+
+export type ConfigSkillsEvolutionDirsResponses = {
+  /**
+   * Per-project evolution output directories
+   */
+  200: Array<{
+    directory: string
+    evolutionDir: string
+    projectPath?: string
+  }>
+}
+
+export type ConfigSkillsEvolutionDirsResponse =
+  ConfigSkillsEvolutionDirsResponses[keyof ConfigSkillsEvolutionDirsResponses]
+
+export type ConfigSkillsEvolutionRevealData = {
+  body?: {
+    dir: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/config/skills/evolution/reveal"
+}
+
+export type ConfigSkillsEvolutionRevealResponses = {
+  /**
+   * Whether the directory was opened
+   */
+  200: {
+    ok: boolean
+  }
+}
+
+export type ConfigSkillsEvolutionRevealResponse =
+  ConfigSkillsEvolutionRevealResponses[keyof ConfigSkillsEvolutionRevealResponses]
+
 export type ConfigSkillsToggleEvolvedData = {
   body?: {
     file: string
@@ -4086,6 +4158,50 @@ export type SessionStatusResponses = {
 }
 
 export type SessionStatusResponse = SessionStatusResponses[keyof SessionStatusResponses]
+
+export type SessionImportData = {
+  body?: {
+    version: 1
+    info: {
+      [key: string]: unknown
+    }
+    messages: Array<{
+      info: {
+        [key: string]: unknown
+      }
+      parts: Array<{
+        [key: string]: unknown
+      }>
+    }>
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/session/import"
+}
+
+export type SessionImportErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type SessionImportError = SessionImportErrors[keyof SessionImportErrors]
+
+export type SessionImportResponses = {
+  /**
+   * Imported session
+   */
+  200: {
+    sessionID: string
+    title: string
+  }
+}
+
+export type SessionImportResponse = SessionImportResponses[keyof SessionImportResponses]
 
 export type SessionDeleteData = {
   body?: never
@@ -8613,6 +8729,8 @@ export type PostVoiceTranscribeData = {
       role: string
       content: string
     }>
+    projectID?: string
+    saveAudio?: boolean
   }
   path?: never
   query?: {

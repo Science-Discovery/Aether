@@ -62,6 +62,7 @@ import { ConstrainDragXAxis, getDraggableId } from "@/utils/solid-dnd"
 import { DialogSelectDirectory } from "@/components/dialog-select-directory"
 import { DialogNewProject } from "@/components/dialog-new-project"
 import { DialogEditProject } from "@/components/dialog-edit-project"
+import { SessionImportInput } from "@/components/session-import-input"
 import { DebugBar } from "@/components/debug-bar"
 import { Titlebar } from "@/components/titlebar"
 import { useServer } from "@/context/server"
@@ -2529,6 +2530,7 @@ export default function Layout(props: ParentProps) {
       return item.vcs === "git" || layout.sidebar.workspaces(item.worktree)()
     })
     const projectDisplayPath = createMemo(() => displayPath(worktree(), globalSync.data.path.home))
+    let pick = () => {}
 
     return (
       <div
@@ -2595,6 +2597,12 @@ export default function Layout(props: ParentProps) {
                     </Tooltip>
                   </div>
 
+                  <SessionImportInput
+                    directory={worktree()}
+                    bind={(open) => {
+                      pick = open
+                    }}
+                  />
                   <DropdownMenu modal={!sidebarHovering()}>
                     <DropdownMenu.Trigger
                       as={IconButton}
@@ -2653,6 +2661,9 @@ export default function Layout(props: ParentProps) {
                           <DropdownMenu.ItemLabel>
                             {language.t("sidebar.project.clearNotifications")}
                           </DropdownMenu.ItemLabel>
+                        </DropdownMenu.Item>
+                        <DropdownMenu.Item data-action="project-import-session" onSelect={() => pick()}>
+                          <DropdownMenu.ItemLabel>{language.t("session.import.action.import")}</DropdownMenu.ItemLabel>
                         </DropdownMenu.Item>
                         <DropdownMenu.Separator />
                         <DropdownMenu.Item
