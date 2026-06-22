@@ -1,6 +1,10 @@
 import type { Argv } from "yargs"
 import type { Session as SDKSession, Message, Part } from "@opencode-ai/sdk/v2"
-import { SessionBackupSchema, type SessionBackupData } from "@opencode-ai/util/session-backup"
+import {
+  parseSessionBackup,
+  type SessionBackupData,
+  type SessionBackupInput,
+} from "@opencode-ai/util/session-backup"
 import { importSessionBackup } from "../../session/backup"
 import { cmd } from "./cmd"
 import { bootstrap } from "../bootstrap"
@@ -80,7 +84,7 @@ export const ImportCommand = cmd({
   },
   handler: async (args) => {
     await bootstrap(process.cwd(), async () => {
-      let exportData: SessionBackupData | undefined
+      let exportData: SessionBackupInput | undefined
 
       const isUrl = args.file.startsWith("http://") || args.file.startsWith("https://")
 
@@ -126,7 +130,7 @@ export const ImportCommand = cmd({
 
         exportData = transformed
       } else {
-        exportData = await Filesystem.readJson<SessionBackupData>(args.file).catch(() => undefined)
+        exportData = await Filesystem.readJson<SessionBackupInput>(args.file).catch(() => undefined)
         if (!exportData) {
           process.stdout.write(`File not found: ${args.file}`)
           process.stdout.write(EOL)
@@ -140,7 +144,7 @@ export const ImportCommand = cmd({
         return
       }
 
-      const parsed = SessionBackupSchema.parse(exportData)
+      const parsed = parseSessionBackup(exportData)
       const result = await importSessionBackup(parsed)
       process.stdout.write(`Imported session: ${result.sessionID}`)
       process.stdout.write(EOL)

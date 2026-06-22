@@ -18,7 +18,7 @@ import { EventTable } from "../../src/sync/event.sql"
 Log.init({ print: false })
 
 describe("session backup", () => {
-  test("imports a validated backup into the current project and workspace", async () => {
+  test("imports a legacy backup into the current project and workspace", async () => {
     await using src = await tmpdir({ git: true })
     await using dst = await tmpdir({ git: true })
 
@@ -115,7 +115,10 @@ describe("session backup", () => {
         const offCreated = Bus.subscribe(Session.Event.Created, () => {
           created = true
         })
-        const result = await WorkspaceContext.provide({ workspaceID, fn: () => importSessionBackup(backup) })
+        const result = await WorkspaceContext.provide({
+          workspaceID,
+          fn: () => importSessionBackup({ info: backup.info, messages: backup.messages }),
+        })
         await new Promise((resolve) => setTimeout(resolve, 50))
         offImported()
         offCreated()
@@ -175,7 +178,7 @@ describe("session backup", () => {
           { info: message, parts: [] },
         ])
         const before = [...Session.list({ roots: true })].length
-        expect(importSessionBackup(backup)).rejects.toMatchObject({
+        await expect(importSessionBackup(backup)).rejects.toMatchObject({
           data: { message: "Duplicate message ID in session backup" },
         })
         expect([...Session.list({ roots: true })]).toHaveLength(before)
@@ -188,7 +191,7 @@ describe("session backup", () => {
           text: "invalid",
         })
         const invalid = buildSessionBackup(session, [{ info: message, parts: [part] }])
-        expect(importSessionBackup(invalid)).rejects.toMatchObject({
+        await expect(importSessionBackup(invalid)).rejects.toMatchObject({
           data: { message: `Part ${part.id} belongs to another message` },
         })
         expect([...Session.list({ roots: true })]).toHaveLength(before)
@@ -233,7 +236,7 @@ describe("session backup", () => {
         try {
           const abort = new AbortController()
           abort.abort()
-          expect(importSessionBackup(backup, abort.signal)).rejects.toMatchObject({ name: "AbortError" })
+          await expect(importSessionBackup(backup, abort.signal)).rejects.toMatchObject({ name: "AbortError" })
           expect([...Session.list({ roots: true })]).toHaveLength(before)
 
           Database.useProject(Instance.project.id, (db) =>
@@ -243,7 +246,7 @@ describe("session backup", () => {
               ),
             ),
           )
-          expect(importSessionBackup(backup)).rejects.toThrow("forced import failure")
+          await expect(importSessionBackup(backup)).rejects.toThrow("forced import failure")
           expect([...Session.list({ roots: true })]).toHaveLength(before)
           expect(imported).toBe(false)
         } finally {

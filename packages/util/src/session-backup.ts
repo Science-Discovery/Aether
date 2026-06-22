@@ -1,7 +1,6 @@
 import z from "zod"
 
-export const SessionBackupSchema = z.object({
-  version: z.literal(1),
+const Content = z.object({
   info: z.record(z.string(), z.unknown()),
   messages: z.array(
     z.object({
@@ -11,7 +10,16 @@ export const SessionBackupSchema = z.object({
   ),
 })
 
+export const SessionBackupSchema = Content.extend({ version: z.literal(1) })
+export const SessionBackupInputSchema = Content.extend({ version: z.literal(1).optional() })
+
 export type SessionBackupData = z.infer<typeof SessionBackupSchema>
+export type SessionBackupInput = z.infer<typeof SessionBackupInputSchema>
+
+export function parseSessionBackup(input: unknown): SessionBackupData {
+  const data = SessionBackupInputSchema.parse(input)
+  return createSessionBackup(data.info, data.messages)
+}
 
 export type TranscriptOptions = {
   thinking: boolean

@@ -2542,7 +2542,6 @@ export class Session2 extends HeyApiClient {
     parameters?: {
       directory?: string
       workspace?: string
-      version?: 1
       info?: {
         [key: string]: unknown
       }
@@ -2554,6 +2553,7 @@ export class Session2 extends HeyApiClient {
           [key: string]: unknown
         }>
       }>
+      version?: 1
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -2564,9 +2564,9 @@ export class Session2 extends HeyApiClient {
           args: [
             { in: "query", key: "directory" },
             { in: "query", key: "workspace" },
-            { in: "body", key: "version" },
             { in: "body", key: "info" },
             { in: "body", key: "messages" },
+            { in: "body", key: "version" },
           ],
         },
       ],

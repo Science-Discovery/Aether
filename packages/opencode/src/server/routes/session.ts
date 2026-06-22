@@ -1,7 +1,7 @@
 import { Hono } from "hono"
 import { stream } from "hono/streaming"
 import { describeRoute, validator, resolver } from "hono-openapi"
-import { SessionBackupSchema } from "@opencode-ai/util/session-backup"
+import { SessionBackupInputSchema } from "@opencode-ai/util/session-backup"
 import { SessionID, MessageID, PartID } from "@/session/schema"
 import z from "zod"
 import { Session } from "../../session"
@@ -119,7 +119,7 @@ export const SessionRoutes = lazy(() =>
           ...errors(400, 409),
         },
       }),
-      validator("json", SessionBackupSchema),
+      validator("json", SessionBackupInputSchema),
       async (c) => c.json(await importSessionBackup(c.req.valid("json"), c.req.raw.signal)),
     )
     .get(

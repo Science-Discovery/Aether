@@ -1,7 +1,7 @@
 import {
   createSessionBackup,
   formatTranscript,
-  SessionBackupSchema,
+  parseSessionBackup,
   type TranscriptOptions,
 } from "@opencode-ai/util/session-backup"
 import type { Message, Part, Session } from "@opencode-ai/sdk/v2/client"
@@ -70,7 +70,7 @@ export function buildBackupFiles(
 }
 
 export function parseBackup(text: string) {
-  return SessionBackupSchema.parse(JSON.parse(text))
+  return parseSessionBackup(JSON.parse(text))
 }
 
 export function downloadBackup(file: BackupFile) {

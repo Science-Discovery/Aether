@@ -4170,7 +4170,6 @@ export type SessionStatusResponse = SessionStatusResponses[keyof SessionStatusRe
 
 export type SessionImportData = {
   body?: {
-    version: 1
     info: {
       [key: string]: unknown
     }
@@ -4182,6 +4181,7 @@ export type SessionImportData = {
         [key: string]: unknown
       }>
     }>
+    version?: 1
   }
   path?: never
   query?: {

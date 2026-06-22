@@ -1,11 +1,18 @@
 import { describe, expect, test } from "bun:test"
-import { createSessionBackup, formatTranscript, SessionBackupSchema } from "./session-backup"
+import { createSessionBackup, formatTranscript, parseSessionBackup, SessionBackupSchema } from "./session-backup"
 
 describe("session backup", () => {
   test("requires version 1", () => {
     expect(SessionBackupSchema.safeParse({ info: {}, messages: [] }).success).toBe(false)
     expect(SessionBackupSchema.safeParse({ version: 2, info: {}, messages: [] }).success).toBe(false)
     expect(SessionBackupSchema.parse(createSessionBackup({}, [])).version).toBe(1)
+  })
+
+  test("normalizes legacy backups without accepting unknown versions", () => {
+    expect(parseSessionBackup({ info: {}, messages: [] })).toEqual({ version: 1, info: {}, messages: [] })
+    expect(parseSessionBackup({ version: 1, info: {}, messages: [] })).toEqual({ version: 1, info: {}, messages: [] })
+    expect(() => parseSessionBackup({ version: 2, info: {}, messages: [] })).toThrow()
+    expect(() => parseSessionBackup({ info: {} })).toThrow()
   })
 
   test("formats readable transcripts", () => {

@@ -1,4 +1,9 @@
-import { createSessionBackup, SessionBackupSchema, type SessionBackupData } from "@opencode-ai/util/session-backup"
+import {
+  createSessionBackup,
+  parseSessionBackup,
+  type SessionBackupData,
+  type SessionBackupInput,
+} from "@opencode-ai/util/session-backup"
 import { NamedError } from "@opencode-ai/util/error"
 import { Slug } from "@opencode-ai/util/slug"
 import z from "zod"
@@ -87,8 +92,8 @@ export async function estimateSessionBackup(sessionID: SessionID) {
   }
 }
 
-export async function importSessionBackup(input: SessionBackupData, signal?: AbortSignal) {
-  const data = SessionBackupSchema.parse(input)
+export async function importSessionBackup(input: SessionBackupInput, signal?: AbortSignal) {
+  const data = parseSessionBackup(input)
   const parsed = (() => {
     try {
       return {

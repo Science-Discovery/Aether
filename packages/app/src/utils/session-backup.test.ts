@@ -45,6 +45,11 @@ describe("session backup utils", () => {
     expect(parseBackup(files[0]!.content).version).toBe(1)
   })
 
+  test("reads legacy JSON and rejects unknown versions", () => {
+    expect(parseBackup(JSON.stringify({ info: session, messages })).version).toBe(1)
+    expect(() => parseBackup(JSON.stringify({ version: 2, info: session, messages }))).toThrow()
+  })
+
   test("builds a Markdown transcript alongside JSON", () => {
     const files = buildBackupFiles(session, messages, {
       markdown: true,
