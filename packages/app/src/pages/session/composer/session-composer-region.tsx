@@ -1,8 +1,9 @@
-import { Show, createEffect, createMemo, onCleanup } from "solid-js"
+import { Index, Show, createEffect, createMemo, onCleanup } from "solid-js"
 import { createStore } from "solid-js/store"
 import { useSpring } from "@opencode-ai/ui/motion-spring"
 import { PromptInput } from "@/components/prompt-input"
 import { type FollowupDraft } from "@/components/prompt-input/submit"
+import { useMaybeConversationQuote } from "@/context/conversation-quote"
 import { useLanguage } from "@/context/language"
 import { useMaybeQuickReadingMode } from "@/context/quick-reading-mode"
 import { useMaybeReadingMode } from "@/context/reading-mode"
@@ -47,9 +48,12 @@ export function SessionComposerRegion(props: {
 }) {
   const prompt = usePrompt()
   const language = useLanguage()
+  const quote = useMaybeConversationQuote()
   const readingMode = useMaybeReadingMode()
   const quickReadingMode = useMaybeQuickReadingMode()
   const route = useSessionKey()
+  const quotes = createMemo(() => quote?.store.pendingQuestions.filter((item) => item.sessionID === route.params.id) ?? [])
+  const quoteCards = createMemo(() => quotes().slice().reverse())
   const pendingQuestion = createMemo(() => {
     const quickPending = quickReadingMode?.store.pendingQuestion
     if (quickPending?.sessionID === route.params.id) return quickPending
@@ -250,6 +254,37 @@ export function SessionComposerRegion(props: {
                   onEdit={props.followup!.onEdit}
                 />
               </Show>
+              <Show when={quotes().length > 0}>
+                <div
+                  class="mb-2 flex flex-col gap-2 pr-1"
+                  classList={{
+                    "max-h-[160px] overflow-y-auto": quotes().length > 2,
+                  }}
+                >
+                  <Index each={quoteCards()}>
+                    {(item) => (
+                      <div class="rounded-lg border border-border-weak-base bg-surface-base px-3 py-2 shadow-xs">
+                        <div class="flex items-start justify-between gap-3">
+                          <div class="min-w-0 flex-1">
+                            <div class="text-11-medium uppercase tracking-wide text-text-weak">AI Reply Quote</div>
+                            <div class="mt-1 line-clamp-3 whitespace-pre-wrap break-words text-13-regular text-text-strong">
+                              {item().summary}
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            class="shrink-0 rounded-md px-1 py-0.5 text-12-medium text-text-weak transition hover:bg-surface-hover hover:text-text-strong"
+                            onClick={() => quote?.removePendingQuestion(item())}
+                            aria-label={language.t("common.clear")}
+                          >
+                            x
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </Index>
+                </div>
+              </Show>
               <Show when={pendingQuestion()} keyed>
                 {(question) => (
                   <div class="mb-2 rounded-lg border border-border-weak-base bg-surface-base px-3 py-2 shadow-xs">
@@ -260,15 +295,15 @@ export function SessionComposerRegion(props: {
                             ? `${question.pdfFileName} · p.${formatReadingPageRange({ startPage: question.kind === "text-question" ? question.startPage : question.page, endPage: question.kind === "text-question" ? question.endPage : question.page })}`
                             : `PDF Quote - p.${formatReadingPageRange({ startPage: question.kind === "text-question" ? question.startPage : question.page, endPage: question.kind === "text-question" ? question.endPage : question.page })}`}
                         </div>
-                          <Show when={question.kind === "image-question"}>
-                            <img
-                              src={question.kind === "image-question" ? question.imageDataUrl : undefined}
-                              alt={`Captured region from page ${question.kind === "image-question" ? question.page : question.startPage}`}
-                              class="mt-2 h-20 max-w-full rounded-md border border-border-weak-base bg-background-base object-contain"
-                            />
-                          </Show>
+                        <Show when={question.kind === "image-question"}>
+                          <img
+                            src={question.kind === "image-question" ? question.imageDataUrl : undefined}
+                            alt={`Captured region from page ${question.kind === "image-question" ? question.page : 0}`}
+                            class="mt-2 h-20 max-w-full rounded-md border border-border-weak-base bg-background-base object-contain"
+                          />
+                        </Show>
                         <div class="mt-1 line-clamp-3 whitespace-pre-wrap break-words text-13-regular text-text-strong">
-                          {question.text}
+                          {question.kind === "image-question" ? "Captured region" : question.text}
                         </div>
                       </div>
                       <button

@@ -4,6 +4,7 @@ import { base64Encode } from "@opencode-ai/util/encode"
 import { Binary } from "@opencode-ai/util/binary"
 import { useNavigate, useParams } from "@solidjs/router"
 import type { Accessor } from "solid-js"
+import { useMaybeConversationQuote } from "@/context/conversation-quote"
 import type { FileSelection } from "@/context/file"
 import { useFile } from "@/context/file"
 import { useGlobalSync } from "@/context/global-sync"
@@ -23,7 +24,12 @@ import { Identifier } from "@/utils/id"
 import { Worktree as WorktreeState } from "@/utils/worktree"
 import { buildRequestParts, type DataAttachment } from "./build-request-parts"
 import { setCursorPosition } from "./editor-dom"
-import { createReadingQuoteMetadata, formatReadingPageRange, summarizeReadingQuoteText } from "@/utils/comment-note"
+import {
+  createConversationQuoteMetadata,
+  createReadingQuoteMetadata,
+  formatReadingPageRange,
+  summarizeReadingQuoteText,
+} from "@/utils/comment-note"
 import { formatServerError } from "@/utils/server-errors"
 
 type PendingPrompt = {
@@ -102,6 +108,19 @@ function describeReadingSelection(input: {
     return `用户选中的是一张来自 PDF 第 ${formatReadingPageRange(input)} 页的截图区域，请结合截图与上下文回答。`
   }
   return input.text ?? ""
+}
+
+function fillConversationQuotePrompt(input: { selectedContent: string[]; userQuestion: string }) {
+  return [
+    "The user selected one or more passages from previous assistant replies and wants to ask a follow-up question about them.",
+    "",
+    ...input.selectedContent.flatMap((text, idx) => [`[Quoted assistant content ${idx + 1}]`, text, ""]),
+    "",
+    "[User question]",
+    input.userQuestion,
+    "",
+    "Answer the user's question based on the quoted assistant content. If the quoted content is incomplete or ambiguous, say so clearly.",
+  ].join("\n")
 }
 
 function blobToDataUrl(blob: Blob) {
@@ -296,6 +315,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
   const local = useLocal()
   const permission = usePermission()
   const prompt = usePrompt()
+  const quote = useMaybeConversationQuote()
   const quickReadingMode = useMaybeQuickReadingMode()
   const readingMode = useMaybeReadingMode()
   const layout = useLayout()
@@ -559,6 +579,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
     const context = prompt.context.items().slice()
     const openPaths = input.openTabPaths?.() ?? []
     const selText = fileCtx.selectedText()
+    const quoteQuestions = quote?.store.pendingQuestions.filter((item) => item.sessionID === params.id) ?? []
     const readingQuestion = readingMode?.store.pendingQuestion
     const quickReadingPendingQuestion = quickReadingMode?.store.pendingQuestion ?? null
     const quickReadingQuestion =
@@ -623,7 +644,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       return
     }
 
-    if (!readingQuestion && !quickReadingQuestion && text.startsWith("/")) {
+    if (quoteQuestions.length === 0 && !readingQuestion && !quickReadingQuestion && text.startsWith("/")) {
       const [cmdName, ...args] = text.split(" ")
       const commandName = cmdName.slice(1)
       const customCommand = sync.data.command.find((c) => c.name === commandName)
@@ -723,6 +744,96 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       if (controller.signal.aborted) return false
       if (result.status === "failed") throw new Error(result.message)
       return true
+    }
+
+    if (mode === "normal" && quoteQuestions.length > 0) {
+      const typed = text.trim()
+      if (!typed) {
+        restoreCommentItems(commentItems)
+        restoreInput()
+        showToast({
+          title: language.t("prompt.toast.promptSendFailed.title"),
+          description: language.t("prompt.toast.promptSendFailed.description"),
+        })
+        return
+      }
+
+      const requestDraft: FollowupDraft = {
+        sessionID: session.id,
+        sessionDirectory,
+        prompt: [DEFAULT_PROMPT[0]!, ...images],
+        context,
+        agent,
+        model,
+        variant,
+        selectedPaths: openPaths.length > 0 ? openPaths : undefined,
+        extraTextParts: [
+          {
+            text: typed,
+            ignored: true,
+          },
+          {
+            text: fillConversationQuotePrompt({
+              selectedContent: quoteQuestions.map((item) => item.text),
+              userQuestion: typed,
+            }),
+            synthetic: true,
+          },
+          ...quoteQuestions.map((item) => ({
+            text: "",
+            synthetic: true,
+            ignored: true,
+            metadata: createConversationQuoteMetadata({
+              kind: "conversation-quote" as const,
+              source: "assistant" as const,
+              action: "ask" as const,
+              sourceMessageID: item.sourceMessageID,
+              summary: item.summary,
+              fullText: item.text,
+            }),
+          })),
+        ],
+      }
+
+      void sendFollowupDraft({
+        client,
+        sync,
+        globalSync,
+        draft: requestDraft,
+        messageID,
+        optimisticBusy: sessionDirectory === projectDirectory,
+        before: waitForWorktree,
+        knowledgeBase:
+          knowledge.enabled() && knowledge.activeKnowledgeBases().length > 0
+            ? {
+                paths: knowledge.activeKnowledgeBases().map((kb) => kb.path),
+                apiKey: knowledge.activeKnowledgeBases()[0]!.apiKey,
+                baseURL: knowledge.activeKnowledgeBases()[0]!.baseURL,
+              }
+            : undefined,
+      })
+        .then((ok) => {
+          if (ok) {
+            quote?.clearPendingQuestions(params.id)
+            return
+          }
+          restoreCommentItems(commentItems)
+          restoreInput()
+        })
+        .catch((err) => {
+          pending.delete(session.id)
+          if (sessionDirectory === projectDirectory) {
+            sync.set("session_status", session.id, { type: "idle" })
+          }
+          showToast({
+            title: language.t("prompt.toast.promptSendFailed.title"),
+            description: errorMessage(err),
+          })
+          removeOptimisticMessage()
+          restoreCommentItems(commentItems)
+          restoreInput()
+        })
+      return
     }
 
     if (mode === "normal" && quickReadingQuestion) {
