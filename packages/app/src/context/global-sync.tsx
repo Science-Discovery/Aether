@@ -404,7 +404,7 @@ function createGlobalSync() {
       return
     }
 
-    if (event.type === "session.created") {
+    if (event.type === "session.created" || event.type === "session.imported") {
       applyGlobalEvent({
         event,
         project: globalStore.project,

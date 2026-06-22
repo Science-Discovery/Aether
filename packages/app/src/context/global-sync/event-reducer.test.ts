@@ -196,6 +196,20 @@ describe("applyDirectoryEvent", () => {
     expect(store.sessionTotal).toBe(2)
   })
 
+  test("treats session.imported like session.created", () => {
+    const [store, setStore] = createStore(baseState({ session: [], sessionTotal: 0 }))
+    applyDirectoryEvent({
+      event: { type: "session.imported", properties: { info: rootSession({ id: "imported" }) } },
+      store,
+      setStore,
+      push() {},
+      directory: "/tmp",
+      loadLsp() {},
+    })
+    expect(store.session.map((item) => item.id)).toEqual(["imported"])
+    expect(store.sessionTotal).toBe(1)
+  })
+
   test("cleans session caches when archived", () => {
     const message = userMessage("msg_1", "ses_1")
     const [store, setStore] = createStore(

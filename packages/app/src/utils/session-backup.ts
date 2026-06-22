@@ -17,8 +17,28 @@ export type BackupFile = {
   type: string
 }
 
-export function backupStem(sessionID: string) {
-  return `session-${sessionID.slice(0, 8)}`
+export const BACKUP_WARN_BYTES = 50 * 1024 * 1024
+
+export function sessionExportBlocked(status: { type: string }, pending: boolean) {
+  return status.type !== "idle" || pending
+}
+
+export function formatBackupSize(bytes: number) {
+  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MiB`
+  if (bytes >= 1024) return `${(bytes / 1024).toFixed(1)} KiB`
+  return `${bytes} B`
+}
+
+export function backupStamp(date: Date) {
+  const pad = (value: number) => value.toString().padStart(2, "0")
+  return [
+    `${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}`,
+    `${pad(date.getHours())}${pad(date.getMinutes())}${pad(date.getSeconds())}`,
+  ].join("-")
+}
+
+export function backupStem(sessionID: string, date = new Date()) {
+  return `session-${sessionID.slice(0, 8)}-${backupStamp(date)}`
 }
 
 export function buildBackupFiles(
@@ -27,9 +47,10 @@ export function buildBackupFiles(
   opts: {
     markdown: boolean
     transcript: TranscriptOptions
+    date?: Date
   },
 ) {
-  const stem = backupStem(session.id)
+  const stem = backupStem(session.id, opts.date)
   const files: BackupFile[] = [
     {
       path: `${stem}.json`,

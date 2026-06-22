@@ -1052,6 +1052,14 @@ export type EventSessionCreated = {
   }
 }
 
+export type EventSessionImported = {
+  type: "session.imported"
+  properties: {
+    sessionID: string
+    info: Session
+  }
+}
+
 export type EventSessionUpdated = {
   type: "session.updated"
   properties: {
@@ -1119,6 +1127,7 @@ export type Event =
   | EventMessagePartUpdated
   | EventMessagePartRemoved
   | EventSessionCreated
+  | EventSessionImported
   | EventSessionUpdated
   | EventSessionDeleted
 
@@ -1171,6 +1180,22 @@ export type SyncEventSessionCreated = {
   data: {
     sessionID: string
     info: Session
+  }
+}
+
+export type SyncEventSessionImported = {
+  type: "session.imported.1"
+  aggregate: "sessionID"
+  data: {
+    sessionID: string
+    info: Session
+    messages: Array<{
+      info: Message
+      parts: Array<{
+        part: Part
+        time: number
+      }>
+    }>
   }
 }
 
@@ -4187,6 +4212,15 @@ export type SessionImportErrors = {
    * Bad request
    */
   400: BadRequestError
+  /**
+   * Conflict
+   */
+  409: {
+    name: string
+    data: {
+      message: string
+    }
+  }
 }
 
 export type SessionImportError = SessionImportErrors[keyof SessionImportErrors]
@@ -4202,6 +4236,44 @@ export type SessionImportResponses = {
 }
 
 export type SessionImportResponse = SessionImportResponses[keyof SessionImportResponses]
+
+export type SessionBackupEstimateData = {
+  body?: never
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/session/{sessionID}/backup/estimate"
+}
+
+export type SessionBackupEstimateErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type SessionBackupEstimateError = SessionBackupEstimateErrors[keyof SessionBackupEstimateErrors]
+
+export type SessionBackupEstimateResponses = {
+  /**
+   * Session backup estimate
+   */
+  200: {
+    bytes: number
+    messages: number
+    parts: number
+  }
+}
+
+export type SessionBackupEstimateResponse = SessionBackupEstimateResponses[keyof SessionBackupEstimateResponses]
 
 export type SessionDeleteData = {
   body?: never

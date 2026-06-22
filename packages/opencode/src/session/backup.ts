@@ -5,16 +5,20 @@ import z from "zod"
 import { Installation } from "../installation"
 import { Instance } from "../project/instance"
 import { WorkspaceContext } from "../control-plane/workspace-context"
+import { Database, count, eq, sql } from "../storage/db"
 import { SyncEvent } from "../sync"
-import { fn } from "@/util/fn"
 import { Session } from "./index"
 import { MessageV2 } from "./message-v2"
 import { MessageID, PartID, SessionID, TreeID } from "./schema"
+import { MessageTable, PartTable } from "./session.sql"
+import { SessionStatus } from "./status"
 
 export const InvalidSessionBackupError = NamedError.create(
   "InvalidSessionBackupError",
   z.object({ message: z.string() }),
 )
+
+export const SessionImportActiveError = NamedError.create("SessionImportActiveError", z.object({ message: z.string() }))
 
 function invalid(message: string): never {
   throw new InvalidSessionBackupError({ message })
@@ -48,7 +52,39 @@ export function buildSessionBackup(info: Session.Info, messages: MessageV2.WithP
   )
 }
 
-export const importSessionBackup = fn(SessionBackupSchema, async (input) => {
+export async function estimateSessionBackup(sessionID: SessionID) {
+  const info = await Session.get(sessionID)
+  const messages = Database.useProject(Instance.project.id, (db) =>
+    db
+      .select({
+        count: count(),
+        bytes: sql<number>`coalesce(sum(length(cast(${MessageTable.data} as blob)) + length(${MessageTable.id}) + length(${MessageTable.session_id})), 0)`,
+      })
+      .from(MessageTable)
+      .where(eq(MessageTable.session_id, sessionID))
+      .get(),
+  )
+  const parts = Database.useProject(Instance.project.id, (db) =>
+    db
+      .select({
+        count: count(),
+        bytes: sql<number>`coalesce(sum(length(cast(${PartTable.data} as blob)) + length(${PartTable.id}) + length(${PartTable.message_id}) + length(${PartTable.session_id})), 0)`,
+      })
+      .from(PartTable)
+      .where(eq(PartTable.session_id, sessionID))
+      .get(),
+  )
+  return {
+    bytes:
+      new TextEncoder().encode(JSON.stringify(info)).byteLength +
+      Number(messages?.bytes ?? 0) +
+      Number(parts?.bytes ?? 0),
+    messages: Number(messages?.count ?? 0),
+    parts: Number(parts?.count ?? 0),
+  }
+}
+
+export async function importSessionBackup(input: SessionBackupData, signal?: AbortSignal) {
   const data = SessionBackupSchema.parse(input)
   const parsed = (() => {
     try {
@@ -109,45 +145,37 @@ export const importSessionBackup = fn(SessionBackupSchema, async (input) => {
     revert: undefined,
     permission: undefined,
     readingMode: undefined,
-    time: { created: now, updated: now },
+    time: { created: now, updated: Math.max(Date.now(), now + 1) },
   })
 
-  SyncEvent.run(Session.Event.Created, { sessionID: sid, info })
-  try {
-    for (const row of rows) {
-      const id = mids.get(row.info.id)!
-      const msg = MessageV2.Info.parse({
+  const messages = rows.map((row) => {
+    const id = mids.get(row.info.id)!
+    return {
+      info: MessageV2.Info.parse({
         ...row.info,
         id,
         sessionID: sid,
         ...(row.info.role === "assistant" ? { parentID: mids.get(row.info.parentID)! } : {}),
-      })
-      SyncEvent.run(MessageV2.Event.Updated, { sessionID: sid, info: msg })
-
-      for (const raw of row.parts) {
-        const part = MessageV2.Part.parse({
+      }),
+      parts: row.parts.map((raw) => ({
+        part: MessageV2.Part.parse({
           ...raw,
           id: pids.get(raw.id)!,
           sessionID: sid,
           messageID: id,
           ...("metadata" in raw && raw.metadata ? { metadata: rewrite(raw.metadata, mids) } : {}),
-        })
-        SyncEvent.run(MessageV2.Event.PartUpdated, {
-          sessionID: sid,
-          part,
-          time: stamp(raw, row.info.time.created),
-        })
-      }
+        }),
+        time: stamp(raw, row.info.time.created),
+      })),
     }
-    SyncEvent.run(Session.Event.Updated, {
-      sessionID: sid,
-      info: { projectID: info.projectID, time: { updated: Math.max(Date.now(), now + 1) } },
-    })
-  } catch (err) {
-    SyncEvent.run(Session.Event.Deleted, { sessionID: sid, info })
-    SyncEvent.remove(sid)
-    throw err
+  })
+
+  signal?.throwIfAborted()
+  if (await SessionStatus.hasActiveProject()) {
+    throw new SessionImportActiveError({ message: "Wait for active sessions to finish before importing" })
   }
+  signal?.throwIfAborted()
+  SyncEvent.run(Session.Event.Imported, { sessionID: sid, info, messages })
 
   return { sessionID: sid, title: info.title }
-})
+}

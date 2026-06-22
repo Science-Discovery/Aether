@@ -5,6 +5,8 @@ import { makeRuntime } from "@/effect/run-service"
 import { SessionID } from "./schema"
 import { Effect, Layer, ServiceMap } from "effect"
 import z from "zod"
+import { registerDisposer } from "@/effect/instance-registry"
+import { Instance } from "@/project/instance"
 
 export namespace SessionStatus {
   export const Info = z
@@ -47,6 +49,7 @@ export namespace SessionStatus {
   export interface Interface {
     readonly get: (sessionID: SessionID) => Effect.Effect<Info>
     readonly list: () => Effect.Effect<Map<SessionID, Info>>
+    readonly hasActiveProject: () => Effect.Effect<boolean>
     readonly set: (sessionID: SessionID, status: Info) => Effect.Effect<void>
   }
 
@@ -56,10 +59,21 @@ export namespace SessionStatus {
     Service,
     Effect.gen(function* () {
       const bus = yield* Bus.Service
+      const projects = new Map<string, Map<SessionID, string>>()
 
       const state = yield* InstanceState.make(
         Effect.fn("SessionStatus.state")(() => Effect.succeed(new Map<SessionID, Info>())),
       )
+
+      const off = registerDisposer(async (directory) => {
+        for (const [project, sessions] of projects) {
+          for (const [sessionID, dir] of sessions) {
+            if (dir === directory) sessions.delete(sessionID)
+          }
+          if (sessions.size === 0) projects.delete(project)
+        }
+      })
+      yield* Effect.addFinalizer(() => Effect.sync(off))
 
       const get = Effect.fn("SessionStatus.get")(function* (sessionID: SessionID) {
         const data = yield* InstanceState.get(state)
@@ -70,8 +84,18 @@ export namespace SessionStatus {
         return new Map(yield* InstanceState.get(state))
       })
 
+      const hasActiveProject = Effect.fn("SessionStatus.hasActiveProject")(() =>
+        Effect.sync(() => (projects.get(Instance.project.id)?.size ?? 0) > 0),
+      )
+
       const set = Effect.fn("SessionStatus.set")(function* (sessionID: SessionID, status: Info) {
         const data = yield* InstanceState.get(state)
+        const project = Instance.project.id
+        const sessions = projects.get(project) ?? new Map<SessionID, string>()
+        if (status.type === "idle") sessions.delete(sessionID)
+        if (status.type !== "idle") sessions.set(sessionID, Instance.directory)
+        if (sessions.size > 0) projects.set(project, sessions)
+        if (sessions.size === 0) projects.delete(project)
         yield* bus.publish(Event.Status, { sessionID, status })
         if (status.type === "idle") {
           yield* bus.publish(Event.Idle, { sessionID })
@@ -81,7 +105,7 @@ export namespace SessionStatus {
         data.set(sessionID, status)
       })
 
-      return Service.of({ get, list, set })
+      return Service.of({ get, list, hasActiveProject, set })
     }),
   )
 
@@ -94,6 +118,10 @@ export namespace SessionStatus {
 
   export async function list() {
     return runPromise((svc) => svc.list())
+  }
+
+  export async function hasActiveProject() {
+    return runPromise((svc) => svc.hasActiveProject())
   }
 
   export async function set(sessionID: SessionID, status: Info) {

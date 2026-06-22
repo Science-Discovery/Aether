@@ -259,6 +259,8 @@ import type {
   SessionAbortResponses,
   SessionArchiveErrors,
   SessionArchiveResponses,
+  SessionBackupEstimateErrors,
+  SessionBackupEstimateResponses,
   SessionChildrenErrors,
   SessionChildrenResponses,
   SessionCommandErrors,
@@ -2578,6 +2580,42 @@ export class Session2 extends HeyApiClient {
         ...options?.headers,
         ...params.headers,
       },
+    })
+  }
+
+  /**
+   * Estimate session backup size
+   *
+   * Estimate the size and row counts of a session backup.
+   */
+  public backupEstimate<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<
+      SessionBackupEstimateResponses,
+      SessionBackupEstimateErrors,
+      ThrowOnError
+    >({
+      url: "/session/{sessionID}/backup/estimate",
+      ...options,
+      ...params,
     })
   }
 

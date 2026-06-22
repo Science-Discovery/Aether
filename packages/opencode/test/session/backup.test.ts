@@ -3,13 +3,15 @@ import { Log } from "../../src/util/log"
 import { tmpdir } from "../fixture/fixture"
 import { Instance } from "../../src/project/instance"
 import { Session } from "../../src/session"
-import { buildSessionBackup, importSessionBackup } from "../../src/session/backup"
+import { buildSessionBackup, estimateSessionBackup, importSessionBackup } from "../../src/session/backup"
 import { MessageV2 } from "../../src/session/message-v2"
 import { MessageID, PartID } from "../../src/session/schema"
 import { WorkspaceID } from "../../src/control-plane/schema"
 import { WorkspaceContext } from "../../src/control-plane/workspace-context"
-import { Database, eq } from "../../src/storage/db"
-import { PartTable } from "../../src/session/session.sql"
+import { Database, eq, sql } from "../../src/storage/db"
+import { PartTable, SessionTable } from "../../src/session/session.sql"
+import { Bus } from "../../src/bus"
+import { SessionStatus } from "../../src/session/status"
 
 Log.init({ print: false })
 
@@ -18,7 +20,7 @@ describe("session backup", () => {
     await using src = await tmpdir({ git: true })
     await using dst = await tmpdir({ git: true })
 
-    const backup = await Instance.provide({
+    const source = await Instance.provide({
       directory: src.path,
       fn: async () => {
         const session = await Session.create({
@@ -69,14 +71,43 @@ describe("session backup", () => {
             metadata: { sourceMessageID: user.id },
           }),
         )
-        return buildSessionBackup(session, await Session.messages({ sessionID: session.id }))
+        return {
+          backup: buildSessionBackup(session, await Session.messages({ sessionID: session.id })),
+          estimate: await estimateSessionBackup(session.id),
+        }
       },
     })
+    const backup = source.backup
+    expect(source.estimate.messages).toBe(2)
+    expect(source.estimate.parts).toBe(2)
+    expect(source.estimate.bytes).toBeGreaterThan(0)
 
     const workspaceID = WorkspaceID.ascending()
     const result = await Instance.provide({
       directory: dst.path,
-      fn: () => WorkspaceContext.provide({ workspaceID, fn: () => importSessionBackup(backup) }),
+      fn: async () => {
+        let imported = false
+        let created = false
+        const offImported = Bus.subscribe(Session.Event.Imported, (event) => {
+          imported = !!Database.useProject(Instance.project.id, (db) =>
+            db
+              .select({ id: SessionTable.id })
+              .from(SessionTable)
+              .where(eq(SessionTable.id, event.properties.info.id))
+              .get(),
+          )
+        })
+        const offCreated = Bus.subscribe(Session.Event.Created, () => {
+          created = true
+        })
+        const result = await WorkspaceContext.provide({ workspaceID, fn: () => importSessionBackup(backup) })
+        await new Promise((resolve) => setTimeout(resolve, 50))
+        offImported()
+        offCreated()
+        expect(imported).toBe(true)
+        expect(created).toBe(false)
+        return result
+      },
     })
 
     await Instance.provide({
@@ -147,5 +178,104 @@ describe("session backup", () => {
         expect([...Session.list({ roots: true })]).toHaveLength(before)
       },
     })
+  })
+
+  test("rolls back every row when an imported part fails", async () => {
+    await using src = await tmpdir({ git: true })
+    await using dst = await tmpdir({ git: true })
+    const backup = await Instance.provide({
+      directory: src.path,
+      fn: async () => {
+        const session = await Session.create({ title: "atomic source" })
+        const message = MessageV2.Info.parse({
+          id: MessageID.ascending(),
+          sessionID: session.id,
+          role: "user",
+          time: { created: 1_000 },
+          agent: "build",
+          model: { providerID: "anthropic", modelID: "claude" },
+        })
+        const part = MessageV2.Part.parse({
+          id: PartID.ascending(),
+          sessionID: session.id,
+          messageID: message.id,
+          type: "text",
+          text: "atomic",
+        })
+        return buildSessionBackup(session, [{ info: message, parts: [part] }])
+      },
+    })
+
+    await Instance.provide({
+      directory: dst.path,
+      fn: async () => {
+        const before = [...Session.list({ roots: true })].length
+        const abort = new AbortController()
+        abort.abort()
+        expect(importSessionBackup(backup, abort.signal)).rejects.toMatchObject({ name: "AbortError" })
+        expect([...Session.list({ roots: true })]).toHaveLength(before)
+
+        Database.useProject(Instance.project.id, (db) =>
+          db.run(
+            sql.raw(
+              "CREATE TRIGGER fail_session_import BEFORE INSERT ON part BEGIN SELECT RAISE(ABORT, 'forced import failure'); END",
+            ),
+          ),
+        )
+        expect(importSessionBackup(backup)).rejects.toThrow("forced import failure")
+        expect([...Session.list({ roots: true })]).toHaveLength(before)
+      },
+    })
+  })
+
+  test("rejects import while another session is active", async () => {
+    await using src = await tmpdir({ git: true })
+    await using dst = await tmpdir({ git: true })
+    await using sibling = await tmpdir({ git: true })
+    const backup = await Instance.provide({
+      directory: src.path,
+      fn: async () => buildSessionBackup(await Session.create({ title: "active guard source" }), []),
+    })
+
+    const target = await Instance.provide({
+      directory: dst.path,
+      fn: async () => {
+        const running = await Session.create({ title: "running" })
+        return { project: Instance.project, running }
+      },
+    })
+
+    await Instance.provide({
+      directory: sibling.path,
+      project: target.project,
+      worktree: sibling.path,
+      fn: () => SessionStatus.set(target.running.id, { type: "busy" }),
+    })
+    const reject = () =>
+      Instance.provide({
+        directory: dst.path,
+        fn: async () => {
+          const before = [...Session.list({ roots: true })].length
+          await expect(importSessionBackup(backup)).rejects.toMatchObject({ name: "SessionImportActiveError" })
+          expect([...Session.list({ roots: true })]).toHaveLength(before)
+        },
+      })
+    try {
+      await reject()
+      await Instance.provide({
+        directory: sibling.path,
+        project: target.project,
+        worktree: sibling.path,
+        fn: () => SessionStatus.set(target.running.id, { type: "retry", attempt: 1, message: "retry", next: 1 }),
+      })
+      await reject()
+    } finally {
+      await Instance.provide({
+        directory: sibling.path,
+        project: target.project,
+        worktree: sibling.path,
+        fn: () => SessionStatus.set(target.running.id, { type: "idle" }),
+      })
+    }
   })
 })
