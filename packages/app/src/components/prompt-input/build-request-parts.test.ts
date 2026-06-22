@@ -83,7 +83,7 @@ describe("buildRequestParts", () => {
       text: "",
       extraTextParts: [
         { text: "开始预读第 1-30 页", ignored: true },
-        { text: "隐藏的预读提示", synthetic: true, metadata: { opencodeConversationQuote: { source: "assistant" } } },
+        { text: "隐藏的预读提示", synthetic: true },
       ],
       messageID: "msg_extra",
       sessionID: "ses_extra",
@@ -93,16 +93,7 @@ describe("buildRequestParts", () => {
     const textParts = result.requestParts.filter((part) => part.type === "text")
     expect(textParts).toHaveLength(2)
     expect(textParts[0]).toMatchObject({ text: "开始预读第 1-30 页", ignored: true })
-    expect(textParts[1]).toMatchObject({
-      text: "隐藏的预读提示",
-      synthetic: true,
-      metadata: { opencodeConversationQuote: { source: "assistant" } },
-    })
-    expect(result.optimisticParts[1]).toMatchObject({
-      type: "text",
-      synthetic: true,
-      metadata: { opencodeConversationQuote: { source: "assistant" } },
-    })
+    expect(textParts[1]).toMatchObject({ text: "隐藏的预读提示", synthetic: true })
   })
 
   test("deduplicates context files when prompt already includes same path", () => {

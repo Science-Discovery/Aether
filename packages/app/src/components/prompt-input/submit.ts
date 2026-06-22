@@ -4,7 +4,6 @@ import { base64Encode } from "@opencode-ai/util/encode"
 import { Binary } from "@opencode-ai/util/binary"
 import { useNavigate, useParams } from "@solidjs/router"
 import type { Accessor } from "solid-js"
-import { useMaybeConversationQuote } from "@/context/conversation-quote"
 import type { FileSelection } from "@/context/file"
 import { useFile } from "@/context/file"
 import { useGlobalSync } from "@/context/global-sync"
@@ -13,8 +12,6 @@ import { useLayout } from "@/context/layout"
 import { useLocal } from "@/context/local"
 import { usePermission } from "@/context/permission"
 import { DEFAULT_PROMPT, type ContextItem, type ImageAttachmentPart, type Prompt, usePrompt } from "@/context/prompt"
-import { useMaybeQuickReadingMode } from "@/context/quick-reading-mode"
-import { useMaybeReadingMode } from "@/context/reading-mode"
 import { useSDK } from "@/context/sdk"
 import { useServer } from "@/context/server"
 import { useSync } from "@/context/sync"
@@ -24,12 +21,8 @@ import { Identifier } from "@/utils/id"
 import { Worktree as WorktreeState } from "@/utils/worktree"
 import { buildRequestParts, type DataAttachment } from "./build-request-parts"
 import { setCursorPosition } from "./editor-dom"
-import {
-  createConversationQuoteMetadata,
-  createReadingQuoteMetadata,
-  formatReadingPageRange,
-  summarizeReadingQuoteText,
-} from "@/utils/comment-note"
+import { createReadingQuoteMetadata, formatReadingPageRange, summarizeReadingQuoteText } from "@/utils/comment-note"
+import { createConversationQuoteMetadata } from "@/utils/conversation-quote-metadata"
 import { formatServerError } from "@/utils/server-errors"
 
 type PendingPrompt = {
@@ -296,7 +289,59 @@ type PromptSubmitInput = {
   onAbort?: () => void
   onSubmit?: () => void
   openTabPaths?: Accessor<string[]>
+  conversationQuoteQuestions?: Accessor<QuoteQuestion[]>
+  onConversationQuoteClear?: (sessionID?: string) => void
+  quickReadingQuestion?: Accessor<QuickQuestion>
+  quickReadingSettings?: Accessor<QuestionSettings | undefined>
+  onQuickReadingQuestionClear?: () => void
+  readingQuestion?: Accessor<ReadingQuestion>
+  readingSessionMeta?: Accessor<ReadingMeta | null | undefined>
+  readingTotalPages?: Accessor<number | undefined>
+  onReadingQuestionClear?: () => void
 }
+
+type QuoteQuestion = {
+  sessionID: string
+  sourceMessageID: string
+  text: string
+  summary: string
+}
+
+type QuestionSettings = {
+  questionPrompt: string
+}
+
+type ReadingSettings = QuestionSettings & {
+  contextPageRange: 0 | 1 | 2
+}
+
+type ReadingMeta = {
+  pdfFileName: string
+  settings: ReadingSettings
+}
+
+type TextQuestion = {
+  kind: "text-question"
+  startPage: number
+  endPage: number
+  text: string
+}
+
+type ImageQuestion = {
+  kind: "image-question"
+  page: number
+  text: string
+  imageDataUrl: string
+}
+
+type ReadingQuestion = TextQuestion | ImageQuestion | null
+
+type QuickQuestion =
+  | ((TextQuestion | ImageQuestion) & {
+      sessionID: string
+      pdfFileName: string
+    })
+  | null
 
 type CommentItem = {
   path: string
@@ -315,9 +360,6 @@ export function createPromptSubmit(input: PromptSubmitInput) {
   const local = useLocal()
   const permission = usePermission()
   const prompt = usePrompt()
-  const quote = useMaybeConversationQuote()
-  const quickReadingMode = useMaybeQuickReadingMode()
-  const readingMode = useMaybeReadingMode()
   const layout = useLayout()
   const language = useLanguage()
   const params = useParams()
@@ -579,9 +621,9 @@ export function createPromptSubmit(input: PromptSubmitInput) {
     const context = prompt.context.items().slice()
     const openPaths = input.openTabPaths?.() ?? []
     const selText = fileCtx.selectedText()
-    const quoteQuestions = quote?.store.pendingQuestions.filter((item) => item.sessionID === params.id) ?? []
-    const readingQuestion = readingMode?.store.pendingQuestion
-    const quickReadingPendingQuestion = quickReadingMode?.store.pendingQuestion ?? null
+    const quoteQuestions = input.conversationQuoteQuestions?.().filter((item) => item.sessionID === params.id) ?? []
+    const readingQuestion = input.readingQuestion?.() ?? null
+    const quickReadingPendingQuestion = input.quickReadingQuestion?.() ?? null
     const quickReadingQuestion =
       quickReadingPendingQuestion?.sessionID === params.id ? quickReadingPendingQuestion : null
     const draft: FollowupDraft = {
@@ -814,7 +856,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       })
         .then((ok) => {
           if (ok) {
-            quote?.clearPendingQuestions(params.id)
+            input.onConversationQuoteClear?.(params.id)
             return
           }
           restoreCommentItems(commentItems)
@@ -838,7 +880,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
 
     if (mode === "normal" && quickReadingQuestion) {
       const typedQuestion = text.trim()
-      const settings = quickReadingMode?.store.snapshot.settings
+      const settings = input.quickReadingSettings?.()
       if (!typedQuestion || !settings) {
         restoreCommentItems(commentItems)
         restoreInput()
@@ -925,7 +967,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       })
         .then((ok) => {
           if (ok) {
-            quickReadingMode?.setPendingQuestion(null)
+            input.onQuickReadingQuestionClear?.()
             return
           }
           restoreCommentItems(commentItems)
@@ -949,7 +991,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
 
     if (mode === "normal" && readingQuestion) {
       const typedQuestion = text.trim()
-      const sessionMeta = sync.session.get(session.id)?.readingMode ?? readingMode?.store.sessionMeta
+      const sessionMeta = sync.session.get(session.id)?.readingMode ?? input.readingSessionMeta?.()
       if (!typedQuestion || !sessionMeta) {
         restoreCommentItems(commentItems)
         restoreInput()
@@ -967,7 +1009,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
           startPage: readingQuestion.kind === "text-question" ? readingQuestion.startPage : readingQuestion.page,
           endPage: readingQuestion.kind === "text-question" ? readingQuestion.endPage : readingQuestion.page,
           range: sessionMeta.settings.contextPageRange,
-          totalPages: readingMode?.store.totalPages,
+          totalPages: input.readingTotalPages?.(),
         } as const
         const [pageText, pagePdf] = await Promise.all([
           fetchReadingContextPages(contextInput),
@@ -1072,7 +1114,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       })
         .then((ok) => {
           if (ok) {
-            readingMode?.setPendingQuestion(null)
+            input.onReadingQuestionClear?.()
             return
           }
           restoreCommentItems(commentItems)

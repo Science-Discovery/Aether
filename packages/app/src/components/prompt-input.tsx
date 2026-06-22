@@ -3,7 +3,10 @@ import { useSpring } from "@opencode-ai/ui/motion-spring"
 import { createEffect, on, Component, Show, For, onCleanup, createMemo, createSignal } from "solid-js"
 import { createStore } from "solid-js/store"
 import { useLocal } from "@/context/local"
+import { useMaybeConversationQuote } from "@/context/conversation-quote"
 import { selectionFromLines, type SelectedLineRange, useFile } from "@/context/file"
+import { useMaybeQuickReadingMode } from "@/context/quick-reading-mode"
+import { useMaybeReadingMode } from "@/context/reading-mode"
 import {
   ContentPart,
   DEFAULT_PROMPT,
@@ -114,6 +117,9 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
   const sdk = useSDK()
   const sync = useSync()
   const local = useLocal()
+  const quote = useMaybeConversationQuote()
+  const quickReadingMode = useMaybeQuickReadingMode()
+  const readingMode = useMaybeReadingMode()
   const files = useFile()
   const prompt = usePrompt()
   const layout = useLayout()
@@ -1189,6 +1195,15 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     onAbort: props.onAbort,
     onSubmit: props.onSubmit,
     openTabPaths: recent,
+    conversationQuoteQuestions: () => quote?.store.pendingQuestions ?? [],
+    onConversationQuoteClear: (id) => quote?.clearPendingQuestions(id),
+    quickReadingQuestion: () => quickReadingMode?.store.pendingQuestion ?? null,
+    quickReadingSettings: () => quickReadingMode?.store.snapshot.settings,
+    onQuickReadingQuestionClear: () => quickReadingMode?.setPendingQuestion(null),
+    readingQuestion: () => readingMode?.store.pendingQuestion ?? null,
+    readingSessionMeta: () => readingMode?.store.sessionMeta,
+    readingTotalPages: () => readingMode?.store.totalPages,
+    onReadingQuestionClear: () => readingMode?.setPendingQuestion(null),
   })
 
   const handleKeyDown = (event: KeyboardEvent) => {

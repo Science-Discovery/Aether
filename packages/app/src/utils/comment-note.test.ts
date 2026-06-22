@@ -1,11 +1,10 @@
 import { describe, expect, test } from "bun:test"
 import {
-  createConversationQuoteMetadata,
   createReadingQuoteMetadata,
-  readConversationQuoteMetadata,
   readReadingQuoteMetadata,
   summarizeReadingQuoteText,
 } from "./comment-note"
+import { createConversationQuoteMetadata, readConversationQuoteMetadata } from "./conversation-quote-metadata"
 
 describe("reading quote metadata", () => {
   test("round-trips text quotes", () => {

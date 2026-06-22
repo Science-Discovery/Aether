@@ -39,13 +39,12 @@ import { messageAgentColor } from "@/utils/agent"
 import {
   formatReadingPageRange,
   parseCommentNote,
-  readConversationQuoteMetadata,
   readCommentMetadata,
   readReadingQuoteMetadata,
   summarizeReadingQuoteText,
-  type ConversationQuote,
   type ReadingQuote,
 } from "@/utils/comment-note"
+import { readConversationQuoteMetadata, type ConversationQuote } from "@/utils/conversation-quote-metadata"
 import { makeTimer } from "@solid-primitives/timer"
 import { createChatFind, ChatFindBar } from "@/pages/session/chat-find"
 
