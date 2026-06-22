@@ -67,44 +67,6 @@ export function toPartialRow(info: DeepPartial<Session.Info>) {
 }
 
 export default [
-  SyncEvent.project(Session.Event.Imported, (db, data) => {
-    Database.transactionProject(
-      data.info.projectID,
-      (tx) => {
-        tx.insert(SessionTable).values(Session.toRow(data.info)).run()
-        if (data.messages.length > 0) {
-          tx.insert(MessageTable)
-            .values(
-              data.messages.map((msg) => {
-                const { id, sessionID, ...rest } = msg.info
-                return {
-                  id,
-                  session_id: sessionID,
-                  time_created: msg.info.time.created,
-                  data: rest,
-                }
-              }),
-            )
-            .run()
-        }
-        const parts = data.messages.flatMap((msg) =>
-          msg.parts.map((item) => {
-            const { id, messageID, sessionID, ...rest } = item.part
-            return {
-              id,
-              message_id: messageID,
-              session_id: sessionID,
-              time_created: item.time,
-              data: rest,
-            }
-          }),
-        )
-        if (parts.length > 0) tx.insert(PartTable).values(parts).run()
-      },
-      { behavior: "immediate" },
-    )
-  }),
-
   SyncEvent.project(Session.Event.Created, (db, data) => {
     Database.useProject(data.info.projectID, (pdb) => {
       pdb.insert(SessionTable).values(Session.toRow(data.info)).run()

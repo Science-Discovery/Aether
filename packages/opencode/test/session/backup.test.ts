@@ -8,10 +8,12 @@ import { MessageV2 } from "../../src/session/message-v2"
 import { MessageID, PartID } from "../../src/session/schema"
 import { WorkspaceID } from "../../src/control-plane/schema"
 import { WorkspaceContext } from "../../src/control-plane/workspace-context"
-import { Database, eq, sql } from "../../src/storage/db"
-import { PartTable, SessionTable } from "../../src/session/session.sql"
+import { Database, count, eq, sql } from "../../src/storage/db"
+import { MessageTable, PartTable, SessionTable } from "../../src/session/session.sql"
 import { Bus } from "../../src/bus"
 import { SessionStatus } from "../../src/session/status"
+import { SyncEvent } from "../../src/sync"
+import { EventTable } from "../../src/sync/event.sql"
 
 Log.init({ print: false })
 
@@ -86,16 +88,29 @@ describe("session backup", () => {
     const result = await Instance.provide({
       directory: dst.path,
       fn: async () => {
+        expect([...SyncEvent.registry.values()].some((event) => event.type === "session.imported")).toBe(false)
+        const events = Database.use((db) => db.select({ count: count() }).from(EventTable).get()?.count ?? 0)
         let imported = false
         let created = false
         const offImported = Bus.subscribe(Session.Event.Imported, (event) => {
-          imported = !!Database.useProject(Instance.project.id, (db) =>
-            db
+          imported = Database.useProject(Instance.project.id, (db) => {
+            const session = db
               .select({ id: SessionTable.id })
               .from(SessionTable)
               .where(eq(SessionTable.id, event.properties.info.id))
-              .get(),
-          )
+              .get()
+            const messages = db
+              .select({ count: count() })
+              .from(MessageTable)
+              .where(eq(MessageTable.session_id, event.properties.info.id))
+              .get()?.count
+            const parts = db
+              .select({ count: count() })
+              .from(PartTable)
+              .where(eq(PartTable.session_id, event.properties.info.id))
+              .get()?.count
+            return !!session && messages === 2 && parts === 2
+          })
         })
         const offCreated = Bus.subscribe(Session.Event.Created, () => {
           created = true
@@ -106,6 +121,7 @@ describe("session backup", () => {
         offCreated()
         expect(imported).toBe(true)
         expect(created).toBe(false)
+        expect(Database.use((db) => db.select({ count: count() }).from(EventTable).get()?.count ?? 0)).toBe(events)
         return result
       },
     })
@@ -209,21 +225,30 @@ describe("session backup", () => {
     await Instance.provide({
       directory: dst.path,
       fn: async () => {
+        let imported = false
+        const off = Bus.subscribe(Session.Event.Imported, () => {
+          imported = true
+        })
         const before = [...Session.list({ roots: true })].length
-        const abort = new AbortController()
-        abort.abort()
-        expect(importSessionBackup(backup, abort.signal)).rejects.toMatchObject({ name: "AbortError" })
-        expect([...Session.list({ roots: true })]).toHaveLength(before)
+        try {
+          const abort = new AbortController()
+          abort.abort()
+          expect(importSessionBackup(backup, abort.signal)).rejects.toMatchObject({ name: "AbortError" })
+          expect([...Session.list({ roots: true })]).toHaveLength(before)
 
-        Database.useProject(Instance.project.id, (db) =>
-          db.run(
-            sql.raw(
-              "CREATE TRIGGER fail_session_import BEFORE INSERT ON part BEGIN SELECT RAISE(ABORT, 'forced import failure'); END",
+          Database.useProject(Instance.project.id, (db) =>
+            db.run(
+              sql.raw(
+                "CREATE TRIGGER fail_session_import BEFORE INSERT ON part BEGIN SELECT RAISE(ABORT, 'forced import failure'); END",
+              ),
             ),
-          ),
-        )
-        expect(importSessionBackup(backup)).rejects.toThrow("forced import failure")
-        expect([...Session.list({ roots: true })]).toHaveLength(before)
+          )
+          expect(importSessionBackup(backup)).rejects.toThrow("forced import failure")
+          expect([...Session.list({ roots: true })]).toHaveLength(before)
+          expect(imported).toBe(false)
+        } finally {
+          off()
+        }
       },
     })
   })

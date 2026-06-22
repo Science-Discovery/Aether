@@ -10,10 +10,6 @@ export function initProjectors() {
   SyncEvent.init({
     projectors: sessionProjectors,
     convertEvent: (type, data) => {
-      if (type === "session.imported") {
-        const event = data as z.infer<typeof Session.Event.Imported.schema>
-        return { sessionID: event.sessionID, info: event.info }
-      }
       if (type === "session.updated") {
         const id = (data as z.infer<typeof Session.Event.Updated.schema>).sessionID
         const row = Database.useProject(Instance.project.id, (db) =>

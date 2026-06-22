@@ -6,12 +6,15 @@ import { Installation } from "../installation"
 import { Instance } from "../project/instance"
 import { WorkspaceContext } from "../control-plane/workspace-context"
 import { Database, count, eq, sql } from "../storage/db"
-import { SyncEvent } from "../sync"
+import { Bus } from "../bus"
+import { Log } from "../util/log"
 import { Session } from "./index"
 import { MessageV2 } from "./message-v2"
 import { MessageID, PartID, SessionID, TreeID } from "./schema"
-import { MessageTable, PartTable } from "./session.sql"
+import { MessageTable, PartTable, SessionTable } from "./session.sql"
 import { SessionStatus } from "./status"
+
+const log = Log.create({ service: "session.backup" })
 
 export const InvalidSessionBackupError = NamedError.create(
   "InvalidSessionBackupError",
@@ -175,7 +178,44 @@ export async function importSessionBackup(input: SessionBackupData, signal?: Abo
     throw new SessionImportActiveError({ message: "Wait for active sessions to finish before importing" })
   }
   signal?.throwIfAborted()
-  SyncEvent.run(Session.Event.Imported, { sessionID: sid, info, messages })
+  Database.transactionProject(
+    info.projectID,
+    (tx) => {
+      tx.insert(SessionTable).values(Session.toRow(info)).run()
+      if (messages.length > 0) {
+        tx.insert(MessageTable)
+          .values(
+            messages.map((msg) => {
+              const { id, sessionID, ...rest } = msg.info
+              return {
+                id,
+                session_id: sessionID,
+                time_created: msg.info.time.created,
+                data: rest,
+              }
+            }),
+          )
+          .run()
+      }
+      const parts = messages.flatMap((msg) =>
+        msg.parts.map((item) => {
+          const { id, messageID, sessionID, ...rest } = item.part
+          return {
+            id,
+            message_id: messageID,
+            session_id: sessionID,
+            time_created: item.time,
+            data: rest,
+          }
+        }),
+      )
+      if (parts.length > 0) tx.insert(PartTable).values(parts).run()
+    },
+    { behavior: "immediate" },
+  )
+  await Bus.publish(Session.Event.Imported, { sessionID: sid, info }).catch((err) => {
+    log.error("failed to publish imported session", { sessionID: sid, error: err })
+  })
 
   return { sessionID: sid, title: info.title }
 }

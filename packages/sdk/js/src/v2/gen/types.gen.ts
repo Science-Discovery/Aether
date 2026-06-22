@@ -434,6 +434,84 @@ export type FileDiff = {
   status?: "added" | "deleted" | "modified"
 }
 
+export type PermissionAction = "allow" | "deny" | "ask"
+
+export type PermissionRule = {
+  permission: string
+  pattern: string
+  action: PermissionAction
+}
+
+export type PermissionRuleset = Array<PermissionRule>
+
+export type Session = {
+  id: string
+  slug: string
+  projectID: string
+  workspaceID?: string
+  directory: string
+  parentID?: string
+  treeID?: string
+  forkIndex?: number
+  forkParentSessionID?: string
+  forkAfterUserMessageID?: string
+  summary?: {
+    additions: number
+    deletions: number
+    files: number
+    diffs?: Array<FileDiff>
+  }
+  share?: {
+    url: string
+  }
+  title: string
+  version: string
+  time: {
+    created: number
+    updated: number
+    compacting?: number
+    archived?: number
+  }
+  permission?: PermissionRuleset
+  revert?: {
+    messageID: string
+    partID?: string
+    snapshot?: string
+    diff?: string
+  }
+  readingMode?: {
+    pdfFileName: string
+    pdfStorePath: string
+    lastReadPage: number
+    annotationsPath: string
+    source: {
+      kind: "workspace-file" | "upload"
+      path?: string
+    }
+    settings: {
+      translatePrompt: string
+      questionPrompt: string
+      firstReadPrompt: string
+      contextPageRange: 0 | 1 | 2
+      autoFirstRead: boolean
+    }
+    firstReadCompleted: boolean
+    firstReadDismissed: boolean
+  }
+  match?: {
+    scope: "title" | "messages"
+    text?: string
+  }
+}
+
+export type EventSessionImported = {
+  type: "session.imported"
+  properties: {
+    sessionID: string
+    info: Session
+  }
+}
+
 export type EventSessionDiff = {
   type: "session.diff"
   properties: {
@@ -974,86 +1052,8 @@ export type EventMessagePartRemoved = {
   }
 }
 
-export type PermissionAction = "allow" | "deny" | "ask"
-
-export type PermissionRule = {
-  permission: string
-  pattern: string
-  action: PermissionAction
-}
-
-export type PermissionRuleset = Array<PermissionRule>
-
-export type Session = {
-  id: string
-  slug: string
-  projectID: string
-  workspaceID?: string
-  directory: string
-  parentID?: string
-  treeID?: string
-  forkIndex?: number
-  forkParentSessionID?: string
-  forkAfterUserMessageID?: string
-  summary?: {
-    additions: number
-    deletions: number
-    files: number
-    diffs?: Array<FileDiff>
-  }
-  share?: {
-    url: string
-  }
-  title: string
-  version: string
-  time: {
-    created: number
-    updated: number
-    compacting?: number
-    archived?: number
-  }
-  permission?: PermissionRuleset
-  revert?: {
-    messageID: string
-    partID?: string
-    snapshot?: string
-    diff?: string
-  }
-  readingMode?: {
-    pdfFileName: string
-    pdfStorePath: string
-    lastReadPage: number
-    annotationsPath: string
-    source: {
-      kind: "workspace-file" | "upload"
-      path?: string
-    }
-    settings: {
-      translatePrompt: string
-      questionPrompt: string
-      firstReadPrompt: string
-      contextPageRange: 0 | 1 | 2
-      autoFirstRead: boolean
-    }
-    firstReadCompleted: boolean
-    firstReadDismissed: boolean
-  }
-  match?: {
-    scope: "title" | "messages"
-    text?: string
-  }
-}
-
 export type EventSessionCreated = {
   type: "session.created"
-  properties: {
-    sessionID: string
-    info: Session
-  }
-}
-
-export type EventSessionImported = {
-  type: "session.imported"
   properties: {
     sessionID: string
     info: Session
@@ -1111,6 +1111,7 @@ export type Event =
   | EventMcpBrowserOpenFailed
   | EventCommandExecuted
   | EventSessionPreferenceUpdated
+  | EventSessionImported
   | EventSessionDiff
   | EventSessionError
   | EventVcsBranchUpdated
@@ -1127,7 +1128,6 @@ export type Event =
   | EventMessagePartUpdated
   | EventMessagePartRemoved
   | EventSessionCreated
-  | EventSessionImported
   | EventSessionUpdated
   | EventSessionDeleted
 
@@ -1180,22 +1180,6 @@ export type SyncEventSessionCreated = {
   data: {
     sessionID: string
     info: Session
-  }
-}
-
-export type SyncEventSessionImported = {
-  type: "session.imported.1"
-  aggregate: "sessionID"
-  data: {
-    sessionID: string
-    info: Session
-    messages: Array<{
-      info: Message
-      parts: Array<{
-        part: Part
-        time: number
-      }>
-    }>
   }
 }
 

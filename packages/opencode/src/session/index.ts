@@ -628,25 +628,13 @@ export namespace Session {
         info: Info,
       }),
     }),
-    Imported: SyncEvent.define({
-      type: "session.imported",
-      version: 1,
-      aggregate: "sessionID",
-      schema: z.object({
-        sessionID: SessionID.zod,
-        info: Info,
-        messages: z.array(
-          z.object({
-            info: MessageV2.Info,
-            parts: z.array(z.object({ part: MessageV2.Part, time: z.number() })),
-          }),
-        ),
-      }),
-      busSchema: z.object({
+    Imported: BusEvent.define(
+      "session.imported",
+      z.object({
         sessionID: SessionID.zod,
         info: Info,
       }),
-    }),
+    ),
     Updated: SyncEvent.define({
       type: "session.updated",
       version: 1,
