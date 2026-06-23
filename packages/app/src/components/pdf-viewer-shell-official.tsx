@@ -1,9 +1,29 @@
 import { type Component, createEffect, createMemo, createSignal, onCleanup } from "solid-js"
 import { href } from "@/base-path"
+import { useSDK } from "@/context/sdk"
+import { usePlatform } from "@/context/platform"
+import { showToast } from "@opencode-ai/ui/toast"
 import "./pdf-viewer-shell.css"
 
 type ViewerMode = "full" | "compact"
 export type PdfViewTheme = "day" | "night" | "eye"
+export type PdfAnnotationColor = "yellow" | "red" | "green" | "blue"
+export type PdfAnnotation = {
+  id: string
+  type: "highlight" | "underline" | "strikeout" | "note"
+  color: PdfAnnotationColor
+  pages: Array<{ page: number; quads: Array<[number, number, number, number, number, number, number, number]> }>
+  selectedText: string
+  note: string
+  createdAt: number
+  updatedAt: number
+}
+
+type PdfAnnotationFile = {
+  version: "1.2"
+  source: { path: string; fingerprint: string }
+  annotations: PdfAnnotation[]
+}
 
 const VIEW_THEME_KEY = "aether-pdf-theme"
 const LEGACY_NIGHT_MODE_KEY = "aether-pdf-night-mode"
@@ -65,6 +85,7 @@ export type PdfViewerShellProps = {
   page?: number
   location?: string
   layoutSwapped?: boolean
+  annotationPath?: string
   onPageChange?: (page: number) => void
   onLocationChange?: (location: string) => void
   onDocumentInfo?: (info: { totalPages: number }) => void
@@ -111,15 +132,23 @@ type ViewerMessage =
   | { channel: "aether-pdf-viewer"; type: "viewtheme"; theme: PdfViewTheme }
   | { channel: "aether-pdf-viewer"; type: "swaplayout" }
   | { channel: "aether-pdf-viewer"; type: "themechange" }
+  | { channel: "aether-pdf-viewer"; type: "annotationchange"; annotations: PdfAnnotation[] }
+  | { channel: "aether-pdf-viewer"; type: "exportannotations" }
 
 export const PdfViewerShell: Component<PdfViewerShellProps> = (props) => {
+  const sdk = useSDK()
+  const platform = usePlatform()
+  const channel = crypto.randomUUID()
   bindViewThemeSync()
   let iframeRef: HTMLIFrameElement | undefined
   let ready = false
   let lastReportedPage: number | undefined
   let lastReportedLocation: string | undefined
   let lastConfigKey = ""
+  let serial = 0
+  let saving = Promise.resolve()
   const [viewTheme, setViewTheme] = createSignal(props.viewTheme ?? sharedViewTheme)
+  const [annotations, setAnnotations] = createSignal<PdfAnnotationFile>()
 
   const viewerSrc = createMemo(() => (isFileProtocol() ? "./pdf-viewer.html" : href("/pdf-viewer.html")))
   const config = createMemo(() => ({
@@ -136,6 +165,7 @@ export const PdfViewerShell: Component<PdfViewerShellProps> = (props) => {
       settings: !!props.onOpenSettings,
       textSelectionActions: !!props.onTextSelectionAction,
       imageSelectionActions: !!props.onImageSelectionAction,
+      annotations: !!props.annotationPath,
       swapLayout: !!props.onSwapLayout,
     },
   }))
@@ -149,6 +179,130 @@ export const PdfViewerShell: Component<PdfViewerShellProps> = (props) => {
     const frame = iframeRef?.contentWindow
     if (!frame) return
     frame.postMessage(message, viewerMessageTargetOrigin())
+  }
+
+  const url = (pathname: string) => {
+    const url = new URL(pathname, `${sdk.url.replace(/\/+$/, "")}/`)
+    url.searchParams.set("directory", sdk.directory)
+    return url
+  }
+
+  const headers = () => (props.authHeader ? { Authorization: props.authHeader } : undefined)
+
+  createEffect(() => {
+    const path = props.annotationPath
+    const id = ++serial
+    setAnnotations(undefined)
+    if (!path) return
+    const target = url("file/pdf-annotations")
+    target.searchParams.set("path", path)
+    void fetch(target, { headers: headers() })
+      .then(async (res) => {
+        if (!res.ok) throw new Error(`Failed to load PDF annotations (${res.status})`)
+        return res.json() as Promise<{ status: "ready" | "stale"; data: PdfAnnotationFile }>
+      })
+      .then((result) => {
+        if (id !== serial) return
+        if (result.status === "stale") {
+          showToast({
+            variant: "error",
+            title: "PDF annotations paused",
+            description: "The PDF changed after these annotations were created.",
+          })
+          if (!window.confirm("This PDF changed and its saved annotations may be misplaced. Reset the annotation draft?")) {
+            return
+          }
+          const next = { ...result.data, annotations: [] }
+          void fetch(url("file/pdf-annotations"), {
+            method: "PUT",
+            headers: { "Content-Type": "application/json", ...headers() },
+            body: JSON.stringify({ path, data: next }),
+          })
+            .then(async (res) => {
+              if (!res.ok) throw new Error(`Failed to reset PDF annotations (${res.status})`)
+              if (id === serial) setAnnotations((await res.json()) as PdfAnnotationFile)
+            })
+            .catch((err) => {
+              showToast({ variant: "error", title: "Failed to reset PDF annotations", description: String(err) })
+            })
+          return
+        }
+        setAnnotations(result.data)
+      })
+      .catch((err) => {
+        if (id !== serial) return
+        showToast({ variant: "error", title: "Failed to load PDF annotations", description: String(err) })
+      })
+  })
+
+  createEffect(() => {
+    const data = annotations()
+    if (!ready || !data) return
+    post({ channel: "aether-pdf-viewer", type: "annotations", annotations: data.annotations })
+  })
+
+  const persist = (items: PdfAnnotation[]) => {
+    const path = props.annotationPath
+    const data = annotations()
+    if (!path || !data) return
+    const next = { ...data, annotations: items }
+    setAnnotations(next)
+    window.dispatchEvent(
+      new CustomEvent("aether:pdf-annotations", { detail: { channel, path, data: next } }),
+    )
+    saving = saving
+      .then(async () => {
+        const res = await fetch(url("file/pdf-annotations"), {
+          method: "PUT",
+          headers: { "Content-Type": "application/json", ...headers() },
+          body: JSON.stringify({ path, data: next }),
+        })
+        if (!res.ok) throw new Error(`Failed to save PDF annotations (${res.status})`)
+        setAnnotations((await res.json()) as PdfAnnotationFile)
+      })
+      .catch((err) => {
+        showToast({ variant: "error", title: "Failed to save PDF annotations", description: String(err) })
+      })
+  }
+
+  const onAnnotations = (event: Event) => {
+    const detail = (event as CustomEvent<{ channel: string; path: string; data: PdfAnnotationFile }>).detail
+    if (!detail || detail.channel === channel || detail.path !== props.annotationPath) return
+    setAnnotations(detail.data)
+    if (ready) post({ channel: "aether-pdf-viewer", type: "annotations", annotations: detail.data.annotations })
+  }
+  window.addEventListener("aether:pdf-annotations", onAnnotations)
+  onCleanup(() => window.removeEventListener("aether:pdf-annotations", onAnnotations))
+
+  const exportPdf = async () => {
+    const path = props.annotationPath
+    if (!path) return
+    await saving
+    const res = await fetch(url("file/pdf-annotations/export"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...headers() },
+      body: JSON.stringify({ path }),
+    })
+    if (!res.ok) {
+      const body = (await res.json().catch(() => undefined)) as { error?: string } | undefined
+      throw new Error(body?.error ?? `Failed to export annotated PDF (${res.status})`)
+    }
+    const head = res.headers.get("Content-Disposition")
+    const match = head?.match(/filename\*\s*=\s*UTF-8''([^;]+)/i)
+    const name = match?.[1] ? decodeURIComponent(match[1]) : `${path.split(/[\\/]/).pop()?.replace(/\.pdf$/i, "")}-annotated.pdf`
+    const blob = await res.blob()
+    if (platform.saveFileDialog) {
+      await platform.saveFileDialog({ name, data: await blob.arrayBuffer() })
+      return
+    }
+    const href = URL.createObjectURL(blob)
+    const link = document.createElement("a")
+    link.href = href
+    link.download = name
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    URL.revokeObjectURL(href)
   }
 
   const sendPage = () => {
@@ -237,6 +391,8 @@ export const PdfViewerShell: Component<PdfViewerShellProps> = (props) => {
       lastReportedLocation = undefined
       lastConfigKey = ""
       sendConfig()
+      const data = annotations()
+      if (data) post({ channel: "aether-pdf-viewer", type: "annotations", annotations: data.annotations })
       return
     }
 
@@ -308,6 +464,18 @@ export const PdfViewerShell: Component<PdfViewerShellProps> = (props) => {
 
     if (event.data.type === "swaplayout") {
       props.onSwapLayout?.()
+      return
+    }
+
+    if (event.data.type === "annotationchange") {
+      persist(event.data.annotations)
+      return
+    }
+
+    if (event.data.type === "exportannotations") {
+      void exportPdf().catch((err) => {
+        showToast({ variant: "error", title: "Failed to export annotated PDF", description: String(err) })
+      })
     }
   }
 

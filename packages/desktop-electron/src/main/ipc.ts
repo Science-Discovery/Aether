@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process"
+import { writeFile } from "node:fs/promises"
 import { BrowserWindow, Notification, app, clipboard, dialog, ipcMain, shell } from "electron"
 import type { IpcMainEvent, IpcMainInvokeEvent } from "electron"
 
@@ -145,6 +146,16 @@ export function registerIpcHandlers(deps: Deps) {
       return result.filePath ?? null
     },
   )
+
+  ipcMain.handle("save-file", async (event: IpcMainInvokeEvent, opts: { name: string; data: ArrayBuffer }) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    win?.focus()
+    const dialogOpts = { title: "Save file", defaultPath: opts.name }
+    const result = win ? await dialog.showSaveDialog(win, dialogOpts) : await dialog.showSaveDialog(dialogOpts)
+    if (result.canceled || !result.filePath) return null
+    await writeFile(result.filePath, new Uint8Array(opts.data))
+    return result.filePath
+  })
 
   ipcMain.on("open-link", (_event: IpcMainEvent, url: string) => {
     void shell.openExternal(url)
