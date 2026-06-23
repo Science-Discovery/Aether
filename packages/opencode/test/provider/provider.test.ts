@@ -51,6 +51,7 @@ test("models.dev local overlay applies provider additions", () => {
       additions: {
         test: provider,
       },
+      inserts: {},
       overrides: {},
       strict: true,
     },
@@ -68,6 +69,7 @@ test("models.dev local overlay rejects partial addition conflicts", () => {
         additions: {
           test: provider,
         },
+        inserts: {},
         overrides: {},
         strict: true,
       },
@@ -82,6 +84,7 @@ test("models.dev local overlay overrides only selected model metadata", () => {
     },
     {
       additions: {},
+      inserts: {},
       overrides: {
         test: {
           models: {
@@ -106,6 +109,68 @@ test("models.dev local overlay overrides only selected model metadata", () => {
   expect(data.test.models.model.provider?.api).toBe("https://api.example.com/v1")
   expect(data.test.models.other.provider?.npm).toBe("@ai-sdk/openai-compatible")
   expect("meta" in data.test.models.model).toBe(false)
+})
+
+test("models.dev local overlay inserts Alibaba GLM-5.2 models", () => {
+  const data = apply(
+    {
+      alibaba: {
+        ...provider,
+        id: "alibaba",
+        api: "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+        models: {},
+      },
+      "alibaba-cn": {
+        ...provider,
+        id: "alibaba-cn",
+        api: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        models: {},
+      },
+    },
+    {
+      additions: {},
+      overrides: {},
+      strict: true,
+    },
+  )
+
+  const intl = data.alibaba.models["glm-5.2"]
+  const cn = data["alibaba-cn"].models["glm-5.2"]
+
+  expect(intl.limit.context).toBe(1_000_000)
+  expect(intl.limit.output).toBe(128_000)
+  expect(intl.provider?.npm).toBe("@ai-sdk/openai-compatible")
+  expect(intl.provider?.api).toBe("https://dashscope-intl.aliyuncs.com/compatible-mode/v1")
+  expect("meta" in intl).toBe(false)
+
+  expect(cn.limit.context).toBe(1_000_000)
+  expect(cn.limit.output).toBe(128_000)
+  expect(cn.provider?.npm).toBe("@ai-sdk/openai-compatible")
+  expect(cn.provider?.api).toBe("https://dashscope.aliyuncs.com/compatible-mode/v1")
+  expect("meta" in cn).toBe(false)
+
+  const info = Provider.fromModelsDevProvider(data["alibaba-cn"])
+  expect(info.models["glm-5.2"].api.npm).toBe("@ai-sdk/openai-compatible")
+  expect(info.models["glm-5.2"].api.url).toBe("https://dashscope.aliyuncs.com/compatible-mode/v1")
+  expect(info.models["glm-5.2"].capabilities.interleaved).toEqual({ field: "reasoning_content" })
+})
+
+test("models.dev local overlay rejects duplicate model insertions", () => {
+  expect(() =>
+    apply(
+      { test: provider },
+      {
+        additions: {},
+        inserts: {
+          test: {
+            model,
+          },
+        },
+        overrides: {},
+        strict: true,
+      },
+    ),
+  ).toThrow("insert model test/model already exists")
 })
 
 test("models.dev local overlay pins aihubmix gpt-5.5 to responses provider", () => {
@@ -134,6 +199,7 @@ test("models.dev local overlay pins aihubmix gpt-5.5 to responses provider", () 
     },
     {
       additions: {},
+      inserts: {},
       overrides: {
         aihubmix: {
           models: {
@@ -175,6 +241,7 @@ test("aihubmix gpt-5.5 model override wins over provider package override", () =
     },
     {
       additions: {},
+      inserts: {},
       overrides: {
         aihubmix: {
           models: {
@@ -202,6 +269,7 @@ test("models.dev local overlay rejects missing provider override", () => {
       {},
       {
         additions: {},
+        inserts: {},
         overrides: {
           missing: {
             models: {
@@ -225,6 +293,7 @@ test("models.dev local overlay rejects missing model override", () => {
       { test: provider },
       {
         additions: {},
+        inserts: {},
         overrides: {
           test: {
             models: {
