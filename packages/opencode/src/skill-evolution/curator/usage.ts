@@ -3,6 +3,19 @@ import os from "os"
 import path from "path"
 
 /**
+ * A single skill-use coordinate. Pointer only — the full session lives in the
+ * session DB and is fetched back by `session_id` when evaluation is needed.
+ * No `projectId`: the ledger key already scopes a record to one project. See
+ * SESSION_USAGE_DESIGN.md D16.
+ */
+export interface UseEvent {
+  /** Which session this use happened in (from ctx.sessionID). */
+  session_id: string
+  /** When it happened (UTC ISO 8601). */
+  at: string
+}
+
+/**
  * Per-skill usage record. Stored in the curator ledger
  * (`<root>/curator/usage.json`), keyed by `"<projectId>/<name>"`.
  *
@@ -17,6 +30,14 @@ export interface UsageRecord {
   location: string
   use_count: number
   last_used_at: string | null
+  /**
+   * Recent-window cache of the last MAX_RECENT_USES use coordinates, oldest
+   * first. NOT the source of truth — the session DB holds the authoritative full
+   * history; this is a convenience index so the curator carries a ready recent
+   * window. Each bumpUse with a sessionId appends one; over the cap the oldest
+   * are dropped from the front. See SESSION_USAGE_DESIGN.md D17/D19.
+   */
+  recent_uses: UseEvent[]
   state: "active" | "stale" | "archived"
   /** Skip auto-transitions. Read-only in this version (no setter, see Q2). */
   pinned: boolean
@@ -24,6 +45,13 @@ export interface UsageRecord {
 }
 
 export namespace Usage {
+  /**
+   * Cap on `recent_uses` length; over it, the oldest events are dropped. A
+   * storage detail, not a user-tunable archive knob, so it lives here and not in
+   * CuratorConfig (YAGNI). See SESSION_USAGE_DESIGN.md Q-N.
+   */
+  export const MAX_RECENT_USES = 50
+
   function curatorDir(root: string): string {
     return path.join(root, "curator")
   }
@@ -57,6 +85,7 @@ export namespace Usage {
       location: scope.skillDir,
       use_count: 0,
       last_used_at: null,
+      recent_uses: [],
       state: "active",
       pinned: false,
       archived_at: null,
@@ -72,7 +101,12 @@ export namespace Usage {
       if (!data || typeof data !== "object" || Array.isArray(data)) return {}
       const clean: Record<string, UsageRecord> = {}
       for (const [k, v] of Object.entries(data)) {
-        if (v && typeof v === "object") clean[k] = v as UsageRecord
+        if (v && typeof v === "object") {
+          const rec = v as UsageRecord
+          // Legacy records predate recent_uses; backfill so .push never throws.
+          if (!Array.isArray(rec.recent_uses)) rec.recent_uses = []
+          clean[k] = rec
+        }
       }
       return clean
     } catch {
@@ -201,7 +235,12 @@ export namespace Usage {
     return true
   }
 
-  export async function bumpUse(root: string, location: string, now: Date = new Date()): Promise<void> {
+  export async function bumpUse(
+    root: string,
+    location: string,
+    sessionId?: string,
+    now: Date = new Date(),
+  ): Promise<void> {
     const scope = resolveScope(root, location)
     if (!scope) return
     try {
@@ -209,6 +248,12 @@ export namespace Usage {
       const rec = data[scope.key] ?? emptyRecord(scope)
       rec.use_count += 1
       rec.last_used_at = now.toISOString()
+      if (sessionId) {
+        // Append this use's coordinate; trim the oldest over the recent window.
+        rec.recent_uses.push({ session_id: sessionId, at: now.toISOString() })
+        if (rec.recent_uses.length > MAX_RECENT_USES)
+          rec.recent_uses.splice(0, rec.recent_uses.length - MAX_RECENT_USES)
+      }
       data[scope.key] = rec
       await save(root, data)
     } catch {
