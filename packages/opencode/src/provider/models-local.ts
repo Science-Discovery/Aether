@@ -22,13 +22,72 @@ type Patch = {
   meta?: Note
 }
 
+type Insert = ModelsDev.Model & {
+  meta?: Note
+}
+
 export type Overrides = Record<string, Patch>
+export type Inserts = Record<string, Record<string, Insert>>
 
 const log = Log.create({ service: "models.dev.local" })
 
 export const additions = {
   "tatu-maas": MaaS.provider,
 } satisfies Record<string, ModelsDev.Provider>
+
+function glm(api: string, reason: string) {
+  return {
+    id: "glm-5.2",
+    name: "GLM-5.2",
+    family: "glm",
+    attachment: false,
+    reasoning: true,
+    tool_call: true,
+    interleaved: {
+      field: "reasoning_content",
+    },
+    temperature: true,
+    release_date: "",
+    modalities: {
+      input: ["text"],
+      output: ["text"],
+    },
+    provider: {
+      npm: "@ai-sdk/openai-compatible",
+      api,
+    },
+    limit: {
+      context: 1_000_000,
+      output: 128_000,
+    },
+    options: {},
+    meta: {
+      reason,
+      verified_at: "2026-06-23",
+    },
+  } satisfies Insert
+}
+
+export const inserts = {
+  alibaba: {
+    "glm-5.2": glm(
+      "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+      "models.dev is missing Alibaba Bailian GLM-5.2 metadata; Alibaba documents OpenAI-compatible chat completions with 1M context",
+    ),
+  },
+  "alibaba-cn": {
+    "glm-5.2": glm(
+      "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      "models.dev is missing Alibaba Bailian GLM-5.2 metadata; Alibaba documents OpenAI-compatible chat completions with 1M context",
+    ),
+  },
+  aihubmix: {
+    "glm-5.2": glm(
+      "https://aihubmix.com/v1",
+      "models.dev is missing aihubmix GLM-5.2 metadata; aihubmix exposes it through OpenAI-compatible chat completions",
+    ),
+  },
+} satisfies Inserts
 
 export const overrides = {
   opencode: {
@@ -80,10 +139,17 @@ function invalid(msg: string, strict: boolean) {
   log.warn(msg)
 }
 
+function clean(model: Insert): ModelsDev.Model {
+  const result = { ...model }
+  delete result.meta
+  return result
+}
+
 export function apply(
   data: Record<string, ModelsDev.Provider>,
   opts?: {
     additions?: Record<string, ModelsDev.Provider>
+    inserts?: Inserts
     overrides?: Overrides
     strict?: boolean
   },
@@ -95,6 +161,30 @@ export function apply(
     if (provider.id !== id) fail(`addition ${id} has mismatched id ${provider.id}`)
     if (result[id]) fail(`addition ${id} already exists`)
     result[id] = provider
+  }
+
+  for (const [id, map] of Object.entries<Record<string, Insert>>(opts?.inserts ?? inserts)) {
+    const provider = result[id]
+    if (!provider) {
+      invalid(`insert provider ${id} does not exist`, strict)
+      continue
+    }
+
+    const models = { ...provider.models }
+    for (const [mid, model] of Object.entries<Insert>(map)) {
+      if (model.id !== mid) fail(`insert model ${id}/${mid} has mismatched id ${model.id}`)
+      if (models[mid]) {
+        invalid(`insert model ${id}/${mid} already exists`, strict)
+        continue
+      }
+
+      models[mid] = clean(model)
+    }
+
+    result[id] = {
+      ...provider,
+      models,
+    }
   }
 
   for (const [id, patch] of Object.entries(opts?.overrides ?? overrides)) {
