@@ -435,6 +435,27 @@ export const cards = [
             "write": 0.00000125
           }
         ]
+      },
+      {
+        "api": "ANTHROPIC",
+        "ops": [
+          "ANTHROPIC_MESSAGES"
+        ],
+        "caps": [
+          "IS_VISION",
+          "FUNCTION_CALL",
+          "MESSAGES_API"
+        ],
+        "currency": "USD",
+        "prices": [
+          {
+            "threshold": 0,
+            "input": 0.000001,
+            "output": 0.000005,
+            "read": 1e-7,
+            "write": 0.00000125
+          }
+        ]
       }
     ]
   },
@@ -444,6 +465,34 @@ export const cards = [
     "context": 1000000,
     "output": 0,
     "configs": [
+      {
+        "api": "ANTHROPIC",
+        "ops": [
+          "ANTHROPIC_MESSAGES"
+        ],
+        "caps": [
+          "IS_VISION",
+          "FUNCTION_CALL",
+          "MESSAGES_API"
+        ],
+        "currency": "USD",
+        "prices": [
+          {
+            "threshold": 0,
+            "input": 0.000005,
+            "output": 0.000025,
+            "read": 5e-7,
+            "write": 0.00000625
+          },
+          {
+            "threshold": 200000,
+            "input": 0.00001,
+            "output": 0.0000375,
+            "read": 5e-7,
+            "write": 0.00000625
+          }
+        ]
+      },
       {
         "api": "ANTHROPIC",
         "ops": [
@@ -675,6 +724,34 @@ export const cards = [
             "write": 0.00000625
           }
         ]
+      },
+      {
+        "api": "ANTHROPIC",
+        "ops": [
+          "ANTHROPIC_MESSAGES"
+        ],
+        "caps": [
+          "IS_VISION",
+          "FUNCTION_CALL",
+          "MESSAGES_API"
+        ],
+        "currency": "USD",
+        "prices": [
+          {
+            "threshold": 0,
+            "input": 0.000005,
+            "output": 0.000025,
+            "read": 5e-7,
+            "write": 0.00000625
+          },
+          {
+            "threshold": 200000,
+            "input": 0.00001,
+            "output": 0.0000375,
+            "read": 5e-7,
+            "write": 0.00000625
+          }
+        ]
       }
     ]
   },
@@ -684,6 +761,34 @@ export const cards = [
     "context": 1000000,
     "output": 0,
     "configs": [
+      {
+        "api": "ANTHROPIC",
+        "ops": [
+          "ANTHROPIC_MESSAGES"
+        ],
+        "caps": [
+          "IS_VISION",
+          "FUNCTION_CALL",
+          "MESSAGES_API"
+        ],
+        "currency": "USD",
+        "prices": [
+          {
+            "threshold": 0,
+            "input": 0.000003,
+            "output": 0.000015,
+            "read": 3e-7,
+            "write": 0.00000375
+          },
+          {
+            "threshold": 200000,
+            "input": 0.000006,
+            "output": 0.0000225,
+            "read": 3e-7,
+            "write": 0.00000375
+          }
+        ]
+      },
       {
         "api": "ANTHROPIC",
         "ops": [
@@ -1630,37 +1735,6 @@ export const cards = [
             "write": 0.000005
           }
         ]
-      },
-      {
-        "api": "OPENAI",
-        "ops": [
-          "OPENAI_CHAT_COMPLETIONS",
-          "OPENAI_COMPLETIONS",
-          "OPENAI_RESPONSES"
-        ],
-        "caps": [
-          "IS_VISION",
-          "COMPLETION",
-          "FUNCTION_CALL",
-          "RESPONSE"
-        ],
-        "currency": "USD",
-        "prices": [
-          {
-            "threshold": 0,
-            "input": 0.0000025,
-            "output": 0.000015,
-            "read": 2.5e-7,
-            "write": 0.0000025
-          },
-          {
-            "threshold": 272000,
-            "input": 0.000005,
-            "output": 0.0000225,
-            "read": 5e-7,
-            "write": 0.000005
-          }
-        ]
       }
     ]
   },
@@ -2276,6 +2350,93 @@ export const cards = [
             "output": 0.000025,
             "read": 5e-7,
             "write": 0.00000625
+          }
+        ]
+      },
+      {
+        "api": "ANTHROPIC",
+        "ops": [
+          "ANTHROPIC_MESSAGES"
+        ],
+        "caps": [
+          "IS_VISION",
+          "FUNCTION_CALL",
+          "MESSAGES_API"
+        ],
+        "currency": "USD",
+        "prices": [
+          {
+            "threshold": 0,
+            "input": 0.000005,
+            "output": 0.000025,
+            "read": 5e-7,
+            "write": 0.00000625
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "claude-sonnet-4-5",
+    "family": "anthropic",
+    "context": 1000000,
+    "output": 0,
+    "configs": [
+      {
+        "api": "ANTHROPIC",
+        "ops": [
+          "ANTHROPIC_MESSAGES"
+        ],
+        "caps": [
+          "IS_VISION",
+          "FUNCTION_CALL",
+          "MESSAGES_API"
+        ],
+        "currency": "USD",
+        "prices": [
+          {
+            "threshold": 0,
+            "input": 0.000003,
+            "output": 0.000015,
+            "read": 3e-7,
+            "write": 0.00000375
+          },
+          {
+            "threshold": 200000,
+            "input": 0.000006,
+            "output": 0.0000225,
+            "read": 3e-7,
+            "write": 0.00000375
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "minimax-m3",
+    "family": "minimax",
+    "context": 1000000,
+    "output": 0,
+    "configs": [
+      {
+        "api": "OPENAI",
+        "ops": [
+          "OPENAI_CHAT_COMPLETIONS",
+          "OPENAI_COMPLETIONS"
+        ],
+        "caps": [
+          "COMPLETION",
+          "FUNCTION_CALL",
+          "IS_VISION"
+        ],
+        "currency": "CNY",
+        "prices": [
+          {
+            "threshold": 0,
+            "input": 0.0000042,
+            "output": 0.0000168,
+            "read": 8.4e-7,
+            "write": 0.0000042
           }
         ]
       }
