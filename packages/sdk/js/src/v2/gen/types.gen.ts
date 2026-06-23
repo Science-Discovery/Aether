@@ -1995,6 +1995,7 @@ export type WorktreeCreateInput = {
 export type WorktreeRemoveInput = {
   directory: string
   force?: boolean
+  deleteBranch?: boolean
 }
 
 export type WorktreeResetInput = {

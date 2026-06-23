@@ -16,6 +16,6 @@ export type WorkspaceInfo = z.infer<typeof WorkspaceInfo>
 export type Adaptor = {
   configure(input: WorkspaceInfo): WorkspaceInfo | Promise<WorkspaceInfo>
   create(input: WorkspaceInfo, from?: WorkspaceInfo): Promise<void>
-  remove(config: WorkspaceInfo): Promise<void>
+  remove(config: WorkspaceInfo, options?: { deleteBranch?: boolean }): Promise<void>
   fetch(config: WorkspaceInfo, input: RequestInfo | URL, init?: RequestInit): Promise<Response>
 }

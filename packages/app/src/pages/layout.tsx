@@ -1827,7 +1827,14 @@ export default function Layout(props: ParentProps) {
     )
   }
 
-  const deleteWorkspace = async (root: string, directory: string, leaveDeletedWorkspace = false) => {
+  const deleteWorkspace = async (
+    root: string,
+    directory: string,
+    leaveDeletedWorkspace = false,
+    deleteBranch = false,
+    force = false,
+    branch?: string,
+  ) => {
     if (directory === root) return
 
     const current = currentDir()
@@ -1842,7 +1849,7 @@ export default function Layout(props: ParentProps) {
     globalSync.project.beginRemove(directory)
 
     const result = await globalSDK.client.worktree
-      .remove({ directory: root, worktreeRemoveInput: { directory } })
+      .remove({ directory: root, worktreeRemoveInput: { directory, deleteBranch, force } })
       .then((x) => x.data)
       .catch((err) => {
         showToast({
@@ -1861,7 +1868,9 @@ export default function Layout(props: ParentProps) {
     if (result && typeof result === "object" && result.status === "stale") {
       globalSync.project.cancelRemove(directory)
       setBusy(directory, false)
-      dialog.show(() => <DialogForceDeleteWorkspace root={root} directory={directory} gitStderr={result.gitStderr} />)
+      dialog.show(() => (
+        <DialogForceDeleteWorkspace root={root} directory={directory} gitStderr={result.gitStderr} branch={branch} />
+      ))
       return
     }
 
@@ -1970,7 +1979,7 @@ export default function Layout(props: ParentProps) {
     })
   }
 
-  function DialogDeleteWorkspace(props: { root: string; directory: string }) {
+  function DialogDeleteWorkspace(props: { root: string; directory: string; branch?: string }) {
     const name = createMemo(() => getFilename(props.directory))
     const [data, setData] = createStore({
       status: "loading" as "loading" | "ready" | "error",
@@ -2004,7 +2013,19 @@ export default function Layout(props: ParentProps) {
         navigateWithSidebarReset(`/${base64Encode(props.root)}/session`)
       }
       dialog.close()
-      void deleteWorkspace(props.root, props.directory, leaveDeletedWorkspace)
+      if (props.branch) {
+        const branch = props.branch
+        dialog.show(() => (
+          <DialogDeleteBranch
+            root={props.root}
+            directory={props.directory}
+            branch={branch}
+            leaveDeletedWorkspace={leaveDeletedWorkspace}
+          />
+        ))
+      } else {
+        void deleteWorkspace(props.root, props.directory, leaveDeletedWorkspace)
+      }
     }
 
     const handleMerge = async () => {
@@ -2035,7 +2056,19 @@ export default function Layout(props: ParentProps) {
       if (leaveDeletedWorkspace) {
         navigateWithSidebarReset(`/${base64Encode(props.root)}/session`)
       }
-      void deleteWorkspace(props.root, props.directory, leaveDeletedWorkspace)
+      if (props.branch) {
+        const branch = props.branch
+        dialog.show(() => (
+          <DialogDeleteBranch
+            root={props.root}
+            directory={props.directory}
+            branch={branch}
+            leaveDeletedWorkspace={leaveDeletedWorkspace}
+          />
+        ))
+      } else {
+        void deleteWorkspace(props.root, props.directory, leaveDeletedWorkspace)
+      }
     }
 
     const description = () => {
@@ -2075,11 +2108,78 @@ export default function Layout(props: ParentProps) {
     )
   }
 
-  function DialogForceDeleteWorkspace(props: { root: string; directory: string; gitStderr: string }) {
+  function DialogDeleteBranch(props: {
+    root: string
+    directory: string
+    branch: string
+    leaveDeletedWorkspace: boolean
+    force?: boolean
+  }) {
+    return (
+      <Dialog title={language.t("workspace.delete.branch.title")} fit>
+        <div class="flex flex-col gap-4 pl-6 pr-2.5 pb-3">
+          <span class="text-12-regular text-text-weak">
+            {language.t("workspace.delete.branch.confirm", { branch: props.branch })}
+          </span>
+          <div class="flex justify-end gap-2">
+            <Button
+              variant="ghost"
+              size="large"
+              onClick={() => {
+                dialog.close()
+                void deleteWorkspace(
+                  props.root,
+                  props.directory,
+                  props.leaveDeletedWorkspace,
+                  false,
+                  props.force,
+                  props.branch,
+                )
+              }}
+            >
+              {language.t("workspace.delete.branch.keep")}
+            </Button>
+            <Button
+              variant="primary"
+              size="large"
+              onClick={() => {
+                dialog.close()
+                void deleteWorkspace(
+                  props.root,
+                  props.directory,
+                  props.leaveDeletedWorkspace,
+                  true,
+                  props.force,
+                  props.branch,
+                )
+              }}
+            >
+              {language.t("workspace.delete.branch.delete")}
+            </Button>
+          </div>
+        </div>
+      </Dialog>
+    )
+  }
+
+  function DialogForceDeleteWorkspace(props: { root: string; directory: string; gitStderr: string; branch?: string }) {
     const name = createMemo(() => getFilename(props.directory))
 
     const handleForceDelete = async () => {
       dialog.close()
+      if (props.branch) {
+        const branch = props.branch
+        dialog.show(() => (
+          <DialogDeleteBranch
+            root={props.root}
+            directory={props.directory}
+            branch={branch}
+            leaveDeletedWorkspace={false}
+            force
+          />
+        ))
+        return
+      }
       setBusy(props.directory, true)
       globalSync.project.beginRemove(props.directory)
       const result = await globalSDK.client.worktree
@@ -2442,8 +2542,8 @@ export default function Layout(props: ParentProps) {
       setStore("conversationTreeLastFocusByRoot", rootSessionID, sessionID),
     showResetWorkspaceDialog: (root, directory) =>
       dialog.show(() => <DialogResetWorkspace root={root} directory={directory} />),
-    showDeleteWorkspaceDialog: (root, directory) =>
-      dialog.show(() => <DialogDeleteWorkspace root={root} directory={directory} />),
+    showDeleteWorkspaceDialog: (root, directory, branch) =>
+      dialog.show(() => <DialogDeleteWorkspace root={root} directory={directory} branch={branch} />),
     setScrollContainerRef: (el, mobile) => {
       if (!mobile) scrollContainerRef = el
     },

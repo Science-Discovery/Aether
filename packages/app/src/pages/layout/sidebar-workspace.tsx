@@ -159,7 +159,7 @@ export type WorkspaceSidebarContext = {
   conversationTreeLastFocus: (rootSessionID: string) => string | undefined
   setConversationTreeLastFocus: (rootSessionID: string, sessionID: string) => void
   showResetWorkspaceDialog: (root: string, directory: string) => void
-  showDeleteWorkspaceDialog: (root: string, directory: string) => void
+  showDeleteWorkspaceDialog: (root: string, directory: string, branch?: string) => void
   setScrollContainerRef: (el: HTMLDivElement | undefined, mobile?: boolean) => void
 }
 
@@ -602,7 +602,7 @@ const WorkspaceActions = (props: {
             </DropdownMenu.Item>
             <DropdownMenu.Item
               disabled={props.local() || props.busy()}
-              onSelect={() => props.showDeleteWorkspaceDialog(props.root, props.directory)}
+              onSelect={() => props.showDeleteWorkspaceDialog(props.root, props.directory, props.currentBranch())}
             >
               <DropdownMenu.ItemLabel>{props.language.t("common.delete")}</DropdownMenu.ItemLabel>
             </DropdownMenu.Item>

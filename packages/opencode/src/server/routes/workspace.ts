@@ -88,7 +88,8 @@ export const WorkspaceRoutes = lazy(() =>
       ),
       async (c) => {
         const { id } = c.req.valid("param")
-        return c.json(await Workspace.remove(id))
+        const deleteBranch = c.req.query("deleteBranch") === "true"
+        return c.json(await Workspace.remove({ id, deleteBranch }))
       },
     ),
 )

@@ -314,6 +314,7 @@ test("can delete a workspace", async ({ page, withProject }) => {
     const menu = await openMenu(page, space)
     await clickMenuItem(menu, /^Delete$/i, { force: true })
     await confirmDialog(page, /^Delete workspace$/i)
+    await confirmDialog(page, /^Delete branch$/i)
 
     await expect.poll(() => base64Decode(slugFromUrl(page.url()))).toBe(project.directory)
 

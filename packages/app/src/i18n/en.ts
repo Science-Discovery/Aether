@@ -1129,19 +1129,26 @@ export const dict = {
   "settingsSkills.pageTitle": "Skill Evolution",
   "settingsSkills.pageTitleDescription": "Configure how the AI automatically captures and refines reusable skills.",
   "settingsSkills.reviewInterval": "Review Interval",
-  "settingsSkills.reviewIntervalDescription": "Every N tool-calling steps, the AI reviews the conversation and refines valuable patterns into reusable skills. Lower values trigger refinement more frequently.",
+  "settingsSkills.reviewIntervalDescription":
+    "Every N tool-calling steps, the AI reviews the conversation and refines valuable patterns into reusable skills. Lower values trigger refinement more frequently.",
   "settingsSkills.maxVersions": "Max Versions",
-  "settingsSkills.maxVersionsDescription": "Maximum number of version snapshots kept per skill before older snapshots are pruned.",
+  "settingsSkills.maxVersionsDescription":
+    "Maximum number of version snapshots kept per skill before older snapshots are pruned.",
   "settingsSkills.reviewMaxStepChars": "Per-step Character Cap",
-  "settingsSkills.reviewMaxStepCharsDescription": "Max characters (in thousands, k) a single step of a background review may output before that step is cut off — guards against a model that never stops writing within one step. Default 300k.",
+  "settingsSkills.reviewMaxStepCharsDescription":
+    "Max characters (in thousands, k) a single step of a background review may output before that step is cut off — guards against a model that never stops writing within one step. Default 300k.",
   "settingsSkills.reviewMaxTotalChars": "Per-review Character Cap",
-  "settingsSkills.reviewMaxTotalCharsDescription": "Max characters (in thousands, k) a whole background review may output before it is stopped — guards against a review that keeps grinding step after step. Default 1000k.",
+  "settingsSkills.reviewMaxTotalCharsDescription":
+    "Max characters (in thousands, k) a whole background review may output before it is stopped — guards against a review that keeps grinding step after step. Default 1000k.",
   "settingsSkills.evolutionEnabled": "Skill Self-Evolution",
-  "settingsSkills.evolutionEnabledDescription": "Master switch. When off, no project triggers background skill review — the settings below have no effect until you turn it back on.",
+  "settingsSkills.evolutionEnabledDescription":
+    "Master switch. When off, no project triggers background skill review — the settings below have no effect until you turn it back on.",
   "settingsSkills.curatorEnabled": "Skill Curator",
-  "settingsSkills.curatorEnabledDescription": "Periodically counts skill usage, marks unused skills as stale, and archives skills untouched for 90 days (archived copies can be restored). Turn off to stop all automatic maintenance.",
+  "settingsSkills.curatorEnabledDescription":
+    "Periodically counts skill usage, marks unused skills as stale, and archives skills untouched for 90 days (archived copies can be restored). Turn off to stop all automatic maintenance.",
   "settingsSkills.outputDirsTitle": "Output Directories",
-  "settingsSkills.outputDirsDescription": "Where each project's self-evolved skills are written. One directory per project.",
+  "settingsSkills.outputDirsDescription":
+    "Where each project's self-evolved skills are written. One directory per project.",
   "settingsSkills.outputDirsEmpty": "No projects yet.",
   "settingsSkills.outputDirsLoading": "Loading…",
   "settingsSkills.outputDirsError": "Could not load output directories.",
@@ -1517,6 +1524,10 @@ export const dict = {
   "workspace.delete.stale.description":
     "The .git file is missing — this directory is no longer a valid git worktree. Force deletion will remove the directory and clean up git metadata.",
   "workspace.delete.stale.button": "Force delete",
+  "workspace.delete.branch.title": "Delete branch",
+  "workspace.delete.branch.confirm": 'Do you also want to delete branch "{{branch}}"?',
+  "workspace.delete.branch.keep": "Keep branch",
+  "workspace.delete.branch.delete": "Delete branch",
   "workspace.reset.title": "Reset workspace",
   "workspace.reset.confirm": 'Reset workspace "{{name}}"?',
   "workspace.reset.button": "Reset workspace",
