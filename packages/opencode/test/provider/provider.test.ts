@@ -111,7 +111,7 @@ test("models.dev local overlay overrides only selected model metadata", () => {
   expect("meta" in data.test.models.model).toBe(false)
 })
 
-test("models.dev local overlay inserts Alibaba GLM-5.2 models", () => {
+test("models.dev local overlay inserts GLM-5.2 models", () => {
   const data = apply(
     {
       alibaba: {
@@ -126,6 +126,12 @@ test("models.dev local overlay inserts Alibaba GLM-5.2 models", () => {
         api: "https://dashscope.aliyuncs.com/compatible-mode/v1",
         models: {},
       },
+      aihubmix: {
+        ...provider,
+        id: "aihubmix",
+        api: "https://aihubmix.com/v1",
+        models: {},
+      },
     },
     {
       additions: {},
@@ -136,6 +142,7 @@ test("models.dev local overlay inserts Alibaba GLM-5.2 models", () => {
 
   const intl = data.alibaba.models["glm-5.2"]
   const cn = data["alibaba-cn"].models["glm-5.2"]
+  const hub = data.aihubmix.models["glm-5.2"]
 
   expect(intl.limit.context).toBe(1_000_000)
   expect(intl.limit.output).toBe(128_000)
@@ -149,10 +156,20 @@ test("models.dev local overlay inserts Alibaba GLM-5.2 models", () => {
   expect(cn.provider?.api).toBe("https://dashscope.aliyuncs.com/compatible-mode/v1")
   expect("meta" in cn).toBe(false)
 
+  expect(hub.limit.context).toBe(1_000_000)
+  expect(hub.limit.output).toBe(128_000)
+  expect(hub.provider?.npm).toBe("@ai-sdk/openai-compatible")
+  expect(hub.provider?.api).toBe("https://aihubmix.com/v1")
+  expect("meta" in hub).toBe(false)
+
   const info = Provider.fromModelsDevProvider(data["alibaba-cn"])
   expect(info.models["glm-5.2"].api.npm).toBe("@ai-sdk/openai-compatible")
   expect(info.models["glm-5.2"].api.url).toBe("https://dashscope.aliyuncs.com/compatible-mode/v1")
   expect(info.models["glm-5.2"].capabilities.interleaved).toEqual({ field: "reasoning_content" })
+
+  const mix = Provider.fromModelsDevProvider(data.aihubmix)
+  expect(mix.models["glm-5.2"].api.npm).toBe("@ai-sdk/openai-compatible")
+  expect(mix.models["glm-5.2"].api.url).toBe("https://aihubmix.com/v1")
 })
 
 test("models.dev local overlay rejects duplicate model insertions", () => {

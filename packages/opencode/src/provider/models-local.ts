@@ -35,7 +35,7 @@ export const additions = {
   "tatu-maas": MaaS.provider,
 } satisfies Record<string, ModelsDev.Provider>
 
-function glm(api: string) {
+function glm(api: string, reason: string) {
   return {
     id: "glm-5.2",
     name: "GLM-5.2",
@@ -62,8 +62,7 @@ function glm(api: string) {
     },
     options: {},
     meta: {
-      reason:
-        "models.dev is missing Alibaba Bailian GLM-5.2 metadata; Alibaba documents OpenAI-compatible chat completions with 1M context",
+      reason,
       verified_at: "2026-06-23",
     },
   } satisfies Insert
@@ -71,10 +70,22 @@ function glm(api: string) {
 
 export const inserts = {
   alibaba: {
-    "glm-5.2": glm("https://dashscope-intl.aliyuncs.com/compatible-mode/v1"),
+    "glm-5.2": glm(
+      "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+      "models.dev is missing Alibaba Bailian GLM-5.2 metadata; Alibaba documents OpenAI-compatible chat completions with 1M context",
+    ),
   },
   "alibaba-cn": {
-    "glm-5.2": glm("https://dashscope.aliyuncs.com/compatible-mode/v1"),
+    "glm-5.2": glm(
+      "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      "models.dev is missing Alibaba Bailian GLM-5.2 metadata; Alibaba documents OpenAI-compatible chat completions with 1M context",
+    ),
+  },
+  aihubmix: {
+    "glm-5.2": glm(
+      "https://aihubmix.com/v1",
+      "models.dev is missing aihubmix GLM-5.2 metadata; aihubmix exposes it through OpenAI-compatible chat completions",
+    ),
   },
 } satisfies Inserts
 
