@@ -23,7 +23,7 @@ export function applyGlobalEvent(input: {
   setGlobalProject: (next: Project[] | ((draft: Project[]) => void)) => void
   refresh: () => void
 }) {
-  if (input.event.type === "session.created") {
+  if (input.event.type === "session.created" || input.event.type === "session.imported") {
     const info = (input.event.properties as { info?: Partial<Session> } | undefined)?.info
     if (!info?.projectID || !info.directory) return
     const created = info.time?.created ?? Date.now()
@@ -119,7 +119,8 @@ export function applyDirectoryEvent(input: {
       input.push(input.directory)
       return
     }
-    case "session.created": {
+    case "session.created":
+    case "session.imported": {
       const info = (event.properties as { info: Session }).info
       const result = Binary.search(input.store.session, info.id, (s) => s.id)
       if (result.found) {

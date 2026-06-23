@@ -43,6 +43,13 @@ import {
 } from "@/utils/comment-note"
 import { makeTimer } from "@solid-primitives/timer"
 import { createChatFind, ChatFindBar } from "@/pages/session/chat-find"
+import {
+  BACKUP_WARN_BYTES,
+  buildBackupFiles,
+  downloadBackup,
+  formatBackupSize,
+  sessionExportBlocked,
+} from "@/utils/session-backup"
 
 type MessageComment = {
   path: string
@@ -306,6 +313,7 @@ export function MessageTimeline(props: {
     if (!id) return idle
     return sync.data.session_status[id] ?? idle
   })
+  const exportBlocked = createMemo(() => sessionExportBlocked(sessionStatus(), !!pending()))
   const children = createMemo<ChildrenSource>(() => ({
     childMap: () => childMapByParent(sync.data.session),
     status: (id) => sync.data.session_status[id],
@@ -730,6 +738,180 @@ export function MessageTimeline(props: {
     )
   }
 
+  function DialogExportSession(props: { sessionID: string }) {
+    const [state, setState] = createStore({
+      mode: "json" as "json" | "both",
+      thinking: true,
+      toolDetails: true,
+      assistantMetadata: true,
+      pending: false,
+      confirmed: false,
+      warning: false,
+      bytes: 0,
+      stage: "idle" as "idle" | "estimate" | "fetch" | "build" | "download",
+    })
+    const frame = () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+
+    const blocked = () =>
+      showToast({
+        title: language.t("toast.session.export.active.title"),
+        description: language.t("toast.session.export.active.description"),
+      })
+
+    const save = async () => {
+      if (state.pending) return
+      if (exportBlocked()) {
+        blocked()
+        return
+      }
+      setState("pending", true)
+      try {
+        setState("stage", "estimate")
+        const estimate = (await sdk.client.session.backupEstimate({ sessionID: props.sessionID })).data
+        if (!estimate) throw new Error(language.t("common.requestFailed"))
+        if (estimate.bytes >= BACKUP_WARN_BYTES && !state.confirmed) {
+          setState({ warning: true, bytes: estimate.bytes, stage: "idle" })
+          return
+        }
+        setState("stage", "fetch")
+        const session = (await sdk.client.session.get({ sessionID: props.sessionID })).data
+        const messages = (await sdk.client.session.messages({ sessionID: props.sessionID })).data
+        if (!session || !messages) throw new Error(language.t("common.requestFailed"))
+        if (exportBlocked()) {
+          blocked()
+          return
+        }
+        setState("stage", "build")
+        await frame()
+        const files = buildBackupFiles(session, messages, {
+          markdown: state.mode === "both",
+          transcript: {
+            thinking: state.thinking,
+            toolDetails: state.toolDetails,
+            assistantMetadata: state.assistantMetadata,
+          },
+        })
+        setState("stage", "download")
+        await frame()
+        files.forEach(downloadBackup)
+        showToast({
+          variant: "success",
+          title: language.t("toast.session.export.started.title"),
+          description: language.t("toast.session.export.started.description", {
+            files: files.map((file) => file.path).join(", "),
+          }),
+        })
+        dialog.close()
+      } catch (err) {
+        showToast({
+          variant: "error",
+          title: language.t("toast.session.export.failed.title"),
+          description: formatServerError(err, language.t),
+        })
+      } finally {
+        setState({ pending: false, stage: "idle" })
+      }
+    }
+
+    const stage = () => {
+      if (state.stage === "estimate") return language.t("session.export.progress.estimate")
+      if (state.stage === "fetch") return language.t("session.export.progress.fetch")
+      if (state.stage === "build") return language.t("session.export.progress.build")
+      if (state.stage === "download") return language.t("session.export.progress.download")
+      return ""
+    }
+
+    return (
+      <Dialog title={language.t("session.export.dialog.title")} fit>
+        <div class="flex flex-col gap-4 px-6 pb-4">
+          <div class="flex flex-col gap-2 text-14-regular text-text-strong">
+            <label class="flex items-center gap-2">
+              <input
+                type="radio"
+                name="session-export-mode"
+                checked={state.mode === "json"}
+                onInput={() => setState({ mode: "json", warning: false, confirmed: false })}
+              />
+              <span>{language.t("session.export.mode.json")}</span>
+            </label>
+            <label class="flex items-center gap-2">
+              <input
+                type="radio"
+                name="session-export-mode"
+                checked={state.mode === "both"}
+                onInput={() => setState({ mode: "both", warning: false, confirmed: false })}
+              />
+              <span>{language.t("session.export.mode.both")}</span>
+            </label>
+          </div>
+          <Show when={state.mode === "both"}>
+            <div class="flex flex-col gap-2 rounded-md border border-border-weak-base bg-background-stronger px-3 py-3 text-13-regular text-text-strong">
+              <label class="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={state.thinking}
+                  onInput={(event) => setState("thinking", event.currentTarget.checked)}
+                />
+                <span>{language.t("session.export.option.thinking")}</span>
+              </label>
+              <label class="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={state.toolDetails}
+                  onInput={(event) => setState("toolDetails", event.currentTarget.checked)}
+                />
+                <span>{language.t("session.export.option.toolDetails")}</span>
+              </label>
+              <label class="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={state.assistantMetadata}
+                  onInput={(event) => setState("assistantMetadata", event.currentTarget.checked)}
+                />
+                <span>{language.t("session.export.option.assistantMetadata")}</span>
+              </label>
+            </div>
+          </Show>
+          <Show when={exportBlocked()}>
+            <div class="rounded-md border border-border-weak-base bg-background-stronger px-3 py-3 text-12-regular text-text-weak">
+              {language.t("session.export.active.description")}
+            </div>
+          </Show>
+          <Show when={state.warning}>
+            <div class="rounded-md border border-border-weak-base bg-background-stronger px-3 py-3 text-12-regular text-text-weak">
+              {language.t("session.export.warning.description", { size: formatBackupSize(state.bytes) })}
+            </div>
+          </Show>
+          <Show when={state.pending}>
+            <div class="flex items-center gap-2 text-12-regular text-text-weak">
+              <Spinner class="size-4" />
+              <span>{stage()}</span>
+            </div>
+          </Show>
+          <div class="rounded-md border border-border-weak-base bg-background-stronger px-3 py-3 text-12-regular text-text-weak">
+            {language.t("session.export.dialog.destination")}
+          </div>
+          <div class="flex justify-end gap-2">
+            <Button variant="ghost" size="large" onClick={() => dialog.close()}>
+              {language.t("common.cancel")}
+            </Button>
+            <Button
+              variant="primary"
+              size="large"
+              onClick={() => {
+                if (state.warning) setState({ confirmed: true, warning: false })
+                void save()
+              }}
+              disabled={state.pending || exportBlocked()}
+            >
+              {state.warning ? language.t("common.continue") : language.t("session.export.action.export")}
+            </Button>
+          </div>
+        </div>
+      </Dialog>
+    )
+  }
+
   return (
     <Show
       when={!props.mobileChanges}
@@ -940,6 +1122,23 @@ export function MessageTimeline(props: {
                                 }}
                               >
                                 <DropdownMenu.ItemLabel>{language.t("common.rename")}</DropdownMenu.ItemLabel>
+                              </DropdownMenu.Item>
+                              <DropdownMenu.Item
+                                onSelect={() => {
+                                  setTitle("menuOpen", false)
+                                  if (exportBlocked()) {
+                                    showToast({
+                                      title: language.t("toast.session.export.active.title"),
+                                      description: language.t("toast.session.export.active.description"),
+                                    })
+                                    return
+                                  }
+                                  dialog.show(() => <DialogExportSession sessionID={id()} />)
+                                }}
+                              >
+                                <DropdownMenu.ItemLabel>
+                                  {language.t("session.export.action.export")}
+                                </DropdownMenu.ItemLabel>
                               </DropdownMenu.Item>
                               <Show when={shareEnabled()}>
                                 <DropdownMenu.Item

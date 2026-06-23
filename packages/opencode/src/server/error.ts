@@ -29,6 +29,19 @@ export const ERRORS = {
       },
     },
   },
+  409: {
+    description: "Conflict",
+    content: {
+      "application/json": {
+        schema: resolver(
+          z.object({
+            name: z.string(),
+            data: z.object({ message: z.string() }),
+          }),
+        ),
+      },
+    },
+  },
 } as const
 
 export function errors(...codes: number[]) {

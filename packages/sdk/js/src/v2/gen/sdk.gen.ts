@@ -19,6 +19,8 @@ import type {
   ConfigProvidersResponses,
   ConfigSkillsAddDefaultsResponses,
   ConfigSkillsDeleteResponses,
+  ConfigSkillsEvolutionDirsResponses,
+  ConfigSkillsEvolutionRevealResponses,
   ConfigSkillsListEvolutionResponses,
   ConfigSkillsListResponses,
   ConfigSkillsSaveResponses,
@@ -257,6 +259,8 @@ import type {
   SessionAbortResponses,
   SessionArchiveErrors,
   SessionArchiveResponses,
+  SessionBackupEstimateErrors,
+  SessionBackupEstimateResponses,
   SessionChildrenErrors,
   SessionChildrenResponses,
   SessionCommandErrors,
@@ -273,6 +277,8 @@ import type {
   SessionGetResponses,
   SessionGraphErrors,
   SessionGraphResponses,
+  SessionImportErrors,
+  SessionImportResponses,
   SessionInitErrors,
   SessionInitResponses,
   SessionListResponses,
@@ -1604,6 +1610,73 @@ export class Skills extends HeyApiClient {
   }
 
   /**
+   * List per-project skill-evolution output directories
+   *
+   * For each known project, return the absolute directory where its background-review (self-evolution) skills are written.
+   */
+  public evolutionDirs<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<ConfigSkillsEvolutionDirsResponses, unknown, ThrowOnError>({
+      url: "/config/skills/evolution/projects",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Open a skill-evolution output directory in the system file manager
+   *
+   * Open the given directory in the OS file manager from the backend process (cross-platform, WSL-aware), so it works even when the UI is a plain browser tab. Only paths under the skill-evolution root are allowed.
+   */
+  public evolutionReveal<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      dir?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "dir" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<ConfigSkillsEvolutionRevealResponses, unknown, ThrowOnError>({
+      url: "/config/skills/evolution/reveal",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
    * Toggle evolved skill activation
    *
    * Enable or disable an evolved skill by its SKILL.md file path.
@@ -2457,6 +2530,92 @@ export class Session2 extends HeyApiClient {
     )
     return (options?.client ?? this.client).get<SessionStatusResponses, SessionStatusErrors, ThrowOnError>({
       url: "/session/status",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Import session backup
+   *
+   * Create a new local session from a versioned session backup.
+   */
+  public import<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      info?: {
+        [key: string]: unknown
+      }
+      messages?: Array<{
+        info: {
+          [key: string]: unknown
+        }
+        parts: Array<{
+          [key: string]: unknown
+        }>
+      }>
+      version?: 1
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "info" },
+            { in: "body", key: "messages" },
+            { in: "body", key: "version" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<SessionImportResponses, SessionImportErrors, ThrowOnError>({
+      url: "/session/import",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Estimate session backup size
+   *
+   * Estimate the size and row counts of a session backup.
+   */
+  public backupEstimate<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<
+      SessionBackupEstimateResponses,
+      SessionBackupEstimateErrors,
+      ThrowOnError
+    >({
+      url: "/session/{sessionID}/backup/estimate",
       ...options,
       ...params,
     })
@@ -8611,6 +8770,8 @@ export class OpencodeClient extends HeyApiClient {
         role: string
         content: string
       }>
+      projectID?: string
+      saveAudio?: boolean
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -8627,6 +8788,8 @@ export class OpencodeClient extends HeyApiClient {
             { in: "body", key: "audioBase64" },
             { in: "body", key: "audioFormat" },
             { in: "body", key: "context" },
+            { in: "body", key: "projectID" },
+            { in: "body", key: "saveAudio" },
           ],
         },
       ],

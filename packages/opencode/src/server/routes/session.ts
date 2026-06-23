@@ -1,9 +1,11 @@
 import { Hono } from "hono"
 import { stream } from "hono/streaming"
 import { describeRoute, validator, resolver } from "hono-openapi"
+import { SessionBackupInputSchema } from "@opencode-ai/util/session-backup"
 import { SessionID, MessageID, PartID } from "@/session/schema"
 import z from "zod"
 import { Session } from "../../session"
+import { estimateSessionBackup, importSessionBackup } from "../../session/backup"
 import { MessageV2 } from "../../session/message-v2"
 import { SessionPrompt } from "../../session/prompt"
 import { SessionCompaction } from "../../session/compaction"
@@ -98,6 +100,48 @@ export const SessionRoutes = lazy(() =>
         const result = await SessionStatus.list()
         return c.json(Object.fromEntries(result))
       },
+    )
+    .post(
+      "/import",
+      describeRoute({
+        summary: "Import session backup",
+        description: "Create a new local session from a versioned session backup.",
+        operationId: "session.import",
+        responses: {
+          200: {
+            description: "Imported session",
+            content: {
+              "application/json": {
+                schema: resolver(z.object({ sessionID: SessionID.zod, title: z.string() })),
+              },
+            },
+          },
+          ...errors(400, 409),
+        },
+      }),
+      validator("json", SessionBackupInputSchema),
+      async (c) => c.json(await importSessionBackup(c.req.valid("json"), c.req.raw.signal)),
+    )
+    .get(
+      "/:sessionID/backup/estimate",
+      describeRoute({
+        summary: "Estimate session backup size",
+        description: "Estimate the size and row counts of a session backup.",
+        operationId: "session.backupEstimate",
+        responses: {
+          200: {
+            description: "Session backup estimate",
+            content: {
+              "application/json": {
+                schema: resolver(z.object({ bytes: z.number(), messages: z.number(), parts: z.number() })),
+              },
+            },
+          },
+          ...errors(400, 404),
+        },
+      }),
+      validator("param", z.object({ sessionID: SessionID.zod })),
+      async (c) => c.json(await estimateSessionBackup(c.req.valid("param").sessionID)),
     )
     .get(
       "/:sessionID",

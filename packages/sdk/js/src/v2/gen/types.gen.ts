@@ -434,6 +434,84 @@ export type FileDiff = {
   status?: "added" | "deleted" | "modified"
 }
 
+export type PermissionAction = "allow" | "deny" | "ask"
+
+export type PermissionRule = {
+  permission: string
+  pattern: string
+  action: PermissionAction
+}
+
+export type PermissionRuleset = Array<PermissionRule>
+
+export type Session = {
+  id: string
+  slug: string
+  projectID: string
+  workspaceID?: string
+  directory: string
+  parentID?: string
+  treeID?: string
+  forkIndex?: number
+  forkParentSessionID?: string
+  forkAfterUserMessageID?: string
+  summary?: {
+    additions: number
+    deletions: number
+    files: number
+    diffs?: Array<FileDiff>
+  }
+  share?: {
+    url: string
+  }
+  title: string
+  version: string
+  time: {
+    created: number
+    updated: number
+    compacting?: number
+    archived?: number
+  }
+  permission?: PermissionRuleset
+  revert?: {
+    messageID: string
+    partID?: string
+    snapshot?: string
+    diff?: string
+  }
+  readingMode?: {
+    pdfFileName: string
+    pdfStorePath: string
+    lastReadPage: number
+    annotationsPath: string
+    source: {
+      kind: "workspace-file" | "upload"
+      path?: string
+    }
+    settings: {
+      translatePrompt: string
+      questionPrompt: string
+      firstReadPrompt: string
+      contextPageRange: 0 | 1 | 2
+      autoFirstRead: boolean
+    }
+    firstReadCompleted: boolean
+    firstReadDismissed: boolean
+  }
+  match?: {
+    scope: "title" | "messages"
+    text?: string
+  }
+}
+
+export type EventSessionImported = {
+  type: "session.imported"
+  properties: {
+    sessionID: string
+    info: Session
+  }
+}
+
 export type EventSessionDiff = {
   type: "session.diff"
   properties: {
@@ -974,76 +1052,6 @@ export type EventMessagePartRemoved = {
   }
 }
 
-export type PermissionAction = "allow" | "deny" | "ask"
-
-export type PermissionRule = {
-  permission: string
-  pattern: string
-  action: PermissionAction
-}
-
-export type PermissionRuleset = Array<PermissionRule>
-
-export type Session = {
-  id: string
-  slug: string
-  projectID: string
-  workspaceID?: string
-  directory: string
-  parentID?: string
-  treeID?: string
-  forkIndex?: number
-  forkParentSessionID?: string
-  forkAfterUserMessageID?: string
-  summary?: {
-    additions: number
-    deletions: number
-    files: number
-    diffs?: Array<FileDiff>
-  }
-  share?: {
-    url: string
-  }
-  title: string
-  version: string
-  time: {
-    created: number
-    updated: number
-    compacting?: number
-    archived?: number
-  }
-  permission?: PermissionRuleset
-  revert?: {
-    messageID: string
-    partID?: string
-    snapshot?: string
-    diff?: string
-  }
-  readingMode?: {
-    pdfFileName: string
-    pdfStorePath: string
-    lastReadPage: number
-    annotationsPath: string
-    source: {
-      kind: "workspace-file" | "upload"
-      path?: string
-    }
-    settings: {
-      translatePrompt: string
-      questionPrompt: string
-      firstReadPrompt: string
-      contextPageRange: 0 | 1 | 2
-      autoFirstRead: boolean
-    }
-    firstReadCompleted: boolean
-    firstReadDismissed: boolean
-  }
-  match?: {
-    scope: "title" | "messages"
-    text?: string
-  }
-}
-
 export type EventSessionCreated = {
   type: "session.created"
   properties: {
@@ -1103,6 +1111,7 @@ export type Event =
   | EventMcpBrowserOpenFailed
   | EventCommandExecuted
   | EventSessionPreferenceUpdated
+  | EventSessionImported
   | EventSessionDiff
   | EventSessionError
   | EventVcsBranchUpdated
@@ -1592,13 +1601,37 @@ export type Config = {
      */
     disabled?: Array<string>
     /**
-     * LLM steps without skill_manage before background skill review triggers (default: 10, 0 to disable)
+     * List of skill SKILL.md file paths to deactivate (precise per-file disable)
+     */
+    disabled_files?: Array<string>
+    /**
+     * List of skill SKILL.md file paths whose self-evolution is disabled
+     */
+    evolution_disabled_files?: Array<string>
+    /**
+     * Global master switch for skill self-evolution. When false, no project triggers background review (default: true)
+     */
+    evolution_enabled?: boolean
+    /**
+     * LLM steps without skill_manage before background skill review triggers (default: 80, 0 to disable)
      */
     creation_nudge_interval?: number
     /**
      * Maximum number of version snapshots kept per skill before older snapshots are pruned (default: 100)
      */
     max_versions?: number
+    /**
+     * Max characters a single step of a background skill review may stream before that step is cut off, guarding against a model that never stops emitting within one step (default: 300000)
+     */
+    review_max_step_chars?: number
+    /**
+     * Max characters a whole background skill review may stream (summed across all steps) before the review is stopped, guarding against a slow grind that never stops taking steps (default: 1000000)
+     */
+    review_max_total_chars?: number
+    /**
+     * Whether the skill curator runs its periodic maintenance (counting usage, marking stale, archiving unused skills). Default: true.
+     */
+    curator_enabled?: boolean
   }
   watcher?: {
     ignore?: Array<string>
@@ -3544,6 +3577,54 @@ export type ConfigSkillsListEvolutionResponses = {
 export type ConfigSkillsListEvolutionResponse =
   ConfigSkillsListEvolutionResponses[keyof ConfigSkillsListEvolutionResponses]
 
+export type ConfigSkillsEvolutionDirsData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/config/skills/evolution/projects"
+}
+
+export type ConfigSkillsEvolutionDirsResponses = {
+  /**
+   * Per-project evolution output directories
+   */
+  200: Array<{
+    directory: string
+    evolutionDir: string
+    projectPath?: string
+  }>
+}
+
+export type ConfigSkillsEvolutionDirsResponse =
+  ConfigSkillsEvolutionDirsResponses[keyof ConfigSkillsEvolutionDirsResponses]
+
+export type ConfigSkillsEvolutionRevealData = {
+  body?: {
+    dir: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/config/skills/evolution/reveal"
+}
+
+export type ConfigSkillsEvolutionRevealResponses = {
+  /**
+   * Whether the directory was opened
+   */
+  200: {
+    ok: boolean
+  }
+}
+
+export type ConfigSkillsEvolutionRevealResponse =
+  ConfigSkillsEvolutionRevealResponses[keyof ConfigSkillsEvolutionRevealResponses]
+
 export type ConfigSkillsToggleEvolvedData = {
   body?: {
     file: string
@@ -4087,6 +4168,97 @@ export type SessionStatusResponses = {
 }
 
 export type SessionStatusResponse = SessionStatusResponses[keyof SessionStatusResponses]
+
+export type SessionImportData = {
+  body?: {
+    info: {
+      [key: string]: unknown
+    }
+    messages: Array<{
+      info: {
+        [key: string]: unknown
+      }
+      parts: Array<{
+        [key: string]: unknown
+      }>
+    }>
+    version?: 1
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/session/import"
+}
+
+export type SessionImportErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Conflict
+   */
+  409: {
+    name: string
+    data: {
+      message: string
+    }
+  }
+}
+
+export type SessionImportError = SessionImportErrors[keyof SessionImportErrors]
+
+export type SessionImportResponses = {
+  /**
+   * Imported session
+   */
+  200: {
+    sessionID: string
+    title: string
+  }
+}
+
+export type SessionImportResponse = SessionImportResponses[keyof SessionImportResponses]
+
+export type SessionBackupEstimateData = {
+  body?: never
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/session/{sessionID}/backup/estimate"
+}
+
+export type SessionBackupEstimateErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type SessionBackupEstimateError = SessionBackupEstimateErrors[keyof SessionBackupEstimateErrors]
+
+export type SessionBackupEstimateResponses = {
+  /**
+   * Session backup estimate
+   */
+  200: {
+    bytes: number
+    messages: number
+    parts: number
+  }
+}
+
+export type SessionBackupEstimateResponse = SessionBackupEstimateResponses[keyof SessionBackupEstimateResponses]
 
 export type SessionDeleteData = {
   body?: never
@@ -8614,6 +8786,8 @@ export type PostVoiceTranscribeData = {
       role: string
       content: string
     }>
+    projectID?: string
+    saveAudio?: boolean
   }
   path?: never
   query?: {
