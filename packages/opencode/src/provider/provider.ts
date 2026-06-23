@@ -1375,20 +1375,29 @@ export namespace Provider {
       if (existing) return existing
 
       const customFetch = options["fetch"]
-      const chunkTimeout = options["chunkTimeout"]
+      const chunkTimeout = options["chunkTimeout"] ?? DEFAULT_CHUNK_TIMEOUT
+      const requestTimeout = options["timeout"]
       delete options["chunkTimeout"]
+      delete options["timeout"]
 
       options["fetch"] = async (input: any, init?: BunFetchRequestInit) => {
-        // Preserve custom fetch if it exists, wrap it with timeout logic
         const fetchFn = customFetch ?? fetch
         const opts = init ?? {}
         const chunkAbortCtl = typeof chunkTimeout === "number" && chunkTimeout > 0 ? new AbortController() : undefined
-        const signals: AbortSignal[] = []
-
-        if (opts.signal) signals.push(opts.signal)
+        const reqAbortCtl =
+          requestTimeout !== false && requestTimeout !== null && requestTimeout !== undefined
+            ? new AbortController()
+            : undefined
+        const signals: AbortSignal[] = [opts.signal].filter(Boolean) as AbortSignal[]
         if (chunkAbortCtl) signals.push(chunkAbortCtl.signal)
-        if (options["timeout"] !== undefined && options["timeout"] !== null && options["timeout"] !== false)
-          signals.push(AbortSignal.timeout(options["timeout"]))
+        if (reqAbortCtl) signals.push(reqAbortCtl.signal)
+        let reqTimer: ReturnType<typeof setTimeout> | undefined
+        if (reqAbortCtl) {
+          reqTimer = setTimeout(
+            () => reqAbortCtl.abort(new DOMException("Request timed out", "TimeoutError")),
+            requestTimeout as number,
+          )
+        }
 
         const combined = signals.length === 0 ? null : signals.length === 1 ? signals[0] : AbortSignal.any(signals)
         if (combined) opts.signal = combined
@@ -1434,6 +1443,9 @@ export namespace Provider {
           // @ts-ignore see here: https://github.com/oven-sh/bun/issues/16682
           timeout: false,
         })
+
+        const isSSE = res.headers.get("content-type")?.includes("text/event-stream")
+        if (isSSE) clearTimeout(reqTimer)
 
         if (!chunkAbortCtl) return res
         return wrapSSE(res, chunkTimeout, chunkAbortCtl)

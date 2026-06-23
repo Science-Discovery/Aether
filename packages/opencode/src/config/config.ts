@@ -797,7 +797,9 @@ export namespace Config {
     evolution_enabled: z
       .boolean()
       .optional()
-      .describe("Global master switch for skill self-evolution. When false, no project triggers background review (default: true)"),
+      .describe(
+        "Global master switch for skill self-evolution. When false, no project triggers background review (default: true)",
+      ),
     creation_nudge_interval: z
       .number()
       .int()
@@ -1144,13 +1146,13 @@ export namespace Config {
                 .int()
                 .positive()
                 .describe(
-                  "Timeout in milliseconds for requests to this provider. Default is 300000 (5 minutes). Set to false to disable timeout.",
+                  "Total request timeout in ms. Applied to non-SSE responses only; SSE streams use chunkTimeout. Default is 300000 (5 minutes). Set to false to disable.",
                 ),
-              z.literal(false).describe("Disable timeout for this provider entirely."),
+              z.literal(false).describe("Disable request timeout for this provider entirely."),
             ])
             .optional()
             .describe(
-              "Timeout in milliseconds for requests to this provider. Default is 300000 (5 minutes). Set to false to disable timeout.",
+              "Total request timeout in ms. Applied to non-SSE responses only; SSE streams use chunkTimeout. Default is 300000 (5 minutes). Set to false to disable.",
             ),
           chunkTimeout: z
             .number()
@@ -1158,7 +1160,7 @@ export namespace Config {
             .positive()
             .optional()
             .describe(
-              "Timeout in milliseconds between streamed SSE chunks for this provider. If no chunk arrives within this window, the request is aborted.",
+              "Timeout in ms between streamed SSE chunks. Default is 600000 (10 minutes). If no chunk arrives within this window, the request is aborted.",
             ),
         })
         .catchall(z.any())

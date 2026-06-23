@@ -20,6 +20,7 @@ import { type ReviewCharAction, type createReviewCharCounter } from "@/skill-evo
 
 export namespace SessionProcessor {
   const DOOM_LOOP_THRESHOLD = 3
+  const MAX_RETRY = 3
   const log = Log.create({ service: "session.processor" })
 
   export type Info = Awaited<ReturnType<typeof create>>
@@ -405,7 +406,7 @@ export namespace SessionProcessor {
               })
             } else {
               const retry = SessionRetry.retryable(error)
-              if (retry !== undefined) {
+              if (retry !== undefined && attempt < MAX_RETRY) {
                 attempt++
                 const delay = SessionRetry.delay(attempt, error.name === "APIError" ? error : undefined)
                 await SessionStatus.set(input.sessionID, {
