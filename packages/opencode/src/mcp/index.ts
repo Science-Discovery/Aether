@@ -11,6 +11,7 @@ import {
 } from "@modelcontextprotocol/sdk/types.js"
 import { Config } from "../config/config"
 import { Log } from "../util/log"
+import os from "os"
 import { NamedError } from "@opencode-ai/util/error"
 import z from "zod/v4"
 import { Instance } from "../project/instance"
@@ -312,7 +313,9 @@ export namespace MCP {
     }
 
     if (mcp.type === "local") {
-      const [cmd, ...args] = mcp.command
+      const home = os.homedir()
+      const expanded = mcp.command.map((c) => c.replace(/^~/, home))
+      const [cmd, ...args] = expanded
       const cwd = Instance.directory
       const transport = new StdioClientTransport({
         stderr: "pipe",
