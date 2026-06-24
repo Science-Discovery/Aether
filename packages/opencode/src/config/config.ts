@@ -869,6 +869,12 @@ export namespace Config {
         .describe("Maximum number of agentic iterations before forcing text-only response"),
       maxSteps: z.number().int().positive().optional().describe("@deprecated Use 'steps' field instead."),
       permission: Permission.optional(),
+      mcp: z
+        .record(z.string(), z.boolean())
+        .optional()
+        .describe(
+          "MCP servers whose tools should be visible to this agent. Keys are MCP server names; true = visible. When any server is enabled here, only those servers' tools are exposed (others hidden); when absent, all connected MCP tools are exposed (default behavior).",
+        ),
     })
     .catchall(z.any())
     .transform((agent, ctx) => {
@@ -889,6 +895,7 @@ export namespace Config {
         "permission",
         "disable",
         "tools",
+        "mcp",
       ])
 
       // Extract unknown properties into options

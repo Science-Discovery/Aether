@@ -46,6 +46,7 @@ export namespace Agent {
       prompt: z.string().optional(),
       options: z.record(z.string(), z.any()),
       steps: z.number().int().positive().optional(),
+      mcp: z.record(z.string(), z.boolean()).optional(),
     })
     .meta({
       ref: "Agent",
@@ -260,6 +261,7 @@ export namespace Agent {
             item.steps = value.steps ?? item.steps
             item.options = mergeDeep(item.options, value.options ?? {})
             item.permission = Permission.merge(item.permission, Permission.fromConfig(value.permission ?? {}))
+            item.mcp = value.mcp ?? item.mcp
           }
 
           // Ensure Truncate.GLOB is allowed unless explicitly configured
