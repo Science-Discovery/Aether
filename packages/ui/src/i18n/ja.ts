@@ -150,6 +150,7 @@ export const dict = {
   "ui.fileSearch.nextMatch": "次の一致",
   "ui.fileSearch.close": "検索を閉じる",
   "ui.tool.task": "タスク",
+  "ui.tool.task.inputRequired": "入力が必要",
   "ui.tool.skill": "スキル",
   "ui.basicTool.called": "`{{tool}}` を呼び出しました",
   "ui.toolErrorCard.failed": "失敗",

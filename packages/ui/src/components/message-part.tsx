@@ -30,6 +30,7 @@ import {
   QuestionInfo,
 } from "@opencode-ai/sdk/v2"
 import { useData } from "../context"
+import { hasPendingRequest } from "../utils/session-pending"
 import { useFileComponent } from "../context/file"
 import { useDialog } from "../context/dialog"
 import { type UiI18n, useI18n } from "../context/i18n"
@@ -1721,11 +1722,31 @@ ToolRegistry.register({
       if (typeof value === "string" && value) return value
       return childSessionId()
     })
+
+    const pending = createMemo(() => {
+      const sid = childSessionId()
+      if (!sid) return false
+      return hasPendingRequest(
+        data.store.session,
+        sid,
+        (id) => data.permission(id),
+        (id) => data.question(id),
+      )
+    })
+
     const running = createMemo(() => props.status === "pending" || props.status === "running")
 
     const href = createMemo(() => sessionLink(childSessionId(), location.pathname, data.sessionHref))
 
     const titleContent = () => <TextShimmer text={title()} active={running()} />
+
+    const warningSuffix = () => (
+      <>
+        {" — "}
+        {i18n.t("ui.tool.task.inputRequired")}
+        <Icon name="warning" size="small" />
+      </>
+    )
 
     const trigger = () => (
       <div data-slot="basic-tool-tool-info-structured">
@@ -1738,15 +1759,22 @@ ToolRegistry.register({
               <Match when={href()}>
                 <a
                   data-slot="basic-tool-tool-subtitle"
-                  class="clickable subagent-link"
+                  classList={{
+                    "clickable subagent-link": true,
+                    "text-text-on-warning-strong": pending(),
+                  }}
                   href={href()!}
                   onClick={(e) => e.stopPropagation()}
                 >
                   {subtitle()}
+                  <Show when={pending()}>{warningSuffix()}</Show>
                 </a>
               </Match>
               <Match when={true}>
-                <span data-slot="basic-tool-tool-subtitle">{subtitle()}</span>
+                <span data-slot="basic-tool-tool-subtitle" classList={{ "text-text-on-warning-strong": pending() }}>
+                  {subtitle()}
+                  <Show when={pending()}>{warningSuffix()}</Show>
+                </span>
               </Match>
             </Switch>
           </Show>

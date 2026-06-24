@@ -154,6 +154,7 @@ export const dict: Record<Keys, string> = {
   "ui.fileSearch.nextMatch": "Neste treff",
   "ui.fileSearch.close": "Lukk søk",
   "ui.tool.task": "Oppgave",
+  "ui.tool.task.inputRequired": "Inndata kreves",
   "ui.tool.skill": "Ferdighet",
   "ui.basicTool.called": "Kalte `{{tool}}`",
   "ui.toolErrorCard.failed": "Mislyktes",
