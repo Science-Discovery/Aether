@@ -37,6 +37,11 @@ export namespace MCP {
   const log = Log.create({ service: "mcp" })
   const DEFAULT_TIMEOUT = 30_000
 
+  export function expandTilde(cmd: string[]): string[] {
+    const home = os.homedir()
+    return cmd.map((c) => c.replace(/^~/, home))
+  }
+
   export const Resource = z
     .object({
       name: z.string(),
@@ -313,9 +318,7 @@ export namespace MCP {
     }
 
     if (mcp.type === "local") {
-      const home = os.homedir()
-      const expanded = mcp.command.map((c) => c.replace(/^~/, home))
-      const [cmd, ...args] = expanded
+      const [cmd, ...args] = expandTilde(mcp.command)
       const cwd = Instance.directory
       const transport = new StdioClientTransport({
         stderr: "pipe",
