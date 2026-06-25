@@ -11,6 +11,7 @@ import {
 } from "@modelcontextprotocol/sdk/types.js"
 import { Config } from "../config/config"
 import { Log } from "../util/log"
+import os from "os"
 import { NamedError } from "@opencode-ai/util/error"
 import z from "zod/v4"
 import { Instance } from "../project/instance"
@@ -35,6 +36,11 @@ import * as NodePath from "@effect/platform-node/NodePath"
 export namespace MCP {
   const log = Log.create({ service: "mcp" })
   const DEFAULT_TIMEOUT = 30_000
+
+  export function expandTilde(cmd: string[]): string[] {
+    const home = os.homedir()
+    return cmd.map((c) => c.replace(/^~/, home))
+  }
 
   export const Resource = z
     .object({
@@ -312,7 +318,7 @@ export namespace MCP {
     }
 
     if (mcp.type === "local") {
-      const [cmd, ...args] = mcp.command
+      const [cmd, ...args] = expandTilde(mcp.command)
       const cwd = Instance.directory
       const transport = new StdioClientTransport({
         stderr: "pipe",
