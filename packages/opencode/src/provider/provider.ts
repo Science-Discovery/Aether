@@ -1517,10 +1517,12 @@ export namespace Provider {
 
     const provider = s.providers[model.providerID]
     const sdk = await getSDK(model)
+    const opts = { ...provider.options, ...model.options }
+    delete opts.maxOutputTokens
 
     try {
       const language = s.modelLoaders[model.providerID]
-        ? await s.modelLoaders[model.providerID](sdk, model.api.id, { ...provider.options, ...model.options })
+        ? await s.modelLoaders[model.providerID](sdk, model.api.id, opts)
         : sdk.languageModel(model.api.id)
       s.models.set(key, language)
       return language

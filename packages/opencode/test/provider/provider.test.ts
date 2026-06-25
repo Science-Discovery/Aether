@@ -145,19 +145,25 @@ test("models.dev local overlay inserts GLM-5.2 models", () => {
   const hub = data.aihubmix.models["glm-5.2"]
 
   expect(intl.limit.context).toBe(1_000_000)
-  expect(intl.limit.output).toBe(128_000)
+  expect(intl.limit.input).toBe(868_928)
+  expect(intl.limit.output).toBe(131_072)
+  expect(intl.options?.maxOutputTokens).toBe(65_536)
   expect(intl.provider?.npm).toBe("@ai-sdk/openai-compatible")
   expect(intl.provider?.api).toBe("https://dashscope-intl.aliyuncs.com/compatible-mode/v1")
   expect("meta" in intl).toBe(false)
 
   expect(cn.limit.context).toBe(1_000_000)
-  expect(cn.limit.output).toBe(128_000)
+  expect(cn.limit.input).toBe(868_928)
+  expect(cn.limit.output).toBe(131_072)
+  expect(cn.options?.maxOutputTokens).toBe(65_536)
   expect(cn.provider?.npm).toBe("@ai-sdk/openai-compatible")
   expect(cn.provider?.api).toBe("https://dashscope.aliyuncs.com/compatible-mode/v1")
   expect("meta" in cn).toBe(false)
 
   expect(hub.limit.context).toBe(1_000_000)
-  expect(hub.limit.output).toBe(128_000)
+  expect(hub.limit.input).toBe(868_928)
+  expect(hub.limit.output).toBe(131_072)
+  expect(hub.options?.maxOutputTokens).toBe(65_536)
   expect(hub.provider?.npm).toBe("@ai-sdk/openai-compatible")
   expect(hub.provider?.api).toBe("https://aihubmix.com/v1")
   expect("meta" in hub).toBe(false)

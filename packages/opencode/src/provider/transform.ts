@@ -1159,7 +1159,8 @@ export namespace ProviderTransform {
     options: Record<string, unknown>,
     cfg?: Record<string, unknown>,
   ) {
-    const opts = chat(model, cfg) ? scrub(options) : options
+    const opts = { ...(chat(model, cfg) ? scrub(options) : options) }
+    delete opts.maxOutputTokens
 
     if (model.api.npm === "@ai-sdk/gateway") {
       // Gateway providerOptions are split across two namespaces:
@@ -1200,8 +1201,10 @@ export namespace ProviderTransform {
     return { [key]: opts }
   }
 
-  export function maxOutputTokens(model: Provider.Model): number {
-    return Math.min(model.limit.output, OUTPUT_TOKEN_MAX) || OUTPUT_TOKEN_MAX
+  export function maxOutputTokens(model: Provider.Model, options?: Record<string, unknown>): number {
+    const cap = options?.maxOutputTokens
+    const max = typeof cap === "number" && Number.isFinite(cap) && cap > 0 ? Math.floor(cap) : OUTPUT_TOKEN_MAX
+    return Math.min(model.limit.output, max) || max
   }
 
   export function schema(model: Provider.Model, schema: JSONSchema.BaseSchema | JSONSchema7): JSONSchema7 {

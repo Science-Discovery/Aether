@@ -58,9 +58,12 @@ function glm(api: string, reason: string) {
     },
     limit: {
       context: 1_000_000,
-      output: 128_000,
+      input: 868_928,
+      output: 131_072,
     },
-    options: {},
+    options: {
+      maxOutputTokens: 65_536,
+    },
     meta: {
       reason,
       verified_at: "2026-06-23",

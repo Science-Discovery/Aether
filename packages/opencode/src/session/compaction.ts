@@ -29,8 +29,6 @@ export namespace SessionCompaction {
     ),
   }
 
-  const COMPACTION_BUFFER = 20_000
-
   export async function isOverflow(input: { tokens: MessageV2.Assistant["tokens"]; model: Provider.Model }) {
     const config = await Config.get()
     if (config.compaction?.auto === false) return false
@@ -42,10 +40,8 @@ export namespace SessionCompaction {
       input.tokens.input + input.tokens.output + input.tokens.cache.read + input.tokens.cache.write
 
     const reserved =
-      config.compaction?.reserved ?? Math.min(COMPACTION_BUFFER, ProviderTransform.maxOutputTokens(input.model))
-    const usable = input.model.limit.input
-      ? input.model.limit.input - reserved
-      : context - ProviderTransform.maxOutputTokens(input.model)
+      config.compaction?.reserved ?? ProviderTransform.maxOutputTokens(input.model, input.model.options)
+    const usable = (input.model.limit.input ?? context) - reserved
     return count >= usable
   }
 

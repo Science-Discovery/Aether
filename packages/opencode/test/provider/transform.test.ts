@@ -793,6 +793,60 @@ describe("ProviderTransform.providerOptions", () => {
       openrouter: { reasoning: { effort: "high" } },
     })
   })
+
+  test("strips maxOutputTokens from provider options", () => {
+    const model = createModel({
+      api: {
+        id: "test-model",
+        url: "https://api.test.com",
+        npm: "@ai-sdk/openai-compatible",
+      },
+    })
+
+    expect(ProviderTransform.providerOptions(model, { maxOutputTokens: 65_536, reasoningEffort: "high" })).toEqual({
+      test: { reasoningEffort: "high" },
+    })
+  })
+})
+
+describe("ProviderTransform.maxOutputTokens", () => {
+  const model = {
+    id: "test/model",
+    providerID: "test",
+    api: { id: "model", url: "https://test.com", npm: "@ai-sdk/openai-compatible" },
+    name: "Test Model",
+    capabilities: {
+      temperature: true,
+      reasoning: false,
+      attachment: false,
+      toolcall: true,
+      input: { text: true, audio: false, image: false, video: false, pdf: false },
+      output: { text: true, audio: false, image: false, video: false, pdf: false },
+      interleaved: false,
+    },
+    cost: { input: 1, output: 1, cache: { read: 0, write: 0 } },
+    limit: { context: 1_000_000, input: 868_928, output: 131_072 },
+    status: "active",
+    options: {},
+    headers: {},
+    release_date: "2026-06-23",
+  } as Provider.Model
+
+  test("uses default request cap without options", () => {
+    expect(ProviderTransform.maxOutputTokens(model)).toBe(OUTPUT_TOKEN_MAX)
+  })
+
+  test("uses explicit request cap", () => {
+    expect(ProviderTransform.maxOutputTokens(model, { maxOutputTokens: 65_536 })).toBe(65_536)
+  })
+
+  test("ignores invalid request cap", () => {
+    expect(ProviderTransform.maxOutputTokens(model, { maxOutputTokens: -1 })).toBe(OUTPUT_TOKEN_MAX)
+  })
+
+  test("does not exceed model output limit", () => {
+    expect(ProviderTransform.maxOutputTokens(model, { maxOutputTokens: 262_144 })).toBe(131_072)
+  })
 })
 
 describe("ProviderTransform.schema - gemini array items", () => {
