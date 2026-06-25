@@ -444,59 +444,9 @@ function renderMathExpressions(html: string): string {
     .join("")
 }
 
-function hasMarkdownHints(md: string): boolean {
-  return /(^|\n)\s{0,3}(#{1,6}\s+|\d+[.)]\s+|[-*+]\s+|>\s+)/.test(md)
-}
-
-function hasStructuredMarkup(html: string): boolean {
-  return /<(h[1-6]|ul|ol|li|blockquote|table|pre|code)\b/i.test(html)
-}
-
-async function highlightCodeBlocks(html: string): Promise<string> {
-  const codeBlockRegex = /<pre><code(?:\s+class="language-([^"]*)")?>([\s\S]*?)<\/code><\/pre>/g
-  const matches = [...html.matchAll(codeBlockRegex)]
-  if (matches.length === 0) return html
-
-  const highlighter = await getSharedHighlighter({
-    themes: ["OpenCode"],
-    langs: [],
-    preferredHighlighter: "shiki-wasm",
-  })
-
-  let result = html
-  for (const match of matches) {
-    const [fullMatch, lang, escapedCode] = match
-    const code = escapedCode
-      .replace(/&lt;/g, "<")
-      .replace(/&gt;/g, ">")
-      .replace(/&amp;/g, "&")
-      .replace(/&quot;/g, '"')
-      .replace(/&#39;/g, "'")
-
-    let language = lang || "text"
-    if (!(language in bundledLanguages)) {
-      language = "text"
-    }
-    if (!highlighter.getLoadedLanguages().includes(language)) {
-      await highlighter.loadLanguage(language as BundledLanguage)
-    }
-
-    const highlighted = highlighter.codeToHtml(code, {
-      lang: language,
-      theme: "OpenCode",
-      tabindex: false,
-    })
-    result = result.replace(fullMatch, () => highlighted)
-  }
-
-  return result
-}
-
-export type NativeMarkdownParser = (markdown: string) => Promise<string>
-
 export const { use: useMarked, provider: MarkedProvider } = createSimpleContext({
   name: "Marked",
-  init: (props: { nativeParser?: NativeMarkdownParser }) => {
+  init: () => {
     const jsParser = marked.use(
       {
         renderer: {
@@ -532,20 +482,6 @@ export const { use: useMarked, provider: MarkedProvider } = createSimpleContext(
         },
       }),
     )
-
-    if (props.nativeParser) {
-      const nativeParser = props.nativeParser
-      return {
-        async parse(markdown: string): Promise<string> {
-          const input = normalizeMath(markdown)
-          const raw = await nativeParser(input)
-          const html =
-            hasMarkdownHints(input) && !hasStructuredMarkup(raw) ? await jsParser.parse(input) : raw
-          const withMath = renderMathExpressions(html)
-          return highlightCodeBlocks(withMath)
-        },
-      }
-    }
 
     return {
       async parse(markdown: string): Promise<string> {
