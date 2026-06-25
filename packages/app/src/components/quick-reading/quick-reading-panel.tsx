@@ -7,6 +7,7 @@ import { createSizing, type Sizing } from "@/pages/session/helpers"
 export const QuickReadingPanel: Component<{
   url: string
   authHeader?: string
+  annotationPath: string
   width: number
   minWidth: number
   maxWidth: number
@@ -45,6 +46,7 @@ export const QuickReadingPanel: Component<{
         <div class="min-h-0 flex-1">
           <PdfViewerShell
             src={props.url}
+            annotationPath={props.annotationPath}
             authHeader={props.authHeader}
             mode="full"
             class="size-full"

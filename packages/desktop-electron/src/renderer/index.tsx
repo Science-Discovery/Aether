@@ -132,6 +132,10 @@ const createPlatform = (): Platform => {
       return handleWslPicker(result)
     },
 
+    saveFileDialog(opts) {
+      return window.api.saveFile(opts)
+    },
+
     openLink(url: string) {
       window.api.openLink(url)
     },

@@ -1076,6 +1076,7 @@ export function FileTabContent(props: { tab: string }) {
           </Show>
           <PdfViewerShell
             src={rawPreviewUrl()}
+            annotationPath={currentPath}
             authHeader={pdfAuthHeader()}
             mode="full"
             class="size-full"

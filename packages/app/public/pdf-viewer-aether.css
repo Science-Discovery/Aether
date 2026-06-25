@@ -59,6 +59,12 @@ body.aether-pdf-viewer #secondaryToolbar #aetherCaptureRegionSecondary::before {
   mask-image: var(--aether-capture-region-icon);
 }
 
+body.aether-pdf-viewer #aetherExportAnnotations::before,
+body.aether-pdf-viewer #secondaryToolbar #aetherExportAnnotationsSecondary::before {
+  -webkit-mask-image: var(--aether-export-annotations-icon);
+  mask-image: var(--aether-export-annotations-icon);
+}
+
 body.aether-pdf-viewer .pdfSidebarNotification::after {
   display: none !important;
 }
@@ -75,6 +81,7 @@ body.aether-pdf-viewer {
   --aether-swap-right-icon: url("pdfjs-ref/web/images/aether-swap-layout-right.svg");
   --aether-swap-left-icon: url("pdfjs-ref/web/images/aether-swap-layout-left.svg");
   --aether-reading-mode-icon: url("pdfjs-ref/web/images/aether-reading-mode.svg");
+  --aether-export-annotations-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath fill='black' d='M3 1.5h7.2L13 4.3v2.2h-1.4V5H9.5V2.9H4.4v10.2h3.1v1.4H3zM10.4 3v1h1zM9.3 8.2h2.2v3.2l1.2-1.2 1 1-2.9 2.9-2.9-2.9 1-1 1.2 1.2zM5.5 5.7h4v1.2h-4zm0 2.4h2.7v1.2H5.5z'/%3E%3C/svg%3E");
   --main-color: var(--text-strong, rgba(12, 12, 13, 1));
   --body-bg-color: var(--background-base, rgba(237, 237, 240, 1));
   --progressBar-color: var(--border-selected, rgba(10, 132, 255, 1));
@@ -311,6 +318,8 @@ body.aether-pdf-viewer #aetherSelectionMenu {
   display: flex;
   align-items: center;
   gap: 4px;
+  max-width: calc(100vw - 24px);
+  flex-wrap: wrap;
   padding: 6px;
   border: 1px solid var(--border-base);
   border-radius: 10px;
@@ -355,6 +364,174 @@ body.aether-pdf-viewer .aetherSelectionMenuButton:hover,
 body.aether-pdf-viewer .aetherSelectionMenuButton:focus-visible {
   outline: none;
   background: var(--surface-base-hover);
+}
+
+body.aether-pdf-viewer .aetherAnnotationLayer {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+  mix-blend-mode: darken;
+}
+
+body.aether-pdf-viewer .aetherAnnotationHit {
+  pointer-events: none;
+}
+
+body.aether-pdf-viewer[data-view-theme="night"] .aetherAnnotationLayer {
+  mix-blend-mode: lighten;
+}
+
+body.aether-pdf-viewer .annotationLayer .popupWrapper {
+  width: auto;
+  min-width: 0;
+  font-size: 13px;
+}
+
+body.aether-pdf-viewer .annotationLayer .popupWrapper.aetherEmptyPopup {
+  display: none !important;
+}
+
+body.aether-pdf-viewer .annotationLayer .popup {
+  max-width: min(320px, calc(100vw - 48px));
+  min-width: 180px;
+  margin-left: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-base);
+  border-radius: 10px;
+  background: var(--surface-raised-stronger-non-alpha) !important;
+  box-shadow: var(--shadow-lg-border-base);
+  color: var(--text-strong);
+  font: inherit;
+  font-family:
+    var(--font-family-sans, sans-serif),
+    "Microsoft YaHei",
+    "PingFang SC",
+    "Noto Sans CJK SC",
+    sans-serif;
+  line-height: 1.45;
+}
+
+body.aether-pdf-viewer .annotationLayer .popup > * {
+  font-size: inherit;
+}
+
+body.aether-pdf-viewer .annotationLayer .popup h1 {
+  display: block;
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+body.aether-pdf-viewer .annotationLayer .popupDate {
+  display: none;
+}
+
+body.aether-pdf-viewer .annotationLayer .popupContent {
+  margin: 6px 0 0;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-base);
+  white-space: pre-wrap;
+}
+
+body.aether-pdf-viewer #aetherAnnotationEditor {
+  position: fixed;
+  z-index: 1250;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 10px 12px;
+  width: min(300px, calc(100vw - 24px));
+  padding: 12px;
+  border: 1px solid var(--border-base);
+  border-radius: 12px;
+  background: var(--surface-raised-stronger-non-alpha);
+  box-shadow: var(--shadow-lg-border-base);
+  color: var(--text-strong);
+}
+
+body.aether-pdf-viewer #aetherAnnotationEditor select,
+body.aether-pdf-viewer #aetherAnnotationEditor textarea {
+  box-sizing: border-box;
+  width: 100%;
+  border: 1px solid var(--border-base);
+  border-radius: 8px;
+  background: var(--input-base);
+  color: var(--text-strong);
+  font: inherit;
+  padding: 8px;
+}
+
+body.aether-pdf-viewer #aetherAnnotationEditor select {
+  grid-column: 2;
+  grid-row: 1;
+  min-width: 0;
+}
+
+body.aether-pdf-viewer #aetherAnnotationEditor textarea {
+  grid-column: 1 / -1;
+  min-height: 118px;
+  resize: vertical;
+}
+
+body.aether-pdf-viewer .aetherAnnotationPalette,
+body.aether-pdf-viewer .aetherAnnotationEditorActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+body.aether-pdf-viewer .aetherAnnotationPalette {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+body.aether-pdf-viewer .aetherAnnotationPalette button {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 2px solid transparent;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+body.aether-pdf-viewer .aetherAnnotationPalette button.selected {
+  border-color: var(--text-strong);
+  box-shadow: 0 0 0 2px var(--surface-raised-stronger-non-alpha);
+}
+
+body.aether-pdf-viewer .aetherAnnotationEditorActions {
+  grid-column: 1 / -1;
+  justify-content: flex-end;
+}
+
+body.aether-pdf-viewer .aetherAnnotationEditorActions button,
+body.aether-pdf-viewer #aetherSelectionHint button {
+  border: 0;
+  border-radius: 7px;
+  background: var(--surface-base-hover);
+  color: var(--text-strong);
+  font: inherit;
+  padding: 6px 9px;
+  cursor: pointer;
+}
+
+body.aether-pdf-viewer .aetherAnnotationEditorActions button:first-child {
+  margin-right: auto;
+  color: #d33;
+}
+
+body.aether-pdf-viewer .aetherAnnotationEditorActions button.primary {
+  background: var(--surface-interactive-base);
+}
+
+body.aether-pdf-viewer #aetherSelectionHint button {
+  margin-left: 8px;
+  font-weight: 600;
 }
 
 body.aether-pdf-viewer #aetherCaptureOverlay {

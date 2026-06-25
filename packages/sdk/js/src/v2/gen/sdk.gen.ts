@@ -81,6 +81,12 @@ import type {
   FileOpenResponses,
   FilePartInput,
   FilePartSource,
+  FilePdfAnnotationsExportErrors,
+  FilePdfAnnotationsExportResponses,
+  FilePdfAnnotationsGetErrors,
+  FilePdfAnnotationsGetResponses,
+  FilePdfAnnotationsUpdateErrors,
+  FilePdfAnnotationsUpdateResponses,
   FilePdfPageCountErrors,
   FilePdfPageCountResponses,
   FilePdfPythonCheckResponses,
@@ -4271,6 +4277,141 @@ export class Database extends HeyApiClient {
   }
 }
 
+export class PdfAnnotations extends HeyApiClient {
+  /**
+   * Get PDF annotations
+   */
+  public get<ThrowOnError extends boolean = false>(
+    parameters: {
+      directory?: string
+      workspace?: string
+      path: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "path" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<
+      FilePdfAnnotationsGetResponses,
+      FilePdfAnnotationsGetErrors,
+      ThrowOnError
+    >({
+      url: "/file/pdf-annotations",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Replace PDF annotations
+   */
+  public update<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      path?: string
+      data?: {
+        version: "1.2"
+        source: {
+          path: string
+          fingerprint: string
+        }
+        annotations: Array<{
+          id: string
+          type: "highlight" | "underline" | "strikeout" | "note"
+          color: "yellow" | "red" | "green" | "blue"
+          pages: Array<{
+            page: number
+            quads: Array<[number, number, number, number, number, number, number, number]>
+          }>
+          selectedText: string
+          note: string
+          createdAt: number
+          updatedAt: number
+        }>
+      }
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "path" },
+            { in: "body", key: "data" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).put<
+      FilePdfAnnotationsUpdateResponses,
+      FilePdfAnnotationsUpdateErrors,
+      ThrowOnError
+    >({
+      url: "/file/pdf-annotations",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Export PDF with annotations
+   */
+  public export<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      path?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "path" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      FilePdfAnnotationsExportResponses,
+      FilePdfAnnotationsExportErrors,
+      ThrowOnError
+    >({
+      url: "/file/pdf-annotations/export",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+}
+
 export class File extends HeyApiClient {
   /**
    * List active conversion/translation tasks
@@ -5229,6 +5370,11 @@ export class File extends HeyApiClient {
         ...params.headers,
       },
     })
+  }
+
+  private _pdfAnnotations?: PdfAnnotations
+  get pdfAnnotations(): PdfAnnotations {
+    return (this._pdfAnnotations ??= new PdfAnnotations({ client: this.client }))
   }
 }
 

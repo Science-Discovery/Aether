@@ -6697,6 +6697,143 @@ export type FilePdfToMarkdownCancelResponses = {
 
 export type FilePdfToMarkdownCancelResponse = FilePdfToMarkdownCancelResponses[keyof FilePdfToMarkdownCancelResponses]
 
+export type FilePdfAnnotationsGetData = {
+  body?: never
+  path?: never
+  query: {
+    directory?: string
+    workspace?: string
+    path: string
+  }
+  url: "/file/pdf-annotations"
+}
+
+export type FilePdfAnnotationsGetErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type FilePdfAnnotationsGetError = FilePdfAnnotationsGetErrors[keyof FilePdfAnnotationsGetErrors]
+
+export type FilePdfAnnotationsGetResponses = {
+  /**
+   * PDF annotation draft
+   */
+  200: unknown
+}
+
+export type FilePdfAnnotationsUpdateData = {
+  body?: {
+    path: string
+    data: {
+      version: "1.2"
+      source: {
+        path: string
+        fingerprint: string
+      }
+      annotations: Array<{
+        id: string
+        type: "highlight" | "underline" | "strikeout" | "note"
+        color: "yellow" | "red" | "green" | "blue"
+        pages: Array<{
+          page: number
+          quads: Array<[number, number, number, number, number, number, number, number]>
+        }>
+        selectedText: string
+        note: string
+        createdAt: number
+        updatedAt: number
+      }>
+    }
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/file/pdf-annotations"
+}
+
+export type FilePdfAnnotationsUpdateErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type FilePdfAnnotationsUpdateError = FilePdfAnnotationsUpdateErrors[keyof FilePdfAnnotationsUpdateErrors]
+
+export type FilePdfAnnotationsUpdateResponses = {
+  /**
+   * Saved PDF annotation draft
+   */
+  200: {
+    version: "1.2"
+    source: {
+      path: string
+      fingerprint: string
+    }
+    annotations: Array<{
+      id: string
+      type: "highlight" | "underline" | "strikeout" | "note"
+      color: "yellow" | "red" | "green" | "blue"
+      pages: Array<{
+        page: number
+        quads: Array<[number, number, number, number, number, number, number, number]>
+      }>
+      selectedText: string
+      note: string
+      createdAt: number
+      updatedAt: number
+    }>
+  }
+}
+
+export type FilePdfAnnotationsUpdateResponse =
+  FilePdfAnnotationsUpdateResponses[keyof FilePdfAnnotationsUpdateResponses]
+
+export type FilePdfAnnotationsExportData = {
+  body?: {
+    path: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/file/pdf-annotations/export"
+}
+
+export type FilePdfAnnotationsExportErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type FilePdfAnnotationsExportError = FilePdfAnnotationsExportErrors[keyof FilePdfAnnotationsExportErrors]
+
+export type FilePdfAnnotationsExportResponses = {
+  /**
+   * Annotated PDF
+   */
+  200: unknown
+}
+
 export type FileRawData = {
   body?: never
   path?: never

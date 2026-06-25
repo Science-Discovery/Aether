@@ -691,6 +691,7 @@ function SessionPageContent(props: SessionPageProps = {}) {
     return (
       <QuickReadingPanel
         url={quickReadingController.pdfUrl()}
+        annotationPath={quickReadingController.pdfPath()!}
         authHeader={quickReadingController.authHeader()}
         width={readingPaneWidth()}
         minWidth={quickReadingLayout.pdfMinWidth()}

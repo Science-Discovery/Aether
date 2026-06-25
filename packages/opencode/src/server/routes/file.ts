@@ -34,6 +34,7 @@ import {
 import { detectDataJson, chunkByContent, chunksFromDataJson } from "../../markdown-translator/chunker"
 import fs from "fs/promises"
 import { linux, missing, windows, wsl, wslPath } from "../pick-folder"
+import { PdfAnnotations } from "../../pdf-annotations"
 
 export type ServerEnv = {
   Variables: {
@@ -65,6 +66,8 @@ const resolveFile = (input: string) => {
 }
 
 const etag = (stat: Stats) => `W/"${Number(stat.size)}-${stat.mtimeMs}"`
+const pdfAnnotationInputError = (err: unknown): err is Error =>
+  err instanceof Error && /Access denied|Path must point to a PDF file/.test(err.message)
 
 function bytes(input: string | undefined, size: number) {
   if (!input) return
@@ -1230,6 +1233,81 @@ export const FileRoutes = lazy(() =>
         const { taskID } = c.req.valid("json")
         const ok = cancelTask(taskID)
         return c.json({ ok })
+      },
+    )
+    .get(
+      "/file/pdf-annotations",
+      describeRoute({
+        summary: "Get PDF annotations",
+        operationId: "file.pdfAnnotations.get",
+        responses: {
+          200: { description: "PDF annotation draft", content: { "application/json": { schema: resolver(z.unknown()) } } },
+          ...errors(400, 404),
+        },
+      }),
+      validator("query", z.object({ path: z.string() })),
+      async (c) => {
+        try {
+          return c.json(await PdfAnnotations.read(c.req.valid("query").path))
+        } catch (err) {
+          if (pdfAnnotationInputError(err)) return c.json({ error: err.message }, 400)
+          throw err
+        }
+      },
+    )
+    .put(
+      "/file/pdf-annotations",
+      describeRoute({
+        summary: "Replace PDF annotations",
+        operationId: "file.pdfAnnotations.update",
+        responses: {
+          200: { description: "Saved PDF annotation draft", content: { "application/json": { schema: resolver(PdfAnnotations.File) } } },
+          ...errors(400, 404),
+        },
+      }),
+      validator("json", z.object({ path: z.string(), data: PdfAnnotations.File })),
+      async (c) => {
+        const body = c.req.valid("json")
+        try {
+          return c.json(await PdfAnnotations.write(body.path, body.data))
+        } catch (err) {
+          if (pdfAnnotationInputError(err)) return c.json({ error: err.message }, 400)
+          throw err
+        }
+      },
+    )
+    .post(
+      "/file/pdf-annotations/export",
+      describeRoute({
+        summary: "Export PDF with annotations",
+        operationId: "file.pdfAnnotations.export",
+        responses: {
+          200: { description: "Annotated PDF" },
+          ...errors(400, 404, 409),
+        },
+      }),
+      validator("json", z.object({ path: z.string() })),
+      async (c) => {
+        const input = c.req.valid("json").path
+        try {
+          const bytes = await PdfAnnotations.exportPdf(input)
+          const base = path.basename(input, path.extname(input)) || "document"
+          const buffer = new ArrayBuffer(bytes.byteLength)
+          new Uint8Array(buffer).set(bytes)
+          return new Response(buffer, {
+            headers: {
+              "Content-Type": "application/pdf",
+              "Content-Disposition": attachment(`${base}-annotated.pdf`),
+              "Cache-Control": "no-store",
+            },
+          })
+        } catch (err) {
+          if (pdfAnnotationInputError(err)) return c.json({ error: err.message }, 400)
+          if (err instanceof Error && err.message === "PDF changed after annotations were created") {
+            return c.json({ error: err.message }, 409)
+          }
+          throw err
+        }
       },
     )
     // ====== 原始文件内容（用于 <img src> / PDF 预览等） ======

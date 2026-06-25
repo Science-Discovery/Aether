@@ -26,6 +26,38 @@
   let selectionHintTimer = 0;
   let selectionHintLockedUntil = 0;
   let selectionState = null;
+  let annotations = [];
+  let annotationEditor = null;
+  let annotationUndo = null;
+  const annotationColors = {
+    yellow: "#f6cf35",
+    red: "#ef5350",
+    green: "#45ad63",
+    blue: "#4d7fe8",
+  };
+  const annotationHighlightColors = {
+    light: {
+      yellow: "#f8dc5f",
+      red: "#f3a0a0",
+      green: "#95d6a6",
+      blue: "#9bbcf4",
+    },
+    dark: {
+      yellow: "#7a641c",
+      red: "#7a2f2f",
+      green: "#2b6b3b",
+      blue: "#315595",
+    },
+  };
+  const annotationDefaults = {
+    highlight: "yellow",
+    underline: "blue",
+    strikeout: "red",
+    note: "yellow",
+  };
+  try {
+    Object.assign(annotationDefaults, JSON.parse(localStorage.getItem("aether-pdf-annotation-colors") || "{}"));
+  } catch (_) {}
   let captureOverlay = null;
   let captureBox = null;
   let captureModeActive = false;
@@ -276,6 +308,7 @@
         settings: !!input?.features?.settings,
         textSelectionActions: !!input?.features?.textSelectionActions,
         imageSelectionActions: !!input?.features?.imageSelectionActions,
+        annotations: !!input?.features?.annotations,
         swapLayout: !!input?.features?.swapLayout,
       },
     };
@@ -285,7 +318,7 @@
     return !!(
       currentConfig &&
       currentConfig.features &&
-      currentConfig.features.textSelectionActions
+      (currentConfig.features.textSelectionActions || currentConfig.features.annotations)
     );
   }
 
@@ -295,6 +328,10 @@
       currentConfig.features &&
       currentConfig.features.imageSelectionActions
     );
+  }
+
+  function annotationsEnabled() {
+    return !!(currentConfig && currentConfig.features && currentConfig.features.annotations);
   }
 
   function ensureSelectionUi() {
@@ -307,11 +344,16 @@
         { action: "copy", label: "Copy" },
         { action: "translate", label: "Translate" },
         { action: "ask", label: "Ask" },
+        { action: "highlight", label: "Highlight", annotation: true },
+        { action: "underline", label: "Underline", annotation: true },
+        { action: "strikeout", label: "Strike", annotation: true },
+        { action: "note", label: "Note", annotation: true },
       ].forEach(function (item) {
         const button = document.createElement("button");
         button.type = "button";
         button.className = "aetherSelectionMenuButton";
         button.dataset.action = item.action;
+        if (item.annotation) button.dataset.annotation = "true";
         button.textContent = item.label;
         button.addEventListener("mousedown", function (event) {
           event.preventDefault();
@@ -392,8 +434,44 @@
     selection?.removeAllRanges();
   }
 
+  function emitAnnotations() {
+    post("annotationchange", { annotations: annotations });
+    renderAnnotations();
+  }
+
+  function createAnnotation(type) {
+    if (!selectionState || selectionState.kind !== "text" || !selectionState.pages?.length) return;
+    const now = Date.now();
+    const item = {
+      id: crypto.randomUUID(),
+      type: type,
+      color: annotationDefaults[type],
+      pages: selectionState.pages,
+      selectedText: selectionState.text,
+      note: "",
+      createdAt: now,
+      updatedAt: now,
+    };
+    const rect = selectionState.rect;
+    annotations = annotations.concat(item);
+    emitAnnotations();
+    clearTextSelection();
+    hideSelectionUi();
+    if (type === "note") openAnnotationEditor(item.id, rect?.right || 24, rect?.bottom || 72);
+  }
+
+  function rememberAnnotationColor(type, color) {
+    annotationDefaults[type] = color;
+    localStorage.setItem("aether-pdf-annotation-colors", JSON.stringify(annotationDefaults));
+  }
+
   async function handleSelectionAction(action) {
     if (!selectionState) return;
+
+    if (["highlight", "underline", "strikeout", "note"].includes(action)) {
+      createAnnotation(action);
+      return;
+    }
 
     if (action === "copy") {
       let imageCopyUnsupported = false;
@@ -478,6 +556,107 @@
     return forward ? rects[rects.length - 1] : rects[0];
   }
 
+  function pageFromRect(rect) {
+    const x = Math.min(window.innerWidth - 1, Math.max(0, rect.left + rect.width / 2));
+    const y = Math.min(window.innerHeight - 1, Math.max(0, rect.top + rect.height / 2));
+    const direct = document.elementsFromPoint(x, y).map(closestPageElement).find(Boolean);
+    if (direct) return direct;
+    return Array.from(document.querySelectorAll(".page")).find(function (page) {
+      const box = page.getBoundingClientRect();
+      return rect.bottom > box.top && rect.top < box.bottom && rect.right > box.left && rect.left < box.right;
+    }) || null;
+  }
+
+  function pageContentRect(page) {
+    return (page.querySelector(".canvasWrapper") || page.querySelector(".textLayer") || page).getBoundingClientRect();
+  }
+
+  function quadFromRect(page, rect) {
+    const number = pageNumberFromElement(page);
+    const view = number ? window.PDFViewerApplication?.pdfViewer?.getPageView?.(number - 1) : null;
+    if (!number || !view?.viewport) return null;
+    const box = pageContentRect(page);
+    const left = Math.max(0, Math.min(box.width, rect.left - box.left));
+    const right = Math.max(0, Math.min(box.width, rect.right - box.left));
+    const top = Math.max(0, Math.min(box.height, rect.top - box.top));
+    const bottom = Math.max(0, Math.min(box.height, rect.bottom - box.top));
+    if (right <= left || bottom <= top) return null;
+    const tl = view.viewport.convertToPdfPoint(left, top);
+    const tr = view.viewport.convertToPdfPoint(right, top);
+    const bl = view.viewport.convertToPdfPoint(left, bottom);
+    const br = view.viewport.convertToPdfPoint(right, bottom);
+    return { page: number, quad: [...tl, ...tr, ...bl, ...br] };
+  }
+
+  function mergeSelectionRects(rects) {
+    const lines = [];
+    rects
+      .slice()
+      .sort(function (a, b) {
+        return a.top - b.top || a.left - b.left;
+      })
+      .forEach(function (rect) {
+        const height = rect.bottom - rect.top;
+        const line = lines.find(function (entry) {
+          const overlap = Math.min(entry.bottom, rect.bottom) - Math.max(entry.top, rect.top);
+          return overlap > 0 && overlap >= Math.min(entry.bottom - entry.top, height) * 0.6;
+        });
+        if (!line) {
+          lines.push({ top: rect.top, bottom: rect.bottom, rects: [rect] });
+          return;
+        }
+        line.rects.push(rect);
+      });
+
+    return lines.flatMap(function (line) {
+      return line.rects
+        .slice()
+        .sort(function (a, b) {
+          return a.left - b.left;
+        })
+        .reduce(function (merged, rect) {
+          const current = merged[merged.length - 1];
+          if (!current || rect.left > current.right + 0.75) {
+            merged.push({
+              left: rect.left,
+              right: rect.right,
+              top: rect.top,
+              bottom: rect.bottom,
+              width: rect.right - rect.left,
+              height: rect.bottom - rect.top,
+            });
+            return merged;
+          }
+          current.left = Math.min(current.left, rect.left);
+          current.right = Math.max(current.right, rect.right);
+          current.top = Math.min(current.top, rect.top);
+          current.bottom = Math.max(current.bottom, rect.bottom);
+          current.width = current.right - current.left;
+          current.height = current.bottom - current.top;
+          return merged;
+        }, []);
+    });
+  }
+
+  function selectionPages(range) {
+    const pages = new Map();
+    Array.from(range.getClientRects()).filter(validRect).forEach(function (rect) {
+      const page = pageFromRect(rect);
+      if (!page) return;
+      const current = pages.get(page) || [];
+      current.push(rect);
+      pages.set(page, current);
+    });
+    return Array.from(pages).map(function (entry) {
+      const quads = mergeSelectionRects(entry[1]).map(function (rect) {
+        return quadFromRect(entry[0], rect);
+      }).filter(Boolean);
+      return { page: pageNumberFromElement(entry[0]), quads: quads.map(function (item) { return item.quad; }) };
+    }).filter(function (entry) {
+      return entry.page && entry.quads.length;
+    });
+  }
+
   function getSelectionContext() {
     if (!selectionActionsEnabled()) return null;
 
@@ -497,12 +676,15 @@
 
     const rect = anchorRect(selection, range);
     if (!rect) return null;
+    const pages = selectionPages(range);
+    if (!pages.length) return null;
 
     return {
       startPage: Math.min(startPageNumber, endPageNumber),
       endPage: Math.max(startPageNumber, endPageNumber),
       text,
       rect,
+      pages,
     };
   }
 
@@ -544,13 +726,298 @@
       startPage: context.startPage,
       endPage: context.endPage,
       text: context.text,
+      pages: context.pages,
+      rect: context.rect,
     };
+    selectionMenu.querySelectorAll("[data-annotation]").forEach(function (button) {
+      button.hidden = !annotationsEnabled();
+    });
     selectionMenu.hidden = false;
     positionSelectionMenu(context.rect);
   }
 
   function scheduleSelectionUiUpdate() {
     window.setTimeout(updateSelectionUi, 0);
+  }
+
+  function svg(name) {
+    return document.createElementNS("http://www.w3.org/2000/svg", name);
+  }
+
+  function viewportQuad(viewport, quad) {
+    return [0, 2, 4, 6].map(function (index) {
+      return viewport.convertToViewportPoint(quad[index], quad[index + 1]);
+    });
+  }
+
+  function annotationShape(item, points) {
+    const group = svg("g");
+    group.dataset.annotationId = item.id;
+    const color = annotationColors[item.color] || annotationColors.yellow;
+    const theme = currentConfig?.viewTheme === "night" ? "dark" : "light";
+    const highlight = annotationHighlightColors[theme][item.color] || annotationHighlightColors[theme].yellow;
+    const polygon = svg("polygon");
+    polygon.setAttribute("points", [points[0], points[1], points[3], points[2]].map(function (point) {
+      return point.join(",");
+    }).join(" "));
+    polygon.setAttribute("fill", item.type === "highlight" || item.type === "note" ? highlight : "transparent");
+    polygon.setAttribute("stroke", "transparent");
+    polygon.classList.add("aetherAnnotationHit");
+    group.appendChild(polygon);
+
+    if (item.type === "underline" || item.type === "strikeout") {
+      const left = item.type === "underline" ? points[2] : [(points[0][0] + points[2][0]) / 2, (points[0][1] + points[2][1]) / 2];
+      const right = item.type === "underline" ? points[3] : [(points[1][0] + points[3][0]) / 2, (points[1][1] + points[3][1]) / 2];
+      const line = svg("line");
+      line.setAttribute("x1", left[0]);
+      line.setAttribute("y1", left[1]);
+      line.setAttribute("x2", right[0]);
+      line.setAttribute("y2", right[1]);
+      line.setAttribute("stroke", color);
+      line.setAttribute("stroke-width", "2");
+      line.setAttribute("vector-effect", "non-scaling-stroke");
+      line.classList.add("aetherAnnotationHit");
+      group.appendChild(line);
+    }
+    return group;
+  }
+
+  function annotationNoteIcon(item, points, viewport) {
+    const color = annotationColors[item.color] || annotationColors.yellow;
+    const group = svg("g");
+    const x = Math.max(2, viewport.width - 18);
+    const y = Math.min(points[0][1], points[1][1]) + 1;
+    group.dataset.annotationId = item.id;
+    group.classList.add("aetherAnnotationNoteIcon", "aetherAnnotationHit");
+    group.setAttribute("transform", `translate(${x} ${y})`);
+    const rect = svg("rect");
+    rect.setAttribute("width", "13");
+    rect.setAttribute("height", "13");
+    rect.setAttribute("rx", "3");
+    rect.setAttribute("fill", "#fff7cf");
+    rect.setAttribute("stroke", color);
+    rect.setAttribute("stroke-width", "1.7");
+    rect.setAttribute("vector-effect", "non-scaling-stroke");
+    group.appendChild(rect);
+    const fold = svg("path");
+    fold.setAttribute("d", "M8 0 L13 5 L8 5 Z");
+    fold.setAttribute("fill", color);
+    group.appendChild(fold);
+    const line = svg("path");
+    line.setAttribute("d", "M3.5 7.5 H9.5 M3.5 10 H8");
+    line.setAttribute("stroke", color);
+    line.setAttribute("stroke-width", "1.1");
+    line.setAttribute("stroke-linecap", "round");
+    line.setAttribute("vector-effect", "non-scaling-stroke");
+    group.appendChild(line);
+    return group;
+  }
+
+  function renderAnnotations() {
+    document.querySelectorAll(".aetherAnnotationLayer").forEach(function (layer) {
+      layer.remove();
+    });
+    if (!annotationsEnabled() || !annotations.length) return;
+    annotations.forEach(function (item) {
+      item.pages.forEach(function (part) {
+        const page = document.querySelector(`.page[data-page-number="${part.page}"]`);
+        const view = window.PDFViewerApplication?.pdfViewer?.getPageView?.(part.page - 1);
+        if (!page || !view?.viewport) return;
+        let layer = page.querySelector(".aetherAnnotationLayer");
+        if (!layer) {
+          layer = svg("svg");
+          layer.classList.add("aetherAnnotationLayer");
+          layer.setAttribute("viewBox", `0 0 ${view.viewport.width} ${view.viewport.height}`);
+          layer.setAttribute("preserveAspectRatio", "none");
+          page.appendChild(layer);
+        }
+        const marks = svg("g");
+        if (item.type === "highlight" || item.type === "note") {
+          marks.classList.add("aetherAnnotationHighlight");
+        }
+        layer.appendChild(marks);
+        part.quads.forEach(function (quad, index) {
+          const shape = annotationShape(item, viewportQuad(view.viewport, quad));
+          shape.addEventListener("pointerdown", function (event) {
+            event.stopPropagation();
+          });
+          shape.addEventListener("click", function (event) {
+            event.preventDefault();
+            event.stopPropagation();
+            openAnnotationEditor(item.id, event.clientX, event.clientY);
+          });
+          marks.appendChild(shape);
+          if (!item.note?.trim() || index !== 0) return;
+          const points = viewportQuad(view.viewport, quad);
+          const icon = annotationNoteIcon(item, points, view.viewport);
+          icon.addEventListener("click", function (event) {
+            event.preventDefault();
+            event.stopPropagation();
+            openAnnotationEditor(item.id, event.clientX, event.clientY);
+          });
+          layer.appendChild(icon);
+        });
+      });
+    });
+  }
+
+  function hideEmptyPdfPopups() {
+    document.querySelectorAll(".annotationLayer .popupWrapper").forEach(function (node) {
+      const popup = node.querySelector(".popupContent");
+      node.classList.toggle("aetherEmptyPopup", !popup?.textContent?.trim());
+    });
+  }
+
+  function closeAnnotationEditor() {
+    annotationEditor?.remove();
+    annotationEditor = null;
+  }
+
+  function showAnnotationUndo(item, index) {
+    annotationUndo = { item: item, index: index };
+    ensureSelectionUi();
+    hideSelectionHint(true);
+    selectionHint.textContent = "Annotation deleted";
+    const undo = document.createElement("button");
+    undo.type = "button";
+    undo.textContent = "Undo";
+    undo.addEventListener("click", function () {
+      if (!annotationUndo) return;
+      annotations = annotations.slice();
+      annotations.splice(annotationUndo.index, 0, annotationUndo.item);
+      annotationUndo = null;
+      hideSelectionHint(true);
+      emitAnnotations();
+    });
+    selectionHint.appendChild(undo);
+    selectionHint.hidden = false;
+    selectionHintLockedUntil = Date.now() + 5000;
+    selectionHintTimer = window.setTimeout(function () {
+      annotationUndo = null;
+      hideSelectionHint(true);
+    }, 5000);
+  }
+
+  function openAnnotationEditor(id, x, y) {
+    const index = annotations.findIndex(function (item) {
+      return item.id === id;
+    });
+    if (index < 0) return;
+    closeAnnotationEditor();
+    const item = annotations[index];
+    const editor = document.createElement("form");
+    editor.id = "aetherAnnotationEditor";
+    editor.addEventListener("pointerdown", function (event) {
+      event.stopPropagation();
+    });
+
+    const type = document.createElement("select");
+    ["highlight", "underline", "strikeout", "note"].forEach(function (value) {
+      const option = document.createElement("option");
+      option.value = value;
+      option.textContent = value === "strikeout" ? "Strikeout" : value[0].toUpperCase() + value.slice(1);
+      option.selected = item.type === value;
+      type.appendChild(option);
+    });
+
+    const palette = document.createElement("div");
+    palette.className = "aetherAnnotationPalette";
+    Object.keys(annotationColors).forEach(function (value) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.title = value;
+      button.dataset.color = value;
+      button.style.background = annotationColors[value];
+      button.classList.toggle("selected", item.color === value);
+      button.addEventListener("click", function () {
+        palette.querySelectorAll("button").forEach(function (part) {
+          part.classList.toggle("selected", part === button);
+        });
+      });
+      palette.appendChild(button);
+    });
+    editor.appendChild(palette);
+    editor.appendChild(type);
+
+    const note = document.createElement("textarea");
+    note.placeholder = "Add a note…";
+    note.value = item.note || "";
+    editor.appendChild(note);
+
+    const actions = document.createElement("div");
+    actions.className = "aetherAnnotationEditorActions";
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.textContent = "Delete";
+    remove.className = "danger";
+    remove.addEventListener("click", function () {
+      annotations = annotations.filter(function (part) {
+        return part.id !== id;
+      });
+      closeAnnotationEditor();
+      emitAnnotations();
+      showAnnotationUndo(item, index);
+    });
+    actions.appendChild(remove);
+    const cancel = document.createElement("button");
+    cancel.type = "button";
+    cancel.textContent = "Cancel";
+    cancel.addEventListener("click", closeAnnotationEditor);
+    actions.appendChild(cancel);
+    const save = document.createElement("button");
+    save.type = "submit";
+    save.textContent = "Save";
+    save.className = "primary";
+    actions.appendChild(save);
+    editor.appendChild(actions);
+
+    editor.addEventListener("submit", function (event) {
+      event.preventDefault();
+      const selected = palette.querySelector("button.selected");
+      annotations = annotations.map(function (part) {
+        if (part.id !== id) return part;
+        return {
+          ...part,
+          type: type.value,
+          color: selected?.dataset.color || part.color,
+          note: note.value,
+          updatedAt: Date.now(),
+        };
+      });
+      rememberAnnotationColor(type.value, selected?.dataset.color || item.color);
+      closeAnnotationEditor();
+      emitAnnotations();
+    });
+
+    document.body.appendChild(editor);
+    const box = editor.getBoundingClientRect();
+    editor.style.left = Math.max(12, Math.min(window.innerWidth - box.width - 12, x)) + "px";
+    editor.style.top = Math.max(12, Math.min(window.innerHeight - box.height - 12, y)) + "px";
+    annotationEditor = editor;
+    if (item.type === "note") note.focus();
+  }
+
+  function annotationAt(event) {
+    if (!annotationsEnabled()) return null;
+    const selection = window.getSelection();
+    if (selection && !selection.isCollapsed) return null;
+    const page = closestPageElement(event.target);
+    const number = pageNumberFromElement(page);
+    const view = number ? window.PDFViewerApplication?.pdfViewer?.getPageView?.(number - 1) : null;
+    if (!page || !number || !view?.viewport) return null;
+    const box = pageContentRect(page);
+    const point = view.viewport.convertToPdfPoint(event.clientX - box.left, event.clientY - box.top);
+    return annotations.slice().reverse().find(function (item) {
+      const part = item.pages.find(function (entry) {
+        return entry.page === number;
+      });
+      return part?.quads.some(function (quad) {
+        const xs = [quad[0], quad[2], quad[4], quad[6]];
+        const ys = [quad[1], quad[3], quad[5], quad[7]];
+        return point[0] >= Math.min(...xs) - 2 && point[0] <= Math.max(...xs) + 2 &&
+          point[1] >= Math.min(...ys) - 2 && point[1] <= Math.max(...ys) + 2;
+      });
+    }) || null;
   }
 
   function setCaptureMode(next) {
@@ -723,6 +1190,9 @@
       imageDataUrl: cropped.imageDataUrl,
       imageBlob: cropped.blob,
     };
+    selectionMenu.querySelectorAll("[data-annotation]").forEach(function (button) {
+      button.hidden = true;
+    });
     selectionMenu.hidden = false;
     positionSelectionMenu({
       top: rect.top,
@@ -737,6 +1207,7 @@
     document.body.dataset.mode = config.mode;
     document.body.dataset.viewTheme = config.viewTheme;
     document.body.dataset.layoutSwapped = config.layoutSwapped ? "on" : "off";
+    renderAnnotations();
     const outerContainer = document.getElementById("outerContainer");
 
     const pdf2md = document.getElementById("aetherPdf2md");
@@ -829,6 +1300,11 @@
       swapLayoutSecondary.setAttribute("aria-label", swapLayoutSecondary.title);
       swapLayoutSecondary.dataset.direction = swapLayout?.dataset.direction || "right";
     }
+
+    const exportAnnotations = document.getElementById("aetherExportAnnotations");
+    if (exportAnnotations) exportAnnotations.hidden = !config.features.annotations;
+    const exportAnnotationsSecondary = document.getElementById("aetherExportAnnotationsSecondary");
+    if (exportAnnotationsSecondary) exportAnnotationsSecondary.hidden = !config.features.annotations;
 
     if (config.mode === "compact" && outerContainer) {
       outerContainer.classList.remove("sidebarOpen", "sidebarMoving", "sidebarResizing");
@@ -961,8 +1437,20 @@
         requestAnimationFrame(function () {
           if (!currentConfig) return;
           applyPosition(currentConfig);
+          renderAnnotations();
         });
       }
+    });
+
+    eventBus.on("pagerendered", function () {
+      requestAnimationFrame(function () {
+        renderAnnotations();
+        hideEmptyPdfPopups();
+      });
+    });
+
+    eventBus.on("annotationlayerrendered", function () {
+      requestAnimationFrame(hideEmptyPdfPopups);
     });
 
     eventBus.on("sidebarviewchanged", function (evt) {
@@ -1078,11 +1566,31 @@
       });
     }
 
+    const exportAnnotations = document.getElementById("aetherExportAnnotations");
+    if (exportAnnotations) {
+      exportAnnotations.addEventListener("click", function () {
+        post("exportannotations");
+      });
+    }
+
+    const exportAnnotationsSecondary = document.getElementById("aetherExportAnnotationsSecondary");
+    if (exportAnnotationsSecondary) {
+      exportAnnotationsSecondary.addEventListener("click", function () {
+        post("exportannotations");
+        window.PDFViewerApplication?.secondaryToolbar?.close?.();
+      });
+    }
+
     document.addEventListener("selectionchange", function () {
       scheduleSelectionUiUpdate();
     });
     document.addEventListener("pointerup", function () {
       scheduleSelectionUiUpdate();
+    });
+    document.addEventListener("click", function (event) {
+      const item = annotationAt(event);
+      if (!item) return;
+      openAnnotationEditor(item.id, event.clientX, event.clientY);
     });
     document.addEventListener("keyup", function (event) {
       if (captureModeActive && event.key === "Escape") {
@@ -1112,6 +1620,8 @@
         return;
       }
       if (selectionMenu?.contains(event.target)) return;
+      if (annotationEditor?.contains(event.target)) return;
+      closeAnnotationEditor();
       hideSelectionUi();
     });
     document.addEventListener("pointermove", function (event) {
@@ -1232,6 +1742,12 @@
 
       if (event.data.type === "themechange") {
         applyTheme();
+        return;
+      }
+
+      if (event.data.type === "annotations") {
+        annotations = Array.isArray(event.data.annotations) ? event.data.annotations : [];
+        renderAnnotations();
       }
     },
     false,
