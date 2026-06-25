@@ -226,8 +226,6 @@ const createPlatform = (): Platform => {
       await window.api.setProxyConfig(config)
     },
 
-    parseMarkdown: (markdown: string) => window.api.parseMarkdownCommand(markdown),
-
     get runUpdater() {
       if (!SETTINGS_UPDATER_ENABLED()) return undefined
       return () => runUpdater({ alertOnFail: true })

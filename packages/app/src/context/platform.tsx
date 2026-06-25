@@ -110,9 +110,6 @@ export type Platform = {
   /** Set the configured outbound proxy (desktop only) */
   setProxyConfig?(config: ProxyConfig): Promise<void>
 
-  /** Parse markdown to HTML using native parser (desktop only, returns unprocessed code blocks) */
-  parseMarkdown?(markdown: string): Promise<string>
-
   /** Webview zoom level (desktop only) */
   webviewZoom?: Accessor<number>
 
