@@ -152,6 +152,7 @@ export const dict = {
   "ui.fileSearch.nextMatch": "ถัดไป",
   "ui.fileSearch.close": "ปิดการค้นหา",
   "ui.tool.task": "งาน",
+  "ui.tool.task.inputRequired": "ต้องการข้อมูลเข้า",
   "ui.tool.skill": "ทักษะ",
   "ui.basicTool.called": "เรียกใช้ `{{tool}}`",
   "ui.toolErrorCard.failed": "ล้มเหลว",

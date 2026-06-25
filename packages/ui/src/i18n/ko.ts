@@ -151,6 +151,7 @@ export const dict = {
   "ui.fileSearch.nextMatch": "다음 항목",
   "ui.fileSearch.close": "검색 닫기",
   "ui.tool.task": "작업",
+  "ui.tool.task.inputRequired": "입력 필요",
   "ui.tool.skill": "스킬",
   "ui.basicTool.called": "`{{tool}}` 호출됨",
   "ui.toolErrorCard.failed": "실패",

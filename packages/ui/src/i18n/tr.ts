@@ -157,6 +157,7 @@ export const dict = {
   "ui.fileSearch.nextMatch": "Sonraki",
   "ui.fileSearch.close": "Aramayı kapat",
   "ui.tool.task": "Görev",
+  "ui.tool.task.inputRequired": "Girdi gerekli",
   "ui.tool.skill": "Yetenek",
   "ui.basicTool.called": "`{{tool}}` çağrıldı",
   "ui.toolErrorCard.failed": "Başarısız",

@@ -151,6 +151,7 @@ export const dict = {
   "ui.fileSearch.nextMatch": "Siguiente",
   "ui.fileSearch.close": "Cerrar búsqueda",
   "ui.tool.task": "Tarea",
+  "ui.tool.task.inputRequired": "Entrada requerida",
   "ui.tool.skill": "Habilidad",
   "ui.basicTool.called": "Llamado `{{tool}}`",
   "ui.toolErrorCard.failed": "Falló",
