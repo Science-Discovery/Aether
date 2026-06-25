@@ -23,7 +23,6 @@ const api: ElectronAPI = {
   setProxyConfig: (config) => ipcRenderer.invoke("set-proxy-config", config),
   getDisplayBackend: () => ipcRenderer.invoke("get-display-backend"),
   setDisplayBackend: (backend) => ipcRenderer.invoke("set-display-backend", backend),
-  parseMarkdownCommand: (markdown) => ipcRenderer.invoke("parse-markdown", markdown),
   checkAppExists: (appName) => ipcRenderer.invoke("check-app-exists", appName),
   wslPath: (path, mode) => ipcRenderer.invoke("wsl-path", path, mode),
   resolveAppPath: (appName) => ipcRenderer.invoke("resolve-app-path", appName),
