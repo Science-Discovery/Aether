@@ -35,7 +35,15 @@ export const additions = {
   "tatu-maas": MaaS.provider,
 } satisfies Record<string, ModelsDev.Provider>
 
-function glm(api: string, reason: string) {
+// Alibaba Bailian list price is CNY 8 / 2 (cache hit) / 28 per 1M tokens;
+// converted to USD at 1 USD ≈ 7.2 CNY to match models.dev's USD convention.
+const ALIBABA_COST = {
+  input: 1.11,
+  cache_read: 0.28,
+  output: 3.89,
+}
+
+function glm(api: string, reason: string, cost: Insert["cost"] = ALIBABA_COST) {
   return {
     id: "glm-5.2",
     name: "GLM-5.2",
@@ -64,9 +72,10 @@ function glm(api: string, reason: string) {
     options: {
       maxOutputTokens: 65_536,
     },
+    cost,
     meta: {
       reason,
-      verified_at: "2026-06-23",
+      verified_at: "2026-06-25",
     },
   } satisfies Insert
 }
@@ -88,6 +97,11 @@ export const inserts = {
     "glm-5.2": glm(
       "https://aihubmix.com/v1",
       "models.dev is missing aihubmix GLM-5.2 metadata; aihubmix exposes it through OpenAI-compatible chat completions",
+      // aihubmix list price: USD 1.13 input / 3.94 output per 1M tokens
+      {
+        input: 1.13,
+        output: 3.94,
+      },
     ),
   },
 } satisfies Inserts
