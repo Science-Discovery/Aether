@@ -27,22 +27,8 @@ export namespace ConfigPaths {
 
     return [
       Global.Path.config,
-      ...(!Flag.OPENCODE_DISABLE_PROJECT_CONFIG
-        ? await Array.fromAsync(
-            Filesystem.up({
-              targets: [PROJECT, LEGACY_PROJECT],
-              start: directory,
-              stop: worktree,
-            }),
-          )
-        : []),
-      ...(await Array.fromAsync(
-        Filesystem.up({
-          targets: [PROJECT, LEGACY_PROJECT],
-          start: Global.Path.home,
-          stop: Global.Path.home,
-        }),
-      )),
+      // Binary-bundled defaults are lowest among .aether/.opencode roots so that
+      // user home and project config can override them.
       ...(await Array.fromAsync(
         Filesystem.up({
           targets: [PROJECT, LEGACY_PROJECT],
@@ -50,6 +36,26 @@ export namespace ConfigPaths {
           stop: binaryDir,
         }),
       )),
+      ...(await Array.fromAsync(
+        Filesystem.up({
+          targets: [PROJECT, LEGACY_PROJECT],
+          start: Global.Path.home,
+          stop: Global.Path.home,
+        }),
+      )),
+      // Project config takes precedence over global/binary defaults.
+      // Reverse so the deepest directory wins, consistent with projectFiles().
+      ...(!Flag.OPENCODE_DISABLE_PROJECT_CONFIG
+        ? (
+            await Array.fromAsync(
+              Filesystem.up({
+                targets: [PROJECT, LEGACY_PROJECT],
+                start: directory,
+                stop: worktree,
+              }),
+            )
+          ).reverse()
+        : []),
       ...(Flag.OPENCODE_CONFIG_DIR ? [Flag.OPENCODE_CONFIG_DIR] : []),
     ]
   }
