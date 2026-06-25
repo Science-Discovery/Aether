@@ -1,17 +1,26 @@
 export interface CuratorConfig {
   enabled: boolean
-  /** Minimum hours between curator runs. */
+  /** Minimum hours between curator runs (scheduling cadence, NOT an archive criterion). */
   intervalHours: number
-  /** Days of inactivity before a skill is marked stale. */
-  staleAfterDays: number
-  /** Days of inactivity before a skill is archived. */
-  archiveAfterDays: number
+  /**
+   * Archive a skill whose post-birth call share (use_count / post-birth exposure,
+   * within its own project) falls BELOW this. Default 0.001 (one in a thousand).
+   * See RELATIVE_USAGE_DESIGN.md D1.
+   */
+  archiveUsageShare: number
+  /**
+   * Birth trial window: a skill is not judged until its post-birth exposure
+   * (same-project calls since it was created) reaches this many. Measured in
+   * CALLS, not days, so the criterion stays time-free. Default 1000.
+   * See RELATIVE_USAGE_DESIGN.md D3.
+   */
+  minExposureCalls: number
 }
 
-/** Defaults match Hermes (curator/core.py): 7 days / 30 days / 90 days. */
+/** Defaults: weekly sweep; archive below 0.1% share once 1000 post-birth calls have passed. */
 export const DEFAULT_CURATOR_CONFIG: CuratorConfig = {
   enabled: true,
   intervalHours: 24 * 7,
-  staleAfterDays: 30,
-  archiveAfterDays: 90,
+  archiveUsageShare: 0.001,
+  minExposureCalls: 1000,
 }

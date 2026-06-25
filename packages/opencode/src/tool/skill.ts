@@ -66,7 +66,7 @@ export const SkillTool = Tool.define("skill", async (ctx) => {
 
       // Curator: record that this skill was loaded. Best-effort, in-scope-only,
       // never throws — must not affect skill loading.
-      await Usage.bumpUse(Spawner.skillEvolutionRoot(), skill.location, ctx.sessionID)
+      await Usage.bumpUse(Spawner.skillEvolutionRoot(), skill.location, ctx.sessionID, undefined, skill.id)
 
       const dir = path.dirname(skill.location)
       const base = pathToFileURL(dir).href

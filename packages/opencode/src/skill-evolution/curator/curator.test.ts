@@ -49,9 +49,11 @@ async function writeLedger(root: string, records: Record<string, UsageRecord>): 
 function record(projectId: string, name: string, location: string, over: Partial<UsageRecord> = {}): UsageRecord {
   return {
     projectId,
+    id: null,
     name,
     location,
     use_count: 0,
+    born_at_project_total: 0,
     last_used_at: null,
     recent_uses: [],
     state: "active",
@@ -59,6 +61,26 @@ function record(projectId: string, name: string, location: string, over: Partial
     archived_at: null,
     ...over,
   }
+}
+
+/**
+ * Set up an archivable skill: a target (use_count 0, born 0) plus a same-project
+ * sibling carrying `siblingUses` calls. The target's post-birth share is 0 over an
+ * exposure of `siblingUses`; with siblingUses ≥ minExposureCalls (default 1000) it
+ * is archivable, while the sibling (share 1) is kept. Overwrites the whole ledger.
+ * Returns the target skill dir.
+ */
+async function makeArchivable(root: string, projectId: string, name: string, siblingUses = 1000): Promise<string> {
+  const dir = await makeSkill(root, projectId, name, 0)
+  const sibDir = await makeSkill(root, projectId, `${name}-sib`, 0)
+  await writeLedger(root, {
+    [`${projectId}/${name}`]: record(projectId, name, dir, { use_count: 0, born_at_project_total: 0 }),
+    [`${projectId}/${name}-sib`]: record(projectId, `${name}-sib`, sibDir, {
+      use_count: siblingUses,
+      born_at_project_total: 0,
+    }),
+  })
+  return dir
 }
 
 describe("Curator.shouldRunNow", () => {
@@ -138,92 +160,70 @@ describe("Curator.applyAutomaticTransitions", () => {
     }
   })
 
-  // M11: 到期归档 (核心接缝, 先停点) — mtime 100 天前 → 移进 archive、archived
-  test("archives a skill inactive past archiveAfterDays", async () => {
-    const tmp = await makeTmp()
-    try {
-      const dir = await makeSkill(tmp.path, "proj1", "foo", 100 * DAY)
-      await Curator.applyAutomaticTransitions(tmp.path, { now: NOW })
-
-      expect(await exists(dir)).toBe(false)
-      expect(await exists(path.join(tmp.path, "proj1", "archive", "foo", "SKILL.md"))).toBe(true)
-      const data = await Usage.load(tmp.path)
-      expect(data["proj1/foo"]!.state).toBe("archived")
-    } finally {
-      await tmp.cleanup()
-    }
-  })
 })
 
 describe("Curator.applyAutomaticTransitions — transitions & edges", () => {
-  // M12: 标 stale — 40 天没动 → stale (未归档)
-  test("marks a skill stale after staleAfterDays", async () => {
+  // H2: pinned 跳过 (防假绿) — 占比够低本该归档, 但 pinned → 仍 active
+  test("skips pinned skills (never archives them even when share is below threshold)", async () => {
     const tmp = await makeTmp()
     try {
-      const dir = await makeSkill(tmp.path, "proj1", "foo", 40 * DAY)
-      await Curator.applyAutomaticTransitions(tmp.path, { now: NOW })
-      const data = await Usage.load(tmp.path)
-      expect(data["proj1/foo"]!.state).toBe("stale")
-      expect(await exists(dir)).toBe(true) // not archived
-    } finally {
-      await tmp.cleanup()
-    }
-  })
+      const dir = await makeArchivable(tmp.path, "proj1", "foo") // 占比 0 / 曝光 1000 → 本该归档
+      // 把目标记录改成 pinned (makeArchivable 写的是非 pinned)
+      const data0 = await Usage.load(tmp.path)
+      data0["proj1/foo"]!.pinned = true
+      await writeLedger(tmp.path, data0)
 
-  // M13: 复活 — stale 的 skill 又被用 (last_used_at=now) → 退回 active
-  test("reactivates a stale skill that was used recently", async () => {
-    const tmp = await makeTmp()
-    try {
-      const dir = await makeSkill(tmp.path, "proj1", "foo", 40 * DAY)
-      await writeLedger(tmp.path, {
-        "proj1/foo": record("proj1", "foo", dir, { state: "stale", last_used_at: NOW.toISOString() }),
-      })
       await Curator.applyAutomaticTransitions(tmp.path, { now: NOW })
       const data = await Usage.load(tmp.path)
-      expect(data["proj1/foo"]!.state).toBe("active")
-    } finally {
-      await tmp.cleanup()
-    }
-  })
-
-  // M14: pinned 跳过 (排 M11 后, 防假绿) — pinned 且 100 天没动 → 仍 active
-  test("skips pinned skills (never archives them)", async () => {
-    const tmp = await makeTmp()
-    try {
-      const dir = await makeSkill(tmp.path, "proj1", "foo", 100 * DAY)
-      await writeLedger(tmp.path, { "proj1/foo": record("proj1", "foo", dir, { pinned: true }) })
-      await Curator.applyAutomaticTransitions(tmp.path, { now: NOW })
-      const data = await Usage.load(tmp.path)
-      expect(data["proj1/foo"]!.state).toBe("active")
+      expect(data["proj1/foo"]!.state).toBe("active") // pinned → 跳过
       expect(await exists(dir)).toBe(true)
     } finally {
       await tmp.cleanup()
     }
   })
 
-  // M15: 新/刚改不误伤 (排 M11 后, 防假绿) — mtime=今天 → 仍 active
-  test("does not archive a fresh skill", async () => {
-    const tmp = await makeTmp()
-    try {
-      const dir = await makeSkill(tmp.path, "proj1", "foo", 0)
-      await Curator.applyAutomaticTransitions(tmp.path, { now: NOW })
-      const data = await Usage.load(tmp.path)
-      expect(data["proj1/foo"]!.state).toBe("active")
-      expect(await exists(dir)).toBe(true)
-    } finally {
-      await tmp.cleanup()
-    }
-  })
-
-  // M16: 孤儿自愈 — 账本有记录但目录没了 → 清掉, 不报错
-  test("prunes orphan records whose skill dir is gone", async () => {
+  // M16: 真孤儿 → 标 deleted (墓碑), 保留记录与计数, 不报错; 再跑一次不重复处理
+  test("tombstones an orphan record (deleted) instead of removing it, and is idempotent", async () => {
     const tmp = await makeTmp()
     try {
       const ghost = path.join(tmp.path, "proj1", "skills", "ghost")
-      await writeLedger(tmp.path, { "proj1/ghost": record("proj1", "ghost", ghost) })
-      await Curator.applyAutomaticTransitions(tmp.path, { now: NOW })
+      await writeLedger(tmp.path, { "proj1/ghost": record("proj1", "ghost", ghost, { use_count: 3 }) })
+
+      const counts = await Curator.applyAutomaticTransitions(tmp.path, { now: NOW })
       const data = await Usage.load(tmp.path)
-      expect(data["proj1/ghost"]).toBeUndefined()
+      expect(data["proj1/ghost"]).toBeDefined() // 记录保留, 不删
+      expect(data["proj1/ghost"]!.state).toBe("deleted")
+      expect(counts.orphans).toBe(1)
+
+      // 再跑一次: deleted 记录被跳过, 不再重复处理 (orphans 不再涨)
+      const counts2 = await Curator.applyAutomaticTransitions(tmp.path, { now: NOW })
+      expect(counts2.orphans).toBe(0)
+    } finally {
+      await tmp.cleanup()
+    }
+  })
+
+  // bug①: 孤儿清理不能破坏分母单调性。forget 删记录会把它的 use_count 从本项目总数抹掉,
+  // 害得别的 skill 的出生水位对不上、曝光量算负 → 永远判不到。改成标 deleted 保留计数。
+  test("orphan cleanup keeps the forgotten skill's use_count in the project total (monotonic denominator)", async () => {
+    const tmp = await makeTmp()
+    try {
+      // bbb 在磁盘上 (活着); aaa 没有目录 (被外部删掉) 且 archive 无副本 → 真孤儿
+      const bDir = await makeSkill(tmp.path, "proj1", "bbb", 0)
+      const aGhost = path.join(tmp.path, "proj1", "skills", "aaa") // 故意不建目录
+      await writeLedger(tmp.path, {
+        "proj1/aaa": record("proj1", "aaa", aGhost, { use_count: 1000, born_at_project_total: 0 }),
+        // bbb 出生水位 1000 = 它创建时本项目总数 (含了 aaa 那 1000 次)
+        "proj1/bbb": record("proj1", "bbb", bDir, { use_count: 5, born_at_project_total: 1000 }),
+      })
+
+      await Curator.applyAutomaticTransitions(tmp.path, { now: NOW })
+
+      const data = await Usage.load(tmp.path)
+      expect(data["proj1/aaa"]).toBeDefined() // 不被删成 undefined
+      expect(data["proj1/aaa"]!.state).toBe("deleted")
+      // 关键不变量: aaa 的 1000 仍在本项目总数里 → 分母不回退, bbb 的曝光量 = 1005-1000 = 5 (不会变负)
+      expect(Usage.projectUseCount(data, "proj1")).toBe(1005)
     } finally {
       await tmp.cleanup()
     }
@@ -253,12 +253,18 @@ describe("Curator.applyAutomaticTransitions — transitions & edges", () => {
     }
   })
 
-  // M17: 跨项目同名 — 归档 proj1/foo 不影响 proj2/foo (复合键)
+  // M17: 跨项目同名 — 按占比归档 proj1/foo 不影响 proj2/foo (复合键 + 项目隔离分母)
   test("handles same-name skills in different projects independently", async () => {
     const tmp = await makeTmp()
     try {
-      const dir1 = await makeSkill(tmp.path, "proj1", "foo", 100 * DAY) // → archive
-      const dir2 = await makeSkill(tmp.path, "proj2", "foo", 0) // fresh → keep
+      const dir1 = await makeSkill(tmp.path, "proj1", "foo", 0) // proj1: 占比 0 → archive
+      const sib1 = await makeSkill(tmp.path, "proj1", "sib", 0)
+      const dir2 = await makeSkill(tmp.path, "proj2", "foo", 0) // proj2: 占比 1 → keep
+      await writeLedger(tmp.path, {
+        "proj1/foo": record("proj1", "foo", dir1, { use_count: 0, born_at_project_total: 0 }),
+        "proj1/sib": record("proj1", "sib", sib1, { use_count: 1000, born_at_project_total: 0 }),
+        "proj2/foo": record("proj2", "foo", dir2, { use_count: 1000, born_at_project_total: 0 }),
+      })
       await Curator.applyAutomaticTransitions(tmp.path, { now: NOW })
 
       const data = await Usage.load(tmp.path)
@@ -272,12 +278,54 @@ describe("Curator.applyAutomaticTransitions — transitions & edges", () => {
   })
 })
 
+describe("Curator.applyAutomaticTransitions — concurrency", () => {
+  // 路1 并发安全: 整理期间并发的 bumpUse 不被最后的写盘冲掉。
+  // 用 spy 在 curator 读完账本后立刻注入一次 bumpUse(bar)(模拟并发的 skill 加载),
+  // 断言整理结束后 bar 的次数仍是被加过的值。旧的"整本覆盖写"会把它盖回去 → 红。
+  test("does not clobber a concurrent bumpUse that lands during the sweep", async () => {
+    const tmp = await makeTmp()
+    let spy: ReturnType<typeof spyOn> | undefined
+    try {
+      const aaaDir = await makeSkill(tmp.path, "proj1", "aaa", 0) // 占比 0 → 会被归档
+      const sibDir = await makeSkill(tmp.path, "proj1", "sib", 0)
+      const barDir = await makeSkill(tmp.path, "proj1", "bar", 0) // 不归档, 会被并发 bump
+      await writeLedger(tmp.path, {
+        "proj1/aaa": record("proj1", "aaa", aaaDir, { use_count: 0, born_at_project_total: 0 }),
+        "proj1/sib": record("proj1", "sib", sibDir, { use_count: 1000, born_at_project_total: 0 }),
+        "proj1/bar": record("proj1", "bar", barDir, { use_count: 5, born_at_project_total: 0 }),
+      })
+
+      const realLoad = Usage.load
+      let injected = false
+      spy = spyOn(Usage, "load").mockImplementation(async (root: string) => {
+        const data = await realLoad(root)
+        if (!injected) {
+          injected = true
+          await Usage.bumpUse(tmp.path, barDir) // 并发: bar 5 → 6, 写盘
+        }
+        return data
+      })
+
+      await Curator.applyAutomaticTransitions(tmp.path, { now: NOW, config: DEFAULT_CURATOR_CONFIG })
+      spy.mockRestore()
+      spy = undefined
+
+      const data = await Usage.load(tmp.path)
+      expect(data["proj1/bar"]!.use_count).toBe(6) // 并发的 +1 必须留住, 不被整本覆盖回 5
+      expect(data["proj1/aaa"]!.state).toBe("archived") // 整理本身照常完成
+    } finally {
+      spy?.mockRestore()
+      await tmp.cleanup()
+    }
+  })
+})
+
 describe("Curator.maybeRun", () => {
   // 到期：跑流转 + 推进 lastRunAt/runCount
   test("runs a pass and advances state when due", async () => {
     const tmp = await makeTmp()
     try {
-      const dir = await makeSkill(tmp.path, "proj1", "foo", 100 * DAY)
+      const dir = await makeArchivable(tmp.path, "proj1", "foo") // 占比 0 / 曝光 1000 → 该归档
       await Curator.saveState(tmp.path, { lastRunAt: ago(8 * DAY), paused: false, runCount: 1 })
 
       const counts = await Curator.maybeRun(tmp.path, { now: NOW })
@@ -306,6 +354,22 @@ describe("Curator.maybeRun", () => {
       await tmp.cleanup()
     }
   })
+
+  // 到期跑完一轮 → 落出一份 usage.json.bak 备份 (#4)
+  test("a due run leaves a usage.json.bak backup", async () => {
+    const tmp = await makeTmp()
+    try {
+      await makeSkill(tmp.path, "proj1", "foo", 100 * DAY)
+      await Curator.saveState(tmp.path, { lastRunAt: ago(8 * DAY), paused: false, runCount: 1 })
+
+      await Curator.maybeRun(tmp.path, { now: NOW })
+
+      const bakFile = path.join(tmp.path, "curator", "usage.json.bak")
+      expect(await exists(bakFile)).toBe(true)
+    } finally {
+      await tmp.cleanup()
+    }
+  })
 })
 
 // 总开关接力 — 写(config 里的 curator_enabled)→ 读(getCuratorEnabled)→ 跑决定(maybeRun 的真实搬文件结果)
@@ -317,7 +381,7 @@ describe("Curator on/off switch wiring (config → getCuratorEnabled → maybeRu
     const tmp = await makeTmp()
     const spy = spyOn(Config, "get").mockResolvedValue({ skills: { curator_enabled: false } } as any)
     try {
-      const dir = await makeSkill(tmp.path, "proj1", "foo", 100 * DAY)
+      const dir = await makeArchivable(tmp.path, "proj1", "foo") // 本该按占比归档
       await Curator.saveState(tmp.path, { lastRunAt: ago(8 * DAY), paused: false, runCount: 1 })
 
       // 读那头: 写进 config 的 false 必须被 getCuratorEnabled 读出来
@@ -330,7 +394,7 @@ describe("Curator on/off switch wiring (config → getCuratorEnabled → maybeRu
         config: { ...DEFAULT_CURATOR_CONFIG, enabled },
       })
       expect(counts).toBeNull()
-      expect(await exists(dir)).toBe(true) // 没被归档 — 开关被尊重
+      expect(await exists(dir)).toBe(true) // 本该归档却没动 — 开关被尊重
     } finally {
       spy.mockRestore()
       await tmp.cleanup()
@@ -342,7 +406,7 @@ describe("Curator on/off switch wiring (config → getCuratorEnabled → maybeRu
     const tmp = await makeTmp()
     const spy = spyOn(Config, "get").mockResolvedValue({ skills: {} } as any)
     try {
-      const dir = await makeSkill(tmp.path, "proj1", "foo", 100 * DAY)
+      const dir = await makeArchivable(tmp.path, "proj1", "foo") // 占比 0 / 曝光 1000 → 该归档
       await Curator.saveState(tmp.path, { lastRunAt: ago(8 * DAY), paused: false, runCount: 1 })
 
       const enabled = await ConfigReader.getCuratorEnabled()
@@ -357,6 +421,186 @@ describe("Curator on/off switch wiring (config → getCuratorEnabled → maybeRu
       expect(await exists(dir)).toBe(false) // 已归档
     } finally {
       spy.mockRestore()
+      await tmp.cleanup()
+    }
+  })
+})
+
+// 占比判据 (RELATIVE_USAGE_DESIGN.md): 归档 = 出生后"本项目"调用占比 < 阈值，且出生后曝光量已过试用期窗口。
+// 写一个 record + 真实 skill 目录的 fixture，让 applyAutomaticTransitions 按占比判，断言搬不搬目录。
+describe("Curator.applyAutomaticTransitions — share-based archival", () => {
+  // 里程碑1: 占比低于阈值 → 归档。foo mtime=今天，旧按天数判据不会归档它 → 改前应红。
+  test("archives a skill whose post-birth call share is below archiveUsageShare", async () => {
+    const tmp = await makeTmp()
+    try {
+      const fooDir = await makeSkill(tmp.path, "proj1", "foo", 0) // 今天刚改 → 旧判据留它
+      const sibDir = await makeSkill(tmp.path, "proj1", "sib", 0)
+      // 同项目: foo 0 次 / sib 1000 次 → 本项目总数 1000, foo 出生水位 0 → 曝光 1000, 占比 0
+      await writeLedger(tmp.path, {
+        "proj1/foo": record("proj1", "foo", fooDir, { use_count: 0, born_at_project_total: 0 }),
+        "proj1/sib": record("proj1", "sib", sibDir, { use_count: 1000, born_at_project_total: 0 }),
+      })
+
+      await Curator.applyAutomaticTransitions(tmp.path, { now: NOW, config: DEFAULT_CURATOR_CONFIG })
+
+      expect(await exists(fooDir)).toBe(false)
+      expect(await exists(path.join(tmp.path, "proj1", "archive", "foo", "SKILL.md"))).toBe(true)
+      const data = await Usage.load(tmp.path)
+      expect(data["proj1/foo"]!.state).toBe("archived")
+      // sib 占比 1000/1000 = 1 → 留
+      expect(data["proj1/sib"]!.state).toBe("active")
+      expect(await exists(sibDir)).toBe(true)
+    } finally {
+      await tmp.cleanup()
+    }
+  })
+
+  // 里程碑2 (M2 不删末位): 5 个 skill 各占 1/5 → 占比都在阈值之上 → 一个都不归档
+  test("archives none when every share is above threshold (no last-place delete)", async () => {
+    const tmp = await makeTmp()
+    try {
+      const led: Record<string, UsageRecord> = {}
+      for (const n of ["a", "b", "c", "d", "e"]) {
+        const dir = await makeSkill(tmp.path, "proj1", n, 0)
+        led[`proj1/${n}`] = record("proj1", n, dir, { use_count: 200, born_at_project_total: 0 })
+      }
+      await writeLedger(tmp.path, led)
+
+      const counts = await Curator.applyAutomaticTransitions(tmp.path, { now: NOW, config: DEFAULT_CURATOR_CONFIG })
+      expect(counts.archived).toBe(0) // 本项目总数 1000, 各占 0.2 ≥ 0.001 → 都留
+      const data = await Usage.load(tmp.path)
+      for (const n of ["a", "b", "c", "d", "e"]) expect(data[`proj1/${n}`]!.state).toBe("active")
+    } finally {
+      await tmp.cleanup()
+    }
+  })
+
+  // 里程碑3 (出生窗口保护): 出生后曝光量 < minExposureCalls → 不判, 哪怕占比 0。
+  // 漏掉窗口闸门会误归档它 → 实现时若先不加窗口应红。
+  test("protects a newborn skill within its trial window (exposure < minExposureCalls)", async () => {
+    const tmp = await makeTmp()
+    try {
+      const fooDir = await makeSkill(tmp.path, "proj1", "foo", 0)
+      const sibDir = await makeSkill(tmp.path, "proj1", "sib", 0)
+      // 本项目总数 50300, foo 出生水位 50000 → 曝光 = 300 < 1000 → 试用期未满
+      await writeLedger(tmp.path, {
+        "proj1/foo": record("proj1", "foo", fooDir, { use_count: 0, born_at_project_total: 50000 }),
+        "proj1/sib": record("proj1", "sib", sibDir, { use_count: 50300, born_at_project_total: 0 }),
+      })
+
+      await Curator.applyAutomaticTransitions(tmp.path, { now: NOW, config: DEFAULT_CURATOR_CONFIG })
+      const data = await Usage.load(tmp.path)
+      expect(data["proj1/foo"]!.state).toBe("active") // 窗口保护
+      expect(await exists(fooDir)).toBe(true)
+    } finally {
+      await tmp.cleanup()
+    }
+  })
+
+  // 里程碑4 (项目隔离, 复现用户反例): 别项目猛跑不该稀释本项目里好 skill 的占比。
+  test("project-isolated denominator — a busy other project does not dilute this one", async () => {
+    const tmp = await makeTmp()
+    try {
+      const aFoo = await makeSkill(tmp.path, "projA", "foo", 0)
+      const aSib = await makeSkill(tmp.path, "projA", "sib", 0)
+      const bBusy = await makeSkill(tmp.path, "projB", "busy", 0)
+      await writeLedger(tmp.path, {
+        "projA/foo": record("projA", "foo", aFoo, { use_count: 5, born_at_project_total: 0 }),
+        "projA/sib": record("projA", "sib", aSib, { use_count: 995, born_at_project_total: 0 }),
+        "projB/busy": record("projB", "busy", bBusy, { use_count: 50000, born_at_project_total: 0 }),
+      })
+
+      await Curator.applyAutomaticTransitions(tmp.path, { now: NOW, config: DEFAULT_CURATOR_CONFIG })
+      const data = await Usage.load(tmp.path)
+      // projA 本项目总数 = 1000, foo 占比 5/1000 = 0.005 ≥ 0.001 → 留
+      // (全局分母会算成 5/51000 ≈ 0.0001 → 被冲到归档, 正是本次要避免的)
+      expect(data["projA/foo"]!.state).toBe("active")
+      expect(await exists(aFoo)).toBe(true)
+    } finally {
+      await tmp.cleanup()
+    }
+  })
+
+  // 里程碑5 (出生水位写读接力): 真跑 创建 → 同项目累加 → 判 三步, 不手填 born。
+  // 用小配置 (窗口 3 / 阈值 0.5) 避免上千次 bumpUse, 逻辑同默认值。
+  const SMALL = { ...DEFAULT_CURATOR_CONFIG, minExposureCalls: 3, archiveUsageShare: 0.5 }
+
+  test("relay: a newborn left unused IS archived once post-birth exposure passes the window", async () => {
+    const tmp = await makeTmp()
+    try {
+      const fillerDir = await makeSkill(tmp.path, "proj1", "filler", 0)
+      const newDir = await makeSkill(tmp.path, "proj1", "newbie", 0)
+      // 先把本项目顶到 3 → 创建 newbie (出生水位锁 3) → 再顶 3 (newbie 曝光 = 6-3 = 3 ≥ 3)
+      for (let i = 0; i < 3; i++) await Usage.bumpUse(tmp.path, fillerDir)
+      await Usage.seedIfMissing(tmp.path, newDir) // newbie 出生: born=3, use_count=0
+      for (let i = 0; i < 3; i++) await Usage.bumpUse(tmp.path, fillerDir)
+
+      await Curator.applyAutomaticTransitions(tmp.path, { now: NOW, config: SMALL })
+
+      const data = await Usage.load(tmp.path)
+      // newbie: 曝光 3 ≥ 3, 占比 0/3 = 0 < 0.5 → 归档
+      expect(data["proj1/newbie"]!.state).toBe("archived")
+      expect(await exists(newDir)).toBe(false)
+      // filler: 出生水位 0, 曝光 6, 占比 6/6 = 1 → 留
+      expect(data["proj1/filler"]!.state).toBe("active")
+    } finally {
+      await tmp.cleanup()
+    }
+  })
+
+  test("relay: the same newborn is protected while still inside the window (one fewer post-birth call)", async () => {
+    const tmp = await makeTmp()
+    try {
+      const fillerDir = await makeSkill(tmp.path, "proj1", "filler", 0)
+      const newDir = await makeSkill(tmp.path, "proj1", "newbie", 0)
+      for (let i = 0; i < 3; i++) await Usage.bumpUse(tmp.path, fillerDir)
+      await Usage.seedIfMissing(tmp.path, newDir) // born=3
+      for (let i = 0; i < 2; i++) await Usage.bumpUse(tmp.path, fillerDir) // 只加 2
+
+      await Curator.applyAutomaticTransitions(tmp.path, { now: NOW, config: SMALL })
+
+      const data = await Usage.load(tmp.path)
+      // newbie: 曝光 = 5-3 = 2 < 3 → 试用期未满 → 不判
+      expect(data["proj1/newbie"]!.state).toBe("active")
+      expect(await exists(newDir)).toBe(true)
+    } finally {
+      await tmp.cleanup()
+    }
+  })
+
+  // H1 边界: 空账本 / 本项目总数为 0 → 曝光 ≤ 0, 试用期闸门拦下, 不归档、不抛
+  test("edge: empty/zero-total project archives nothing and does not throw", async () => {
+    const tmp = await makeTmp()
+    try {
+      const fooDir = await makeSkill(tmp.path, "proj1", "foo", 0)
+      // 唯一 skill, use_count 0, 出生水位 0 → 本项目总数 0, 曝光 0 < 1000
+      await Curator.applyAutomaticTransitions(tmp.path, { now: NOW, config: DEFAULT_CURATOR_CONFIG })
+      const data = await Usage.load(tmp.path)
+      expect(data["proj1/foo"]!.state).toBe("active")
+      expect(await exists(fooDir)).toBe(true)
+    } finally {
+      await tmp.cleanup()
+    }
+  })
+})
+
+// SKILL_IDENTITY_DESIGN.md bug②: curator 必须和加载器用同一个解析器读 id, 否则非规范 id 两边读不一致 → split-brain。
+describe("Curator scanSkills reads id consistently with the loader", () => {
+  test("uses the YAML parser (not a regex) so a non-canonical id keys the same as the loader", async () => {
+    const tmp = await makeTmp()
+    try {
+      const dir = path.join(tmp.path, "proj1", "skills", "foo")
+      await fs.mkdir(dir, { recursive: true })
+      // 无引号 + 行尾注释: YAML 实际 id = "skl_x"; 手写正则会误抠成 "skl_x # note"
+      await fs.writeFile(path.join(dir, "SKILL.md"), `---\nid: skl_x # note\nname: foo\ndescription: test\n---\nBody\n`, "utf-8")
+
+      await Curator.applyAutomaticTransitions(tmp.path, { now: NOW })
+
+      const data = await Usage.load(tmp.path)
+      expect(data["proj1/skl_x"]).toBeDefined() // 按 YAML 真实 id 建 key
+      expect(data["proj1/skl_x"]!.id).toBe("skl_x")
+      expect(data["proj1/skl_x # note"]).toBeUndefined() // 不是正则误抠出来的那个
+    } finally {
       await tmp.cleanup()
     }
   })

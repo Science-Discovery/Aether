@@ -92,6 +92,85 @@ describe("SkillManageTool skillLocation security", () => {
   })
 })
 
+// SKILL_IDENTITY_DESIGN.md 里程碑1: 每个进化 skill 在创建时盖一个稳定唯一 id 进 frontmatter;
+// edit 必须保留它(改内容不改身份)。id 是后续"按 id 认人、不按名字"的根。
+function readId(content: string): string | null {
+  const m = content.match(/^id:\s*(.+)$/m)
+  if (!m) return null
+  return m[1].trim().replace(/^['"]|['"]$/g, "")
+}
+
+describe("SkillManageTool stamps a stable unique id", () => {
+  // A1: create → frontmatter 有非空 id(带 skl_ 前缀)
+  test("create stamps a non-empty skl_ id into frontmatter", async () => {
+    const result = await SkillManageTool.execute({
+      action: "create",
+      name: "id-skill-a",
+      description: "d",
+      content: "body",
+      sessionProjectId: "test-id-proj",
+    })
+    try {
+      expect(result.ok).toBe(true)
+      const content = await fs.readFile(path.join(result.skillDir!, "SKILL.md"), "utf-8")
+      const id = readId(content)
+      expect(id).not.toBeNull()
+      expect(id!.startsWith("skl_")).toBe(true)
+      expect(id!.length).toBeGreaterThan("skl_".length)
+    } finally {
+      if (result.skillDir) await fs.rm(result.skillDir, { recursive: true, force: true })
+    }
+  })
+
+  // A3: 两次 create(哪怕同设置)→ id 不同
+  test("two creates get different ids", async () => {
+    const r1 = await SkillManageTool.execute({
+      action: "create", name: "id-skill-x", description: "d", content: "b", sessionProjectId: "test-id-proj",
+    })
+    const r2 = await SkillManageTool.execute({
+      action: "create", name: "id-skill-y", description: "d", content: "b", sessionProjectId: "test-id-proj",
+    })
+    try {
+      const id1 = readId(await fs.readFile(path.join(r1.skillDir!, "SKILL.md"), "utf-8"))
+      const id2 = readId(await fs.readFile(path.join(r2.skillDir!, "SKILL.md"), "utf-8"))
+      expect(id1).not.toBeNull()
+      expect(id2).not.toBeNull()
+      expect(id1).not.toBe(id2)
+    } finally {
+      if (r1.skillDir) await fs.rm(r1.skillDir, { recursive: true, force: true })
+      if (r2.skillDir) await fs.rm(r2.skillDir, { recursive: true, force: true })
+    }
+  })
+
+  // A2: edit 保留已有 id(改内容不改身份)
+  test("edit preserves an existing id", async () => {
+    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "skill-id-keep-"))
+    try {
+      const originalDir = path.join(tmp, "project", ".claude", "skills", "id-keep")
+      await fs.mkdir(originalDir, { recursive: true })
+      await fs.writeFile(
+        path.join(originalDir, "SKILL.md"),
+        `---\nid: "skl_keepme123"\nname: "id-keep"\ndescription: "orig"\n---\n\nOriginal body`,
+      )
+
+      const result = await SkillManageTool.execute({
+        action: "edit",
+        name: "id-keep",
+        description: "updated",
+        content: "Updated body",
+        skillLocation: path.join(originalDir, "SKILL.md"),
+      })
+      expect(result.ok).toBe(true)
+
+      const content = await fs.readFile(path.join(result.skillDir!, "SKILL.md"), "utf-8")
+      expect(readId(content)).toBe("skl_keepme123") // id 不变
+      expect(content).toContain("Updated body") // 内容已改
+    } finally {
+      await fs.rm(tmp, { recursive: true, force: true })
+    }
+  })
+})
+
 describe("createBoundSkillManageTool skillLocationMap lookup", () => {
   test("resolves skillLocation from map when not provided in params", async () => {
     const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "skill-bound-test-"))

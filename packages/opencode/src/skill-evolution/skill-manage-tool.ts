@@ -1,6 +1,7 @@
 import fs from "fs/promises"
 import path from "path"
 import z from "zod"
+import { ulid } from "ulid"
 import { ShadowWriter } from "./shadow-writer"
 import { Guard } from "./guard"
 import { Versions } from "./versions"
@@ -41,9 +42,17 @@ function parseFrontmatter(content: string): { meta: Record<string, string>; body
   return { meta, body }
 }
 
-function buildContent(name: string, description: string, body: string, category?: string): string {
+/** Mint a stable, unique, never-reused skill id. See SKILL_IDENTITY_DESIGN.md (Q3). */
+function newSkillId(): string {
+  return `skl_${ulid()}`
+}
+
+function buildContent(name: string, description: string, body: string, category?: string, id?: string): string {
+  // `id` is the skill's stable identity (SKILL_IDENTITY_DESIGN.md): stamped at create,
+  // preserved across edits, written FIRST in the frontmatter.
+  const idLine = id?.trim() ? `id: ${JSON.stringify(id.trim())}\n` : ""
   const categoryLine = category?.trim() ? `\ncategory: ${JSON.stringify(category.trim())}` : ""
-  return `---\nname: ${JSON.stringify(name)}\ndescription: ${JSON.stringify(description)}${categoryLine}\n---\n\n${body.trimStart()}`
+  return `---\n${idLine}name: ${JSON.stringify(name)}\ndescription: ${JSON.stringify(description)}${categoryLine}\n---\n\n${body.trimStart()}`
 }
 
 // ── Fuzzy patch ───────────────────────────────────────────────────────────────
@@ -239,7 +248,8 @@ export namespace SkillManageTool {
 
     const skillDir = await resolveAndPrepare(input)
     const skillMd = path.join(skillDir, "SKILL.md")
-    const fileContent = buildContent(input.name, input.description.trim(), input.content, input.category)
+    // Create stamps a fresh id (the skill's birth identity).
+    const fileContent = buildContent(input.name, input.description.trim(), input.content, input.category, newSkillId())
     await atomicWrite(skillMd, fileContent)
 
     return guardAndPublish(skillDir, "create")
@@ -252,8 +262,12 @@ export namespace SkillManageTool {
     const skillDir = await resolveAndPrepare(input)
     const skillMd = path.join(skillDir, "SKILL.md")
     const oldContent = await fs.readFile(skillMd, "utf-8").catch(() => null)
-    const existingCategory = oldContent ? parseFrontmatter(oldContent).meta.category : undefined
-    const fileContent = buildContent(input.name, input.description.trim(), input.content, input.category ?? existingCategory)
+    const oldMeta = oldContent ? parseFrontmatter(oldContent).meta : {}
+    // Preserve the existing id (identity is stable across edits). Do NOT mint one for a
+    // legacy id-less skill: that would orphan its existing name-keyed ledger record and
+    // start a duplicate id-keyed one. Legacy skills stay name-keyed. See SKILL_IDENTITY_DESIGN.md Q5.
+    const id = oldMeta.id
+    const fileContent = buildContent(input.name, input.description.trim(), input.content, input.category ?? oldMeta.category, id)
     await atomicWrite(skillMd, fileContent)
 
     return guardAndPublish(skillDir, "edit")
