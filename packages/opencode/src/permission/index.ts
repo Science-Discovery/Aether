@@ -291,6 +291,33 @@ export namespace Permission {
     return rulesets.flat()
   }
 
+  export function intersection(parent: Ruleset, child: Ruleset): Ruleset {
+    const result: Ruleset = []
+    for (const rule of child) {
+      const parentRule = evaluate(rule.permission, rule.pattern, parent)
+      if (parentRule.action === "deny") {
+        result.push({ permission: rule.permission, pattern: rule.pattern, action: "deny" })
+      } else if (rule.action === "deny") {
+        result.push(rule)
+      } else if (rule.action === "allow" && parentRule.action === "allow") {
+        result.push(rule)
+      } else if (rule.action === "ask" && parentRule.action === "allow") {
+        result.push(rule)
+      } else {
+        result.push({ permission: rule.permission, pattern: rule.pattern, action: parentRule.action })
+      }
+    }
+    for (const parentRule of parent) {
+      const alreadyCovered = result.some(
+        (r) => Wildcard.match(r.permission, parentRule.permission) && Wildcard.match(r.pattern, parentRule.pattern),
+      )
+      if (!alreadyCovered && parentRule.action === "deny") {
+        result.push(parentRule)
+      }
+    }
+    return result
+  }
+
   const EDIT_TOOLS = ["edit", "write", "apply_patch", "multiedit"]
 
   export function disabled(tools: string[], ruleset: Ruleset): Set<string> {
