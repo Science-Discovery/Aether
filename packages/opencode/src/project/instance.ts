@@ -1,3 +1,4 @@
+import { ActiveInstance } from "@/project/active-instance"
 import { GlobalBus } from "@/bus/global"
 import { Database } from "@/storage/db"
 import { disposeInstance } from "@/effect/instance-registry"
@@ -184,6 +185,7 @@ export const Instance = {
     }
     Database.detach(projectId)
     cache.delete(directory)
+    ActiveInstance.forceDeactivate(directory)
     emit(directory)
   },
   async disposeDirectory(directory: string) {
@@ -203,6 +205,7 @@ export const Instance = {
     }
     Database.detach(ctx.project.id)
     if (cache.get(dir) === entry) cache.delete(dir)
+    ActiveInstance.forceDeactivate(dir)
     emit(dir)
   },
   async disposeAll() {

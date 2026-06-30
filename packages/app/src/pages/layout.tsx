@@ -158,6 +158,30 @@ export default function Layout(props: ParentProps) {
   const colorSchemeLabel = (scheme: ColorScheme) => language.t(colorSchemeKey[scheme])
   const currentDir = createMemo(() => decode64(params.dir) ?? "")
 
+  ;(() => {
+    let prev: string | undefined
+    const deactivate = () => {
+      if (!prev) return
+      globalSDK.client.instance.deactivate({ directory: prev }).catch(() => {})
+      prev = undefined
+    }
+    createEffect(() => {
+      const next = currentDir()
+      if (!next) {
+        deactivate()
+        return
+      }
+      if (prev && prev !== next) {
+        globalSDK.client.instance.deactivate({ directory: prev }).catch(() => {})
+      }
+      if (prev !== next) {
+        globalSDK.client.instance.activate({ directory: next }).catch(() => {})
+        prev = next
+      }
+    })
+    onCleanup(deactivate)
+  })()
+
   const [state, setState] = createStore({
     autoselect: !initialDirectory,
     busyWorkspaces: {} as Record<string, boolean>,

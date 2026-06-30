@@ -3,6 +3,8 @@ import { Server } from "@/server/server"
 import { Log } from "@/util/log"
 import { Instance } from "@/project/instance"
 import { InstanceBootstrap } from "@/project/bootstrap"
+import { ActiveInstance } from "@/project/active-instance"
+import { Filesystem } from "@/util/filesystem"
 import { Rpc } from "@/util/rpc"
 import { upgrade } from "@/cli/upgrade"
 import { Config } from "@/config/config"
@@ -96,6 +98,7 @@ const startEventStream = (input: { directory: string; workspaceID?: string }) =>
   })
 }
 
+ActiveInstance.activate(Filesystem.resolve(process.cwd()))
 startEventStream({ directory: process.cwd() })
 
 export const rpc = {

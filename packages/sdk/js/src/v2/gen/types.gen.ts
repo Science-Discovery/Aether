@@ -3203,6 +3203,48 @@ export type ProjectSessionCountResponses = {
 
 export type ProjectSessionCountResponse = ProjectSessionCountResponses[keyof ProjectSessionCountResponses]
 
+export type InstanceActivateData = {
+  body?: never
+  path?: never
+  query: {
+    directory: string
+    workspace?: string
+  }
+  url: "/instance/activate"
+}
+
+export type InstanceActivateResponses = {
+  /**
+   * Activation acknowledged
+   */
+  200: {
+    ok: boolean
+  }
+}
+
+export type InstanceActivateResponse = InstanceActivateResponses[keyof InstanceActivateResponses]
+
+export type InstanceDeactivateData = {
+  body?: never
+  path?: never
+  query: {
+    directory: string
+    workspace?: string
+  }
+  url: "/instance/deactivate"
+}
+
+export type InstanceDeactivateResponses = {
+  /**
+   * Deactivation acknowledged
+   */
+  200: {
+    ok: boolean
+  }
+}
+
+export type InstanceDeactivateResponse = InstanceDeactivateResponses[keyof InstanceDeactivateResponses]
+
 export type PtyListData = {
   body?: never
   path?: never
@@ -3820,6 +3862,7 @@ export type ExperimentalWorkspaceRemoveData = {
   query?: {
     directory?: string
     workspace?: string
+    deleteBranch?: boolean
   }
   url: "/experimental/workspace/{id}"
 }
@@ -6823,6 +6866,15 @@ export type FilePdfAnnotationsExportErrors = {
    * Not found
    */
   404: NotFoundError
+  /**
+   * Conflict
+   */
+  409: {
+    name: string
+    data: {
+      message: string
+    }
+  }
 }
 
 export type FilePdfAnnotationsExportError = FilePdfAnnotationsExportErrors[keyof FilePdfAnnotationsExportErrors]
@@ -10029,6 +10081,7 @@ export type AppSkillsResponses = {
   200: Array<{
     name: string
     description: string
+    id?: string
     location: string
     content: string
   }>

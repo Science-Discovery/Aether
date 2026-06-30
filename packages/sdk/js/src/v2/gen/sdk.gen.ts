@@ -139,6 +139,8 @@ import type {
   GlobalWebUpdateInstallResponses,
   GlobalWebUpdateMirrorErrors,
   GlobalWebUpdateMirrorResponses,
+  InstanceActivateResponses,
+  InstanceDeactivateResponses,
   InstanceDisposeResponses,
   KnowledgeConfigGetResponses,
   KnowledgeConfigSetResponses,
@@ -1191,6 +1193,98 @@ export class Project extends HeyApiClient {
   }
 }
 
+export class Instance extends HeyApiClient {
+  /**
+   * Activate an instance
+   *
+   * Signal that the user has navigated to this project/worktree. Triggers deferred heavy services (e.g. FileWatcher) for the directory.
+   */
+  public activate<ThrowOnError extends boolean = false>(
+    parameters: {
+      directory: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<InstanceActivateResponses, unknown, ThrowOnError>({
+      url: "/instance/activate",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Deactivate an instance
+   *
+   * Signal that the user has navigated away from this project/worktree. Tears down deferred services (e.g. FileWatcher) for the directory.
+   */
+  public deactivate<ThrowOnError extends boolean = false>(
+    parameters: {
+      directory: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<InstanceDeactivateResponses, unknown, ThrowOnError>({
+      url: "/instance/deactivate",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Dispose instance
+   *
+   * Clean up and dispose the current OpenCode instance, releasing all resources.
+   */
+  public dispose<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<InstanceDisposeResponses, unknown, ThrowOnError>({
+      url: "/instance/dispose",
+      ...options,
+      ...params,
+    })
+  }
+}
+
 export class Pty extends HeyApiClient {
   /**
    * List PTY sessions
@@ -2149,7 +2243,7 @@ export class Worktree extends HeyApiClient {
   /**
    * Remove worktree
    *
-   * Remove a git worktree and delete its branch.
+   * Remove a git worktree. Optionally delete its branch by passing deleteBranch.
    */
   public remove<ThrowOnError extends boolean = false>(
     parameters?: {
@@ -8388,38 +8482,6 @@ export class ReadingMode extends HeyApiClient {
   }
 }
 
-export class Instance extends HeyApiClient {
-  /**
-   * Dispose instance
-   *
-   * Clean up and dispose the current OpenCode instance, releasing all resources.
-   */
-  public dispose<ThrowOnError extends boolean = false>(
-    parameters?: {
-      directory?: string
-      workspace?: string
-    },
-    options?: Options<never, ThrowOnError>,
-  ) {
-    const params = buildClientParams(
-      [parameters],
-      [
-        {
-          args: [
-            { in: "query", key: "directory" },
-            { in: "query", key: "workspace" },
-          ],
-        },
-      ],
-    )
-    return (options?.client ?? this.client).post<InstanceDisposeResponses, unknown, ThrowOnError>({
-      url: "/instance/dispose",
-      ...options,
-      ...params,
-    })
-  }
-}
-
 export class Path extends HeyApiClient {
   /**
    * Get paths
@@ -8967,6 +9029,11 @@ export class OpencodeClient extends HeyApiClient {
     return (this._project ??= new Project({ client: this.client }))
   }
 
+  private _instance?: Instance
+  get instance(): Instance {
+    return (this._instance ??= new Instance({ client: this.client }))
+  }
+
   private _pty?: Pty
   get pty(): Pty {
     return (this._pty ??= new Pty({ client: this.client }))
@@ -9080,11 +9147,6 @@ export class OpencodeClient extends HeyApiClient {
   private _readingMode?: ReadingMode
   get readingMode(): ReadingMode {
     return (this._readingMode ??= new ReadingMode({ client: this.client }))
-  }
-
-  private _instance?: Instance
-  get instance(): Instance {
-    return (this._instance ??= new Instance({ client: this.client }))
   }
 
   private _path?: Path

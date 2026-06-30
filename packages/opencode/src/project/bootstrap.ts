@@ -16,6 +16,7 @@ import { ShareNext } from "@/share/share-next"
 import { PROJECT } from "@/persist/naming"
 import { SessionRecovery } from "@/session/recovery"
 import { DbRecovery } from "@/storage/db-recovery"
+import { ActiveInstance } from "@/project/active-instance"
 
 export async function InstanceBootstrap() {
   Log.Default.info("bootstrapping", { directory: Instance.directory })
@@ -25,12 +26,41 @@ export async function InstanceBootstrap() {
   Format.init()
   await LSP.init()
   File.init()
-  FileWatcher.init()
   Vcs.init()
   Snapshot.init()
+  FileWatcher.initGit()
   await SessionRecovery.repairInterrupted().catch((error) => {
     Log.Default.warn("failed to repair interrupted assistant messages", { error })
   })
+
+  const dir = Instance.directory
+  const cleanups = Instance.state(
+    () => [] as Array<() => void>,
+    async (list) => {
+      list.forEach((fn) => fn())
+    },
+  )()
+  const deferred = () => {
+    FileWatcher.initFull()
+  }
+
+  if (ActiveInstance.is(dir)) {
+    deferred()
+  } else {
+    cleanups.push(
+      ActiveInstance.subscribe((activated) => {
+        if (activated !== dir) return
+        Instance.provide({ directory: dir, fn: deferred, create: false })
+      }),
+    )
+  }
+
+  cleanups.push(
+    ActiveInstance.onDeactivate((deactivated) => {
+      if (deactivated !== dir) return
+      Instance.provide({ directory: dir, fn: () => FileWatcher.deactivateFull(), create: false })
+    }),
+  )
 
   DbRecovery.runAfterStartup().catch((error) => {
     Log.Default.warn("db recovery failed", { error })

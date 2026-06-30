@@ -126,6 +126,7 @@ import { WorkspaceID } from "../control-plane/schema"
 import { ProviderID } from "../provider/schema"
 import { WorkspaceRouterMiddleware } from "../control-plane/workspace-router-middleware"
 import { ProjectRoutes } from "./routes/project"
+import { InstanceRoutes } from "./routes/instance"
 import { Project } from "../project/project"
 import { ProjectID } from "../project/schema"
 import { SessionRoutes } from "./routes/session"
@@ -378,10 +379,14 @@ export namespace Server {
         const directory = Filesystem.resolve(decoded)
 
         const browsePaths = ["/file", "/find", "/file/pick-folder", "/file/check-directory", "/file/ensure-directory"]
+        const lifecyclePaths = ["/instance"]
         const isBrowse = browsePaths.some(
           (p) => c.req.path === p || c.req.path.startsWith(p + "/") || c.req.path.startsWith(p + "?"),
         )
-        const create = noDirectory ? false : isBrowse ? Instance.has(directory) : true
+        const isLifecycle = lifecyclePaths.some(
+          (p) => c.req.path === p || c.req.path.startsWith(p + "/") || c.req.path.startsWith(p + "?"),
+        )
+        const create = noDirectory ? false : (isBrowse || isLifecycle) ? Instance.has(directory) : true
 
         return WorkspaceContext.provide({
           workspaceID: rawWorkspaceID ? WorkspaceID.make(rawWorkspaceID) : undefined,
@@ -463,6 +468,7 @@ export namespace Server {
         },
       )
       .route("/project", ProjectRoutes())
+      .route("/instance", InstanceRoutes())
       .route("/pty", PtyRoutes())
       .route("/config", ConfigRoutes())
       .route("/experimental", ExperimentalRoutes())
