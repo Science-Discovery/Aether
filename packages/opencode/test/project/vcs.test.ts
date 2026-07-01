@@ -19,7 +19,7 @@ async function withVcs(directory: string, body: () => Promise<void>) {
   return Instance.provide({
     directory,
     fn: async () => {
-      FileWatcher.init()
+      FileWatcher.initGit()
       Vcs.init()
       await Bun.sleep(500)
       await body()
@@ -124,6 +124,28 @@ describeVcs("Vcs", () => {
       await pending
       const current = await Vcs.branch()
       expect(current).toBe(branch)
+    })
+  })
+
+  test("full watcher deactivation keeps git branch watcher alive", async () => {
+    await using tmp = await tmpdir({ git: true })
+    const branch = `test-${Math.random().toString(36).slice(2)}`
+    await $`git branch ${branch}`.cwd(tmp.path).quiet()
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        FileWatcher.initGit()
+        FileWatcher.initFull()
+        Vcs.init()
+        await Bun.sleep(500)
+        FileWatcher.deactivateFull()
+
+        const pending = nextBranchUpdate(tmp.path)
+        await fs.writeFile(path.join(tmp.path, ".git", "HEAD"), `ref: refs/heads/${branch}\n`)
+
+        expect(await pending).toBe(branch)
+      },
     })
   })
 })
