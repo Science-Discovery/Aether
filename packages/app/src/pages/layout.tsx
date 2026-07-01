@@ -15,6 +15,7 @@ import { useNavigate, useParams } from "@solidjs/router"
 import { useLayout, LocalProject } from "@/context/layout"
 import { useGlobalSync } from "@/context/global-sync"
 import { Persist, persisted } from "@/utils/persist"
+import { ActiveDirectory } from "@/utils/active"
 import { base64Encode } from "@opencode-ai/util/encode"
 import { decode64 } from "@/utils/base64"
 import { ResizeHandle } from "@opencode-ai/ui/resize-handle"
@@ -158,29 +159,10 @@ export default function Layout(props: ParentProps) {
   const colorSchemeLabel = (scheme: ColorScheme) => language.t(colorSchemeKey[scheme])
   const currentDir = createMemo(() => decode64(params.dir) ?? "")
 
-  ;(() => {
-    let prev: string | undefined
-    const deactivate = () => {
-      if (!prev) return
-      globalSDK.client.instance.deactivate({ directory: prev }).catch(() => {})
-      prev = undefined
-    }
-    createEffect(() => {
-      const next = currentDir()
-      if (!next) {
-        deactivate()
-        return
-      }
-      if (prev && prev !== next) {
-        globalSDK.client.instance.deactivate({ directory: prev }).catch(() => {})
-      }
-      if (prev !== next) {
-        globalSDK.client.instance.activate({ directory: next }).catch(() => {})
-        prev = next
-      }
-    })
-    onCleanup(deactivate)
-  })()
+  createEffect(() => {
+    ActiveDirectory.set(currentDir())
+  })
+  onCleanup(() => ActiveDirectory.set(""))
 
   const [state, setState] = createStore({
     autoselect: !initialDirectory,

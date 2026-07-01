@@ -126,7 +126,6 @@ import { WorkspaceID } from "../control-plane/schema"
 import { ProviderID } from "../provider/schema"
 import { WorkspaceRouterMiddleware } from "../control-plane/workspace-router-middleware"
 import { ProjectRoutes } from "./routes/project"
-import { InstanceRoutes } from "./routes/instance"
 import { Project } from "../project/project"
 import { ProjectID } from "../project/schema"
 import { SessionRoutes } from "./routes/session"
@@ -468,7 +467,6 @@ export namespace Server {
         },
       )
       .route("/project", ProjectRoutes())
-      .route("/instance", InstanceRoutes())
       .route("/pty", PtyRoutes())
       .route("/config", ConfigRoutes())
       .route("/experimental", ExperimentalRoutes())

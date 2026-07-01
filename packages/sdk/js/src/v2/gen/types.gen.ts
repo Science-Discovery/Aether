@@ -2593,6 +2593,7 @@ export type GlobalPingData = {
   body?: {
     id: string
     alive?: boolean
+    directory?: string
   }
   path?: never
   query?: never
@@ -2614,6 +2615,7 @@ export type GlobalPingResponses = {
    */
   200: {
     ok: true
+    active?: boolean
   }
 }
 
@@ -3202,48 +3204,6 @@ export type ProjectSessionCountResponses = {
 }
 
 export type ProjectSessionCountResponse = ProjectSessionCountResponses[keyof ProjectSessionCountResponses]
-
-export type InstanceActivateData = {
-  body?: never
-  path?: never
-  query: {
-    directory: string
-    workspace?: string
-  }
-  url: "/instance/activate"
-}
-
-export type InstanceActivateResponses = {
-  /**
-   * Activation acknowledged
-   */
-  200: {
-    ok: boolean
-  }
-}
-
-export type InstanceActivateResponse = InstanceActivateResponses[keyof InstanceActivateResponses]
-
-export type InstanceDeactivateData = {
-  body?: never
-  path?: never
-  query: {
-    directory: string
-    workspace?: string
-  }
-  url: "/instance/deactivate"
-}
-
-export type InstanceDeactivateResponses = {
-  /**
-   * Deactivation acknowledged
-   */
-  200: {
-    ok: boolean
-  }
-}
-
-export type InstanceDeactivateResponse = InstanceDeactivateResponses[keyof InstanceDeactivateResponses]
 
 export type PtyListData = {
   body?: never

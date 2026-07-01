@@ -14,6 +14,7 @@ import { Instance } from "../../project/instance"
 import { Flag } from "../../flag/flag"
 import { Log } from "../../util/log"
 import { lazy } from "../../util/lazy"
+import { Filesystem } from "../../util/filesystem"
 import { Config } from "../../config/config"
 import { Global } from "../../global"
 import { errors } from "../error"
@@ -54,6 +55,7 @@ const ProxyConfig = z.object({
 const PingInput = z.object({
   id: z.string().min(1),
   alive: z.boolean().optional(),
+  directory: z.string().optional(),
 })
 
 function parseProxy(value?: string) {
@@ -317,7 +319,7 @@ export const GlobalRoutes = lazy(() =>
             description: "Lease touched",
             content: {
               "application/json": {
-                schema: resolver(z.object({ ok: z.literal(true) })),
+                schema: resolver(z.object({ ok: z.literal(true), active: z.boolean().optional() })),
               },
             },
           },
@@ -331,8 +333,9 @@ export const GlobalRoutes = lazy(() =>
           Lease.drop(body.id)
           return c.json({ ok: true as const })
         }
-        Lease.touch(body.id)
-        return c.json({ ok: true as const })
+        const dir = body.directory ? Filesystem.resolve(body.directory) : undefined
+        const active = Lease.touch(body.id, dir)
+        return c.json({ ok: true as const, ...(dir ? { active } : {}) })
       },
     )
     .get(
