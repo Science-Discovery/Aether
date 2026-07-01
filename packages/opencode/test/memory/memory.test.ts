@@ -999,6 +999,110 @@ describe("memory service", () => {
     expect(sawAbort).toBe(true)
   })
 
+  test("startInitialize runs import in the background without waiting for completion", async () => {
+    let releaseImport!: () => void
+    const release = new Promise<void>((resolve) => {
+      releaseImport = resolve
+    })
+    Memory.setSessionScannerForTest(async function* () {
+      yield {
+        channelID: "latest",
+        projectID: "project-a",
+        sessionID: "one",
+        messages: [{ role: "user" as const, text: "请记住我默认喜欢中文回答", createdAt: 1 }],
+      }
+    })
+    Memory.setInitializerExtractorForTest(async () => {
+      await release
+      return [
+        {
+          text: "用户偏好默认用中文回答。",
+          type: "preference" as const,
+          scope: "global" as const,
+        },
+      ]
+    })
+
+    const started = await Memory.startInitialize()
+
+    expect(started.status).toBe("started")
+    const running = await Memory.status()
+    expect(running.initialization).toMatchObject({ status: "running" })
+
+    releaseImport()
+    let finished = await Memory.status()
+    for (let index = 0; index < 20; index++) {
+      if ((finished.initialization as { status?: string }).status !== "running") break
+      await new Promise((resolve) => setTimeout(resolve, 50))
+      finished = await Memory.status()
+    }
+    expect(finished.initialization).toMatchObject({ status: "succeeded", scanned: 1, imported: 1 })
+  })
+
+  test("initialize records extractor errors instead of silently reporting a clean empty import", async () => {
+    Memory.setSessionScannerForTest(async function* () {
+      yield {
+        channelID: "latest",
+        projectID: "project-a",
+        sessionID: "broken-extractor",
+        messages: [{ role: "user" as const, text: "请记住我默认喜欢中文回答", createdAt: 1 }],
+      }
+    })
+    Memory.setInitializerExtractorForTest(async () => {
+      throw new Error("provider bad request during initialization")
+    })
+
+    const result = await Memory.initialize({ confirm: true })
+
+    expect(result.status).toBe("failed")
+    expect(result.scanned).toBe(1)
+    expect(result.imported).toBe(0)
+    const status = await Memory.status()
+    expect(status.initialization).toMatchObject({
+      status: "failed",
+      scanned: 1,
+      imported: 0,
+      error_count: 1,
+    })
+    expect(JSON.stringify(status.initialization)).toContain("provider bad request")
+  })
+
+  test("initialize sends broad but non-keyword sessions to the extractor", async () => {
+    const seen: string[] = []
+    Memory.setSessionScannerForTest(async function* () {
+      yield {
+        channelID: "latest",
+        projectID: "project-a",
+        sessionID: "broad-profile",
+        messages: [
+          {
+            role: "user" as const,
+            text:
+              "I work on multi-loop Feynman integral reduction and often compare symbolic workflows across Mathematica, Kira, and custom TypeScript agents. The durable part is my research context, not a one-shot command.",
+            createdAt: 1,
+          },
+        ],
+      }
+    })
+    Memory.setInitializerExtractorForTest(async (session) => {
+      seen.push(session.sessionID)
+      return [
+        {
+          text: "User works on multi-loop Feynman integral reduction workflows.",
+          type: "fact" as const,
+          scope: "global" as const,
+        },
+      ]
+    })
+
+    const result = await Memory.initialize({ confirm: true })
+
+    expect(result).toEqual({ status: "succeeded", scanned: 1, imported: 1 })
+    expect(seen).toEqual(["broad-profile"])
+    const found = await Memory.search({ query: "Feynman integral reduction", limit: 5 })
+    expect(found.results[0]?.memory).toContain("Feynman")
+  })
+
   test("initialize imports matching user messages with the production extractor", async () => {
     Memory.setSessionScannerForTest(async function* () {
       yield {
@@ -1125,6 +1229,24 @@ describe("memory service", () => {
     const reflected = await Memory.reflect({ mode: "daily", reason: "test" })
     expect(reflected.changed).toBe(true)
     expect(calls).toBe(2)
+    expect((await Memory.search({ query: "中文回答", limit: 5 })).results[0]?.memory).toContain("中文回答")
+  })
+
+  test("daily reflection falls back to deterministic candidates when the provider is unavailable", async () => {
+    Memory.setReflectorForTest(async () => {
+      throw new Error("ProviderModelNotFoundError: default model unavailable")
+    })
+    await Memory.remember({
+      text: "我希望默认用中文回答",
+      type: "preference",
+      intent: "observed",
+      source: { createdAt: Date.now(), role: "user" },
+    })
+
+    const reflected = await Memory.reflect({ mode: "daily", reason: "test" })
+
+    expect(reflected.changed).toBe(true)
+    expect(reflected.summary).toContain("fallback")
     expect((await Memory.search({ query: "中文回答", limit: 5 })).results[0]?.memory).toContain("中文回答")
   })
 })
