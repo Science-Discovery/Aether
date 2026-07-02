@@ -255,11 +255,8 @@ export namespace FileWatcher {
           )
         }
 
-        const cfg = yield* Effect.promise(() => Config.get())
-
         return {
           backend,
-          cfgIgnores: cfg.watcher?.ignore ?? [],
           subscribe,
         }
       })
@@ -280,7 +277,8 @@ export namespace FileWatcher {
             const state = yield* setup()
             if (!state) return
 
-            const ignore = [...FileIgnore.PATTERNS, ...state.cfgIgnores, ...protecteds(Instance.directory)]
+            const cfg = yield* Effect.promise(() => Config.get())
+            const ignore = [...FileIgnore.PATTERNS, ...(cfg.watcher?.ignore ?? []), ...protecteds(Instance.directory)]
 
             if (enabled) {
               if (state.backend !== "inotify") {
@@ -319,7 +317,7 @@ export namespace FileWatcher {
               )
               const vcsDir =
                 result.exitCode === 0 ? path.resolve(Instance.project.worktree, result.text().trim()) : undefined
-              if (vcsDir && !state.cfgIgnores.includes(".git") && !state.cfgIgnores.includes(vcsDir)) {
+              if (vcsDir) {
                 const ignore = (yield* Effect.promise(() => readdir(vcsDir).catch(() => []))).filter(
                   (entry) => entry !== "HEAD",
                 )

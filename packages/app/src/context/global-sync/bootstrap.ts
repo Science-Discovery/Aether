@@ -16,7 +16,7 @@ import { retry } from "@opencode-ai/util/retry"
 import { batch } from "solid-js"
 import { reconcile, type SetStoreFunction, type Store } from "solid-js/store"
 import type { State, VcsCache } from "./types"
-import { cmp, normalizeAgentList, normalizeProviderList } from "./utils"
+import { cmp, normalizeProviderList } from "./utils"
 import { formatServerError } from "@/utils/server-errors"
 
 type GlobalStore = {
@@ -182,8 +182,6 @@ export async function bootstrapDirectory(input: {
       seededProject
         ? Promise.resolve()
         : retry(() => input.sdk.project.current()).then((x) => input.setStore("project", x.data!.id)),
-    () => retry(() => input.sdk.app.agents().then((x) => input.setStore("agent", normalizeAgentList(x.data)))),
-    () => retry(() => input.sdk.config.get().then((x) => input.setStore("config", x.data!))),
     () =>
       retry(() =>
         input.sdk.path.get().then((x) => {
@@ -201,7 +199,6 @@ export async function bootstrapDirectory(input: {
           if (next) input.vcsCache.setStore("value", next)
         }),
       ),
-    () => retry(() => input.sdk.command.list().then((x) => input.setStore("command", x.data ?? []))),
     () =>
       retry(() =>
         input.sdk.permission.list().then((x) => {
@@ -250,17 +247,7 @@ export async function bootstrapDirectory(input: {
       ),
   ]
 
-  const slow = [
-    () =>
-      retry(() =>
-        input.sdk.provider.list().then((x) => {
-          input.setStore("provider", normalizeProviderList(x.data!))
-        }),
-      ),
-    () => Promise.resolve(input.loadSessions(input.directory)),
-    () => retry(() => input.sdk.mcp.status().then((x) => input.setStore("mcp", x.data!))),
-    () => retry(() => input.sdk.lsp.status().then((x) => input.setStore("lsp", x.data!))),
-  ]
+  const slow = [() => Promise.resolve(input.loadSessions(input.directory))]
 
   const errs = errors(await runAll(fast))
   if (errs.length > 0) {
