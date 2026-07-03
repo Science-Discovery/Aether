@@ -14,10 +14,12 @@ import {
 } from "./global-sync/session-prefetch"
 import { useGlobalSync } from "./global-sync"
 import { useSDK } from "./sdk"
+import { useServer } from "./server"
 import type { Message, Part } from "@opencode-ai/sdk/v2/client"
 import { SESSION_CACHE_LIMIT, dropSessionCaches, pickSessionCacheEvictions } from "./global-sync/session-cache"
 import { useLanguage } from "./language"
 import { formatServerError } from "@/utils/server-errors"
+import { serverScopedKey } from "@/utils/server-scope"
 
 const SKIP_PARTS = new Set(["patch", "step-start", "step-finish"])
 
@@ -199,6 +201,8 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
     const navigate = useNavigate()
     const language = useLanguage()
     const downgraded = new Set<string>()
+    const server = useServer()
+    const prefetch = (directory: string) => serverScopedKey(directory, server.key)
 
     type Child = ReturnType<(typeof globalSync)["child"]>
     type Setter = Child[1]
@@ -312,7 +316,7 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
 
     const evict = (directory: string, setStore: Setter, sessionIDs: string[]) => {
       if (sessionIDs.length === 0) return
-      clearSessionPrefetch(directory, sessionIDs)
+      clearSessionPrefetch(prefetch(directory), sessionIDs)
       for (const sessionID of sessionIDs) {
         globalSync.todo.set(sessionID, undefined)
       }
@@ -389,7 +393,7 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
             setMeta("cursor", key, next.cursor)
             setMeta("complete", key, next.complete)
             setSessionPrefetch({
-              directory: input.directory,
+              directory: prefetch(input.directory),
               sessionID: input.sessionID,
               limit: message.length,
               cursor: next.cursor,
@@ -476,7 +480,7 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
 
           touch(directory, setStore, sessionID)
 
-          const seeded = getSessionPrefetch(directory, sessionID)
+          const seeded = getSessionPrefetch(prefetch(directory), sessionID)
           if (seeded && store.message[sessionID] !== undefined && meta.limit[key] === undefined) {
             batch(() => {
               setMeta("limit", key, seeded.limit)
@@ -487,10 +491,10 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
           }
 
           return runInflight(inflight, key, async () => {
-            const pending = getSessionPrefetchPromise(directory, sessionID)
+            const pending = getSessionPrefetchPromise(prefetch(directory), sessionID)
             if (pending) {
               await pending
-              const seeded = getSessionPrefetch(directory, sessionID)
+              const seeded = getSessionPrefetch(prefetch(directory), sessionID)
               if (seeded && store.message[sessionID] !== undefined && meta.limit[key] === undefined) {
                 batch(() => {
                   setMeta("limit", key, seeded.limit)
@@ -624,7 +628,7 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
           },
         },
         invalidate(sessionID: string, directory = sdk.directory) {
-          clearSessionPrefetch(directory, [sessionID])
+          clearSessionPrefetch(prefetch(directory), [sessionID])
           clearOptimistic(directory, sessionID)
           setMeta(
             produce((draft) => {

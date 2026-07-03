@@ -5,8 +5,10 @@ import type { PermissionRequest } from "@opencode-ai/sdk/v2/client"
 import { Persist, persisted } from "@/utils/persist"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useGlobalSync } from "./global-sync"
+import { useServer } from "@/context/server"
 import { useParams } from "@solidjs/router"
 import { decode64 } from "@/utils/base64"
+import { serverScopedKey } from "@/utils/server-scope"
 import {
   acceptKey,
   directoryAcceptKey,
@@ -51,6 +53,8 @@ export const { use: usePermission, provider: PermissionProvider } = createSimple
     const params = useParams()
     const globalSDK = useGlobalSDK()
     const globalSync = useGlobalSync()
+    const server = useServer()
+    const scope = (directory: string | undefined) => (directory ? serverScopedKey(directory, server.key) : directory)
 
     const permissionsEnabled = createMemo(() => {
       const directory = decode64(params.dir)
@@ -89,7 +93,7 @@ export const { use: usePermission, provider: PermissionProvider } = createSimple
       const [childStore] = globalSync.child(directory)
       const perm = childStore.config.permission
       if (typeof perm === "string" && perm === "allow") {
-        const key = directoryAcceptKey(directory)
+        const key = directoryAcceptKey(scope(directory) ?? directory)
         if (store.autoAccept[key] === undefined) {
           setStore(
             produce((draft) => {
@@ -148,22 +152,22 @@ export const { use: usePermission, provider: PermissionProvider } = createSimple
       const child = directory ? globalSync.child(directory, { bootstrap: false })[0] : current()
       const prefValue = (child.preference as Record<string, { autoAccept?: boolean }>)[sessionID]?.autoAccept
       if (prefValue !== undefined) return prefValue
-      return autoRespondsPermission(store.autoAccept, [...child.session], { sessionID }, directory, child.preference)
+      return autoRespondsPermission(store.autoAccept, [...child.session], { sessionID }, scope(directory), child.preference)
     }
 
     function isAutoAcceptingDirectory(directory: string) {
-      return isDirectoryAutoAccepting(store.autoAccept, directory)
+      return isDirectoryAutoAccepting(store.autoAccept, scope(directory) ?? directory)
     }
 
     function shouldAutoRespond(permission: PermissionRequest, directory?: string) {
       const child = directory ? globalSync.child(directory, { bootstrap: false })[0] : current()
       const prefValue = (child.preference as Record<string, { autoAccept?: boolean }>)[permission.sessionID]?.autoAccept
       if (prefValue !== undefined) return prefValue
-      return autoRespondsPermission(store.autoAccept, [...child.session], permission, directory, child.preference)
+      return autoRespondsPermission(store.autoAccept, [...child.session], permission, scope(directory), child.preference)
     }
 
     function bumpEnableVersion(sessionID: string, directory?: string) {
-      const key = acceptKey(sessionID, directory)
+      const key = acceptKey(sessionID, scope(directory))
       const next = (enableVersion.get(key) ?? 0) + 1
       enableVersion.set(key, next)
       return next
@@ -187,7 +191,7 @@ export const { use: usePermission, provider: PermissionProvider } = createSimple
     onCleanup(unsubscribe)
 
     function enableDirectory(directory: string) {
-      const key = directoryAcceptKey(directory)
+      const key = directoryAcceptKey(scope(directory) ?? directory)
       setStore(
         produce((draft) => {
           draft.autoAccept[key] = true
@@ -208,7 +212,7 @@ export const { use: usePermission, provider: PermissionProvider } = createSimple
     }
 
     function disableDirectory(directory: string) {
-      const key = directoryAcceptKey(directory)
+      const key = directoryAcceptKey(scope(directory) ?? directory)
       setStore(
         produce((draft) => {
           draft.autoAccept[key] = false
@@ -217,7 +221,7 @@ export const { use: usePermission, provider: PermissionProvider } = createSimple
     }
 
     function enable(sessionID: string, directory: string) {
-      const key = acceptKey(sessionID, directory)
+      const key = acceptKey(sessionID, scope(directory))
       const version = bumpEnableVersion(sessionID, directory)
       setStore(
         produce((draft) => {
@@ -244,7 +248,7 @@ export const { use: usePermission, provider: PermissionProvider } = createSimple
 
     function disable(sessionID: string, directory?: string) {
       bumpEnableVersion(sessionID, directory)
-      const key = directory ? acceptKey(sessionID, directory) : sessionID
+      const key = directory ? acceptKey(sessionID, scope(directory)) : sessionID
       setStore(
         produce((draft) => {
           draft.autoAccept[key] = false

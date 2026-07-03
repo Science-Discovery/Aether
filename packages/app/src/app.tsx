@@ -13,6 +13,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/solid-query"
 import { type Duration, Effect } from "effect"
 import {
   type Component,
+  createEffect,
   createMemo,
   createResource,
   createSignal,
@@ -278,9 +279,18 @@ function ServerKey(props: ParentProps) {
   const server = useServer()
   return (
     <Show when={server.key} keyed>
-      {props.children}
+      {(_key) => <>{props.children}</>}
     </Show>
   )
+}
+
+function ServerTracker(props: { onChange?: (conn: ServerConnection.Any | undefined) => void }) {
+  const server = useServer()
+  createEffect(() => {
+    props.onChange?.(server.current)
+  })
+  onCleanup(() => props.onChange?.(undefined))
+  return null
 }
 
 export function AppInterface(props: {
@@ -290,6 +300,7 @@ export function AppInterface(props: {
   router?: Component<BaseRouterProps>
   disableHealthCheck?: boolean
   basePath?: string
+  onServerChange?: (conn: ServerConnection.Any | undefined) => void
 }) {
   const routerBase = props.basePath && props.basePath !== "/" ? props.basePath : undefined
   const reset = () => {
@@ -298,6 +309,7 @@ export function AppInterface(props: {
   }
   return (
     <ServerProvider defaultServer={props.defaultServer} servers={props.servers} reset={reset}>
+      <ServerTracker onChange={props.onServerChange} />
       <ConnectionGate disableHealthCheck={props.disableHealthCheck}>
         <ServerKey>
           <GlobalSDKProvider>

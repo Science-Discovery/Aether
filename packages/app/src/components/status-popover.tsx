@@ -12,7 +12,7 @@ import { ServerHealthIndicator, ServerRow } from "@/components/server/server-row
 import { useLanguage } from "@/context/language"
 import { usePlatform } from "@/context/platform"
 import { useSDK } from "@/context/sdk"
-import { normalizeServerUrl, ServerConnection, useServer } from "@/context/server"
+import { normalizeServerUrl, ServerConnection, serverName, useServer } from "@/context/server"
 import { useSync } from "@/context/sync"
 import { useCheckServerHealth, type ServerHealth } from "@/utils/server-health"
 
@@ -197,6 +197,16 @@ export function StatusPopover() {
     return serverHealthy && !anyMcpIssue
   })
 
+  function activate(conn: ServerConnection.Any) {
+    const key = ServerConnection.key(conn)
+    if (key === server.key) return
+    server.activate(key)
+    showToast({
+      variant: "success",
+      title: "已切换后端服务器",
+      description: `当前使用 ${serverName(conn)}`,
+    })
+  }
   return (
     <Popover
       open={shown()}
@@ -274,7 +284,7 @@ export function StatusPopover() {
                         aria-disabled={isBlocked()}
                         onClick={() => {
                           if (isBlocked()) return
-                          server.activate(key)
+                          activate(s)
                         }}
                       >
                         <ServerHealthIndicator health={health[key]} />

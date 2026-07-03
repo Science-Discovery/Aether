@@ -13,7 +13,7 @@ import { createStore, reconcile } from "solid-js/store"
 import { ServerHealthIndicator, ServerRow } from "@/components/server/server-row"
 import { useLanguage } from "@/context/language"
 import { usePlatform } from "@/context/platform"
-import { normalizeServerUrl, ServerConnection, useServer } from "@/context/server"
+import { normalizeServerUrl, ServerConnection, serverName, useServer } from "@/context/server"
 import { type ServerHealth, useCheckServerHealth } from "@/utils/server-health"
 
 const DEFAULT_USERNAME = "opencode"
@@ -349,14 +349,19 @@ export function DialogSelectServer() {
   })
 
   async function select(conn: ServerConnection.Any, persist?: boolean) {
-    if (!persist && store.status[ServerConnection.key(conn)]?.healthy === false) return
+    const key = ServerConnection.key(conn)
+    if (!persist && key === server.key) return
+    if (!persist && store.status[key]?.healthy === false) return
     dialog.close()
     if (persist && conn.type === "http") {
-      const added = server.add(conn)
-      if (added) server.activate(ServerConnection.key(added))
-      return
+      server.upsert(conn, { active: false })
     }
-    server.activate(ServerConnection.key(conn))
+    server.activate(key)
+    showToast({
+      variant: "success",
+      title: "已切换后端服务器",
+      description: `当前使用 ${serverName(conn)}`,
+    })
   }
 
   const handleAddChange = (value: string) => {

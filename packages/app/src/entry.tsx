@@ -10,7 +10,6 @@ import { createWebUpdate } from "@/utils/web-update"
 import { handleNotificationClick } from "@/utils/notification-click"
 import { ActiveDirectory } from "@/utils/active"
 import { ServerConnection } from "./context/server"
-import { pingPaused } from "./context/server"
 
 const DEFAULT_SERVER_URL_KEY = "opencode.settings.dat:defaultServerUrl"
 const PROXY_KEY = "opencode.settings.dat:proxy"
@@ -159,7 +158,8 @@ const getCurrentUrl = () => {
   return bp === "/" ? location.origin : `${location.origin}${bp}`
 }
 
-const endpoint = (path: string) => new URL(path.replace(/^\/+/, ""), `${getCurrentUrl().replace(/\/+$/, "")}/`)
+const endpointFor = (url: string, path: string) => new URL(path.replace(/^\/+/, ""), `${url.replace(/\/+$/, "")}/`)
+const endpoint = (path: string) => endpointFor(getCurrentUrl(), path)
 
 const readWebVersion = async () => {
   return fetch(endpoint("/global/web-update/current"))
@@ -213,39 +213,68 @@ const lease = (() => {
 })()
 
 const PING_TIMEOUT_MS = 5_000
+let active: ServerConnection.HttpBase | undefined
 
-const ping = async (alive = true) => {
-  if (pingPaused()) return
-  const ac = new AbortController()
-  const timer = setTimeout(() => ac.abort(), PING_TIMEOUT_MS)
-  try {
-    const dir = ActiveDirectory.get()
-    await req("/global/ping", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id: lease, alive, ...(dir ? { directory: dir } : {}) }),
-      signal: ac.signal,
-    })
-  } catch {
-    return undefined
-  } finally {
-    clearTimeout(timer)
+const targetKey = (target: ServerConnection.HttpBase) =>
+  `${target.url.replace(/\/+$/, "")}\n${target.username ?? ""}\n${target.password ?? ""}`
+
+const targets = () => {
+  const map = new Map<string, ServerConnection.HttpBase>()
+  const local = { url: getCurrentUrl() }
+  map.set(targetKey(local), local)
+  if (active) map.set(targetKey(active), active)
+  return [...map.values()]
+}
+
+const headers = (target: ServerConnection.HttpBase): HeadersInit => {
+  if (!target.password) return { "Content-Type": "application/json" }
+  return {
+    "Content-Type": "application/json",
+    Authorization: `Basic ${btoa(`${target.username ?? "opencode"}:${target.password}`)}`,
   }
 }
 
-const release = () => {
-  const url = endpoint("/global/ping").toString()
-  const body = JSON.stringify({ id: lease, alive: false })
-  if (navigator.sendBeacon) {
+const ping = async (alive = true) => {
+  const dir = ActiveDirectory.get()
+  const body = JSON.stringify({ id: lease, alive, ...(dir ? { directory: dir } : {}) })
+  const jobs = targets().map(async (target) => {
+    const ac = new AbortController()
+    const timer = setTimeout(() => ac.abort(), PING_TIMEOUT_MS)
+    try {
+      await fetch(endpointFor(target.url, "/global/ping"), {
+        method: "POST",
+        headers: headers(target),
+        body,
+        signal: ac.signal,
+      })
+    } catch {
+      return undefined
+    } finally {
+      clearTimeout(timer)
+    }
+  })
+  await Promise.allSettled(jobs)
+}
+
+const releaseTarget = (target: ServerConnection.HttpBase, body: string) => {
+  const url = endpointFor(target.url, "/global/ping").toString()
+  if (!target.password && navigator.sendBeacon) {
     const data = new Blob([body], { type: "application/json" })
     if (navigator.sendBeacon(url, data)) return
   }
   void fetch(url, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: headers(target),
     body,
     keepalive: true,
   }).catch(() => undefined)
+}
+
+const release = () => {
+  const body = JSON.stringify({ id: lease, alive: false })
+  for (const target of targets()) {
+    releaseTarget(target, body)
+  }
 }
 
 const start = () => {
@@ -370,6 +399,9 @@ const boot = async () => {
             servers={[server]}
             disableHealthCheck
             basePath={base()}
+            onServerChange={(conn) => {
+              active = conn?.http
+            }}
           />
         </AppBaseProviders>
       </PlatformProvider>
