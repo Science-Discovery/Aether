@@ -25,7 +25,6 @@ export async function InstanceBootstrap() {
   ShareNext.init()
   File.init()
   Vcs.init()
-  Snapshot.init()
   FileWatcher.initGit()
 
   await SessionRecovery.repairInterrupted().catch((error) => {
@@ -40,6 +39,7 @@ export async function InstanceBootstrap() {
     },
   )()
   const deferred = () => {
+    Snapshot.init()
     Format.init()
     Plugin.init()
     LSP.init()
