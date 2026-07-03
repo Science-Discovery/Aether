@@ -936,11 +936,11 @@ export namespace MessageV2 {
           },
         ).toObject()
       case e instanceof DOMException && e.name === "TimeoutError":
-      case e instanceof Error && e.message === "SSE read timed out":
         return new MessageV2.APIError(
           {
             message: e.message,
             isRetryable: true,
+            metadata: { kind: "timeout" },
           },
           { cause: e },
         ).toObject()

@@ -21,6 +21,7 @@ import { type ReviewCharAction, type createReviewCharCounter } from "@/skill-evo
 export namespace SessionProcessor {
   const DOOM_LOOP_THRESHOLD = 3
   const MAX_RETRY = 3
+  const MAX_RETRY_RATE_LIMIT = 5
   const log = Log.create({ service: "session.processor" })
 
   export type Info = Awaited<ReturnType<typeof create>>
@@ -406,7 +407,10 @@ export namespace SessionProcessor {
               })
             } else {
               const retry = SessionRetry.retryable(error)
-              if (retry !== undefined && attempt < MAX_RETRY) {
+              const isRateLimited =
+                retry === "Too Many Requests" || retry === "Rate Limited" || retry === "Provider is overloaded"
+              const maxRetry = isRateLimited ? MAX_RETRY_RATE_LIMIT : MAX_RETRY
+              if (retry !== undefined && attempt < maxRetry) {
                 attempt++
                 const delay = SessionRetry.delay(attempt, error.name === "APIError" ? error : undefined)
                 await SessionStatus.set(input.sessionID, {

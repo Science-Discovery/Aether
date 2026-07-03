@@ -53,6 +53,7 @@ import { Installation } from "../installation"
 import { ModelID, ProviderID } from "./schema"
 
 const DEFAULT_CHUNK_TIMEOUT = 600_000
+const DEFAULT_REQUEST_TIMEOUT = 300_000
 
 export namespace Provider {
   const log = Log.create({ service: "provider" })
@@ -73,7 +74,7 @@ export namespace Provider {
       async pull(ctrl) {
         const part = await new Promise<Awaited<ReturnType<typeof reader.read>>>((resolve, reject) => {
           const id = setTimeout(() => {
-            const err = new Error("SSE read timed out")
+            const err = new DOMException("SSE read timed out", "TimeoutError")
             ctl.abort(err)
             void reader.cancel(err)
             reject(err)
@@ -1376,7 +1377,7 @@ export namespace Provider {
 
       const customFetch = options["fetch"]
       const chunkTimeout = options["chunkTimeout"] ?? DEFAULT_CHUNK_TIMEOUT
-      const requestTimeout = options["timeout"]
+      const requestTimeout = options["timeout"] ?? DEFAULT_REQUEST_TIMEOUT
       delete options["chunkTimeout"]
       delete options["timeout"]
 
@@ -1437,15 +1438,24 @@ export namespace Provider {
         }
 
         const proxy = proxyFor(input)
-        const res = await fetchFn(input, {
-          ...opts,
-          ...(proxy ? { proxy } : {}),
-          // @ts-ignore see here: https://github.com/oven-sh/bun/issues/16682
-          timeout: false,
-        })
+        let res: Response
+        try {
+          res = await fetchFn(input, {
+            ...opts,
+            ...(proxy ? { proxy } : {}),
+            // @ts-ignore see here: https://github.com/oven-sh/bun/issues/16682
+            timeout: false,
+          })
+        } catch (e) {
+          if (reqTimer) clearTimeout(reqTimer)
+          throw e
+        }
 
         const isSSE = res.headers.get("content-type")?.includes("text/event-stream")
-        if (isSSE) clearTimeout(reqTimer)
+        if (isSSE && reqTimer) {
+          clearTimeout(reqTimer)
+          reqTimer = undefined
+        }
 
         if (!chunkAbortCtl) return res
         return wrapSSE(res, chunkTimeout, chunkAbortCtl)
