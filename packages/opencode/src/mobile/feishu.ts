@@ -421,6 +421,7 @@ class FeishuManagerImpl extends MobileManagerBase {
     this._pendingConfirmCreate = {}
     this._activePrompt.clear()
     if (!reset) return
+    this.deactivateAllScopes()
     this._connectedModel = null
     this._scopeDirs = {}
     this._initialDir = ""
@@ -435,6 +436,7 @@ class FeishuManagerImpl extends MobileManagerBase {
   }
 
   override async clearSession(): Promise<void> {
+    this.deactivateAllScopes()
     try {
       const { rm } = await import("fs/promises")
       await rm(this.file("config.json"), { force: true })

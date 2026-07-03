@@ -5,6 +5,7 @@ import z from "zod"
 import { BusEvent } from "@/bus/bus-event"
 import { Bus } from "@/bus"
 import { GlobalBus } from "@/bus/global"
+import { ActiveInstance } from "@/project/active-instance"
 import { Instance } from "@/project/instance"
 import { InstanceBootstrap } from "@/project/bootstrap"
 import { Project } from "@/project/project"
@@ -132,6 +133,7 @@ export abstract class MobileManagerBase {
     { text: string; messageId: string; effectiveDir: string; mediaAttachments?: MediaAttachment[] }
   > = {}
   protected _activePrompt = new Map<string, { sessionId: string; messageId: string; directory: string }>()
+  protected _activeScopes = new Set<string>()
   protected _processedIds = new Map<string, number>()
   protected _busUnsubs: (() => void)[] = []
   protected _manualStop = false
@@ -194,6 +196,31 @@ export abstract class MobileManagerBase {
 
   protected dir() {
     return platformDir(this.adapter.platform)
+  }
+
+  protected async provide<R>(dir: string, fn: () => R): Promise<R> {
+    return Instance.provide({ directory: dir, init: InstanceBootstrap, fn })
+  }
+
+  protected owner(scope: string): string {
+    return `mobile:${this.adapter.platform}:${scope || "default"}`
+  }
+
+  protected activateScope(scope: string, dir: string): void {
+    const next = this.normDir(dir)
+    if (!next) return
+    this._activeScopes.add(scope)
+    ActiveInstance.activateOwner(this.owner(scope), next)
+  }
+
+  protected deactivateScope(scope: string): void {
+    this._activeScopes.delete(scope)
+    ActiveInstance.deactivateOwner(this.owner(scope))
+  }
+
+  protected deactivateAllScopes(): void {
+    for (const scope of this._activeScopes) ActiveInstance.deactivateOwner(this.owner(scope))
+    this._activeScopes.clear()
   }
 
   protected oldDir() {
@@ -304,10 +331,10 @@ export abstract class MobileManagerBase {
       this._initialSessionId = ""
     } else {
       this._initialDir = this.projectDir(visibleProjects[0])
-      const recent = await Instance.provide({
-        directory: this._initialDir,
-        fn: () => [...Session.list({ directory: this._initialDir, roots: true, limit: 1 })],
-      })
+      const recent = await this.provide(this._initialDir, () => [
+        ...Session.list({ directory: this._initialDir, roots: true, limit: 1 }),
+      ])
+      this.activateScope("__default__", this._initialDir)
       if (recent.length > 0 && !recent[0].time?.archived) {
         this._initialSessionId = recent[0].id
       } else {
@@ -333,17 +360,13 @@ export abstract class MobileManagerBase {
       sessionToCanonicalScope[sessionId] = key
       const dir = this._scopeDirs[key] ?? this._initialDir
       try {
-        const found = await Instance.provide({
-          directory: dir,
-          fn: () => Session.get(SessionID.make(sessionId)),
-        })
+        const found = await this.provide(dir, () => Session.get(SessionID.make(sessionId)))
         if (found.time?.archived) {
           staleKeys.push(key)
         } else {
-          const recent = await Instance.provide({
-            directory: dir,
-            fn: () => [...Session.list({ directory: dir, roots: true, limit: 1 })].filter((s) => !s.time?.archived),
-          })
+          const recent = await this.provide(dir, () =>
+            [...Session.list({ directory: dir, roots: true, limit: 1 })].filter((s) => !s.time?.archived),
+          )
           if (recent[0] && recent[0].id !== sessionId) {
             refreshed.push({ scope: key, newId: recent[0].id })
           }
@@ -361,10 +384,8 @@ export abstract class MobileManagerBase {
     if (staleKeys.length > 0 || refreshed.length > 0) await this.saveSessionMap()
 
     if (this._initialDir) {
-      await Instance.provide({
-        directory: this._initialDir,
-        fn: () => {},
-      })
+      await this.provide(this._initialDir, () => {})
+      this.activateScope("__default__", this._initialDir)
     }
 
     this._initialized = true
@@ -375,10 +396,7 @@ export abstract class MobileManagerBase {
 
   protected async buildModelList(): Promise<ModelEntry[]> {
     try {
-      const providers = await Instance.provide({
-        directory: this._initialDir,
-        fn: () => Provider.list(),
-      })
+      const providers = await this.provide(this._initialDir, () => Provider.list())
       const entries: ModelEntry[] = []
       let index = 1
       for (const [providerID, info] of Object.entries(providers)) {
@@ -533,10 +551,7 @@ export abstract class MobileManagerBase {
     )
     let sessionTitle = sessionId.slice(0, 8)
     try {
-      const info = await Instance.provide({
-        directory: dir,
-        fn: () => this.allSessionsQuery(dir).find((s) => s.id === sessionId),
-      })
+      const info = await this.provide(dir, () => this.allSessionsQuery(dir).find((s) => s.id === sessionId))
       if (info?.title) sessionTitle = info.title
     } catch {}
     sessionTitle = this.clip(sessionTitle, 24)
@@ -561,30 +576,20 @@ export abstract class MobileManagerBase {
 
   protected async setPref(scope: string, patch: Record<string, any>): Promise<void> {
     const ctx = await this.commandCtx(scope)
-    await Instance.provide({
-      directory: ctx.dir,
-      fn: () => SessionPreference.update({ sessionID: SessionID.make(ctx.sessionId), ...patch }),
-    })
+    await this.provide(ctx.dir, () => SessionPreference.update({ sessionID: SessionID.make(ctx.sessionId), ...patch }))
   }
 
   protected async inheritPreference(newSessionId: string, dir: string): Promise<void> {
-    const candidates = await Instance.provide({
-      directory: dir,
-      fn: () => [...Session.list({ directory: dir, roots: true, limit: 20 })].map((s) => s.id),
-    })
-    await Instance.provide({
-      directory: dir,
-      fn: () => SessionPreference.inheritFor(newSessionId, candidates),
-    })
+    const candidates = await this.provide(dir, () =>
+      [...Session.list({ directory: dir, roots: true, limit: 20 })].map((s) => s.id),
+    )
+    await this.provide(dir, () => SessionPreference.inheritFor(newSessionId, candidates))
   }
 
   protected async currentSession(scope: string, create?: boolean): Promise<string | undefined> {
     const dir = this.effectiveDir(scope)
     if (!dir) return
-    const recent = await Instance.provide({
-      directory: dir,
-      fn: () => this.allSessionsQuery(dir, 20),
-    })
+    const recent = await this.provide(dir, () => this.allSessionsQuery(dir, 20))
     const pinned = this.sessionMap[scope]
     if (pinned) {
       const stillValid = recent.some((s) => s.id === pinned)
@@ -597,10 +602,9 @@ export abstract class MobileManagerBase {
       return recent[0].id
     }
     if (!create) return
-    const session = await Instance.provide({
-      directory: dir,
-      fn: () => Session.create({ title: `${this.platformName()}对话 - ${new Date().toISOString()}` }),
-    })
+    const session = await this.provide(dir, () =>
+      Session.create({ title: `${this.platformName()}对话 - ${new Date().toISOString()}` }),
+    )
     await this.inheritPreference(session.id, dir)
     this.sessionMap[scope] = session.id
     await this.saveSessionMap()
@@ -658,10 +662,7 @@ export abstract class MobileManagerBase {
         }
         if (active) {
           try {
-            await Instance.provide({
-              directory: active.directory,
-              fn: () => SessionPrompt.cancel(SessionID.make(active.sessionId)),
-            })
+            await this.provide(active.directory, () => SessionPrompt.cancel(SessionID.make(active.sessionId)))
           } catch {}
         }
         await this.clearRuntime(scope)
@@ -716,21 +717,18 @@ export abstract class MobileManagerBase {
           return
         }
         try {
-          await Instance.provide({
-            directory: active.directory,
-            fn: async () => {
-              const msgs = await MessageV2.filterCompacted(MessageV2.stream(SessionID.make(active.sessionId)))
-              const lastUser = msgs.findLast((msg) => msg.info.role === "user")
-              if (!lastUser) throw new Error("no user message")
-              await Session.updatePart({
-                id: PartID.ascending(),
-                messageID: lastUser.info.id,
-                sessionID: SessionID.make(active.sessionId),
-                type: "text",
-                text: "-用户补充：" + steerText,
-                metadata: { steer: true },
-              })
-            },
+          await this.provide(active.directory, async () => {
+            const msgs = await MessageV2.filterCompacted(MessageV2.stream(SessionID.make(active.sessionId)))
+            const lastUser = msgs.findLast((msg) => msg.info.role === "user")
+            if (!lastUser) throw new Error("no user message")
+            await Session.updatePart({
+              id: PartID.ascending(),
+              messageID: lastUser.info.id,
+              sessionID: SessionID.make(active.sessionId),
+              type: "text",
+              text: "-用户补充：" + steerText,
+              metadata: { steer: true },
+            })
           })
           await this.replySession(scope, reply, "✅ 已追加引导信息，AI将在下一轮处理中看到。")
         } catch (err) {
@@ -863,33 +861,26 @@ export abstract class MobileManagerBase {
 
     const pref = SessionPreference.get(sid)
     if (pref?.autoAccept) {
-      const session = await Instance.provide({
-        directory: effectiveDir,
-        fn: () => Session.get(SessionID.make(sid)),
-      })
+      const session = await this.provide(effectiveDir, () => Session.get(SessionID.make(sid)))
       if (!session.permission?.some((r) => r.permission === "*" && r.action === "allow")) {
-        await Instance.provide({
-          directory: effectiveDir,
-          fn: () =>
-            Session.setPermission({
-              sessionID: SessionID.make(sid),
-              permission: [{ permission: "*", pattern: "*", action: "allow" }],
-            }),
-        })
+        await this.provide(effectiveDir, () =>
+          Session.setPermission({
+            sessionID: SessionID.make(sid),
+            permission: [{ permission: "*", pattern: "*", action: "allow" }],
+          }),
+        )
       }
     }
 
     console.log(`[${this.adapter.platform}] sending to aether, session:`, sid, localISOString())
 
     try {
-      const msg = await Instance.provide({
-        directory: effectiveDir,
-        fn: () =>
-          SessionPrompt.prompt({
-            sessionID: SessionID.make(sid),
-            parts: [{ type: "text", text: promptText }],
-          }),
-      })
+      const msg = await this.provide(effectiveDir, () =>
+        SessionPrompt.prompt({
+          sessionID: SessionID.make(sid),
+          parts: [{ type: "text", text: promptText }],
+        }),
+      )
       console.log(`[${this.adapter.platform}] aether responded, parts:`, msg?.parts?.length, localISOString())
 
       const responseText = this.extractResponseText(msg)
@@ -897,14 +888,12 @@ export abstract class MobileManagerBase {
         const msgModel =
           msg?.info?.role === "assistant" ? { providerID: msg.info.providerID, modelID: msg.info.modelID } : undefined
         if (msgModel && !SessionPreference.get(sid)?.model) {
-          await Instance.provide({
-            directory: effectiveDir,
-            fn: () =>
-              SessionPreference.update({
-                sessionID: SessionID.make(sid),
-                model: { providerID: ProviderID.make(msgModel.providerID), modelID: ModelID.make(msgModel.modelID) },
-              }),
-          })
+          await this.provide(effectiveDir, () =>
+            SessionPreference.update({
+              sessionID: SessionID.make(sid),
+              model: { providerID: ProviderID.make(msgModel.providerID), modelID: ModelID.make(msgModel.modelID) },
+            }),
+          )
         }
         console.log(`[${this.adapter.platform}] replying:`, responseText.slice(0, 100), localISOString())
         await this.replySession(scope, reply, responseText)
@@ -939,14 +928,12 @@ export abstract class MobileManagerBase {
         if (freshId && freshId !== sid) {
           this._activePrompt.set(scope, { sessionId: freshId, messageId, directory: effectiveDir })
           try {
-            const msg = await Instance.provide({
-              directory: effectiveDir,
-              fn: () =>
-                SessionPrompt.prompt({
-                  sessionID: SessionID.make(freshId),
-                  parts: [{ type: "text", text: promptText }],
-                }),
-            })
+            const msg = await this.provide(effectiveDir, () =>
+              SessionPrompt.prompt({
+                sessionID: SessionID.make(freshId),
+                parts: [{ type: "text", text: promptText }],
+              }),
+            )
             const responseText = this.extractResponseText(msg)
             if (responseText) {
               await this.replySession(scope, reply, responseText)
@@ -970,10 +957,7 @@ export abstract class MobileManagerBase {
   ): Promise<string[]> {
     if (!attachments || attachments.length === 0) return []
 
-    const projectID = await Instance.provide({
-      directory: effectiveDir,
-      fn: () => Instance.project.id,
-    })
+    const projectID = await this.provide(effectiveDir, () => Instance.project.id)
     const destDir = filesDir(projectID)
     await mkdir(destDir, { recursive: true })
 
@@ -1142,10 +1126,9 @@ export abstract class MobileManagerBase {
     void this.clearRuntime(scope)
 
     const dir = this.effectiveDir(scope)
-    const session = await Instance.provide({
-      directory: dir,
-      fn: () => Session.create({ title: `${this.platformName()}对话 - ${new Date().toISOString()}` }),
-    })
+    const session = await this.provide(dir, () =>
+      Session.create({ title: `${this.platformName()}对话 - ${new Date().toISOString()}` }),
+    )
     await this.inheritPreference(session.id, dir)
     this.sessionMap[scope] = session.id
     await this.saveSessionMap()
@@ -1238,26 +1221,23 @@ export abstract class MobileManagerBase {
       await this.replyCmd(targetId, scope, "❌ 压缩当前会话前，请先使用 /model 选择模型。")
       return
     }
-    await Instance.provide({
-      directory: ctx.dir,
-      fn: async () => {
-        const msgs = await Session.messages({ sessionID: SessionID.make(ctx.sessionId) })
-        let currentAgent = await Agent.defaultAgent()
-        for (let i = msgs.length - 1; i >= 0; i--) {
-          const info = msgs[i].info
-          if (info.role === "user") {
-            currentAgent = info.agent || (await Agent.defaultAgent())
-            break
-          }
+    await this.provide(ctx.dir, async () => {
+      const msgs = await Session.messages({ sessionID: SessionID.make(ctx.sessionId) })
+      let currentAgent = await Agent.defaultAgent()
+      for (let i = msgs.length - 1; i >= 0; i--) {
+        const info = msgs[i].info
+        if (info.role === "user") {
+          currentAgent = info.agent || (await Agent.defaultAgent())
+          break
         }
-        await SessionCompaction.create({
-          sessionID: SessionID.make(ctx.sessionId),
-          agent: ctx.pref?.agent ?? currentAgent,
-          model,
-          auto: false,
-        })
-        await SessionPrompt.loop({ sessionID: SessionID.make(ctx.sessionId) })
-      },
+      }
+      await SessionCompaction.create({
+        sessionID: SessionID.make(ctx.sessionId),
+        agent: ctx.pref?.agent ?? currentAgent,
+        model,
+        auto: false,
+      })
+      await SessionPrompt.loop({ sessionID: SessionID.make(ctx.sessionId) })
     })
     await this.replyCmd(targetId, scope, "✅ 已开始压缩当前会话上下文，请稍后查看结果。")
   }
@@ -1267,12 +1247,9 @@ export abstract class MobileManagerBase {
     let agents: { name: string; hidden?: boolean }[] = []
     let current: string = "build"
     try {
-      await Instance.provide({
-        directory: ctx.dir,
-        fn: async () => {
-          agents = await Agent.list()
-          current = ctx.pref?.agent || (await Agent.defaultAgent())
-        },
+      await this.provide(ctx.dir, async () => {
+        agents = await Agent.list()
+        current = ctx.pref?.agent || (await Agent.defaultAgent())
       })
     } catch {
       await this.replyCmd(targetId, scope, "❌ 无法获取模式列表，请检查 Aether 服务是否正常。")
@@ -1338,10 +1315,7 @@ export abstract class MobileManagerBase {
       const pending = this._pendingPermissions[scope]
       if (pending) {
         delete this._pendingPermissions[scope]
-        await Instance.provide({
-          directory: ctx.dir,
-          fn: () => Permission.reply({ requestID: pending.id, reply: "always" }),
-        })
+        await this.provide(ctx.dir, () => Permission.reply({ requestID: pending.id, reply: "always" }))
         await this.replyCmd(targetId, scope, "✅ 已开启自动接受权限，并已自动批准当前挂起的授权请求")
       } else {
         await this.replyCmd(targetId, scope, "✅ 已开启自动接受权限\n（后续权限请求将自动批准）")
@@ -1392,10 +1366,7 @@ export abstract class MobileManagerBase {
     const ctx = await this.commandCtx(scope)
     const model = this.resolveModel(scope)
     if (!model) return { names: [], current: ctx.pref?.variant }
-    const all = await Instance.provide({
-      directory: ctx.dir,
-      fn: () => Provider.list(),
-    })
+    const all = await this.provide(ctx.dir, () => Provider.list())
     const info = all[model.providerID]
     const item = info?.models?.[model.modelID] as { variants?: Record<string, unknown> } | undefined
     return {
@@ -1417,10 +1388,9 @@ export abstract class MobileManagerBase {
       for (const entry of projectSnapshot) {
         if (!entry.sandbox) continue
         try {
-          const latest = await Instance.provide({
-            directory: this.projectDir({ item: entry.item, activity: entry.activity }),
-            fn: () => [...Session.list({ directory: entry.sandbox!.directory, limit: 1 })],
-          })
+          const latest = await this.provide(this.projectDir({ item: entry.item, activity: entry.activity }), () => [
+            ...Session.list({ directory: entry.sandbox!.directory, limit: 1 }),
+          ])
           if (latest.length > 0) entry.activity = latest[0].time.updated
         } catch {}
       }
@@ -1583,21 +1553,19 @@ export abstract class MobileManagerBase {
       sessionId: newSessionId,
       sessionTitle,
       created,
-    } = await Instance.provide({
-      directory: newDir,
-      fn: async () => {
-        const recent = [...Session.list({ directory: newDir, roots: true, limit: 1 })]
-        if (recent.length > 0) {
-          return {
-            sessionId: recent[0].id,
-            sessionTitle: recent[0].title ?? recent[0].id.slice(0, 8),
-            created: false,
-          }
+    } = await this.provide(newDir, async () => {
+      const recent = [...Session.list({ directory: newDir, roots: true, limit: 1 })]
+      if (recent.length > 0) {
+        return {
+          sessionId: recent[0].id,
+          sessionTitle: recent[0].title ?? recent[0].id.slice(0, 8),
+          created: false,
         }
-        const session = await Session.create({ title: `${this.platformName()}对话 - ${new Date().toISOString()}` })
-        return { sessionId: session.id, sessionTitle: session.title, created: true }
-      },
+      }
+      const session = await Session.create({ title: `${this.platformName()}对话 - ${new Date().toISOString()}` })
+      return { sessionId: session.id, sessionTitle: session.title, created: true }
     })
+    this.activateScope(scope, newDir)
     if (created) await this.inheritPreference(newSessionId, newDir)
     this.sessionMap[scope] = newSessionId
     await this.saveSessionMap()
@@ -1628,22 +1596,19 @@ export abstract class MobileManagerBase {
       sessionId: newSessionId,
       sessionTitle,
       created,
-    } = await Instance.provide({
-      directory: newDir,
-      init: InstanceBootstrap,
-      fn: async () => {
-        const recent = [...Session.list({ directory: newDir, roots: true, limit: 1 })]
-        if (recent.length > 0) {
-          return {
-            sessionId: recent[0].id,
-            sessionTitle: recent[0].title ?? recent[0].id.slice(0, 8),
-            created: false,
-          }
+    } = await this.provide(newDir, async () => {
+      const recent = [...Session.list({ directory: newDir, roots: true, limit: 1 })]
+      if (recent.length > 0) {
+        return {
+          sessionId: recent[0].id,
+          sessionTitle: recent[0].title ?? recent[0].id.slice(0, 8),
+          created: false,
         }
-        const session = await Session.create({ title: `${this.platformName()}对话 - ${new Date().toISOString()}` })
-        return { sessionId: session.id, sessionTitle: session.title, created: true }
-      },
+      }
+      const session = await Session.create({ title: `${this.platformName()}对话 - ${new Date().toISOString()}` })
+      return { sessionId: session.id, sessionTitle: session.title, created: true }
     })
+    this.activateScope(scope, newDir)
     if (created) await this.inheritPreference(newSessionId, newDir)
     this.sessionMap[scope] = newSessionId
     await this.saveSessionMap()
@@ -1677,25 +1642,19 @@ export abstract class MobileManagerBase {
 
     const needRefresh = !arg || arg === "list"
     if (needRefresh) {
-      await Instance.provide({
-        directory: effectiveDir,
-        fn: async () => {
-          sessionSnapshots.set(
-            dirKey,
-            this.buildSessionEntries([...Session.list({ directory: effectiveDir, limit: 30 })]),
-          )
-        },
+      await this.provide(effectiveDir, async () => {
+        sessionSnapshots.set(
+          dirKey,
+          this.buildSessionEntries([...Session.list({ directory: effectiveDir, limit: 30 })]),
+        )
       })
     }
     if (!sessionSnapshots.has(dirKey) && arg) {
-      await Instance.provide({
-        directory: effectiveDir,
-        fn: async () => {
-          sessionSnapshots.set(
-            dirKey,
-            this.buildSessionEntries([...Session.list({ directory: effectiveDir, limit: 30 })]),
-          )
-        },
+      await this.provide(effectiveDir, async () => {
+        sessionSnapshots.set(
+          dirKey,
+          this.buildSessionEntries([...Session.list({ directory: effectiveDir, limit: 30 })]),
+        )
       })
     }
 
@@ -1741,10 +1700,9 @@ export abstract class MobileManagerBase {
     }
 
     if (!items.length) {
-      const session = await Instance.provide({
-        directory: effectiveDir,
-        fn: () => Session.create({ title: `${this.platformName()}对话 - ${new Date().toISOString()}` }),
-      })
+      const session = await this.provide(effectiveDir, () =>
+        Session.create({ title: `${this.platformName()}对话 - ${new Date().toISOString()}` }),
+      )
       await this.inheritPreference(session.id, effectiveDir)
       this.sessionMap[scope] = session.id
       await this.saveSessionMap()
@@ -1797,10 +1755,7 @@ export abstract class MobileManagerBase {
   }
 
   private async sessionTitle(sessionId: string, directory: string): Promise<string> {
-    const info = await Instance.provide({
-      directory,
-      fn: () => this.allSessionsQuery(directory).find((s) => s.id === sessionId),
-    })
+    const info = await this.provide(directory, () => this.allSessionsQuery(directory).find((s) => s.id === sessionId))
     return info?.title ?? sessionId.slice(0, 8)
   }
 
@@ -1892,10 +1847,9 @@ export abstract class MobileManagerBase {
     delete this._pendingQuestions[scope]
     delete this._questionProgress[scope]
     try {
-      await Instance.provide({
-        directory: active?.directory ?? this.effectiveDir(scope),
-        fn: () => Question.reply({ requestID: pending.id, answers: progress.answers }),
-      })
+      await this.provide(active?.directory ?? this.effectiveDir(scope), () =>
+        Question.reply({ requestID: pending.id, answers: progress.answers }),
+      )
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       this._pendingQuestions[scope] = pending
@@ -1928,10 +1882,9 @@ export abstract class MobileManagerBase {
     const active = this._activePrompt.get(scope)
     delete this._pendingPermissions[scope]
     try {
-      await Instance.provide({
-        directory: active?.directory ?? this.effectiveDir(scope),
-        fn: () => Permission.reply({ requestID: pending.id, reply }),
-      })
+      await this.provide(active?.directory ?? this.effectiveDir(scope), () =>
+        Permission.reply({ requestID: pending.id, reply }),
+      )
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       this._pendingPermissions[scope] = pending
@@ -1975,10 +1928,7 @@ export abstract class MobileManagerBase {
         if (info.sessionId === p.sessionID) {
           const pref = SessionPreference.get(info.sessionId)
           if (pref?.autoAccept) {
-            void Instance.provide({
-              directory: info.directory,
-              fn: () => Permission.reply({ requestID: p.id, reply: "always" }),
-            })
+            void this.provide(info.directory, () => Permission.reply({ requestID: p.id, reply: "always" }))
             return
           }
           this._pendingPermissions[scope] = p
@@ -2060,6 +2010,7 @@ export abstract class MobileManagerBase {
   }
 
   async clearSession(): Promise<void> {
+    this.deactivateAllScopes()
     try {
       await rm(this.file("sessions.json"), { force: true })
       await rm(this.file("hidden_projects.json"), { force: true })
