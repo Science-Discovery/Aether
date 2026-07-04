@@ -261,6 +261,7 @@ export default function FileTree(props: {
   const language = useLanguage()
   const level = props.level ?? 0
   const draggable = () => props.draggable ?? true
+  let root: HTMLDivElement | undefined
 
   const key = (p: string) =>
     file
@@ -377,6 +378,35 @@ export default function FileTree(props: {
     ),
   )
 
+  createEffect(
+    on(
+      () => {
+        if (level !== 0) return ["", "", ""] as const
+        const paths = [...(props.selectedPaths ?? [])]
+        const path = paths.length === 1 ? paths[0] : ""
+        const node = path ? file.tree.node(path)?.path ?? "" : ""
+        const dirs = path
+          ? path
+              .split("/")
+              .slice(0, -1)
+              .map((_, i, all) => all.slice(0, i + 1).join("/"))
+              .map((dir) => `${dir}:${file.tree.state(dir)?.expanded ? "1" : "0"}`)
+              .join("|")
+          : ""
+        return [path, node, dirs] as const
+      },
+      ([path]) => {
+        if (!path || !root) return
+        requestAnimationFrame(() => {
+          const esc = typeof CSS?.escape === "function" ? CSS.escape(path) : path.replace(/["\\]/g, "\\$&")
+          root
+            ?.querySelector<HTMLElement>(`[data-file-tree-path="${esc}"]`)
+            ?.scrollIntoView({ block: "center", inline: "nearest" })
+        })
+      },
+    ),
+  )
+
   const nodes = createMemo(() => {
     const nodes = file.tree.children(props.path)
     const current = filter()
@@ -437,7 +467,7 @@ export default function FileTree(props: {
   })
 
   return (
-    <div data-component="filetree" class={`flex flex-col gap-0.5 ${props.class ?? ""}`}>
+    <div ref={level === 0 ? (node) => (root = node) : undefined} data-component="filetree" class={`flex flex-col gap-0.5 ${props.class ?? ""}`}>
       <For each={nodes()}>
         {(node) => {
           const expanded = () => file.tree.state(node.path)?.expanded ?? false
@@ -761,6 +791,7 @@ export default function FileTree(props: {
                     variant="ghost"
                     class="w-full"
                     data-scope="filetree"
+                    data-file-tree-path={node.path}
                     forceMount={false}
                     open={expanded()}
                     onOpenChange={(open) => (open ? file.tree.expand(node.path) : file.tree.collapse(node.path))}
@@ -857,7 +888,7 @@ export default function FileTree(props: {
               </Match>
               <Match when={node.type === "file"}>
                 {wrapContextMenu(() => (
-                  <div class="flex items-center">
+                  <div class="flex items-center" data-file-tree-path={node.path}>
                     <FileTreeNode
                       node={node}
                       level={level}
