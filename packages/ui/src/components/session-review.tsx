@@ -295,6 +295,21 @@ export const SessionReview = (props: SessionReviewProps) => {
 
                     const beforeText = () => (typeof diff.before === "string" ? diff.before : "")
                     const afterText = () => (typeof diff.after === "string" ? diff.after : "")
+                    const before = createMemo(() => ({
+                      name: file,
+                      contents: beforeText(),
+                    }))
+                    const after = createMemo(() => ({
+                      name: file,
+                      contents: afterText(),
+                    }))
+                    const media = createMemo(() => ({
+                      mode: "auto" as const,
+                      path: file,
+                      before: diff.before,
+                      after: diff.after,
+                      readFile: props.readFile,
+                    }))
                     const changedLines = () => diff.additions + diff.deletions
                     const mediaKind = createMemo(() => mediaKindFromPath(file))
 
@@ -387,6 +402,10 @@ export const SessionReview = (props: SessionReviewProps) => {
                     const handleLineSelectionEnd = (range: SelectedLineRange | null) => {
                       if (!props.onLineComment) return
                       commentsUi.onLineSelectionEnd(range)
+                    }
+
+                    const handleRendered = () => {
+                      props.onDiffRendered?.()
                     }
 
                     return (
@@ -493,9 +512,7 @@ export const SessionReview = (props: SessionReviewProps) => {
                                     mode="diff"
                                     preloadedDiff={diff.preloaded}
                                     diffStyle={diffStyle()}
-                                    onRendered={() => {
-                                      props.onDiffRendered?.()
-                                    }}
+                                    onRendered={handleRendered}
                                     enableLineSelection={props.onLineComment != null}
                                     enableHoverUtility={props.onLineComment != null}
                                     onLineSelected={handleLineSelected}
@@ -506,21 +523,9 @@ export const SessionReview = (props: SessionReviewProps) => {
                                     renderHoverUtility={props.onLineComment ? commentsUi.renderHoverUtility : undefined}
                                     selectedLines={selectedLines()}
                                     commentedLines={commentedLines()}
-                                    before={{
-                                      name: file,
-                                      contents: typeof diff.before === "string" ? diff.before : "",
-                                    }}
-                                    after={{
-                                      name: file,
-                                      contents: typeof diff.after === "string" ? diff.after : "",
-                                    }}
-                                    media={{
-                                      mode: "auto",
-                                      path: file,
-                                      before: diff.before,
-                                      after: diff.after,
-                                      readFile: props.readFile,
-                                    }}
+                                    before={before()}
+                                    after={after()}
+                                    media={media()}
                                   />
                                 </Match>
                               </Switch>
