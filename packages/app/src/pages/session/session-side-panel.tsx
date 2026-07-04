@@ -321,6 +321,9 @@ export function SessionSidePanel(props: {
     props.onRefresh()
   }
 
+  function handleCollapseAll() {
+    file.tree.collapseAll()
+  }
   const isDesktop = createMediaQuery("(min-width: 768px)")
 
   const state = createMemo(() =>
@@ -1128,6 +1131,16 @@ export function SessionSidePanel(props: {
                       >
                         <Icon name="folder-add-left" size="small" />
                         <span class="hidden @sm:block">{language.t("filePanel.newFolder")}</span>
+                      </button>
+                    </Tooltip>
+                    <Tooltip value={language.t("filePanel.collapseAllTooltip")}>
+                      <button
+                        type="button"
+                        class="flex items-center gap-1 px-2 py-1 rounded text-12-regular text-text-weak hover:text-text-base hover:bg-surface-raised-base-hover transition-colors"
+                        onClick={handleCollapseAll}
+                      >
+                        <Icon name="collapse" size="small" class="-rotate-90" />
+                        <span class="hidden @sm:block">{language.t("filePanel.collapseAll")}</span>
                       </button>
                     </Tooltip>
                     <Tooltip value={language.t("filePanel.refreshTooltip")}>
