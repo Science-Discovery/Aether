@@ -27,4 +27,17 @@ describe("switchServer", () => {
     queue.shift()?.()
     expect(seen).toEqual(["navigate", "scheduled", "scheduled", "activate"])
   })
+
+  test("activates immediately when already at root", () => {
+    const seen: string[] = []
+
+    switchServer({
+      done: () => seen.push("navigate"),
+      later: () => seen.push("activate"),
+      path: () => "/",
+      schedule: () => seen.push("scheduled"),
+    })
+
+    expect(seen).toEqual(["navigate", "activate"])
+  })
 })

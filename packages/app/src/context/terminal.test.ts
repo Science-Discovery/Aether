@@ -1,7 +1,8 @@
 import { beforeAll, describe, expect, mock, test } from "bun:test"
 
-let getWorkspaceTerminalCacheKey: (dir: string) => string
+let getWorkspaceTerminalCacheKey: (dir: string, server?: string) => string
 let getLegacyTerminalStorageKeys: (dir: string, legacySessionID?: string) => string[]
+let terminalLegacyKeys: (dir: string, server?: string, legacySessionID?: string) => string[]
 let migrateTerminalState: (value: unknown) => unknown
 
 beforeAll(async () => {
@@ -18,12 +19,18 @@ beforeAll(async () => {
   const mod = await import("./terminal")
   getWorkspaceTerminalCacheKey = mod.getWorkspaceTerminalCacheKey
   getLegacyTerminalStorageKeys = mod.getLegacyTerminalStorageKeys
+  terminalLegacyKeys = mod.terminalLegacyKeys
   migrateTerminalState = mod.migrateTerminalState
 })
 
 describe("getWorkspaceTerminalCacheKey", () => {
   test("uses workspace-only directory cache key", () => {
     expect(getWorkspaceTerminalCacheKey("/repo")).toBe("/repo:__workspace__")
+  })
+
+  test("scopes only remote workspace cache keys", () => {
+    expect(getWorkspaceTerminalCacheKey("/repo", "http://localhost:4096")).toBe("/repo:__workspace__")
+    expect(getWorkspaceTerminalCacheKey("/repo", "http://one.example")).toContain("\nserver:")
   })
 })
 
@@ -37,6 +44,18 @@ describe("getLegacyTerminalStorageKeys", () => {
       "/repo/terminal/session-123.v1",
       "/repo/terminal.v1",
     ])
+  })
+
+  test("uses legacy terminal keys only for local backends", () => {
+    expect(terminalLegacyKeys("/repo", "http://localhost:4096", "session-123")).toEqual([
+      "/repo/terminal/session-123.v1",
+      "/repo/terminal.v1",
+    ])
+    expect(terminalLegacyKeys("/repo", "sidecar", "session-123")).toEqual([
+      "/repo/terminal/session-123.v1",
+      "/repo/terminal.v1",
+    ])
+    expect(terminalLegacyKeys("/repo", "http://one.example", "session-123")).toEqual([])
   })
 })
 

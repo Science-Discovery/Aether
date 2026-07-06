@@ -1,10 +1,19 @@
 import { describe, expect, test } from "bun:test"
-import { serverScopedKey, serverSessionKey } from "./server-scope"
+import { isLocalServerKey, serverScopedKey, serverSessionKey } from "./server-scope"
 
 describe("server scope helpers", () => {
   test("keeps unscoped keys unchanged without a server", () => {
     expect(serverScopedKey("/repo", undefined)).toBe("/repo")
     expect(serverSessionKey("ZGly", "ses_1", undefined)).toBe("ZGly/ses_1")
+  })
+
+  test("treats local backends as unscoped storage", () => {
+    expect(isLocalServerKey(undefined)).toBe(true)
+    expect(isLocalServerKey("sidecar")).toBe(true)
+    expect(isLocalServerKey("http://localhost:4096")).toBe(true)
+    expect(isLocalServerKey("http://127.0.0.1:4096")).toBe(true)
+    expect(serverScopedKey("/repo", "http://localhost:4096")).toBe("/repo")
+    expect(serverSessionKey("ZGly", "ses_1", "http://127.0.0.1:4096")).toBe("ZGly/ses_1")
   })
 
   test("scopes generic storage keys by server", () => {
