@@ -69,6 +69,7 @@ type GlobalStore = {
 function createGlobalSync() {
   const globalSDK = useGlobalSDK()
   const server = useServer()
+  const serverKey = server.key
   const language = useLanguage()
   const owner = getOwner()
   if (!owner) throw new Error("GlobalSync must be created within owner")
@@ -227,9 +228,9 @@ function createGlobalSync() {
       queue.clear(directory)
       sessionMeta.delete(directory)
       sdkCache.delete(directory)
-      clearSessionPrefetchDirectory(serverScopedKey(directory, server.key))
+      clearSessionPrefetchDirectory(serverScopedKey(directory, serverKey))
     },
-    server: server.key,
+    server: serverKey,
     translate: language.t,
   })
 
