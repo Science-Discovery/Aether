@@ -54,7 +54,8 @@ export const { use: usePermission, provider: PermissionProvider } = createSimple
     const globalSDK = useGlobalSDK()
     const globalSync = useGlobalSync()
     const server = useServer()
-    const scope = (directory: string | undefined) => (directory ? serverScopedKey(directory, server.key) : directory)
+    const scope = (directory: string | undefined) => (directory ? serverScopedKey(directory, server.key) : undefined)
+    const scopeDir = (directory: string) => serverScopedKey(directory, server.key)
 
     const permissionsEnabled = createMemo(() => {
       const directory = decode64(params.dir)
@@ -93,7 +94,7 @@ export const { use: usePermission, provider: PermissionProvider } = createSimple
       const [childStore] = globalSync.child(directory)
       const perm = childStore.config.permission
       if (typeof perm === "string" && perm === "allow") {
-        const key = directoryAcceptKey(scope(directory) ?? directory)
+        const key = directoryAcceptKey(scopeDir(directory))
         if (store.autoAccept[key] === undefined) {
           setStore(
             produce((draft) => {
@@ -156,7 +157,7 @@ export const { use: usePermission, provider: PermissionProvider } = createSimple
     }
 
     function isAutoAcceptingDirectory(directory: string) {
-      return isDirectoryAutoAccepting(store.autoAccept, scope(directory) ?? directory)
+      return isDirectoryAutoAccepting(store.autoAccept, scopeDir(directory))
     }
 
     function shouldAutoRespond(permission: PermissionRequest, directory?: string) {
@@ -191,7 +192,7 @@ export const { use: usePermission, provider: PermissionProvider } = createSimple
     onCleanup(unsubscribe)
 
     function enableDirectory(directory: string) {
-      const key = directoryAcceptKey(scope(directory) ?? directory)
+      const key = directoryAcceptKey(scopeDir(directory))
       setStore(
         produce((draft) => {
           draft.autoAccept[key] = true
@@ -212,7 +213,7 @@ export const { use: usePermission, provider: PermissionProvider } = createSimple
     }
 
     function disableDirectory(directory: string) {
-      const key = directoryAcceptKey(scope(directory) ?? directory)
+      const key = directoryAcceptKey(scopeDir(directory))
       setStore(
         produce((draft) => {
           draft.autoAccept[key] = false

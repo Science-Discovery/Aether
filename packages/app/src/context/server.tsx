@@ -188,11 +188,11 @@ export const { use: useServer, provider: ServerProvider } = createSimpleContext(
     }
 
     function upsert(input: ServerConnection.Any, options?: { active?: boolean }) {
-      const conn =
-        input.type === "http" || input.type === "sidecar"
-          ? ({ ...input, http: { ...input.http, url: normalizeServerUrl(input.http.url) ?? input.http.url } } as ServerConnection.Any)
-          : ({ ...input, http: { ...input.http, url: normalizeServerUrl(input.http.url) ?? input.http.url } } as ServerConnection.Any)
-      if ((conn.type === "http" || conn.type === "sidecar") && !conn.http.url) return
+      const conn = {
+        ...input,
+        http: { ...input.http, url: normalizeServerUrl(input.http.url) ?? input.http.url },
+      } as ServerConnection.Any
+      if (!conn.http.url) return
       return batch(() => {
         const key = ServerConnection.key(conn)
         const existing = store.list.findIndex((x) => keyOf(x) === key)

@@ -1,17 +1,9 @@
-type Note = unknown | (() => unknown)
-
 type Input = {
   done: VoidFunction
   later: VoidFunction
-  note?: Note
   schedule?: (run: VoidFunction) => void
   path?: () => string
   timeoutMs?: number
-}
-
-function detail(note?: Note) {
-  if (typeof note === "function") return note()
-  return note
 }
 
 function nextFrame(run: VoidFunction) {
@@ -25,6 +17,10 @@ function nextFrame(run: VoidFunction) {
 export function switchServer(input: Input) {
   const start = input.path?.()
   input.done()
+  if (!start || start === "/") {
+    input.later()
+    return
+  }
   const schedule = input.schedule ?? nextFrame
   const timeoutMs = input.timeoutMs ?? 500
   const started = Date.now()
