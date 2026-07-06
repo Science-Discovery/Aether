@@ -894,9 +894,28 @@ export namespace SessionPrompt {
       })
     }
 
+    if (input.agent.mcp !== undefined) {
+      const needed = Object.entries(input.agent.mcp)
+        .filter(([_, enabled]) => enabled)
+        .map(([serverId]) => serverId)
+      const statuses = await MCP.status()
+      for (const name of needed) {
+        if (statuses[name]?.status !== "connected") {
+          await MCP.connect(name).catch(() => {})
+        }
+      }
+    }
+
     for (const [key, item] of Object.entries(await MCP.tools())) {
       const execute = item.execute
       if (!execute) continue
+
+      if (input.agent.mcp !== undefined) {
+        const allowedPrefixes = Object.entries(input.agent.mcp)
+          .filter(([_, enabled]) => enabled)
+          .map(([serverId]) => serverId.replace(/[^a-zA-Z0-9_-]/g, "_") + "_")
+        if (!allowedPrefixes.some((prefix) => key.startsWith(prefix))) continue
+      }
 
       const transformed = ProviderTransform.schema(input.model, asSchema(item.inputSchema).jsonSchema)
       item.inputSchema = jsonSchema(transformed)
