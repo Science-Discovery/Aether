@@ -465,6 +465,11 @@ export const { use: useFile, provider: FileProvider } = createSimpleContext({
     const setDraft = (input: string, value: string) => withPath(input, (file) => view().setDraft(file, value))
     const setDraftBase = (input: string, value: string) => withPath(input, (file) => view().setDraftBase(file, value))
     const clearDraftMeta = (input: string) => withPath(input, (file) => view().clearDraftMeta(file))
+    const reveal = (input: string) => {
+      const file = path.normalize(input)
+      setSelectedPaths(new Set([file]))
+      void tree.revealPath(file)
+    }
 
     onCleanup(() => {
       stop()
@@ -476,11 +481,14 @@ export const { use: useFile, provider: FileProvider } = createSimpleContext({
       normalize: path.normalize,
       tab: path.tab,
       pathFromTab: path.pathFromTab,
+      reveal,
       tree: {
         list: tree.listDir,
         refresh: tree.refreshDir,
+        reveal: tree.revealPath,
         state: tree.dirState,
         children: tree.children,
+        node: tree.node,
         expand: tree.expandDir,
         collapse: tree.collapseDir,
         collapseAll: tree.collapseAll,

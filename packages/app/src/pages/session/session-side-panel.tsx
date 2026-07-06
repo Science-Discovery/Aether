@@ -107,12 +107,11 @@ export function SessionSidePanel(props: {
 
   createEffect(() => {
     registerOpenFileCallback(async (filePath: string) => {
-      const parentDir = filePath.includes("/") ? filePath.slice(0, filePath.lastIndexOf("/")) : ""
-      await file.tree.refresh(parentDir)
       const tab = file.tab(filePath)
       tabs().open(tab)
       tabs().setActive(tab)
       await file.load(filePath, { force: true })
+      file.reveal(filePath)
     })
 
     registerRefreshDirCallback((dirPath: string) => {
