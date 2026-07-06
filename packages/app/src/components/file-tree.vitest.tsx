@@ -21,6 +21,7 @@ vi.mock("@/context/file", () => ({
       children: (path: string) => state.kids.get(path) ?? [],
       expand: (path: string) => state.dirs.set(path, { ...(state.dirs.get(path) ?? {}), expanded: true }),
       collapse: (path: string) => state.dirs.set(path, { ...(state.dirs.get(path) ?? {}), expanded: false }),
+      collapseAll: () => undefined,
     },
   }),
 }))

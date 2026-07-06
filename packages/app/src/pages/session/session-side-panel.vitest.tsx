@@ -7,6 +7,7 @@ const state = vi.hoisted(() => ({
   opened: [] as string[],
   active: [] as string[],
   loaded: [] as string[],
+  collapsed: 0,
   focused: [] as string[],
   reviewOpened: 0,
   selected: new Set<string>(),
@@ -135,6 +136,9 @@ vi.mock("@/context/file", () => ({
         { name: "note.ts", path: state.diffPath, absolute: state.diffPath, type: "file", ignored: false },
       ],
       refresh: () => Promise.resolve(),
+      collapseAll: () => {
+        state.collapsed += 1
+      },
       expand: () => undefined,
     },
     tab: (path: string) => `file://${path.startsWith("file://") ? path.slice("file://".length) : path}`,
@@ -285,6 +289,7 @@ beforeEach(() => {
   state.opened = []
   state.active = []
   state.loaded = []
+  state.collapsed = 0
   state.focused = []
   state.reviewOpened = 0
   state.selected = new Set()
@@ -331,6 +336,22 @@ describe("session side panel changes tree wiring", () => {
     expect(state.opened).toEqual([`file://${state.diffPath}`])
     expect(state.active).toEqual([`file://${state.diffPath}`])
     expect(state.reviewOpened).toBe(1)
+
+    off()
+  })
+
+  test("all tab collapse button calls collapseAll", async () => {
+    const focus = vi.fn()
+    const { host, off } = mount("all", focus)
+
+    await Promise.resolve()
+
+    const btn = [...host.querySelectorAll("button")].find((item) =>
+      item.textContent?.includes("filePanel.collapseAll"),
+    )
+    btn?.dispatchEvent(new MouseEvent("click", { bubbles: true }))
+
+    expect(state.collapsed).toBe(1)
 
     off()
   })
