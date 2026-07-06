@@ -526,6 +526,8 @@ export const dict = {
   "filePanel.newFileTooltip": "Create a new file in project root",
   "filePanel.newFolder": "New Folder",
   "filePanel.newFolderTooltip": "Create a new folder in project root",
+  "filePanel.collapseAll": "Collapse All",
+  "filePanel.collapseAllTooltip": "Collapse all expanded directories",
   "filePanel.refresh": "Refresh",
   "filePanel.refreshTooltip": "Refresh project file list",
   "filePanel.uploadFailed": "Upload failed",

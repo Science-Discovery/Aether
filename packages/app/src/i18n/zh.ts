@@ -519,6 +519,8 @@ export const dict = {
   "filePanel.newFileTooltip": "在项目根目录新建文件",
   "filePanel.newFolder": "新建文件夹",
   "filePanel.newFolderTooltip": "在项目根目录新建文件夹",
+  "filePanel.collapseAll": "全部收起",
+  "filePanel.collapseAllTooltip": "收起所有已展开的目录",
   "filePanel.refresh": "刷新",
   "filePanel.refreshTooltip": "刷新项目文件列表",
   "filePanel.uploadFailed": "上传失败",

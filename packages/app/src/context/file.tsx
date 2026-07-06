@@ -483,6 +483,7 @@ export const { use: useFile, provider: FileProvider } = createSimpleContext({
         children: tree.children,
         expand: tree.expandDir,
         collapse: tree.collapseDir,
+        collapseAll: tree.collapseAll,
         toggle(input: string) {
           if (tree.dirState(input)?.expanded) {
             tree.collapseDir(input)
