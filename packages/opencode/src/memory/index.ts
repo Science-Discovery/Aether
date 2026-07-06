@@ -108,6 +108,7 @@ let documentCache: { path: string; mtimeMs: number; doc: MemoryDocument } | unde
 let db: BunSqlite | undefined
 let initializeCancelled = false
 let initializeAbortController: AbortController | undefined
+let initializeTask: Promise<{ status: "cancelled" | "succeeded" | "failed"; scanned: number; imported: number }> | undefined
 let scannerForTest: (() => AsyncGenerator<SessionForInitialization>) | undefined
 let extractorForTest:
   | ((session: SessionForInitialization, signal?: AbortSignal) => Promise<InitializerCandidate[]>)
@@ -182,6 +183,14 @@ function isRetryableReflectionProviderError(error: unknown) {
   const message = errorMessage(error)
   if (!/badrequest|bad request|invalid request|validation|400/i.test(message)) return false
   return /reasoning[_\s-]?effort|reasoning|provider.?options?|temperature|top[_\s-]?p|topP|unsupported/i.test(message)
+}
+
+function isFallbackReflectionProviderError(error: unknown) {
+  if (isAbortLike(error)) return false
+  const message = errorMessage(error)
+  return /provider|model|nosuchmodel|modelnotfound|badrequest|bad request|invalid request|validation|400|schema|json|object|structured|unsupported|temperature|reasoning/i.test(
+    message,
+  )
 }
 
 function safeReflectionProviderOptions(model: Provider.Model) {
@@ -505,12 +514,7 @@ async function extractMemoryCandidates(
   const ruleCandidates = extractRuleMemoryCandidates(session)
   if (ruleCandidates.length > 0) return ruleCandidates
   if (!sessionLooksWorthLLMInitialization(session)) return []
-  try {
-    return await llmInitializeExtractor(session, signal)
-  } catch (error) {
-    if (isAbortLike(error) || signal?.aborted) throw error
-    return []
-  }
+  return await runInitializeExtractor(session, signal)
 }
 
 async function sleep(ms: number) {
@@ -892,6 +896,7 @@ async function llmReflector(input: {
 async function llmInitializeExtractor(
   session: SessionForInitialization,
   signal?: AbortSignal,
+  options?: { safeProviderOptions?: boolean },
 ): Promise<InitializerCandidate[]> {
   throwIfAborted(signal)
   const model = await Provider.defaultModel()
@@ -954,12 +959,18 @@ async function llmInitializeExtractor(
       2,
     ),
   }
+  const retryProviderOptions = options?.safeProviderOptions ? safeReflectionProviderOptions(resolved) : undefined
   const params = {
     model: language,
-    temperature: 0,
+    ...(options?.safeProviderOptions ? {} : { temperature: 0 }),
     schema: InitializationOutput,
     abortSignal: signal,
     messages: [{ role: "system", content: system }, userMessage],
+    ...(retryProviderOptions
+      ? {
+          providerOptions: ProviderTransform.providerOptions(resolved, retryProviderOptions),
+        }
+      : {}),
   } satisfies Parameters<typeof generateObject>[0]
   throwIfAborted(signal)
   const authInfo = await Auth.get(model.providerID)
@@ -971,6 +982,7 @@ async function llmInitializeExtractor(
             ...params,
             messages: [userMessage],
             providerOptions: ProviderTransform.providerOptions(resolved, {
+              ...(retryProviderOptions ?? {}),
               store: false,
               instructions: system,
             }),
@@ -999,6 +1011,16 @@ async function llmInitializeExtractor(
     })
     .filter((item): item is InitializerCandidate => item !== undefined)
     .slice(0, 8)
+}
+
+async function runInitializeExtractor(session: SessionForInitialization, signal?: AbortSignal) {
+  try {
+    return await llmInitializeExtractor(session, signal)
+  } catch (error) {
+    if (!isRetryableReflectionProviderError(error)) throw error
+    throwIfAborted(signal)
+    return await llmInitializeExtractor(session, signal, { safeProviderOptions: true })
+  }
 }
 
 async function llmForgetDecide(input: { query: string; candidates: MemoryBlock[]; signal?: AbortSignal }) {
@@ -1078,12 +1100,26 @@ async function runReflector(input: ReflectionInput) {
   throwIfAborted(input.signal)
   const reflect = (safeProviderOptions: boolean) =>
     reflectorForTest ? reflectorForTest(input) : llmReflector({ ...input, safeProviderOptions })
+  const fallback = async (error: unknown) =>
+    (await deterministicReflector(input)).map((candidate) => ({
+      ...candidate,
+      evidence: `Deterministic fallback after LLM reflection failed: ${errorMessage(error).slice(0, 120)}`,
+    }))
   try {
     return await reflect(false)
   } catch (error) {
-    if (!isRetryableReflectionProviderError(error)) throw error
+    if (!isRetryableReflectionProviderError(error)) {
+      if (isFallbackReflectionProviderError(error)) return await fallback(error)
+      throw error
+    }
     throwIfAborted(input.signal)
-    return await reflect(true)
+    try {
+      return await reflect(true)
+    } catch (retryError) {
+      if (isAbortLike(retryError) || input.signal?.aborted) throw retryError
+      if (isFallbackReflectionProviderError(retryError)) return await fallback(retryError)
+      throw retryError
+    }
   }
 }
 
@@ -1222,7 +1258,11 @@ export namespace Memory {
   }
 
   export async function stop() {
+    const runningInitialize = initializeTask
     initializeAbortController?.abort()
+    if (runningInitialize) {
+      await Promise.race([runningInitialize.catch(() => undefined), sleep(2_000)])
+    }
     initializeAbortController = undefined
     db?.close()
     db = undefined
@@ -1233,6 +1273,7 @@ export namespace Memory {
     scannerForTest = undefined
     extractorForTest = undefined
     settingsForTest = undefined
+    initializeTask = undefined
   }
 
   export async function purge() {
@@ -1460,6 +1501,9 @@ export namespace Memory {
         throwIfAborted(input.signal)
         const before = await readDocument()
         const candidates = await runReflector({ events, doc: before, mode: input.mode, signal: input.signal })
+        const fallbackUsed = candidates.some((candidate) =>
+          candidate.evidence.includes("Deterministic fallback after LLM reflection failed:"),
+        )
         throwIfAborted(input.signal)
         let merged: ReturnType<typeof mergeCandidates> = { updatedIDs: [], eventResults: {}, shortcutChanged: false }
         if (candidates.length) {
@@ -1508,7 +1552,13 @@ export namespace Memory {
           updatedIDs: merged.updatedIDs,
           deletedIDs: [],
           shortcutChanged: merged.shortcutChanged,
-          summary: changed ? `Applied ${merged.updatedIDs.length} memory update(s).` : "No changes.",
+          summary: fallbackUsed
+            ? changed
+              ? `Applied ${merged.updatedIDs.length} memory update(s) with fallback.`
+              : "No changes with fallback."
+            : changed
+              ? `Applied ${merged.updatedIDs.length} memory update(s).`
+              : "No changes.",
         }
       } catch (error) {
         openDb()
@@ -1542,6 +1592,8 @@ export namespace Memory {
     const startedAt = Date.now()
     let scanned = 0
     let imported = 0
+    let errorCount = 0
+    let lastError: string | undefined
     const writeInitializationProgress = (patch: Record<string, unknown> = {}) =>
       writeReflectionState({
         initialization: {
@@ -1560,7 +1612,7 @@ export namespace Memory {
       for await (const session of scanner()) {
         if (initializationWasCancelled(signal)) break
         scanned++
-        if (!sessionHasMemorySignal(session)) {
+        if (!sessionHasMemorySignal(session) && !sessionLooksWorthLLMInitialization(session)) {
           await writeInitializationProgress({
             current_session_id: session.sessionID,
             current_project_id: session.projectID ?? null,
@@ -1569,9 +1621,24 @@ export namespace Memory {
           continue
         }
         throwIfAborted(signal)
-        const candidates = extractorForTest
-          ? await extractorForTest(session, signal)
-          : await extractMemoryCandidates(session, signal)
+        let candidates: InitializerCandidate[] = []
+        try {
+          candidates = extractorForTest
+            ? await extractorForTest(session, signal)
+            : await extractMemoryCandidates(session, signal)
+        } catch (error) {
+          if (isAbortLike(error) || signal?.aborted) throw error
+          errorCount++
+          lastError = errorMessage(error).slice(0, 500)
+          await writeInitializationProgress({
+            current_session_id: session.sessionID,
+            current_project_id: session.projectID ?? null,
+            error_count: errorCount,
+            last_error: lastError,
+          })
+          await sleep(250)
+          continue
+        }
         throwIfAborted(signal)
         for (const candidate of candidates) {
           insertEvent({
@@ -1614,7 +1681,11 @@ export namespace Memory {
         initializeCancelled = true
       })
     }
-    const status = initializationWasCancelled(signal) ? ("cancelled" as const) : ("succeeded" as const)
+    const status = initializationWasCancelled(signal)
+      ? ("cancelled" as const)
+      : errorCount > 0 && imported === 0
+        ? ("failed" as const)
+        : ("succeeded" as const)
     await writeReflectionState({
       initialization: {
         status,
@@ -1622,10 +1693,58 @@ export namespace Memory {
         completed_at: Date.now(),
         scanned,
         imported,
+        ...(errorCount > 0 ? { error_count: errorCount, last_error: lastError } : {}),
       },
     })
     if (initializeAbortController === controller) initializeAbortController = undefined
     return { status, scanned, imported }
+  }
+
+  export async function startInitialize() {
+    const state = await readReflectionState()
+    const current = typeof state.initialization === "object" && state.initialization ? state.initialization : {}
+    const status = (current as Record<string, unknown>).status
+    if (initializeTask || status === "running" || status === "reflecting") {
+      return {
+        ...(current as Record<string, unknown>),
+        status: "running" as const,
+      }
+    }
+    await writeReflectionState({
+      initialization: {
+        status: "running",
+        started_at: Date.now(),
+        updated_at: Date.now(),
+        scanned: 0,
+        imported: 0,
+      },
+    })
+    initializeTask = initialize({ confirm: true })
+      .catch(async (error) => {
+        const latest = await readReflectionState()
+        const initialization =
+          typeof latest.initialization === "object" && latest.initialization
+            ? (latest.initialization as Record<string, unknown>)
+            : {}
+        const failed = {
+          status: "failed" as const,
+          scanned: typeof initialization.scanned === "number" ? initialization.scanned : 0,
+          imported: typeof initialization.imported === "number" ? initialization.imported : 0,
+          completed_at: Date.now(),
+          last_error: errorMessage(error).slice(0, 500),
+        }
+        await writeReflectionState({
+          initialization: {
+            ...initialization,
+            ...failed,
+          },
+        })
+        return failed
+      })
+      .finally(() => {
+        initializeTask = undefined
+      })
+    return { status: "started" as const }
   }
 
   export async function startupCatchup() {

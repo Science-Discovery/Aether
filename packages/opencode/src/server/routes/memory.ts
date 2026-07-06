@@ -83,7 +83,7 @@ export const MemoryRoutes = lazy(() =>
           },
         },
       }),
-      async (c) => c.json(await Memory.initialize({ confirm: true, signal: c.req.raw.signal })),
+      async (c) => c.json(await Memory.startInitialize()),
     )
     .post(
       "/initialize/cancel",
