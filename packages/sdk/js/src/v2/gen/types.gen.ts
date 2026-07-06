@@ -2593,6 +2593,7 @@ export type GlobalPingData = {
   body?: {
     id: string
     alive?: boolean
+    directory?: string
   }
   path?: never
   query?: never
@@ -2614,6 +2615,7 @@ export type GlobalPingResponses = {
    */
   200: {
     ok: true
+    active?: boolean
   }
 }
 
@@ -3820,6 +3822,7 @@ export type ExperimentalWorkspaceRemoveData = {
   query?: {
     directory?: string
     workspace?: string
+    deleteBranch?: boolean
   }
   url: "/experimental/workspace/{id}"
 }
@@ -6823,6 +6826,15 @@ export type FilePdfAnnotationsExportErrors = {
    * Not found
    */
   404: NotFoundError
+  /**
+   * Conflict
+   */
+  409: {
+    name: string
+    data: {
+      message: string
+    }
+  }
 }
 
 export type FilePdfAnnotationsExportError = FilePdfAnnotationsExportErrors[keyof FilePdfAnnotationsExportErrors]
@@ -10029,6 +10041,7 @@ export type AppSkillsResponses = {
   200: Array<{
     name: string
     description: string
+    id?: string
     location: string
     content: string
   }>

@@ -713,6 +713,7 @@ export class Global extends HeyApiClient {
     parameters?: {
       id?: string
       alive?: boolean
+      directory?: string
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -723,6 +724,7 @@ export class Global extends HeyApiClient {
           args: [
             { in: "body", key: "id" },
             { in: "body", key: "alive" },
+            { in: "body", key: "directory" },
           ],
         },
       ],
@@ -2149,7 +2151,7 @@ export class Worktree extends HeyApiClient {
   /**
    * Remove worktree
    *
-   * Remove a git worktree and delete its branch.
+   * Remove a git worktree. Optionally delete its branch by passing deleteBranch.
    */
   public remove<ThrowOnError extends boolean = false>(
     parameters?: {

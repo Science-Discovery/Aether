@@ -8,6 +8,7 @@ import { dict as en } from "@/i18n/en"
 import { dict as zh } from "@/i18n/zh"
 import { createWebUpdate } from "@/utils/web-update"
 import { handleNotificationClick } from "@/utils/notification-click"
+import { ActiveDirectory } from "@/utils/active"
 import { ServerConnection } from "./context/server"
 import { pingPaused } from "./context/server"
 
@@ -218,10 +219,11 @@ const ping = async (alive = true) => {
   const ac = new AbortController()
   const timer = setTimeout(() => ac.abort(), PING_TIMEOUT_MS)
   try {
+    const dir = ActiveDirectory.get()
     await req("/global/ping", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id: lease, alive }),
+      body: JSON.stringify({ id: lease, alive, ...(dir ? { directory: dir } : {}) }),
       signal: ac.signal,
     })
   } catch {
@@ -256,10 +258,12 @@ const start = () => {
     if (document.visibilityState !== "visible") return
     void ping()
   }
+  const unwatch = ActiveDirectory.watch(() => void ping())
   window.addEventListener("pagehide", hide)
   document.addEventListener("visibilitychange", focus)
   return () => {
     clearInterval(timer)
+    unwatch()
     window.removeEventListener("pagehide", hide)
     document.removeEventListener("visibilitychange", focus)
   }

@@ -86,9 +86,10 @@ export const WorkspaceRoutes = lazy(() =>
           id: Workspace.Info.shape.id,
         }),
       ),
+      validator("query", z.object({ deleteBranch: z.coerce.boolean().optional() })),
       async (c) => {
         const { id } = c.req.valid("param")
-        const deleteBranch = c.req.query("deleteBranch") === "true"
+        const deleteBranch = c.req.valid("query").deleteBranch === true
         return c.json(await Workspace.remove({ id, deleteBranch }))
       },
     ),
