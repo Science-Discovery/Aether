@@ -66,6 +66,31 @@ export const TaskTool = Tool.define("task", async (ctx) => {
       const hasTaskPermission = agent.permission.some((rule) => rule.permission === "task")
       const hasTodoWritePermission = agent.permission.some((rule) => rule.permission === "todowrite")
 
+      const callerAgent = ctx.agent ? await Agent.get(ctx.agent) : undefined
+
+      const sessionPermission = Permission.intersection(callerAgent?.permission ?? [], agent.permission)
+
+      // v0.6.0 fallback: deny task/todowrite for agents without explicit rules.
+      // Intersection only propagates existing deny rules — it doesn't create new ones.
+      // Agents with broad "*: allow" (like general) have no task/todowrite deny,
+      // but v0.6.0 explicitly denied these in session permission for all subagents.
+      const sessionDenyRules = [
+        ...(hasTodoWritePermission
+          ? []
+          : [{ permission: "todowrite" as const, pattern: "*" as const, action: "deny" as const }]),
+        ...(hasTaskPermission ? [] : [{ permission: "task" as const, pattern: "*" as const, action: "deny" as const }]),
+      ]
+
+      const finalPermission = [
+        ...sessionPermission,
+        ...sessionDenyRules,
+        ...(config.experimental?.primary_tools ?? []).map((t) => ({
+          permission: t,
+          pattern: "*",
+          action: "deny" as const,
+        })),
+      ]
+
       const session = await iife(async () => {
         if (params.task_id) {
           const found = await Session.get(SessionID.make(params.task_id)).catch(() => {})
@@ -75,31 +100,7 @@ export const TaskTool = Tool.define("task", async (ctx) => {
         return await Session.create({
           parentID: ctx.sessionID,
           title: params.description + ` (@${agent.name} subagent)`,
-          permission: [
-            ...(hasTodoWritePermission
-              ? []
-              : [
-                  {
-                    permission: "todowrite" as const,
-                    pattern: "*" as const,
-                    action: "deny" as const,
-                  },
-                ]),
-            ...(hasTaskPermission
-              ? []
-              : [
-                  {
-                    permission: "task" as const,
-                    pattern: "*" as const,
-                    action: "deny" as const,
-                  },
-                ]),
-            ...(config.experimental?.primary_tools?.map((t) => ({
-              pattern: "*",
-              action: "allow" as const,
-              permission: t,
-            })) ?? []),
-          ],
+          permission: finalPermission,
         })
       })
       const msg = await MessageV2.get({ sessionID: ctx.sessionID, messageID: ctx.messageID })
@@ -127,6 +128,13 @@ export const TaskTool = Tool.define("task", async (ctx) => {
       using _ = defer(() => ctx.abort.removeEventListener("abort", cancel))
       const promptParts = await SessionPrompt.resolvePromptParts(params.prompt)
 
+      // Single-track permission contract: finalPermission is set on the session
+      // via Session.create above and is the authoritative source. Do NOT pass
+      // `tools` to prompt here — PromptInput.tools is @deprecated and uses
+      // overwrite (not merge) semantics in prompt.ts:189-192; passing it would
+      // silently clobber the intersection-derived finalPermission. task.ts
+      // intentionally keeps permission on the session so the intersection results
+      // survive.
       const result = await SessionPrompt.prompt({
         messageID,
         sessionID: session.id,
@@ -135,11 +143,6 @@ export const TaskTool = Tool.define("task", async (ctx) => {
           providerID: model.providerID,
         },
         agent: agent.name,
-        tools: {
-          ...(hasTodoWritePermission ? {} : { todowrite: false }),
-          ...(hasTaskPermission ? {} : { task: false }),
-          ...Object.fromEntries((config.experimental?.primary_tools ?? []).map((t) => [t, false])),
-        },
         parts: promptParts,
       })
 
