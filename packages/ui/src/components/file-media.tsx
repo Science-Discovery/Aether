@@ -1,5 +1,5 @@
 import type { FileContent } from "@opencode-ai/sdk/v2"
-import { createEffect, createMemo, createResource, createSignal, Match, on, Show, Switch, type JSX } from "solid-js"
+import { createEffect, createMemo, createSignal, Match, on, Show, Switch, type JSX } from "solid-js"
 import { useI18n } from "../context/i18n"
 import { IconButton } from "./icon-button"
 import {
@@ -132,41 +132,67 @@ export function FileMedia(props: { media?: FileMediaOptions; fallback: () => JSX
     if (direct()) return
     if (!media.path || !media.readFile) return
 
-    return {
-      key: `${k}:${media.path}`,
-      kind: k,
-      path: media.path,
-      readFile: media.readFile,
-      onError: media.onError,
-    }
+    return `${k}:${media.path}`
   })
 
-  const [loaded] = createResource(request, async (input) => {
-    return input.readFile(input.path).then(
+  const [loaded, setLoaded] = createSignal<
+    { key: string; src: string; mime: string | undefined } | { key: string; error: true } | undefined
+  >()
+  const [loading, setLoading] = createSignal(false)
+  let seq = 0
+
+  const load = async (key: string) => {
+    const media = cfg()
+    const k = kind()
+    if (!media || (k !== "image" && k !== "audio") || !media.path || !media.readFile) {
+      return { key, error: true as const }
+    }
+
+    return media.readFile(media.path).then(
       (result) => {
-        const src = dataUrlFromMediaValue(result as any, input.kind)
+        const src = dataUrlFromMediaValue(result as any, k)
         if (!src) {
-          input.onError?.({ kind: input.kind })
-          return { key: input.key, error: true as const }
+          media.onError?.({ kind: k })
+          return { key, error: true as const }
         }
 
         return {
-          key: input.key,
+          key,
           src,
-          mime: input.kind === "audio" ? normalizeMimeType(result?.mimeType) : undefined,
+          mime: k === "audio" ? normalizeMimeType(result?.mimeType) : undefined,
         }
       },
       () => {
-        input.onError?.({ kind: input.kind })
-        return { key: input.key, error: true as const }
+        media.onError?.({ kind: k })
+        return { key, error: true as const }
       },
     )
-  })
+  }
+
+  createEffect(
+    on(request, (key) => {
+      seq++
+      const id = seq
+      if (!key) {
+        setLoaded(undefined)
+        setLoading(false)
+        return
+      }
+
+      setLoading(true)
+
+      void load(key).then((value) => {
+        if (id !== seq) return
+        setLoaded(value)
+        setLoading(false)
+      })
+    }),
+  )
 
   const remote = createMemo(() => {
     const input = request()
     const value = loaded()
-    if (!input || !value || value.key !== input.key) return
+    if (!input || !value || value.key !== input) return
     return value
   })
 
@@ -184,8 +210,9 @@ export function FileMedia(props: { media?: FileMediaOptions; fallback: () => JSX
   const status = createMemo(() => {
     if (direct()) return "ready" as const
     if (!request()) return "idle" as const
-    if (loaded.loading) return "loading" as const
-    if (remote()?.error) return "error" as const
+    if (loading()) return "loading" as const
+    const value = remote()
+    if (value && "error" in value) return "error" as const
     if (src()) return "ready" as const
     return "idle" as const
   })
