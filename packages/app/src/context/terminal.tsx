@@ -7,7 +7,7 @@ import { useServer } from "./server"
 import type { Platform } from "./platform"
 import { defaultTitle, titleNumber } from "./terminal-title"
 import { Persist, persisted, removePersisted } from "@/utils/persist"
-import { serverScopedKey } from "@/utils/server-scope"
+import { isLocalServerKey, serverScopedKey } from "@/utils/server-scope"
 
 type PendingRun = {
   command: string
@@ -109,6 +109,11 @@ export function getLegacyTerminalStorageKeys(dir: string, legacySessionID?: stri
   return [`${dir}/terminal/${legacySessionID}.v1`, `${dir}/terminal.v1`]
 }
 
+export function terminalLegacyKeys(dir: string, server?: string, legacySessionID?: string) {
+  if (!isLocalServerKey(server)) return []
+  return getLegacyTerminalStorageKeys(dir, legacySessionID)
+}
+
 type TerminalSession = ReturnType<typeof createWorkspaceTerminalSession>
 
 type TerminalCacheEntry = {
@@ -155,7 +160,7 @@ function createWorkspaceTerminalSession(
   server: string | undefined,
 ) {
   const storage = serverScopedKey(dir, server)
-  const legacy = server ? [] : getLegacyTerminalStorageKeys(dir, legacySessionID)
+  const legacy = terminalLegacyKeys(dir, server, legacySessionID)
 
   const [store, setStore, _, ready] = persisted(
     {
