@@ -80,11 +80,11 @@ function createGlobalSync() {
   const deleting = new Set<string>()
 
   const [projectCache, setProjectCache, projectInit] = persisted(
-    Persist.global(serverScopedKey("globalSync.project", server.key)),
+    Persist.global(serverScopedKey("globalSync.project", server.key), ["globalSync.project.v1"]),
     createStore({ value: [] as Project[] }),
   )
   const [recentCache, setRecentCache, recentInit] = persisted(
-    Persist.global(serverScopedKey("globalSync.recent", server.key)),
+    Persist.global(serverScopedKey("globalSync.recent", server.key), ["globalSync.recent.v1"]),
     createStore({ value: [] as ProjectRecent[] }),
   )
 

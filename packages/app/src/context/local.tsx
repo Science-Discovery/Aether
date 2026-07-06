@@ -73,7 +73,7 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
 
     const [saved, setSaved] = persisted(
       {
-        ...Persist.workspace(storage(), "model-selection"),
+        ...Persist.workspace(storage(), "model-selection", ["model-selection.v1"]),
         migrate,
       },
       createStore<Saved>({

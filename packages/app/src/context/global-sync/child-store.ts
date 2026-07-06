@@ -136,7 +136,7 @@ export function createChildStoreManager(input: {
       const storage = serverScopedKey(directory, input.server)
       const vcs = runWithOwner(input.owner, () =>
         persisted(
-          Persist.workspace(storage, "vcs"),
+          Persist.workspace(storage, "vcs", ["vcs.v1"]),
           createStore({ value: undefined as VcsInfo | undefined }),
         ),
       )
@@ -146,7 +146,7 @@ export function createChildStoreManager(input: {
 
       const meta = runWithOwner(input.owner, () =>
         persisted(
-          Persist.workspace(storage, "project"),
+          Persist.workspace(storage, "project", ["project.v1"]),
           createStore({ value: undefined as ProjectMeta | undefined }),
         ),
       )
@@ -155,7 +155,7 @@ export function createChildStoreManager(input: {
 
       const icon = runWithOwner(input.owner, () =>
         persisted(
-          Persist.workspace(storage, "icon"),
+          Persist.workspace(storage, "icon", ["icon.v1"]),
           createStore({ value: undefined as string | undefined }),
         ),
       )

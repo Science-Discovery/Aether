@@ -100,7 +100,7 @@ import { SidebarContent } from "./layout/sidebar-shell"
 export default function Layout(props: ParentProps) {
   const server = useServer()
   const [store, setStore, , ready] = persisted(
-    Persist.global(serverScopedKey("layout.page", server.key), ["layout.page"]),
+    Persist.global(serverScopedKey("layout.page", server.key), ["layout.page.v1"]),
     createStore({
       lastProjectSession: {} as { [directory: string]: { directory: string; id: string; at: number } },
       activeProject: undefined as string | undefined,
