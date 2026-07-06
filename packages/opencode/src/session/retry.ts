@@ -7,6 +7,8 @@ export namespace SessionRetry {
   export const RETRY_BACKOFF_FACTOR = 2
   export const RETRY_MAX_DELAY_NO_HEADERS = 30_000 // 30 seconds
   export const RETRY_MAX_DELAY = 2_147_483_647 // max 32-bit signed integer for setTimeout
+  export const TIMEOUT_RETRY_INITIAL_DELAY = 30_000 // 30 seconds for timeout retries
+  export const TIMEOUT_RETRY_MAX_DELAY = 120_000 // 120 seconds cap for timeout retries
 
   export async function sleep(ms: number, signal: AbortSignal): Promise<void> {
     return new Promise((resolve, reject) => {
@@ -26,6 +28,9 @@ export namespace SessionRetry {
   }
 
   export function delay(attempt: number, error?: MessageV2.APIError) {
+    const isTimeout = error?.data.metadata?.kind === "timeout"
+    const base = isTimeout ? TIMEOUT_RETRY_INITIAL_DELAY : RETRY_INITIAL_DELAY
+    const cap = isTimeout ? TIMEOUT_RETRY_MAX_DELAY : RETRY_MAX_DELAY_NO_HEADERS
     if (error) {
       const headers = error.data.responseHeaders
       if (headers) {
@@ -51,11 +56,11 @@ export namespace SessionRetry {
           }
         }
 
-        return RETRY_INITIAL_DELAY * Math.pow(RETRY_BACKOFF_FACTOR, attempt - 1)
+        return Math.min(base * Math.pow(RETRY_BACKOFF_FACTOR, attempt - 1), cap)
       }
     }
 
-    return Math.min(RETRY_INITIAL_DELAY * Math.pow(RETRY_BACKOFF_FACTOR, attempt - 1), RETRY_MAX_DELAY_NO_HEADERS)
+    return Math.min(base * Math.pow(RETRY_BACKOFF_FACTOR, attempt - 1), cap)
   }
 
   export function retryable(error: ReturnType<NamedError["toObject"]>) {
