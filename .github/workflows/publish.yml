@@ -8,13 +8,8 @@ on:
         description: "Release version, for example 0.2.3"
         required: true
         type: string
-      release_electron:
-        description: "Also build Electron artifacts"
-        required: false
-        default: false
-        type: boolean
       upload_downloadbeta:
-        description: "Upload web artifacts to downloadbeta"
+        description: "Upload web and Electron artifacts to downloadbeta"
         required: false
         default: false
         type: boolean
@@ -50,8 +45,7 @@ jobs:
           echo "version=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
 
   build-electron:
-    # Electron build stays available, but is opt-in via workflow_dispatch input.
-    if: github.repository == 'Science-Discovery/Aether' && inputs.release_electron
+    if: github.repository == 'Science-Discovery/Aether'
     needs: release
     strategy:
       fail-fast: false
@@ -264,7 +258,7 @@ jobs:
       needs.build-web-mac.result == 'success' &&
       needs.build-web-linux.result == 'success' &&
       needs.build-web-windows.result == 'success' &&
-      (!inputs.release_electron || needs.build-electron.result == 'success')
+      needs.build-electron.result == 'success'
     needs:
       - release
       - build-electron
@@ -278,7 +272,6 @@ jobs:
           fetch-depth: 0
 
       - uses: ./.github/actions/setup-bun
-        if: inputs.upload_downloadbeta || inputs.release_electron
 
       - uses: actions/download-artifact@v4
         with:
@@ -301,21 +294,20 @@ jobs:
           gh release upload "${{ needs.release.outputs.tag }}" "${files[@]}" --clobber
 
       - uses: actions/download-artifact@v4
-        if: inputs.release_electron
         with:
           pattern: latest-yml-*
           path: latest-yml
 
       - name: Finalize Electron update metadata
-        if: inputs.release_electron
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           LATEST_YML_DIR: ${{ github.workspace }}/latest-yml
+          RELEASE_DIST_DIR: ${{ github.workspace }}/dist
           OPENCODE_VERSION: ${{ needs.release.outputs.version }}
         run: bun packages/desktop-electron/scripts/finalize-latest-yml.ts
 
-      - name: Upload web artifacts to downloadbeta
+      - name: Upload artifacts to downloadbeta
         if: inputs.upload_downloadbeta
         env:
           DOWNLOAD_BETA_BASE_URL: ${{ vars.DOWNLOAD_BETA_BASE_URL }}

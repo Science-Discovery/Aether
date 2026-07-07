@@ -7,13 +7,10 @@ const channel = (() => {
   return "dev"
 })()
 
-const updater = process.env.OPENCODE_UPDATER_CHANNEL ?? "latest"
-
 export default defineConfig({
   main: {
     define: {
       "import.meta.env.OPENCODE_CHANNEL": JSON.stringify(channel),
-      "import.meta.env.OPENCODE_UPDATER_CHANNEL": JSON.stringify(updater),
     },
     build: {
       rollupOptions: {

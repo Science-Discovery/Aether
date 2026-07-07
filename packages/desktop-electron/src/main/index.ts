@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto"
 import { EventEmitter } from "node:events"
-import { existsSync } from "node:fs"
+import { existsSync, readFileSync } from "node:fs"
 import { createServer } from "node:net"
 import { join } from "node:path"
 import semver from "semver"
@@ -44,7 +44,9 @@ const serverReady = defer<ServerReadyData>()
 const initDone = defer<void>()
 const logger = initLogging()
 const MANUAL_INSTALL_UPDATE = process.platform === "darwin" || (process.platform === "linux" && !process.env.APPIMAGE)
-const RELEASES_URL = "https://github.com/Science-Discovery/Aether/releases"
+const SITE_URL = "https://aether.aiphys.cn/"
+const UPDATE_URL = "https://aether.aiphys.cn/download/desktop/latest"
+const BETA_URL = "https://aether.aiphys.cn/downloadbeta/desktop/latest"
 const RENDERER_UPDATER_ENABLED = UPDATER_ENABLED && !MANUAL_INSTALL_UPDATE
 const SETTINGS_UPDATER_ENABLED = UPDATER_ENABLED
 
@@ -379,6 +381,7 @@ async function getSidecarPort() {
 function setupAutoUpdater() {
   if (!UPDATER_ENABLED) return
   autoUpdater.logger = logger
+  autoUpdater.setFeedURL(UPDATE_URL)
   autoUpdater.allowPrerelease = false
   autoUpdater.allowDowngrade = false
   autoUpdater.autoDownload = false
@@ -406,14 +409,16 @@ async function checkUpdate() {
   checking = (async () => {
     autoUpdater.allowDowngrade = false
     updateReady = false
-    const wantPrerelease = prerelease()
+    const base = beta()
 
     let preVersion: string | null = null
-    if (wantPrerelease) {
+    if (base) {
+      autoUpdater.setFeedURL(base)
       autoUpdater.allowPrerelease = true
       logger.log("checking for updates (prerelease)", {
         currentVersion: app.getVersion(),
         allowPrerelease: true,
+        feed: base,
       })
       try {
         const r = await autoUpdater.checkForUpdates()
@@ -428,10 +433,12 @@ async function checkUpdate() {
       }
     }
 
+    autoUpdater.setFeedURL(UPDATE_URL)
     autoUpdater.allowPrerelease = false
     logger.log("checking for updates (stable)", {
       currentVersion: app.getVersion(),
       allowPrerelease: false,
+      feed: UPDATE_URL,
     })
     let stableVersion: string | undefined
     let stableAvailable = false
@@ -465,6 +472,7 @@ async function checkUpdate() {
           stableVersion: stableVersion ?? null,
         })
         autoUpdater.allowPrerelease = true
+        if (base) autoUpdater.setFeedURL(base)
         try {
           const r2 = await autoUpdater.checkForUpdates()
           const v2 = r2?.updateInfo?.version
@@ -489,6 +497,7 @@ async function checkUpdate() {
           return { updateAvailable: false, failed: true }
         }
         autoUpdater.allowPrerelease = false
+        autoUpdater.setFeedURL(UPDATE_URL)
         await autoUpdater.checkForUpdates()
       }
 
@@ -513,7 +522,7 @@ async function checkUpdate() {
 
 async function installUpdate() {
   if (MANUAL_INSTALL_UPDATE) {
-    await shell.openExternal(release())
+    await shell.openExternal(SITE_URL)
     return
   }
   if (!updateReady) return
@@ -554,13 +563,13 @@ async function checkForUpdates(alertOnFail: boolean) {
       message: `Aether Desktop ${result.version ?? ""} is available.`,
       detail:
         process.platform === "darwin"
-          ? "Automatic download and installation are not enabled for macOS yet. Please download the latest macOS release from GitHub Releases and replace your existing app."
-          : "Automatic download and installation are only enabled for Linux AppImage builds. Please download the latest .deb or .rpm package from GitHub Releases and upgrade with your package manager.",
-      buttons: ["Open GitHub Releases", "Later"],
+          ? "Automatic download and installation are not enabled for macOS yet. Please download the latest macOS release from the Aether website and replace your existing app."
+          : "Automatic download and installation are only enabled for Linux AppImage builds. Please download the latest .deb or .rpm package from the Aether website and upgrade with your package manager.",
+      buttons: ["Open Aether Website", "Later"],
       defaultId: 0,
       cancelId: 1,
     })
-    if (response.response === 0) await shell.openExternal(release(result.version))
+    if (response.response === 0) await shell.openExternal(SITE_URL)
     return
   }
 
@@ -581,18 +590,24 @@ async function checkForUpdates(alertOnFail: boolean) {
   }
 }
 
-function prerelease() {
-  return existsSync(join(cfg(), "update-config.jsonc"))
+function beta() {
+  const file = join(cfg(), "update-config.jsonc")
+  if (!existsSync(file)) return null
+  const data: unknown = (() => {
+    try {
+      return JSON.parse(readFileSync(file, "utf8"))
+    } catch {
+      return null
+    }
+  })()
+  if (!data || typeof data !== "object") return BETA_URL
+  if (!("updateBaseUrl" in data) || typeof data.updateBaseUrl !== "string") return BETA_URL
+  return data.updateBaseUrl.trim() || BETA_URL
 }
 
 function cfg() {
   const root = process.env.XDG_CONFIG_HOME || join(process.env.OPENCODE_TEST_HOME || app.getPath("home"), ".config")
   return join(root, "aether")
-}
-
-function release(version?: string) {
-  if (!version) return `${RELEASES_URL}/latest`
-  return `${RELEASES_URL}/tag/v${version}`
 }
 
 function delay(ms: number) {
