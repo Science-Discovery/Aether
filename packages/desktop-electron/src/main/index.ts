@@ -46,7 +46,6 @@ const logger = initLogging()
 const MANUAL_INSTALL_UPDATE = process.platform === "darwin" || (process.platform === "linux" && !process.env.APPIMAGE)
 const SITE_URL = "https://aether.aiphys.cn/"
 const UPDATE_URL = "https://aether.aiphys.cn/download/desktop/latest"
-const BETA_URL = "https://aether.aiphys.cn/downloadbeta/desktop/latest"
 const RENDERER_UPDATER_ENABLED = UPDATER_ENABLED && !MANUAL_INSTALL_UPDATE
 const SETTINGS_UPDATER_ENABLED = UPDATER_ENABLED
 
@@ -591,8 +590,8 @@ async function checkForUpdates(alertOnFail: boolean) {
 }
 
 function beta() {
-  const file = join(cfg(), "update-config.jsonc")
-  if (!existsSync(file)) return null
+  const file = ["jsonc", "json"].map((ext) => join(cfg(), `update-config.${ext}`)).find((item) => existsSync(item))
+  if (!file) return null
   const data: unknown = (() => {
     try {
       return JSON.parse(readFileSync(file, "utf8"))
@@ -600,9 +599,11 @@ function beta() {
       return null
     }
   })()
-  if (!data || typeof data !== "object") return BETA_URL
-  if (!("updateBaseUrl" in data) || typeof data.updateBaseUrl !== "string") return BETA_URL
-  return data.updateBaseUrl.trim() || BETA_URL
+  if (!data || typeof data !== "object") return null
+  if (!("updateBaseUrl" in data) || typeof data.updateBaseUrl !== "string") return null
+  const url = data.updateBaseUrl.trim()
+  if (!url) return null
+  return `${url.replace(/\/+$/, "")}/desktop/latest`
 }
 
 function cfg() {

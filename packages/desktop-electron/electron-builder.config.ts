@@ -117,7 +117,7 @@ function getConfig() {
         appId: "ai.aether.desktop",
         productName: "Aether Desktop",
         protocols: { name: "Aether Desktop", schemes: ["aether"] },
-        publish: { provider: "generic", url: "https://aether.aiphys.cn/download/desktop/latest" },
+        publish: { provider: "generic", url: "https://aether.aiphys.cn/download/desktop/latest", channel: "latest" },
         deb: { packageName: "aether-desktop" },
         rpm: { packageName: "aether-desktop" },
       }

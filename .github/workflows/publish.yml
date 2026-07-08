@@ -137,7 +137,7 @@ jobs:
           OPENCODE_CHANNEL: prod
 
       - name: Package Electron app
-        run: npx electron-builder ${{ matrix.flag }} --publish never --config electron-builder.config.ts
+        run: npx electron-builder ${{ matrix.flag }} --publish always --config electron-builder.config.ts
         working-directory: packages/desktop-electron
         env:
           OPENCODE_CHANNEL: prod
