@@ -61,7 +61,6 @@ import { useTheme, type ColorScheme } from "@opencode-ai/ui/theme/context"
 import { useCommand, type CommandOption } from "@/context/command"
 import { ConstrainDragXAxis, getDraggableId } from "@/utils/solid-dnd"
 import { DialogSelectDirectory } from "@/components/dialog-select-directory"
-import { DialogNewProject } from "@/components/dialog-new-project"
 import { DialogEditProject } from "@/components/dialog-edit-project"
 import { SessionImportInput } from "@/components/session-import-input"
 import { DebugBar } from "@/components/debug-bar"
@@ -1821,19 +1820,6 @@ export default function Layout(props: ParentProps) {
     }
   }
 
-  function newProject() {
-    dialog.show(
-      () => (
-        <DialogNewProject
-          onSelect={(result) => {
-            if (result) openProject(result)
-          }}
-        />
-      ),
-      () => {},
-    )
-  }
-
   const deleteWorkspace = async (
     root: string,
     directory: string,
@@ -2925,9 +2911,6 @@ export default function Layout(props: ParentProps) {
       handleDragStart={handleDragStart}
       handleDragEnd={handleDragEnd}
       handleDragOver={handleDragOver}
-      newProjectLabel={language.t("command.project.new")}
-      showNewProject={platform.platform === "desktop"}
-      onNewProject={newProject}
       openProjectLabel={language.t("command.project.open")}
       openProjectKeybind={() => command.keybind("project.open")}
       onOpenProject={chooseProject}
