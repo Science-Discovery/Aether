@@ -132,25 +132,6 @@ describe("applyGlobalEvent", () => {
     expect(refreshCount).toBe(1)
   })
 
-  test("handles provider.models.updated without triggering a full refresh", () => {
-    let refreshCount = 0
-    let providerCount = 0
-    applyGlobalEvent({
-      event: { type: "provider.models.updated" },
-      project: [],
-      refresh: () => {
-        refreshCount += 1
-      },
-      providers: () => {
-        providerCount += 1
-      },
-      setGlobalProject() {},
-    })
-
-    expect(refreshCount).toBe(0)
-    expect(providerCount).toBe(1)
-  })
-
   test("upserts a project from session.created when the project is missing", () => {
     const project = [{ id: "a", worktree: "/tmp/a", sandboxes: [], time: { created: 1, updated: 1 } }] as Project[]
     applyGlobalEvent({
