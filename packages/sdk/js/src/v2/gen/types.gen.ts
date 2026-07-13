@@ -1371,6 +1371,12 @@ export type AgentConfig = {
    */
   maxSteps?: number
   permission?: PermissionConfig
+  /**
+   * MCP servers whose tools should be visible to this agent. Keys are MCP server names; true = visible. When any server is enabled here, only those servers' tools are exposed (others hidden); when absent, all connected MCP tools are exposed (default behavior).
+   */
+  mcp?: {
+    [key: string]: boolean
+  }
   [key: string]:
     | unknown
     | string
@@ -1395,6 +1401,9 @@ export type AgentConfig = {
     | "info"
     | number
     | PermissionConfig
+    | {
+        [key: string]: boolean
+      }
     | undefined
 }
 
@@ -1480,11 +1489,11 @@ export type ProviderConfig = {
      */
     setCacheKey?: boolean
     /**
-     * Timeout in milliseconds for requests to this provider. Default is 300000 (5 minutes). Set to false to disable timeout.
+     * Total request timeout in ms. Applied to non-SSE responses only; SSE streams use chunkTimeout. Default is 300000 (5 minutes). Set to false to disable.
      */
     timeout?: number | false
     /**
-     * Timeout in milliseconds between streamed SSE chunks for this provider. If no chunk arrives within this window, the request is aborted.
+     * Timeout in ms between streamed SSE chunks. Default is 600000 (10 minutes). If no chunk arrives within this window, the request is aborted.
      */
     chunkTimeout?: number
     [key: string]: unknown | string | boolean | number | false | number | undefined
@@ -2447,6 +2456,9 @@ export type Agent = {
     [key: string]: unknown
   }
   steps?: number
+  mcp?: {
+    [key: string]: boolean
+  }
 }
 
 export type LspStatus = {
