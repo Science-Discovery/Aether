@@ -217,6 +217,7 @@ import type {
   ProviderConnectionErrors,
   ProviderConnectionResponses,
   ProviderListResponses,
+  ProviderModelsCodexStatusResponses,
   ProviderModelsStatusResponses,
   ProviderOauthAuthorizeErrors,
   ProviderOauthAuthorizeResponses,
@@ -3944,6 +3945,38 @@ export class Question extends HeyApiClient {
   }
 }
 
+export class Codex extends HeyApiClient {
+  /**
+   * Get Codex models status
+   *
+   * Get the current ChatGPT subscription model catalog refresh status.
+   */
+  public status<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<ProviderModelsCodexStatusResponses, unknown, ThrowOnError>({
+      url: "/provider/models/codex/status",
+      ...options,
+      ...params,
+    })
+  }
+}
+
 export class Models extends HeyApiClient {
   /**
    * Get models.dev status
@@ -3973,6 +4006,11 @@ export class Models extends HeyApiClient {
       ...options,
       ...params,
     })
+  }
+
+  private _codex?: Codex
+  get codex(): Codex {
+    return (this._codex ??= new Codex({ client: this.client }))
   }
 }
 

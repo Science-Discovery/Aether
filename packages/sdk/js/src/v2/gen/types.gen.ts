@@ -32,6 +32,7 @@ export type EventProviderModelsUpdated = {
     checkedAt: number
     updatedAt: number
     hash: string
+    source?: "models.dev" | "codex"
   }
 }
 
@@ -2301,6 +2302,16 @@ export type SubtaskPartInput = {
 
 export type ModelsDevStatus = {
   source: "path" | "cache" | "embedded" | "remote" | "none"
+  checkedAt: number | null
+  updatedAt: number | null
+  etag: string | null
+  hash: string | null
+  error: string | null
+}
+
+export type CodexModelsStatus = {
+  enabled: boolean
+  source: "none" | "fallback" | "cache" | "remote"
   checkedAt: number | null
   updatedAt: number | null
   etag: string | null
@@ -5855,6 +5866,26 @@ export type ProviderModelsStatusResponses = {
 }
 
 export type ProviderModelsStatusResponse = ProviderModelsStatusResponses[keyof ProviderModelsStatusResponses]
+
+export type ProviderModelsCodexStatusData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/provider/models/codex/status"
+}
+
+export type ProviderModelsCodexStatusResponses = {
+  /**
+   * Codex model catalog refresh status
+   */
+  200: CodexModelsStatus
+}
+
+export type ProviderModelsCodexStatusResponse =
+  ProviderModelsCodexStatusResponses[keyof ProviderModelsCodexStatusResponses]
 
 export type ProviderAuthData = {
   body?: never

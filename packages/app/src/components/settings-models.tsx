@@ -42,11 +42,18 @@ export const SettingsModels: Component = () => {
       .then((x) => x.data)
       .catch(() => undefined),
   )
+  const [codex, { refetch: refetchCodex }] = createResource(() =>
+    sdk.client.provider.models.codex
+      .status()
+      .then((x) => x.data)
+      .catch(() => undefined),
+  )
 
   const unsub = sdk.event.listen((event) => {
     if (event.name !== "global") return
     if (event.details.type !== "provider.models.updated") return
     void refetch()
+    void refetchCodex()
   })
   onCleanup(unsub)
 
@@ -89,6 +96,20 @@ export const SettingsModels: Component = () => {
             <Show when={status()}>
               {(value) => (
                 <div class="flex flex-wrap gap-x-4 gap-y-1 text-12-regular text-text-weak">
+                  <span>{language.t("settings.models.status.modelsDev")}</span>
+                  <span>
+                    {language.t("settings.models.status.checked")}: {time(value().checkedAt)}
+                  </span>
+                  <span>
+                    {language.t("settings.models.status.updated")}: {time(value().updatedAt)}
+                  </span>
+                </div>
+              )}
+            </Show>
+            <Show when={codex()?.enabled ? codex() : undefined}>
+              {(value) => (
+                <div class="flex flex-wrap gap-x-4 gap-y-1 text-12-regular text-text-weak">
+                  <span>{language.t("settings.models.status.codex")}</span>
                   <span>
                     {language.t("settings.models.status.checked")}: {time(value().checkedAt)}
                   </span>

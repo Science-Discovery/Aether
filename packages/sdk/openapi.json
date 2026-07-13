@@ -8025,6 +8025,47 @@
         ]
       }
     },
+    "/provider/models/codex/status": {
+      "get": {
+        "operationId": "provider.models.codex.status",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "directory",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "workspace",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "summary": "Get Codex models status",
+        "description": "Get the current ChatGPT subscription model catalog refresh status.",
+        "responses": {
+          "200": {
+            "description": "Codex model catalog refresh status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CodexModelsStatus"
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.provider.models.codex.status({\n  ...\n})"
+          }
+        ]
+      }
+    },
     "/provider/auth": {
       "get": {
         "operationId": "provider.auth",
@@ -20078,6 +20119,13 @@
               },
               "hash": {
                 "type": "string"
+              },
+              "source": {
+                "type": "string",
+                "enum": [
+                  "models.dev",
+                  "codex"
+                ]
               }
             },
             "required": [
@@ -27598,6 +27646,82 @@
           }
         },
         "required": [
+          "source",
+          "checkedAt",
+          "updatedAt",
+          "etag",
+          "hash",
+          "error"
+        ]
+      },
+      "CodexModelsStatus": {
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "none",
+              "fallback",
+              "cache",
+              "remote"
+            ]
+          },
+          "checkedAt": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "updatedAt": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "etag": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "hash": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "enabled",
           "source",
           "checkedAt",
           "updatedAt",

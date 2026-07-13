@@ -11,6 +11,7 @@ import { mapValues } from "remeda"
 import { errors } from "../error"
 import { lazy } from "../../util/lazy"
 import { Log } from "../../util/log"
+import { CodexModels } from "../../plugin/codex-models"
 
 const log = Log.create({ service: "server" })
 
@@ -268,6 +269,28 @@ export const ProviderRoutes = lazy(() =>
         },
       }),
       async (c) => c.json(await ModelsDev.status()),
+    )
+    .get(
+      "/models/codex/status",
+      describeRoute({
+        summary: "Get Codex models status",
+        description: "Get the current ChatGPT subscription model catalog refresh status.",
+        operationId: "provider.models.codex.status",
+        responses: {
+          200: {
+            description: "Codex model catalog refresh status",
+            content: {
+              "application/json": {
+                schema: resolver(CodexModels.Status),
+              },
+            },
+          },
+        },
+      }),
+      async (c) => {
+        const auth = await Auth.get("openai")
+        return c.json(CodexModels.status(auth?.type === "oauth"))
+      },
     )
     .get(
       "/auth",

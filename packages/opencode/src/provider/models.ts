@@ -9,8 +9,7 @@ import { lazy } from "@/util/lazy"
 import { Filesystem } from "../util/filesystem"
 import { apply } from "./models-local"
 import { Hash } from "@/util/hash"
-import { BusEvent } from "../bus/bus-event"
-import { GlobalBus } from "../bus/global"
+import { ProviderModels } from "./models-event"
 
 declare const OPENCODE_MODELS_DEV: Record<string, ModelsDev.Provider> | undefined
 
@@ -244,16 +243,7 @@ export namespace ModelsDev {
 
   const Meta = Status.omit({ source: true })
 
-  export const Event = {
-    Updated: BusEvent.define(
-      "provider.models.updated",
-      z.object({
-        checkedAt: z.number(),
-        updatedAt: z.number(),
-        hash: z.string(),
-      }),
-    ),
-  }
+  export const Event = ProviderModels.Event
 
   const empty: Status = {
     source: "none",
@@ -516,16 +506,11 @@ export namespace ModelsDev {
 
       Data.reset()
       for (const fn of listeners) fn()
-      GlobalBus.emit("event", {
-        directory: "global",
-        payload: {
-          type: Event.Updated.type,
-          properties: {
-            checkedAt: result.checkedAt,
-            updatedAt: result.updatedAt,
-            hash: result.hash,
-          },
-        },
+      ProviderModels.emit({
+        checkedAt: result.checkedAt,
+        updatedAt: result.updatedAt,
+        hash: result.hash,
+        source: "models.dev",
       })
       return result
     } catch (e) {

@@ -920,6 +920,8 @@ export const dict = {
   "settings.models.status.checked": "最後檢查",
   "settings.models.status.updated": "最後更新",
   "settings.models.status.never": "從未",
+  "settings.models.status.modelsDev": "Models.dev 目錄",
+  "settings.models.status.codex": "Codex 訂閱目錄",
   "settings.agents.title": "代理程式",
   "settings.agents.description": "代理程式設定將在此處可設定。",
   "settings.commands.title": "命令",

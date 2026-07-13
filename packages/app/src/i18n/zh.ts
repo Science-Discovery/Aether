@@ -1275,6 +1275,8 @@ export const dict = {
   "settings.models.status.checked": "最后检查",
   "settings.models.status.updated": "最后更新",
   "settings.models.status.never": "从未",
+  "settings.models.status.modelsDev": "Models.dev 目录",
+  "settings.models.status.codex": "Codex 订阅目录",
 
   "settings.agents.title": "智能体",
   "settings.agents.description": "智能体设置将在此处可配置。",

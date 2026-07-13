@@ -1464,6 +1464,8 @@ export const dict = {
   "settings.models.status.checked": "Last checked",
   "settings.models.status.updated": "Last updated",
   "settings.models.status.never": "Never",
+  "settings.models.status.modelsDev": "Models.dev catalog",
+  "settings.models.status.codex": "Codex subscription catalog",
   "settings.agents.title": "Agents",
   "settings.agents.description": "Agent settings will be configurable here.",
   "settings.commands.title": "Commands",
