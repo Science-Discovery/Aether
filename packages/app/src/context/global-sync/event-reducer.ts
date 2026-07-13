@@ -22,6 +22,7 @@ export function applyGlobalEvent(input: {
   project: Project[]
   setGlobalProject: (next: Project[] | ((draft: Project[]) => void)) => void
   refresh: () => void
+  providers?: () => void
 }) {
   if (input.event.type === "session.created" || input.event.type === "session.imported") {
     const info = (input.event.properties as { info?: Partial<Session> } | undefined)?.info
@@ -43,6 +44,11 @@ export function applyGlobalEvent(input: {
 
   if (input.event.type === "global.disposed" || input.event.type === "server.connected") {
     input.refresh()
+    return
+  }
+
+  if (input.event.type === "provider.models.updated") {
+    input.providers?.()
     return
   }
 

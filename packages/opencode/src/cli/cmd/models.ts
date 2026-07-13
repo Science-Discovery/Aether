@@ -28,7 +28,11 @@ export const ModelsCommand = cmd({
   },
   handler: async (args) => {
     if (args.refresh) {
-      await ModelsDev.refresh()
+      const result = await ModelsDev.refresh({ force: true })
+      if (result.error) {
+        UI.error(`Failed to refresh models cache: ${result.error}`)
+        return
+      }
       UI.println(UI.Style.TEXT_SUCCESS_BOLD + "Models cache refreshed" + UI.Style.TEXT_NORMAL)
     }
 

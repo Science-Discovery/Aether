@@ -1314,6 +1314,12 @@ export namespace Provider {
     }
   })
 
+  ModelsDev.onUpdated(() => state.reset())
+
+  export function reset() {
+    state.reset()
+  }
+
   export async function list() {
     return state().then((state) => state.providers)
   }

@@ -1272,6 +1272,9 @@ export const dict = {
 
   "settings.models.title": "模型",
   "settings.models.description": "模型设置将在此处可配置。",
+  "settings.models.status.checked": "最后检查",
+  "settings.models.status.updated": "最后更新",
+  "settings.models.status.never": "从未",
 
   "settings.agents.title": "智能体",
   "settings.agents.description": "智能体设置将在此处可配置。",

@@ -251,6 +251,25 @@ export const ProviderRoutes = lazy(() =>
       },
     )
     .get(
+      "/models/status",
+      describeRoute({
+        summary: "Get models.dev status",
+        description: "Get the current models.dev source and refresh status.",
+        operationId: "provider.models.status",
+        responses: {
+          200: {
+            description: "Models.dev refresh status",
+            content: {
+              "application/json": {
+                schema: resolver(ModelsDev.Status),
+              },
+            },
+          },
+        },
+      }),
+      async (c) => c.json(await ModelsDev.status()),
+    )
+    .get(
       "/auth",
       describeRoute({
         summary: "Get provider auth methods",

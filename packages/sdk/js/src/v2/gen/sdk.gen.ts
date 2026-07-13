@@ -217,6 +217,7 @@ import type {
   ProviderConnectionErrors,
   ProviderConnectionResponses,
   ProviderListResponses,
+  ProviderModelsStatusResponses,
   ProviderOauthAuthorizeErrors,
   ProviderOauthAuthorizeResponses,
   ProviderOauthCallbackErrors,
@@ -3943,6 +3944,38 @@ export class Question extends HeyApiClient {
   }
 }
 
+export class Models extends HeyApiClient {
+  /**
+   * Get models.dev status
+   *
+   * Get the current models.dev source and refresh status.
+   */
+  public status<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<ProviderModelsStatusResponses, unknown, ThrowOnError>({
+      url: "/provider/models/status",
+      ...options,
+      ...params,
+    })
+  }
+}
+
 export class Oauth extends HeyApiClient {
   /**
    * OAuth authorize
@@ -4128,6 +4161,11 @@ export class Provider extends HeyApiClient {
       ...options,
       ...params,
     })
+  }
+
+  private _models?: Models
+  get models(): Models {
+    return (this._models ??= new Models({ client: this.client }))
   }
 
   private _oauth?: Oauth
@@ -6238,7 +6276,7 @@ export class Tui extends HeyApiClient {
   }
 }
 
-export class Models extends HeyApiClient {
+export class Models2 extends HeyApiClient {
   /**
    * List embedding models
    *
@@ -6808,9 +6846,9 @@ export class Knowledge extends HeyApiClient {
     })
   }
 
-  private _models?: Models
-  get models(): Models {
-    return (this._models ??= new Models({ client: this.client }))
+  private _models?: Models2
+  get models(): Models2 {
+    return (this._models ??= new Models2({ client: this.client }))
   }
 
   private _state?: State2

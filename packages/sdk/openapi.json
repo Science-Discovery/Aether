@@ -7427,6 +7427,9 @@
                           "name": {
                             "type": "string"
                           },
+                          "doc": {
+                            "type": "string"
+                          },
                           "env": {
                             "type": "array",
                             "items": {
@@ -7453,10 +7456,16 @@
                                 "name": {
                                   "type": "string"
                                 },
+                                "description": {
+                                  "type": "string"
+                                },
                                 "family": {
                                   "type": "string"
                                 },
                                 "release_date": {
+                                  "type": "string"
+                                },
+                                "last_updated": {
                                   "type": "string"
                                 },
                                 "attachment": {
@@ -7465,10 +7474,98 @@
                                 "reasoning": {
                                   "type": "boolean"
                                 },
+                                "reasoning_options": {
+                                  "type": "array",
+                                  "items": {
+                                    "anyOf": [
+                                      {
+                                        "type": "object",
+                                        "properties": {
+                                          "type": {
+                                            "type": "string",
+                                            "const": "toggle"
+                                          }
+                                        },
+                                        "required": [
+                                          "type"
+                                        ],
+                                        "additionalProperties": false
+                                      },
+                                      {
+                                        "type": "object",
+                                        "properties": {
+                                          "type": {
+                                            "type": "string",
+                                            "const": "effort"
+                                          },
+                                          "values": {
+                                            "type": "array",
+                                            "items": {
+                                              "anyOf": [
+                                                {
+                                                  "type": "null"
+                                                },
+                                                {
+                                                  "type": "string",
+                                                  "enum": [
+                                                    "none",
+                                                    "minimal",
+                                                    "low",
+                                                    "medium",
+                                                    "high",
+                                                    "xhigh",
+                                                    "max",
+                                                    "default"
+                                                  ]
+                                                }
+                                              ]
+                                            }
+                                          }
+                                        },
+                                        "required": [
+                                          "type",
+                                          "values"
+                                        ],
+                                        "additionalProperties": false
+                                      },
+                                      {
+                                        "type": "object",
+                                        "properties": {
+                                          "type": {
+                                            "type": "string",
+                                            "const": "budget_tokens"
+                                          },
+                                          "min": {
+                                            "type": "number",
+                                            "minimum": -1
+                                          },
+                                          "max": {
+                                            "type": "number",
+                                            "minimum": 0
+                                          }
+                                        },
+                                        "required": [
+                                          "type"
+                                        ],
+                                        "additionalProperties": false
+                                      }
+                                    ]
+                                  }
+                                },
                                 "temperature": {
+                                  "default": false,
                                   "type": "boolean"
                                 },
                                 "tool_call": {
+                                  "type": "boolean"
+                                },
+                                "structured_output": {
+                                  "type": "boolean"
+                                },
+                                "knowledge": {
+                                  "type": "string"
+                                },
+                                "open_weights": {
                                   "type": "boolean"
                                 },
                                 "interleaved": {
@@ -7499,37 +7596,130 @@
                                   "type": "object",
                                   "properties": {
                                     "input": {
-                                      "type": "number"
+                                      "type": "number",
+                                      "minimum": 0
                                     },
                                     "output": {
-                                      "type": "number"
+                                      "type": "number",
+                                      "minimum": 0
+                                    },
+                                    "reasoning": {
+                                      "type": "number",
+                                      "minimum": 0
                                     },
                                     "cache_read": {
-                                      "type": "number"
+                                      "type": "number",
+                                      "minimum": 0
                                     },
                                     "cache_write": {
-                                      "type": "number"
+                                      "type": "number",
+                                      "minimum": 0
+                                    },
+                                    "input_audio": {
+                                      "type": "number",
+                                      "minimum": 0
+                                    },
+                                    "output_audio": {
+                                      "type": "number",
+                                      "minimum": 0
                                     },
                                     "context_over_200k": {
                                       "type": "object",
                                       "properties": {
                                         "input": {
-                                          "type": "number"
+                                          "type": "number",
+                                          "minimum": 0
                                         },
                                         "output": {
-                                          "type": "number"
+                                          "type": "number",
+                                          "minimum": 0
+                                        },
+                                        "reasoning": {
+                                          "type": "number",
+                                          "minimum": 0
                                         },
                                         "cache_read": {
-                                          "type": "number"
+                                          "type": "number",
+                                          "minimum": 0
                                         },
                                         "cache_write": {
-                                          "type": "number"
+                                          "type": "number",
+                                          "minimum": 0
+                                        },
+                                        "input_audio": {
+                                          "type": "number",
+                                          "minimum": 0
+                                        },
+                                        "output_audio": {
+                                          "type": "number",
+                                          "minimum": 0
                                         }
                                       },
                                       "required": [
                                         "input",
                                         "output"
                                       ]
+                                    },
+                                    "tiers": {
+                                      "type": "array",
+                                      "items": {
+                                        "type": "object",
+                                        "properties": {
+                                          "input": {
+                                            "type": "number",
+                                            "minimum": 0
+                                          },
+                                          "output": {
+                                            "type": "number",
+                                            "minimum": 0
+                                          },
+                                          "reasoning": {
+                                            "type": "number",
+                                            "minimum": 0
+                                          },
+                                          "cache_read": {
+                                            "type": "number",
+                                            "minimum": 0
+                                          },
+                                          "cache_write": {
+                                            "type": "number",
+                                            "minimum": 0
+                                          },
+                                          "input_audio": {
+                                            "type": "number",
+                                            "minimum": 0
+                                          },
+                                          "output_audio": {
+                                            "type": "number",
+                                            "minimum": 0
+                                          },
+                                          "tier": {
+                                            "type": "object",
+                                            "properties": {
+                                              "type": {
+                                                "default": "context",
+                                                "type": "string",
+                                                "const": "context"
+                                              },
+                                              "size": {
+                                                "type": "integer",
+                                                "minimum": 0,
+                                                "maximum": 9007199254740991
+                                              }
+                                            },
+                                            "required": [
+                                              "size"
+                                            ],
+                                            "additionalProperties": false
+                                          }
+                                        },
+                                        "required": [
+                                          "input",
+                                          "output",
+                                          "tier"
+                                        ],
+                                        "additionalProperties": false
+                                      }
                                     }
                                   },
                                   "required": [
@@ -7588,10 +7778,83 @@
                                   "required": [
                                     "input",
                                     "output"
-                                  ]
+                                  ],
+                                  "additionalProperties": false
                                 },
                                 "experimental": {
-                                  "type": "boolean"
+                                  "type": "object",
+                                  "properties": {
+                                    "modes": {
+                                      "type": "object",
+                                      "propertyNames": {
+                                        "type": "string"
+                                      },
+                                      "additionalProperties": {
+                                        "type": "object",
+                                        "properties": {
+                                          "cost": {
+                                            "type": "object",
+                                            "properties": {
+                                              "input": {
+                                                "type": "number",
+                                                "minimum": 0
+                                              },
+                                              "output": {
+                                                "type": "number",
+                                                "minimum": 0
+                                              },
+                                              "reasoning": {
+                                                "type": "number",
+                                                "minimum": 0
+                                              },
+                                              "cache_read": {
+                                                "type": "number",
+                                                "minimum": 0
+                                              },
+                                              "cache_write": {
+                                                "type": "number",
+                                                "minimum": 0
+                                              },
+                                              "input_audio": {
+                                                "type": "number",
+                                                "minimum": 0
+                                              },
+                                              "output_audio": {
+                                                "type": "number",
+                                                "minimum": 0
+                                              }
+                                            },
+                                            "required": [
+                                              "input",
+                                              "output"
+                                            ]
+                                          },
+                                          "provider": {
+                                            "type": "object",
+                                            "properties": {
+                                              "body": {
+                                                "type": "object",
+                                                "propertyNames": {
+                                                  "type": "string"
+                                                },
+                                                "additionalProperties": {}
+                                              },
+                                              "headers": {
+                                                "type": "object",
+                                                "propertyNames": {
+                                                  "type": "string"
+                                                },
+                                                "additionalProperties": {
+                                                  "type": "string"
+                                                }
+                                              }
+                                            }
+                                          }
+                                        }
+                                      }
+                                    }
+                                  },
+                                  "additionalProperties": false
                                 },
                                 "status": {
                                   "type": "string",
@@ -7602,6 +7865,7 @@
                                   ]
                                 },
                                 "options": {
+                                  "default": {},
                                   "type": "object",
                                   "propertyNames": {
                                     "type": "string"
@@ -7625,8 +7889,32 @@
                                     },
                                     "api": {
                                       "type": "string"
+                                    },
+                                    "shape": {
+                                      "type": "string",
+                                      "enum": [
+                                        "responses",
+                                        "completions"
+                                      ]
+                                    },
+                                    "body": {
+                                      "type": "object",
+                                      "propertyNames": {
+                                        "type": "string"
+                                      },
+                                      "additionalProperties": {}
+                                    },
+                                    "headers": {
+                                      "type": "object",
+                                      "propertyNames": {
+                                        "type": "string"
+                                      },
+                                      "additionalProperties": {
+                                        "type": "string"
+                                      }
                                     }
-                                  }
+                                  },
+                                  "additionalProperties": false
                                 },
                                 "variants": {
                                   "type": "object",
@@ -7648,10 +7936,8 @@
                                 "release_date",
                                 "attachment",
                                 "reasoning",
-                                "temperature",
                                 "tool_call",
-                                "limit",
-                                "options"
+                                "limit"
                               ]
                             }
                           }
@@ -7694,6 +7980,47 @@
           {
             "lang": "js",
             "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.provider.list({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/provider/models/status": {
+      "get": {
+        "operationId": "provider.models.status",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "directory",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "workspace",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "summary": "Get models.dev status",
+        "description": "Get the current models.dev source and refresh status.",
+        "responses": {
+          "200": {
+            "description": "Models.dev refresh status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelsDevStatus"
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.provider.models.status({\n  ...\n})"
           }
         ]
       }
@@ -19733,6 +20060,38 @@
           "properties"
         ]
       },
+      "Event.provider.models.updated": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "provider.models.updated"
+          },
+          "properties": {
+            "type": "object",
+            "properties": {
+              "checkedAt": {
+                "type": "number"
+              },
+              "updatedAt": {
+                "type": "number"
+              },
+              "hash": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "checkedAt",
+              "updatedAt",
+              "hash"
+            ]
+          }
+        },
+        "required": [
+          "type",
+          "properties"
+        ]
+      },
       "Event.db.recovery.started": {
         "type": "object",
         "properties": {
@@ -23394,6 +23753,9 @@
             "$ref": "#/components/schemas/Event.installation.update-available"
           },
           {
+            "$ref": "#/components/schemas/Event.provider.models.updated"
+          },
+          {
             "$ref": "#/components/schemas/Event.db.recovery.started"
           },
           {
@@ -24505,6 +24867,9 @@
           "name": {
             "type": "string"
           },
+          "doc": {
+            "type": "string"
+          },
           "env": {
             "type": "array",
             "items": {
@@ -24531,10 +24896,16 @@
                 "name": {
                   "type": "string"
                 },
+                "description": {
+                  "type": "string"
+                },
                 "family": {
                   "type": "string"
                 },
                 "release_date": {
+                  "type": "string"
+                },
+                "last_updated": {
                   "type": "string"
                 },
                 "attachment": {
@@ -24543,10 +24914,98 @@
                 "reasoning": {
                   "type": "boolean"
                 },
+                "reasoning_options": {
+                  "type": "array",
+                  "items": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "type": {
+                            "type": "string",
+                            "const": "toggle"
+                          }
+                        },
+                        "required": [
+                          "type"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "type": {
+                            "type": "string",
+                            "const": "effort"
+                          },
+                          "values": {
+                            "type": "array",
+                            "items": {
+                              "anyOf": [
+                                {
+                                  "type": "null"
+                                },
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "none",
+                                    "minimal",
+                                    "low",
+                                    "medium",
+                                    "high",
+                                    "xhigh",
+                                    "max",
+                                    "default"
+                                  ]
+                                }
+                              ]
+                            }
+                          }
+                        },
+                        "required": [
+                          "type",
+                          "values"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "type": {
+                            "type": "string",
+                            "const": "budget_tokens"
+                          },
+                          "min": {
+                            "type": "number",
+                            "minimum": -1
+                          },
+                          "max": {
+                            "type": "number",
+                            "minimum": 0
+                          }
+                        },
+                        "required": [
+                          "type"
+                        ],
+                        "additionalProperties": false
+                      }
+                    ]
+                  }
+                },
                 "temperature": {
+                  "default": false,
                   "type": "boolean"
                 },
                 "tool_call": {
+                  "type": "boolean"
+                },
+                "structured_output": {
+                  "type": "boolean"
+                },
+                "knowledge": {
+                  "type": "string"
+                },
+                "open_weights": {
                   "type": "boolean"
                 },
                 "interleaved": {
@@ -24577,37 +25036,130 @@
                   "type": "object",
                   "properties": {
                     "input": {
-                      "type": "number"
+                      "type": "number",
+                      "minimum": 0
                     },
                     "output": {
-                      "type": "number"
+                      "type": "number",
+                      "minimum": 0
+                    },
+                    "reasoning": {
+                      "type": "number",
+                      "minimum": 0
                     },
                     "cache_read": {
-                      "type": "number"
+                      "type": "number",
+                      "minimum": 0
                     },
                     "cache_write": {
-                      "type": "number"
+                      "type": "number",
+                      "minimum": 0
+                    },
+                    "input_audio": {
+                      "type": "number",
+                      "minimum": 0
+                    },
+                    "output_audio": {
+                      "type": "number",
+                      "minimum": 0
                     },
                     "context_over_200k": {
                       "type": "object",
                       "properties": {
                         "input": {
-                          "type": "number"
+                          "type": "number",
+                          "minimum": 0
                         },
                         "output": {
-                          "type": "number"
+                          "type": "number",
+                          "minimum": 0
+                        },
+                        "reasoning": {
+                          "type": "number",
+                          "minimum": 0
                         },
                         "cache_read": {
-                          "type": "number"
+                          "type": "number",
+                          "minimum": 0
                         },
                         "cache_write": {
-                          "type": "number"
+                          "type": "number",
+                          "minimum": 0
+                        },
+                        "input_audio": {
+                          "type": "number",
+                          "minimum": 0
+                        },
+                        "output_audio": {
+                          "type": "number",
+                          "minimum": 0
                         }
                       },
                       "required": [
                         "input",
                         "output"
                       ]
+                    },
+                    "tiers": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "input": {
+                            "type": "number",
+                            "minimum": 0
+                          },
+                          "output": {
+                            "type": "number",
+                            "minimum": 0
+                          },
+                          "reasoning": {
+                            "type": "number",
+                            "minimum": 0
+                          },
+                          "cache_read": {
+                            "type": "number",
+                            "minimum": 0
+                          },
+                          "cache_write": {
+                            "type": "number",
+                            "minimum": 0
+                          },
+                          "input_audio": {
+                            "type": "number",
+                            "minimum": 0
+                          },
+                          "output_audio": {
+                            "type": "number",
+                            "minimum": 0
+                          },
+                          "tier": {
+                            "type": "object",
+                            "properties": {
+                              "type": {
+                                "default": "context",
+                                "type": "string",
+                                "const": "context"
+                              },
+                              "size": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 9007199254740991
+                              }
+                            },
+                            "required": [
+                              "size"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "required": [
+                          "input",
+                          "output",
+                          "tier"
+                        ],
+                        "additionalProperties": false
+                      }
                     }
                   },
                   "required": [
@@ -24666,10 +25218,83 @@
                   "required": [
                     "input",
                     "output"
-                  ]
+                  ],
+                  "additionalProperties": false
                 },
                 "experimental": {
-                  "type": "boolean"
+                  "type": "object",
+                  "properties": {
+                    "modes": {
+                      "type": "object",
+                      "propertyNames": {
+                        "type": "string"
+                      },
+                      "additionalProperties": {
+                        "type": "object",
+                        "properties": {
+                          "cost": {
+                            "type": "object",
+                            "properties": {
+                              "input": {
+                                "type": "number",
+                                "minimum": 0
+                              },
+                              "output": {
+                                "type": "number",
+                                "minimum": 0
+                              },
+                              "reasoning": {
+                                "type": "number",
+                                "minimum": 0
+                              },
+                              "cache_read": {
+                                "type": "number",
+                                "minimum": 0
+                              },
+                              "cache_write": {
+                                "type": "number",
+                                "minimum": 0
+                              },
+                              "input_audio": {
+                                "type": "number",
+                                "minimum": 0
+                              },
+                              "output_audio": {
+                                "type": "number",
+                                "minimum": 0
+                              }
+                            },
+                            "required": [
+                              "input",
+                              "output"
+                            ]
+                          },
+                          "provider": {
+                            "type": "object",
+                            "properties": {
+                              "body": {
+                                "type": "object",
+                                "propertyNames": {
+                                  "type": "string"
+                                },
+                                "additionalProperties": {}
+                              },
+                              "headers": {
+                                "type": "object",
+                                "propertyNames": {
+                                  "type": "string"
+                                },
+                                "additionalProperties": {
+                                  "type": "string"
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "additionalProperties": false
                 },
                 "status": {
                   "type": "string",
@@ -24680,6 +25305,7 @@
                   ]
                 },
                 "options": {
+                  "default": {},
                   "type": "object",
                   "propertyNames": {
                     "type": "string"
@@ -24703,8 +25329,32 @@
                     },
                     "api": {
                       "type": "string"
+                    },
+                    "shape": {
+                      "type": "string",
+                      "enum": [
+                        "responses",
+                        "completions"
+                      ]
+                    },
+                    "body": {
+                      "type": "object",
+                      "propertyNames": {
+                        "type": "string"
+                      },
+                      "additionalProperties": {}
+                    },
+                    "headers": {
+                      "type": "object",
+                      "propertyNames": {
+                        "type": "string"
+                      },
+                      "additionalProperties": {
+                        "type": "string"
+                      }
                     }
-                  }
+                  },
+                  "additionalProperties": false
                 },
                 "variants": {
                   "description": "Variant-specific configuration",
@@ -26881,6 +27531,79 @@
           "prompt",
           "description",
           "agent"
+        ]
+      },
+      "ModelsDevStatus": {
+        "type": "object",
+        "properties": {
+          "source": {
+            "type": "string",
+            "enum": [
+              "path",
+              "cache",
+              "embedded",
+              "remote",
+              "none"
+            ]
+          },
+          "checkedAt": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "updatedAt": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "etag": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "hash": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "source",
+          "checkedAt",
+          "updatedAt",
+          "etag",
+          "hash",
+          "error"
         ]
       },
       "ProviderAuthMethod": {
