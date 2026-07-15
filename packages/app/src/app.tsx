@@ -215,7 +215,7 @@ function ConnectionGate(props: ParentProps<{ disableHealthCheck?: boolean }>) {
             }}
             onServerSelected={(key) => {
               setCheckMode("blocking")
-              server.setActive(key)
+              server.activate(key)
               healthCheckActions.refetch()
             }}
           />
@@ -292,8 +292,12 @@ export function AppInterface(props: {
   basePath?: string
 }) {
   const routerBase = props.basePath && props.basePath !== "/" ? props.basePath : undefined
+  const reset = () => {
+    const base = routerBase ?? "/"
+    if (typeof history !== "undefined") history.replaceState(history.state, "", base)
+  }
   return (
-    <ServerProvider defaultServer={props.defaultServer} servers={props.servers}>
+    <ServerProvider defaultServer={props.defaultServer} servers={props.servers} reset={reset}>
       <ConnectionGate disableHealthCheck={props.disableHealthCheck}>
         <ServerKey>
           <GlobalSDKProvider>

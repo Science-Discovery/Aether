@@ -15,6 +15,7 @@ import { useServer } from "@/context/server"
 import { useGlobalSync } from "@/context/global-sync"
 import { displayPath } from "@opencode-ai/util/path"
 import { useLanguage } from "@/context/language"
+import { OpenIntent } from "@/utils/open-intent"
 
 export default function Home() {
   const sync = useGlobalSync()
@@ -39,6 +40,7 @@ export default function Home() {
   function openProject(directory: string) {
     layout.projects.open(directory)
     server.projects.touch(directory)
+    OpenIntent.mark(server.key, directory)
     navigate(`/${base64Encode(directory)}`)
   }
 

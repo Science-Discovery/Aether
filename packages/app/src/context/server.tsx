@@ -99,7 +99,7 @@ export namespace ServerConnection {
 
 export const { use: useServer, provider: ServerProvider } = createSimpleContext({
   name: "Server",
-  init: (props: { defaultServer: ServerConnection.Key; servers?: Array<ServerConnection.Any> }) => {
+  init: (props: { defaultServer: ServerConnection.Key; servers?: Array<ServerConnection.Any>; reset?: () => void }) => {
     const checkServerHealthFn = useCheckServerHealth()
     const platform = usePlatform()
 
@@ -178,8 +178,10 @@ export const { use: useServer, provider: ServerProvider } = createSimpleContext(
       }
     }
 
-    function setActive(input: ServerConnection.Key) {
-      if (state.active !== input) setState("active", input)
+    function activate(input: ServerConnection.Key) {
+      if (state.active === input) return
+      props.reset?.()
+      setState("active", input)
     }
 
     function add(input: ServerConnection.Http) {
@@ -193,20 +195,17 @@ export const { use: useServer, provider: ServerProvider } = createSimpleContext(
         } else {
           setStore("list", store.list.length, conn)
         }
-        setState("active", ServerConnection.key(conn))
         return conn
       })
     }
 
     function remove(key: ServerConnection.Key) {
       const list = store.list.filter((x) => url(x) !== key)
+      const next = list[0]
       batch(() => {
         setStore("list", list)
-        if (state.active === key) {
-          const next = list[0]
-          setState("active", next ? ServerConnection.Key.make(url(next)) : props.defaultServer)
-        }
       })
+      if (state.active === key) return next ? ServerConnection.Key.make(url(next)) : props.defaultServer
     }
 
     const isReady = createMemo(() => ready() && !!state.active)
@@ -247,7 +246,7 @@ export const { use: useServer, provider: ServerProvider } = createSimpleContext(
       get current() {
         return current()
       },
-      setActive,
+      activate,
       add,
       remove,
       projects: {
