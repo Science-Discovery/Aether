@@ -20,6 +20,7 @@ beforeAll(async () => {
         children: () => [],
         expand: () => {},
         collapse: () => {},
+        collapseAll: () => {},
       },
     }),
   }))
