@@ -1,4 +1,5 @@
 import { $ } from "bun"
+import path from "path"
 
 export type Channel = "dev" | "beta" | "prod"
 
@@ -66,6 +67,12 @@ export async function copyBinaryToSidecarFolder(source: string) {
   if (process.platform === "darwin") await $`codesign --force --sign - ${dest}`
   if (process.platform === "linux") await $`chmod +x ${dest}`
 
+  console.log(`Copied ${source} to ${dest}`)
+}
+
+export async function copyResource(source: string, dest: string) {
+  await $`mkdir -p ${path.dirname(dest)}`
+  await $`cp ${source} ${dest}`
   console.log(`Copied ${source} to ${dest}`)
 }
 

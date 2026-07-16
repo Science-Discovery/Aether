@@ -1,4 +1,4 @@
-import { sep } from "node:path"
+import { basename, isAbsolute, relative, sep } from "node:path"
 import { Glob } from "../util/glob"
 
 export namespace FileIgnore {
@@ -36,6 +36,7 @@ export namespace FileIgnore {
   const FILES = [
     "**/*.swp",
     "**/*.swo",
+    "**/*.swx",
 
     "**/*.pyc",
 
@@ -55,6 +56,34 @@ export namespace FileIgnore {
   ]
 
   export const PATTERNS = [...FILES, ...FOLDERS]
+  export const WATCH = [`**/{${[...FOLDERS].join(",")}}`]
+
+  export function watch(extra: string[], keep: string[]) {
+    return [...WATCH, ...extra, ...keep]
+  }
+
+  export function event(extra: string[], keep: string[]) {
+    return [...PATTERNS, ...extra, ...keep]
+  }
+
+  export function filter(patterns: string[], file: string, root?: string) {
+    const rel =
+      root && isAbsolute(file)
+        ? relative(root, file).split(sep).join("/")
+        : file.split(sep).join("/")
+
+    if (rel === "" || rel === "." || rel.startsWith("../")) return false
+
+    for (const item of patterns) {
+      if (item.includes("/")) {
+        if (Glob.match(item, rel)) return true
+        continue
+      }
+      if (Glob.match(item, basename(rel))) return true
+    }
+
+    return false
+  }
 
   export function match(
     filepath: string,

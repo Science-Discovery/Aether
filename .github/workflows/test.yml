@@ -18,6 +18,28 @@ permissions:
   checks: write
 
 jobs:
+  go-watcher:
+    name: go watcher (linux)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: packages/go-watcher/go.mod
+          cache-dependency-path: packages/go-watcher/go.sum
+
+      - name: Run go-watcher tests
+        working-directory: packages/go-watcher
+        run: go test ./...
+
   ui-unit:
     name: ui unit (linux)
     runs-on: ubuntu-latest

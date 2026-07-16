@@ -24,7 +24,6 @@ const watcherConfigLayer = ConfigProvider.layer(
 )
 
 type WatcherEvent = { file: string; event: "add" | "change" | "unlink" }
-type LimitedEvent = { dir: string; reason: "limit" | "timeout" | "error" }
 
 /** Run `body` with a live FileWatcher service. */
 function withWatcher<E>(directory: string, body: Effect.Effect<void, E>) {
@@ -88,21 +87,6 @@ function wait(directory: string, check: (evt: WatcherEvent) => boolean) {
       off = listen(directory, check, (evt) => {
         off()
         Deferred.doneUnsafe(deferred, Effect.succeed(evt))
-      })
-      return off
-    })
-    return { cleanup, deferred }
-  })
-}
-
-function waitLimited(check: (evt: LimitedEvent) => boolean) {
-  return Effect.gen(function* () {
-    const deferred = yield* Deferred.make<LimitedEvent>()
-    const cleanup = yield* Effect.sync(() => {
-      const off = Bus.subscribe(FileWatcher.Event.Limited, (evt) => {
-        if (!check(evt.properties)) return
-        off()
-        Deferred.doneUnsafe(deferred, Effect.succeed(evt.properties))
       })
       return off
     })
@@ -216,7 +200,7 @@ describeWatcher("FileWatcher", () => {
     )
   })
 
-  testLinux("skips worktree watcher when linux directory budget is exceeded", async () => {
+  testLinux("watches large linux worktrees with the go sidecar", async () => {
     await using tmp = await tmpdir()
     const file = path.join(tmp.path, "plain.txt")
 
@@ -231,23 +215,17 @@ describeWatcher("FileWatcher", () => {
           Layer.provide(watcherConfigLayer),
         )
         const rt = ManagedRuntime.make(layer)
-        const sub = await Effect.runPromise(waitLimited((evt) => evt.dir === tmp.path))
 
         try {
           await rt.runPromise(FileWatcher.Service.use((s) => s.init()))
-          expect(await Effect.runPromise(Deferred.await(sub.deferred).pipe(Effect.timeout("5 seconds")))).toEqual({
-            dir: tmp.path,
-            reason: "limit",
-          })
           await Effect.runPromise(
-            noUpdate(
+            nextUpdate(
               tmp.path,
-              (e) => e.file === file,
+              (e) => e.file === file && e.event === "add",
               Effect.promise(() => fs.writeFile(file, "plain")),
-            ),
+            ).pipe(Effect.tap((evt) => Effect.sync(() => expect(evt).toEqual({ file, event: "add" })))),
           )
         } finally {
-          sub.cleanup()
           await rt.dispose()
         }
       },
