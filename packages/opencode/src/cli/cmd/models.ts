@@ -6,6 +6,7 @@ import { ModelsDev } from "../../provider/models"
 import { cmd } from "./cmd"
 import { UI } from "../ui"
 import { EOL } from "os"
+import { CodexModels } from "../../plugin/codex-models"
 
 export const ModelsCommand = cmd({
   command: "models [provider]",
@@ -28,14 +29,26 @@ export const ModelsCommand = cmd({
   },
   handler: async (args) => {
     if (args.refresh) {
-      await ModelsDev.refresh()
+      const result = await ModelsDev.refresh({ force: true })
+      if (result.error) {
+        UI.error(`Failed to refresh models cache: ${result.error}`)
+        return
+      }
       UI.println(UI.Style.TEXT_SUCCESS_BOLD + "Models cache refreshed" + UI.Style.TEXT_NORMAL)
     }
 
     await Instance.provide({
       directory: process.cwd(),
       async fn() {
-        const providers = await Provider.list()
+        let providers = await Provider.list()
+        if (args.refresh) {
+          const result = await CodexModels.refresh({ force: true })
+          if (result.enabled && result.error) UI.error(`Failed to refresh Codex models cache: ${result.error}`)
+          if (result.enabled && !result.error) {
+            UI.println(UI.Style.TEXT_SUCCESS_BOLD + "Codex models cache refreshed" + UI.Style.TEXT_NORMAL)
+          }
+          providers = await Provider.list()
+        }
 
         function printModels(providerID: ProviderID, verbose?: boolean) {
           const provider = providers[providerID]

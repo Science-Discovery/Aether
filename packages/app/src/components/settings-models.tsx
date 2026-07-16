@@ -4,9 +4,10 @@ import { Switch } from "@opencode-ai/ui/switch"
 import { Icon } from "@opencode-ai/ui/icon"
 import { IconButton } from "@opencode-ai/ui/icon-button"
 import { TextField } from "@opencode-ai/ui/text-field"
-import { type Component, For, Show } from "solid-js"
+import { createResource, type Component, For, onCleanup, Show } from "solid-js"
 import { useLanguage } from "@/context/language"
 import { useModels } from "@/context/models"
+import { useGlobalSDK } from "@/context/global-sdk"
 import { popularProviders } from "@/hooks/use-providers"
 import { SettingsList } from "./settings-list"
 
@@ -34,6 +35,35 @@ const ListEmptyState: Component<{ message: string; filter: string }> = (props) =
 export const SettingsModels: Component = () => {
   const language = useLanguage()
   const models = useModels()
+  const sdk = useGlobalSDK()
+  const [status, { refetch }] = createResource(() =>
+    sdk.client.provider.models
+      .status()
+      .then((x) => x.data)
+      .catch(() => undefined),
+  )
+  const [codex, { refetch: refetchCodex }] = createResource(() =>
+    sdk.client.provider.models.codex
+      .status()
+      .then((x) => x.data)
+      .catch(() => undefined),
+  )
+
+  const unsub = sdk.event.listen((event) => {
+    if (event.name !== "global") return
+    if (event.details.type !== "provider.models.updated") return
+    void refetch()
+    void refetchCodex()
+  })
+  onCleanup(unsub)
+
+  const time = (value: number | null) => {
+    if (!value) return language.t("settings.models.status.never")
+    return new Intl.DateTimeFormat(language.intl(), {
+      dateStyle: "short",
+      timeStyle: "medium",
+    }).format(value)
+  }
 
   const list = useFilteredList<ModelItem>({
     items: (_filter) => models.list(),
@@ -61,7 +91,35 @@ export const SettingsModels: Component = () => {
     <div class="flex flex-col h-full overflow-y-auto no-scrollbar px-4 pb-10 sm:px-10 sm:pb-10">
       <div class="sticky top-0 z-10 bg-[linear-gradient(to_bottom,var(--surface-stronger-non-alpha)_calc(100%_-_24px),transparent)]">
         <div class="flex flex-col gap-4 pt-6 pb-6 max-w-[720px]">
-          <h2 class="text-16-medium text-text-strong">{language.t("settings.models.title")}</h2>
+          <div class="flex flex-col gap-1">
+            <h2 class="text-16-medium text-text-strong">{language.t("settings.models.title")}</h2>
+            <Show when={status()}>
+              {(value) => (
+                <div class="flex flex-wrap gap-x-4 gap-y-1 text-12-regular text-text-weak">
+                  <span>{language.t("settings.models.status.modelsDev")}</span>
+                  <span>
+                    {language.t("settings.models.status.checked")}: {time(value().checkedAt)}
+                  </span>
+                  <span>
+                    {language.t("settings.models.status.updated")}: {time(value().updatedAt)}
+                  </span>
+                </div>
+              )}
+            </Show>
+            <Show when={codex()?.enabled ? codex() : undefined}>
+              {(value) => (
+                <div class="flex flex-wrap gap-x-4 gap-y-1 text-12-regular text-text-weak">
+                  <span>{language.t("settings.models.status.codex")}</span>
+                  <span>
+                    {language.t("settings.models.status.checked")}: {time(value().checkedAt)}
+                  </span>
+                  <span>
+                    {language.t("settings.models.status.updated")}: {time(value().updatedAt)}
+                  </span>
+                </div>
+              )}
+            </Show>
+          </div>
           <div class="flex items-center gap-2 px-3 h-9 rounded-lg bg-surface-base">
             <Icon name="magnifying-glass" class="text-icon-weak-base flex-shrink-0" />
             <TextField

@@ -332,6 +332,9 @@
                     "ok": {
                       "type": "boolean",
                       "const": true
+                    },
+                    "active": {
+                      "type": "boolean"
                     }
                   },
                   "required": [
@@ -364,6 +367,9 @@
                   },
                   "alive": {
                     "type": "boolean"
+                  },
+                  "directory": {
+                    "type": "string"
                   }
                 },
                 "required": [
@@ -2559,6 +2565,131 @@
         ]
       }
     },
+    "/config/skills/evolution/projects": {
+      "get": {
+        "operationId": "config.skills.evolutionDirs",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "directory",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "workspace",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "summary": "List per-project skill-evolution output directories",
+        "description": "For each known project, return the absolute directory where its background-review (self-evolution) skills are written.",
+        "responses": {
+          "200": {
+            "description": "Per-project evolution output directories",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "directory": {
+                        "type": "string"
+                      },
+                      "evolutionDir": {
+                        "type": "string"
+                      },
+                      "projectPath": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "directory",
+                      "evolutionDir"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.config.skills.evolutionDirs({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/config/skills/evolution/reveal": {
+      "post": {
+        "operationId": "config.skills.evolutionReveal",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "directory",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "workspace",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "summary": "Open a skill-evolution output directory in the system file manager",
+        "description": "Open the given directory in the OS file manager from the backend process (cross-platform, WSL-aware), so it works even when the UI is a plain browser tab. Only paths under the skill-evolution root are allowed.",
+        "responses": {
+          "200": {
+            "description": "Whether the directory was opened",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "ok"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "dir": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "dir"
+                ]
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.config.skills.evolutionReveal({\n  ...\n})"
+          }
+        ]
+      }
+    },
     "/config/skills/evolution/toggle": {
       "post": {
         "operationId": "config.skills.toggleEvolved",
@@ -3039,6 +3170,13 @@
               "pattern": "^wrk.*"
             },
             "required": true
+          },
+          {
+            "in": "query",
+            "name": "deleteBranch",
+            "schema": {
+              "type": "boolean"
+            }
           }
         ],
         "summary": "Remove workspace",
@@ -3193,7 +3331,7 @@
           }
         ],
         "summary": "Remove worktree",
-        "description": "Remove a git worktree and delete its branch.",
+        "description": "Remove a git worktree. Optionally delete its branch by passing deleteBranch.",
         "responses": {
           "200": {
             "description": "Worktree removed",
@@ -3239,14 +3377,10 @@
                         "status": {
                           "type": "string",
                           "const": "forceOk"
-                        },
-                        "hasOrphanedDb": {
-                          "type": "boolean"
                         }
                       },
                       "required": [
-                        "status",
-                        "hasOrphanedDb"
+                        "status"
                       ]
                     }
                   ]
@@ -3392,6 +3526,19 @@
               "type": "string"
             },
             "description": "Filter sessions by title (case-insensitive)"
+          },
+          {
+            "in": "query",
+            "name": "search_scope",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "title",
+                "messages",
+                "all"
+              ]
+            },
+            "description": "Search title only, chat message text only, or both"
           },
           {
             "in": "query",
@@ -3608,6 +3755,19 @@
           },
           {
             "in": "query",
+            "name": "search_scope",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "title",
+                "messages",
+                "all"
+              ]
+            },
+            "description": "Search title only, chat message text only, or both"
+          },
+          {
+            "in": "query",
             "name": "limit",
             "schema": {
               "type": "number"
@@ -3767,6 +3927,241 @@
           {
             "lang": "js",
             "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.session.status({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/session/import": {
+      "post": {
+        "operationId": "session.import",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "directory",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "workspace",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "summary": "Import session backup",
+        "description": "Create a new local session from a versioned session backup.",
+        "responses": {
+          "200": {
+            "description": "Imported session",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "sessionID": {
+                      "type": "string",
+                      "pattern": "^ses.*"
+                    },
+                    "title": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "sessionID",
+                    "title"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BadRequestError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "message": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "message"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "data"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "info": {
+                    "type": "object",
+                    "propertyNames": {
+                      "type": "string"
+                    },
+                    "additionalProperties": {}
+                  },
+                  "messages": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "info": {
+                          "type": "object",
+                          "propertyNames": {
+                            "type": "string"
+                          },
+                          "additionalProperties": {}
+                        },
+                        "parts": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "additionalProperties": {}
+                          }
+                        }
+                      },
+                      "required": [
+                        "info",
+                        "parts"
+                      ]
+                    }
+                  },
+                  "version": {
+                    "type": "number",
+                    "const": 1
+                  }
+                },
+                "required": [
+                  "info",
+                  "messages"
+                ]
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.session.import({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/session/{sessionID}/backup/estimate": {
+      "get": {
+        "operationId": "session.backupEstimate",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "directory",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "workspace",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "sessionID",
+            "schema": {
+              "type": "string",
+              "pattern": "^ses.*"
+            },
+            "required": true
+          }
+        ],
+        "summary": "Estimate session backup size",
+        "description": "Estimate the size and row counts of a session backup.",
+        "responses": {
+          "200": {
+            "description": "Session backup estimate",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "bytes": {
+                      "type": "number"
+                    },
+                    "messages": {
+                      "type": "number"
+                    },
+                    "parts": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "bytes",
+                    "messages",
+                    "parts"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BadRequestError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFoundError"
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.session.backupEstimate({\n  ...\n})"
           }
         ]
       }
@@ -7032,6 +7427,9 @@
                           "name": {
                             "type": "string"
                           },
+                          "doc": {
+                            "type": "string"
+                          },
                           "env": {
                             "type": "array",
                             "items": {
@@ -7058,10 +7456,16 @@
                                 "name": {
                                   "type": "string"
                                 },
+                                "description": {
+                                  "type": "string"
+                                },
                                 "family": {
                                   "type": "string"
                                 },
                                 "release_date": {
+                                  "type": "string"
+                                },
+                                "last_updated": {
                                   "type": "string"
                                 },
                                 "attachment": {
@@ -7070,10 +7474,98 @@
                                 "reasoning": {
                                   "type": "boolean"
                                 },
+                                "reasoning_options": {
+                                  "type": "array",
+                                  "items": {
+                                    "anyOf": [
+                                      {
+                                        "type": "object",
+                                        "properties": {
+                                          "type": {
+                                            "type": "string",
+                                            "const": "toggle"
+                                          }
+                                        },
+                                        "required": [
+                                          "type"
+                                        ],
+                                        "additionalProperties": false
+                                      },
+                                      {
+                                        "type": "object",
+                                        "properties": {
+                                          "type": {
+                                            "type": "string",
+                                            "const": "effort"
+                                          },
+                                          "values": {
+                                            "type": "array",
+                                            "items": {
+                                              "anyOf": [
+                                                {
+                                                  "type": "null"
+                                                },
+                                                {
+                                                  "type": "string",
+                                                  "enum": [
+                                                    "none",
+                                                    "minimal",
+                                                    "low",
+                                                    "medium",
+                                                    "high",
+                                                    "xhigh",
+                                                    "max",
+                                                    "default"
+                                                  ]
+                                                }
+                                              ]
+                                            }
+                                          }
+                                        },
+                                        "required": [
+                                          "type",
+                                          "values"
+                                        ],
+                                        "additionalProperties": false
+                                      },
+                                      {
+                                        "type": "object",
+                                        "properties": {
+                                          "type": {
+                                            "type": "string",
+                                            "const": "budget_tokens"
+                                          },
+                                          "min": {
+                                            "type": "number",
+                                            "minimum": -1
+                                          },
+                                          "max": {
+                                            "type": "number",
+                                            "minimum": 0
+                                          }
+                                        },
+                                        "required": [
+                                          "type"
+                                        ],
+                                        "additionalProperties": false
+                                      }
+                                    ]
+                                  }
+                                },
                                 "temperature": {
+                                  "default": false,
                                   "type": "boolean"
                                 },
                                 "tool_call": {
+                                  "type": "boolean"
+                                },
+                                "structured_output": {
+                                  "type": "boolean"
+                                },
+                                "knowledge": {
+                                  "type": "string"
+                                },
+                                "open_weights": {
                                   "type": "boolean"
                                 },
                                 "interleaved": {
@@ -7104,37 +7596,130 @@
                                   "type": "object",
                                   "properties": {
                                     "input": {
-                                      "type": "number"
+                                      "type": "number",
+                                      "minimum": 0
                                     },
                                     "output": {
-                                      "type": "number"
+                                      "type": "number",
+                                      "minimum": 0
+                                    },
+                                    "reasoning": {
+                                      "type": "number",
+                                      "minimum": 0
                                     },
                                     "cache_read": {
-                                      "type": "number"
+                                      "type": "number",
+                                      "minimum": 0
                                     },
                                     "cache_write": {
-                                      "type": "number"
+                                      "type": "number",
+                                      "minimum": 0
+                                    },
+                                    "input_audio": {
+                                      "type": "number",
+                                      "minimum": 0
+                                    },
+                                    "output_audio": {
+                                      "type": "number",
+                                      "minimum": 0
                                     },
                                     "context_over_200k": {
                                       "type": "object",
                                       "properties": {
                                         "input": {
-                                          "type": "number"
+                                          "type": "number",
+                                          "minimum": 0
                                         },
                                         "output": {
-                                          "type": "number"
+                                          "type": "number",
+                                          "minimum": 0
+                                        },
+                                        "reasoning": {
+                                          "type": "number",
+                                          "minimum": 0
                                         },
                                         "cache_read": {
-                                          "type": "number"
+                                          "type": "number",
+                                          "minimum": 0
                                         },
                                         "cache_write": {
-                                          "type": "number"
+                                          "type": "number",
+                                          "minimum": 0
+                                        },
+                                        "input_audio": {
+                                          "type": "number",
+                                          "minimum": 0
+                                        },
+                                        "output_audio": {
+                                          "type": "number",
+                                          "minimum": 0
                                         }
                                       },
                                       "required": [
                                         "input",
                                         "output"
                                       ]
+                                    },
+                                    "tiers": {
+                                      "type": "array",
+                                      "items": {
+                                        "type": "object",
+                                        "properties": {
+                                          "input": {
+                                            "type": "number",
+                                            "minimum": 0
+                                          },
+                                          "output": {
+                                            "type": "number",
+                                            "minimum": 0
+                                          },
+                                          "reasoning": {
+                                            "type": "number",
+                                            "minimum": 0
+                                          },
+                                          "cache_read": {
+                                            "type": "number",
+                                            "minimum": 0
+                                          },
+                                          "cache_write": {
+                                            "type": "number",
+                                            "minimum": 0
+                                          },
+                                          "input_audio": {
+                                            "type": "number",
+                                            "minimum": 0
+                                          },
+                                          "output_audio": {
+                                            "type": "number",
+                                            "minimum": 0
+                                          },
+                                          "tier": {
+                                            "type": "object",
+                                            "properties": {
+                                              "type": {
+                                                "default": "context",
+                                                "type": "string",
+                                                "const": "context"
+                                              },
+                                              "size": {
+                                                "type": "integer",
+                                                "minimum": 0,
+                                                "maximum": 9007199254740991
+                                              }
+                                            },
+                                            "required": [
+                                              "size"
+                                            ],
+                                            "additionalProperties": false
+                                          }
+                                        },
+                                        "required": [
+                                          "input",
+                                          "output",
+                                          "tier"
+                                        ],
+                                        "additionalProperties": false
+                                      }
                                     }
                                   },
                                   "required": [
@@ -7193,10 +7778,83 @@
                                   "required": [
                                     "input",
                                     "output"
-                                  ]
+                                  ],
+                                  "additionalProperties": false
                                 },
                                 "experimental": {
-                                  "type": "boolean"
+                                  "type": "object",
+                                  "properties": {
+                                    "modes": {
+                                      "type": "object",
+                                      "propertyNames": {
+                                        "type": "string"
+                                      },
+                                      "additionalProperties": {
+                                        "type": "object",
+                                        "properties": {
+                                          "cost": {
+                                            "type": "object",
+                                            "properties": {
+                                              "input": {
+                                                "type": "number",
+                                                "minimum": 0
+                                              },
+                                              "output": {
+                                                "type": "number",
+                                                "minimum": 0
+                                              },
+                                              "reasoning": {
+                                                "type": "number",
+                                                "minimum": 0
+                                              },
+                                              "cache_read": {
+                                                "type": "number",
+                                                "minimum": 0
+                                              },
+                                              "cache_write": {
+                                                "type": "number",
+                                                "minimum": 0
+                                              },
+                                              "input_audio": {
+                                                "type": "number",
+                                                "minimum": 0
+                                              },
+                                              "output_audio": {
+                                                "type": "number",
+                                                "minimum": 0
+                                              }
+                                            },
+                                            "required": [
+                                              "input",
+                                              "output"
+                                            ]
+                                          },
+                                          "provider": {
+                                            "type": "object",
+                                            "properties": {
+                                              "body": {
+                                                "type": "object",
+                                                "propertyNames": {
+                                                  "type": "string"
+                                                },
+                                                "additionalProperties": {}
+                                              },
+                                              "headers": {
+                                                "type": "object",
+                                                "propertyNames": {
+                                                  "type": "string"
+                                                },
+                                                "additionalProperties": {
+                                                  "type": "string"
+                                                }
+                                              }
+                                            }
+                                          }
+                                        }
+                                      }
+                                    }
+                                  },
+                                  "additionalProperties": false
                                 },
                                 "status": {
                                   "type": "string",
@@ -7207,6 +7865,7 @@
                                   ]
                                 },
                                 "options": {
+                                  "default": {},
                                   "type": "object",
                                   "propertyNames": {
                                     "type": "string"
@@ -7230,8 +7889,32 @@
                                     },
                                     "api": {
                                       "type": "string"
+                                    },
+                                    "shape": {
+                                      "type": "string",
+                                      "enum": [
+                                        "responses",
+                                        "completions"
+                                      ]
+                                    },
+                                    "body": {
+                                      "type": "object",
+                                      "propertyNames": {
+                                        "type": "string"
+                                      },
+                                      "additionalProperties": {}
+                                    },
+                                    "headers": {
+                                      "type": "object",
+                                      "propertyNames": {
+                                        "type": "string"
+                                      },
+                                      "additionalProperties": {
+                                        "type": "string"
+                                      }
                                     }
-                                  }
+                                  },
+                                  "additionalProperties": false
                                 },
                                 "variants": {
                                   "type": "object",
@@ -7253,10 +7936,8 @@
                                 "release_date",
                                 "attachment",
                                 "reasoning",
-                                "temperature",
                                 "tool_call",
-                                "limit",
-                                "options"
+                                "limit"
                               ]
                             }
                           }
@@ -7299,6 +7980,88 @@
           {
             "lang": "js",
             "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.provider.list({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/provider/models/status": {
+      "get": {
+        "operationId": "provider.models.status",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "directory",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "workspace",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "summary": "Get models.dev status",
+        "description": "Get the current models.dev source and refresh status.",
+        "responses": {
+          "200": {
+            "description": "Models.dev refresh status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelsDevStatus"
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.provider.models.status({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/provider/models/codex/status": {
+      "get": {
+        "operationId": "provider.models.codex.status",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "directory",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "workspace",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "summary": "Get Codex models status",
+        "description": "Get the current ChatGPT subscription model catalog refresh status.",
+        "responses": {
+          "200": {
+            "description": "Codex model catalog refresh status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CodexModelsStatus"
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.provider.models.codex.status({\n  ...\n})"
           }
         ]
       }
@@ -9980,6 +10743,523 @@
           {
             "lang": "js",
             "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.file.pdfToMarkdownCancel({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/file/pdf-annotations": {
+      "get": {
+        "operationId": "file.pdfAnnotations.get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "directory",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "workspace",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "summary": "Get PDF annotations",
+        "responses": {
+          "200": {
+            "description": "PDF annotation draft",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BadRequestError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFoundError"
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.file.pdfAnnotations.get({\n  ...\n})"
+          }
+        ]
+      },
+      "put": {
+        "operationId": "file.pdfAnnotations.update",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "directory",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "workspace",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "summary": "Replace PDF annotations",
+        "responses": {
+          "200": {
+            "description": "Saved PDF annotation draft",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "version": {
+                      "type": "string",
+                      "const": "1.2"
+                    },
+                    "source": {
+                      "type": "object",
+                      "properties": {
+                        "path": {
+                          "type": "string"
+                        },
+                        "fingerprint": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "path",
+                        "fingerprint"
+                      ]
+                    },
+                    "annotations": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 128
+                          },
+                          "type": {
+                            "type": "string",
+                            "enum": [
+                              "highlight",
+                              "underline",
+                              "strikeout",
+                              "note"
+                            ]
+                          },
+                          "color": {
+                            "type": "string",
+                            "enum": [
+                              "yellow",
+                              "red",
+                              "green",
+                              "blue"
+                            ]
+                          },
+                          "pages": {
+                            "minItems": 1,
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "page": {
+                                  "type": "integer",
+                                  "exclusiveMinimum": 0,
+                                  "maximum": 9007199254740991
+                                },
+                                "quads": {
+                                  "minItems": 1,
+                                  "type": "array",
+                                  "items": {
+                                    "type": "array",
+                                    "prefixItems": [
+                                      {
+                                        "type": "number"
+                                      },
+                                      {
+                                        "type": "number"
+                                      },
+                                      {
+                                        "type": "number"
+                                      },
+                                      {
+                                        "type": "number"
+                                      },
+                                      {
+                                        "type": "number"
+                                      },
+                                      {
+                                        "type": "number"
+                                      },
+                                      {
+                                        "type": "number"
+                                      },
+                                      {
+                                        "type": "number"
+                                      }
+                                    ]
+                                  }
+                                }
+                              },
+                              "required": [
+                                "page",
+                                "quads"
+                              ]
+                            }
+                          },
+                          "selectedText": {
+                            "type": "string",
+                            "maxLength": 100000
+                          },
+                          "note": {
+                            "type": "string",
+                            "maxLength": 100000
+                          },
+                          "createdAt": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          },
+                          "updatedAt": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "type",
+                          "color",
+                          "pages",
+                          "selectedText",
+                          "note",
+                          "createdAt",
+                          "updatedAt"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "source",
+                    "annotations"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BadRequestError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFoundError"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "path": {
+                    "type": "string"
+                  },
+                  "data": {
+                    "type": "object",
+                    "properties": {
+                      "version": {
+                        "type": "string",
+                        "const": "1.2"
+                      },
+                      "source": {
+                        "type": "object",
+                        "properties": {
+                          "path": {
+                            "type": "string"
+                          },
+                          "fingerprint": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "path",
+                          "fingerprint"
+                        ]
+                      },
+                      "annotations": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 128
+                            },
+                            "type": {
+                              "type": "string",
+                              "enum": [
+                                "highlight",
+                                "underline",
+                                "strikeout",
+                                "note"
+                              ]
+                            },
+                            "color": {
+                              "type": "string",
+                              "enum": [
+                                "yellow",
+                                "red",
+                                "green",
+                                "blue"
+                              ]
+                            },
+                            "pages": {
+                              "minItems": 1,
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "page": {
+                                    "type": "integer",
+                                    "exclusiveMinimum": 0,
+                                    "maximum": 9007199254740991
+                                  },
+                                  "quads": {
+                                    "minItems": 1,
+                                    "type": "array",
+                                    "items": {
+                                      "type": "array",
+                                      "prefixItems": [
+                                        {
+                                          "type": "number"
+                                        },
+                                        {
+                                          "type": "number"
+                                        },
+                                        {
+                                          "type": "number"
+                                        },
+                                        {
+                                          "type": "number"
+                                        },
+                                        {
+                                          "type": "number"
+                                        },
+                                        {
+                                          "type": "number"
+                                        },
+                                        {
+                                          "type": "number"
+                                        },
+                                        {
+                                          "type": "number"
+                                        }
+                                      ]
+                                    }
+                                  }
+                                },
+                                "required": [
+                                  "page",
+                                  "quads"
+                                ]
+                              }
+                            },
+                            "selectedText": {
+                              "type": "string",
+                              "maxLength": 100000
+                            },
+                            "note": {
+                              "type": "string",
+                              "maxLength": 100000
+                            },
+                            "createdAt": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 9007199254740991
+                            },
+                            "updatedAt": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 9007199254740991
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "type",
+                            "color",
+                            "pages",
+                            "selectedText",
+                            "note",
+                            "createdAt",
+                            "updatedAt"
+                          ]
+                        }
+                      }
+                    },
+                    "required": [
+                      "version",
+                      "source",
+                      "annotations"
+                    ]
+                  }
+                },
+                "required": [
+                  "path",
+                  "data"
+                ]
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.file.pdfAnnotations.update({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/file/pdf-annotations/export": {
+      "post": {
+        "operationId": "file.pdfAnnotations.export",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "directory",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "workspace",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "summary": "Export PDF with annotations",
+        "responses": {
+          "200": {
+            "description": "Annotated PDF"
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BadRequestError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFoundError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "message": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "message"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "data"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "path": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "path"
+                ]
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.file.pdfAnnotations.export({\n  ...\n})"
           }
         ]
       }
@@ -15825,6 +17105,14 @@
                   "modelID": {
                     "type": "string"
                   },
+                  "mode": {
+                    "type": "string",
+                    "enum": [
+                      "omni",
+                      "asr",
+                      "realtime"
+                    ]
+                  },
                   "audioBase64": {
                     "type": "string"
                   },
@@ -15848,6 +17136,12 @@
                         "content"
                       ]
                     }
+                  },
+                  "projectID": {
+                    "type": "string"
+                  },
+                  "saveAudio": {
+                    "type": "boolean"
                   }
                 },
                 "required": [
@@ -18613,6 +19907,9 @@
                       "description": {
                         "type": "string"
                       },
+                      "id": {
+                        "type": "string"
+                      },
                       "location": {
                         "type": "string"
                       },
@@ -18796,6 +20093,45 @@
             },
             "required": [
               "version"
+            ]
+          }
+        },
+        "required": [
+          "type",
+          "properties"
+        ]
+      },
+      "Event.provider.models.updated": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "provider.models.updated"
+          },
+          "properties": {
+            "type": "object",
+            "properties": {
+              "checkedAt": {
+                "type": "number"
+              },
+              "updatedAt": {
+                "type": "number"
+              },
+              "hash": {
+                "type": "string"
+              },
+              "source": {
+                "type": "string",
+                "enum": [
+                  "models.dev",
+                  "codex"
+                ]
+              }
+            },
+            "required": [
+              "checkedAt",
+              "updatedAt",
+              "hash"
             ]
           }
         },
@@ -20120,6 +21456,327 @@
           "after",
           "additions",
           "deletions"
+        ]
+      },
+      "PermissionAction": {
+        "type": "string",
+        "enum": [
+          "allow",
+          "deny",
+          "ask"
+        ]
+      },
+      "PermissionRule": {
+        "type": "object",
+        "properties": {
+          "permission": {
+            "type": "string"
+          },
+          "pattern": {
+            "type": "string"
+          },
+          "action": {
+            "$ref": "#/components/schemas/PermissionAction"
+          }
+        },
+        "required": [
+          "permission",
+          "pattern",
+          "action"
+        ]
+      },
+      "PermissionRuleset": {
+        "type": "array",
+        "items": {
+          "$ref": "#/components/schemas/PermissionRule"
+        }
+      },
+      "Session": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^ses.*"
+          },
+          "slug": {
+            "type": "string"
+          },
+          "projectID": {
+            "type": "string"
+          },
+          "workspaceID": {
+            "type": "string",
+            "pattern": "^wrk.*"
+          },
+          "directory": {
+            "type": "string"
+          },
+          "parentID": {
+            "type": "string",
+            "pattern": "^ses.*"
+          },
+          "treeID": {
+            "type": "string",
+            "pattern": "^tre.*"
+          },
+          "forkIndex": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "forkParentSessionID": {
+            "type": "string",
+            "pattern": "^ses.*"
+          },
+          "forkAfterUserMessageID": {
+            "type": "string",
+            "pattern": "^msg.*"
+          },
+          "summary": {
+            "type": "object",
+            "properties": {
+              "additions": {
+                "type": "number"
+              },
+              "deletions": {
+                "type": "number"
+              },
+              "files": {
+                "type": "number"
+              },
+              "diffs": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/FileDiff"
+                }
+              }
+            },
+            "required": [
+              "additions",
+              "deletions",
+              "files"
+            ]
+          },
+          "share": {
+            "type": "object",
+            "properties": {
+              "url": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "url"
+            ]
+          },
+          "title": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          },
+          "time": {
+            "type": "object",
+            "properties": {
+              "created": {
+                "type": "number"
+              },
+              "updated": {
+                "type": "number"
+              },
+              "compacting": {
+                "type": "number"
+              },
+              "archived": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "created",
+              "updated"
+            ]
+          },
+          "permission": {
+            "$ref": "#/components/schemas/PermissionRuleset"
+          },
+          "revert": {
+            "type": "object",
+            "properties": {
+              "messageID": {
+                "type": "string",
+                "pattern": "^msg.*"
+              },
+              "partID": {
+                "type": "string",
+                "pattern": "^prt.*"
+              },
+              "snapshot": {
+                "type": "string"
+              },
+              "diff": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "messageID"
+            ]
+          },
+          "readingMode": {
+            "type": "object",
+            "properties": {
+              "pdfFileName": {
+                "type": "string"
+              },
+              "pdfStorePath": {
+                "type": "string"
+              },
+              "lastReadPage": {
+                "type": "number"
+              },
+              "annotationsPath": {
+                "type": "string"
+              },
+              "source": {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "const": "workspace-file"
+                      },
+                      {
+                        "type": "string",
+                        "const": "upload"
+                      }
+                    ]
+                  },
+                  "path": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind"
+                ]
+              },
+              "settings": {
+                "type": "object",
+                "properties": {
+                  "translatePrompt": {
+                    "type": "string"
+                  },
+                  "questionPrompt": {
+                    "type": "string"
+                  },
+                  "firstReadPrompt": {
+                    "type": "string"
+                  },
+                  "contextPageRange": {
+                    "anyOf": [
+                      {
+                        "type": "number",
+                        "const": 0
+                      },
+                      {
+                        "type": "number",
+                        "const": 1
+                      },
+                      {
+                        "type": "number",
+                        "const": 2
+                      }
+                    ]
+                  },
+                  "autoFirstRead": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "translatePrompt",
+                  "questionPrompt",
+                  "firstReadPrompt",
+                  "contextPageRange",
+                  "autoFirstRead"
+                ]
+              },
+              "firstReadCompleted": {
+                "type": "boolean"
+              },
+              "firstReadDismissed": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "pdfFileName",
+              "pdfStorePath",
+              "lastReadPage",
+              "annotationsPath",
+              "source",
+              "settings",
+              "firstReadCompleted",
+              "firstReadDismissed"
+            ]
+          },
+          "match": {
+            "type": "object",
+            "properties": {
+              "scope": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "const": "title"
+                  },
+                  {
+                    "type": "string",
+                    "const": "messages"
+                  }
+                ]
+              },
+              "text": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "scope"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "slug",
+          "projectID",
+          "directory",
+          "title",
+          "version",
+          "time"
+        ]
+      },
+      "Event.session.imported": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "session.imported"
+          },
+          "properties": {
+            "type": "object",
+            "properties": {
+              "sessionID": {
+                "type": "string",
+                "pattern": "^ses.*"
+              },
+              "info": {
+                "$ref": "#/components/schemas/Session"
+              }
+            },
+            "required": [
+              "sessionID",
+              "info"
+            ]
+          }
+        },
+        "required": [
+          "type",
+          "properties"
         ]
       },
       "Event.session.diff": {
@@ -22048,275 +23705,6 @@
           "properties"
         ]
       },
-      "PermissionAction": {
-        "type": "string",
-        "enum": [
-          "allow",
-          "deny",
-          "ask"
-        ]
-      },
-      "PermissionRule": {
-        "type": "object",
-        "properties": {
-          "permission": {
-            "type": "string"
-          },
-          "pattern": {
-            "type": "string"
-          },
-          "action": {
-            "$ref": "#/components/schemas/PermissionAction"
-          }
-        },
-        "required": [
-          "permission",
-          "pattern",
-          "action"
-        ]
-      },
-      "PermissionRuleset": {
-        "type": "array",
-        "items": {
-          "$ref": "#/components/schemas/PermissionRule"
-        }
-      },
-      "Session": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string",
-            "pattern": "^ses.*"
-          },
-          "slug": {
-            "type": "string"
-          },
-          "projectID": {
-            "type": "string"
-          },
-          "workspaceID": {
-            "type": "string",
-            "pattern": "^wrk.*"
-          },
-          "directory": {
-            "type": "string"
-          },
-          "parentID": {
-            "type": "string",
-            "pattern": "^ses.*"
-          },
-          "treeID": {
-            "type": "string",
-            "pattern": "^tre.*"
-          },
-          "forkIndex": {
-            "type": "integer",
-            "exclusiveMinimum": 0,
-            "maximum": 9007199254740991
-          },
-          "forkParentSessionID": {
-            "type": "string",
-            "pattern": "^ses.*"
-          },
-          "forkAfterUserMessageID": {
-            "type": "string",
-            "pattern": "^msg.*"
-          },
-          "summary": {
-            "type": "object",
-            "properties": {
-              "additions": {
-                "type": "number"
-              },
-              "deletions": {
-                "type": "number"
-              },
-              "files": {
-                "type": "number"
-              },
-              "diffs": {
-                "type": "array",
-                "items": {
-                  "$ref": "#/components/schemas/FileDiff"
-                }
-              }
-            },
-            "required": [
-              "additions",
-              "deletions",
-              "files"
-            ]
-          },
-          "share": {
-            "type": "object",
-            "properties": {
-              "url": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "url"
-            ]
-          },
-          "title": {
-            "type": "string"
-          },
-          "version": {
-            "type": "string"
-          },
-          "time": {
-            "type": "object",
-            "properties": {
-              "created": {
-                "type": "number"
-              },
-              "updated": {
-                "type": "number"
-              },
-              "compacting": {
-                "type": "number"
-              },
-              "archived": {
-                "type": "number"
-              }
-            },
-            "required": [
-              "created",
-              "updated"
-            ]
-          },
-          "permission": {
-            "$ref": "#/components/schemas/PermissionRuleset"
-          },
-          "revert": {
-            "type": "object",
-            "properties": {
-              "messageID": {
-                "type": "string",
-                "pattern": "^msg.*"
-              },
-              "partID": {
-                "type": "string",
-                "pattern": "^prt.*"
-              },
-              "snapshot": {
-                "type": "string"
-              },
-              "diff": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "messageID"
-            ]
-          },
-          "readingMode": {
-            "type": "object",
-            "properties": {
-              "pdfFileName": {
-                "type": "string"
-              },
-              "pdfStorePath": {
-                "type": "string"
-              },
-              "lastReadPage": {
-                "type": "number"
-              },
-              "annotationsPath": {
-                "type": "string"
-              },
-              "source": {
-                "type": "object",
-                "properties": {
-                  "kind": {
-                    "anyOf": [
-                      {
-                        "type": "string",
-                        "const": "workspace-file"
-                      },
-                      {
-                        "type": "string",
-                        "const": "upload"
-                      }
-                    ]
-                  },
-                  "path": {
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "kind"
-                ]
-              },
-              "settings": {
-                "type": "object",
-                "properties": {
-                  "translatePrompt": {
-                    "type": "string"
-                  },
-                  "questionPrompt": {
-                    "type": "string"
-                  },
-                  "firstReadPrompt": {
-                    "type": "string"
-                  },
-                  "contextPageRange": {
-                    "anyOf": [
-                      {
-                        "type": "number",
-                        "const": 0
-                      },
-                      {
-                        "type": "number",
-                        "const": 1
-                      },
-                      {
-                        "type": "number",
-                        "const": 2
-                      }
-                    ]
-                  },
-                  "autoFirstRead": {
-                    "type": "boolean"
-                  }
-                },
-                "required": [
-                  "translatePrompt",
-                  "questionPrompt",
-                  "firstReadPrompt",
-                  "contextPageRange",
-                  "autoFirstRead"
-                ]
-              },
-              "firstReadCompleted": {
-                "type": "boolean"
-              },
-              "firstReadDismissed": {
-                "type": "boolean"
-              }
-            },
-            "required": [
-              "pdfFileName",
-              "pdfStorePath",
-              "lastReadPage",
-              "annotationsPath",
-              "source",
-              "settings",
-              "firstReadCompleted",
-              "firstReadDismissed"
-            ]
-          }
-        },
-        "required": [
-          "id",
-          "slug",
-          "projectID",
-          "directory",
-          "title",
-          "version",
-          "time"
-        ]
-      },
       "Event.session.created": {
         "type": "object",
         "properties": {
@@ -22413,6 +23801,9 @@
             "$ref": "#/components/schemas/Event.installation.update-available"
           },
           {
+            "$ref": "#/components/schemas/Event.provider.models.updated"
+          },
+          {
             "$ref": "#/components/schemas/Event.db.recovery.started"
           },
           {
@@ -22507,6 +23898,9 @@
           },
           {
             "$ref": "#/components/schemas/Event.session.preference.updated"
+          },
+          {
+            "$ref": "#/components/schemas/Event.session.imported"
           },
           {
             "$ref": "#/components/schemas/Event.session.diff"
@@ -23151,6 +24545,36 @@
                         "type": "null"
                       }
                     ]
+                  },
+                  "match": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "scope": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "const": "title"
+                              },
+                              {
+                                "type": "string",
+                                "const": "messages"
+                              }
+                            ]
+                          },
+                          "text": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "scope"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
                   }
                 },
                 "required": [
@@ -23169,7 +24593,8 @@
                   "version",
                   "permission",
                   "revert",
-                  "readingMode"
+                  "readingMode",
+                  "match"
                 ]
               }
             },
@@ -23467,6 +24892,16 @@
           },
           "permission": {
             "$ref": "#/components/schemas/PermissionConfig"
+          },
+          "mcp": {
+            "description": "MCP servers whose tools should be visible to this agent. Keys are MCP server names; true = visible. When any server is enabled here, only those servers' tools are exposed (others hidden); when absent, all connected MCP tools are exposed (default behavior).",
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {
+              "type": "boolean"
+            }
           }
         },
         "additionalProperties": {}
@@ -23478,6 +24913,9 @@
             "type": "string"
           },
           "name": {
+            "type": "string"
+          },
+          "doc": {
             "type": "string"
           },
           "env": {
@@ -23506,10 +24944,16 @@
                 "name": {
                   "type": "string"
                 },
+                "description": {
+                  "type": "string"
+                },
                 "family": {
                   "type": "string"
                 },
                 "release_date": {
+                  "type": "string"
+                },
+                "last_updated": {
                   "type": "string"
                 },
                 "attachment": {
@@ -23518,10 +24962,98 @@
                 "reasoning": {
                   "type": "boolean"
                 },
+                "reasoning_options": {
+                  "type": "array",
+                  "items": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "type": {
+                            "type": "string",
+                            "const": "toggle"
+                          }
+                        },
+                        "required": [
+                          "type"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "type": {
+                            "type": "string",
+                            "const": "effort"
+                          },
+                          "values": {
+                            "type": "array",
+                            "items": {
+                              "anyOf": [
+                                {
+                                  "type": "null"
+                                },
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "none",
+                                    "minimal",
+                                    "low",
+                                    "medium",
+                                    "high",
+                                    "xhigh",
+                                    "max",
+                                    "default"
+                                  ]
+                                }
+                              ]
+                            }
+                          }
+                        },
+                        "required": [
+                          "type",
+                          "values"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "type": {
+                            "type": "string",
+                            "const": "budget_tokens"
+                          },
+                          "min": {
+                            "type": "number",
+                            "minimum": -1
+                          },
+                          "max": {
+                            "type": "number",
+                            "minimum": 0
+                          }
+                        },
+                        "required": [
+                          "type"
+                        ],
+                        "additionalProperties": false
+                      }
+                    ]
+                  }
+                },
                 "temperature": {
+                  "default": false,
                   "type": "boolean"
                 },
                 "tool_call": {
+                  "type": "boolean"
+                },
+                "structured_output": {
+                  "type": "boolean"
+                },
+                "knowledge": {
+                  "type": "string"
+                },
+                "open_weights": {
                   "type": "boolean"
                 },
                 "interleaved": {
@@ -23552,37 +25084,130 @@
                   "type": "object",
                   "properties": {
                     "input": {
-                      "type": "number"
+                      "type": "number",
+                      "minimum": 0
                     },
                     "output": {
-                      "type": "number"
+                      "type": "number",
+                      "minimum": 0
+                    },
+                    "reasoning": {
+                      "type": "number",
+                      "minimum": 0
                     },
                     "cache_read": {
-                      "type": "number"
+                      "type": "number",
+                      "minimum": 0
                     },
                     "cache_write": {
-                      "type": "number"
+                      "type": "number",
+                      "minimum": 0
+                    },
+                    "input_audio": {
+                      "type": "number",
+                      "minimum": 0
+                    },
+                    "output_audio": {
+                      "type": "number",
+                      "minimum": 0
                     },
                     "context_over_200k": {
                       "type": "object",
                       "properties": {
                         "input": {
-                          "type": "number"
+                          "type": "number",
+                          "minimum": 0
                         },
                         "output": {
-                          "type": "number"
+                          "type": "number",
+                          "minimum": 0
+                        },
+                        "reasoning": {
+                          "type": "number",
+                          "minimum": 0
                         },
                         "cache_read": {
-                          "type": "number"
+                          "type": "number",
+                          "minimum": 0
                         },
                         "cache_write": {
-                          "type": "number"
+                          "type": "number",
+                          "minimum": 0
+                        },
+                        "input_audio": {
+                          "type": "number",
+                          "minimum": 0
+                        },
+                        "output_audio": {
+                          "type": "number",
+                          "minimum": 0
                         }
                       },
                       "required": [
                         "input",
                         "output"
                       ]
+                    },
+                    "tiers": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "input": {
+                            "type": "number",
+                            "minimum": 0
+                          },
+                          "output": {
+                            "type": "number",
+                            "minimum": 0
+                          },
+                          "reasoning": {
+                            "type": "number",
+                            "minimum": 0
+                          },
+                          "cache_read": {
+                            "type": "number",
+                            "minimum": 0
+                          },
+                          "cache_write": {
+                            "type": "number",
+                            "minimum": 0
+                          },
+                          "input_audio": {
+                            "type": "number",
+                            "minimum": 0
+                          },
+                          "output_audio": {
+                            "type": "number",
+                            "minimum": 0
+                          },
+                          "tier": {
+                            "type": "object",
+                            "properties": {
+                              "type": {
+                                "default": "context",
+                                "type": "string",
+                                "const": "context"
+                              },
+                              "size": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 9007199254740991
+                              }
+                            },
+                            "required": [
+                              "size"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "required": [
+                          "input",
+                          "output",
+                          "tier"
+                        ],
+                        "additionalProperties": false
+                      }
                     }
                   },
                   "required": [
@@ -23641,10 +25266,83 @@
                   "required": [
                     "input",
                     "output"
-                  ]
+                  ],
+                  "additionalProperties": false
                 },
                 "experimental": {
-                  "type": "boolean"
+                  "type": "object",
+                  "properties": {
+                    "modes": {
+                      "type": "object",
+                      "propertyNames": {
+                        "type": "string"
+                      },
+                      "additionalProperties": {
+                        "type": "object",
+                        "properties": {
+                          "cost": {
+                            "type": "object",
+                            "properties": {
+                              "input": {
+                                "type": "number",
+                                "minimum": 0
+                              },
+                              "output": {
+                                "type": "number",
+                                "minimum": 0
+                              },
+                              "reasoning": {
+                                "type": "number",
+                                "minimum": 0
+                              },
+                              "cache_read": {
+                                "type": "number",
+                                "minimum": 0
+                              },
+                              "cache_write": {
+                                "type": "number",
+                                "minimum": 0
+                              },
+                              "input_audio": {
+                                "type": "number",
+                                "minimum": 0
+                              },
+                              "output_audio": {
+                                "type": "number",
+                                "minimum": 0
+                              }
+                            },
+                            "required": [
+                              "input",
+                              "output"
+                            ]
+                          },
+                          "provider": {
+                            "type": "object",
+                            "properties": {
+                              "body": {
+                                "type": "object",
+                                "propertyNames": {
+                                  "type": "string"
+                                },
+                                "additionalProperties": {}
+                              },
+                              "headers": {
+                                "type": "object",
+                                "propertyNames": {
+                                  "type": "string"
+                                },
+                                "additionalProperties": {
+                                  "type": "string"
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "additionalProperties": false
                 },
                 "status": {
                   "type": "string",
@@ -23655,6 +25353,7 @@
                   ]
                 },
                 "options": {
+                  "default": {},
                   "type": "object",
                   "propertyNames": {
                     "type": "string"
@@ -23678,8 +25377,32 @@
                     },
                     "api": {
                       "type": "string"
+                    },
+                    "shape": {
+                      "type": "string",
+                      "enum": [
+                        "responses",
+                        "completions"
+                      ]
+                    },
+                    "body": {
+                      "type": "object",
+                      "propertyNames": {
+                        "type": "string"
+                      },
+                      "additionalProperties": {}
+                    },
+                    "headers": {
+                      "type": "object",
+                      "propertyNames": {
+                        "type": "string"
+                      },
+                      "additionalProperties": {
+                        "type": "string"
+                      }
                     }
-                  }
+                  },
+                  "additionalProperties": false
                 },
                 "variants": {
                   "description": "Variant-specific configuration",
@@ -23731,23 +25454,23 @@
                 "type": "boolean"
               },
               "timeout": {
-                "description": "Timeout in milliseconds for requests to this provider. Default is 300000 (5 minutes). Set to false to disable timeout.",
+                "description": "Total request timeout in ms. Applied to non-SSE responses only; SSE streams use chunkTimeout. Default is 300000 (5 minutes). Set to false to disable.",
                 "anyOf": [
                   {
-                    "description": "Timeout in milliseconds for requests to this provider. Default is 300000 (5 minutes). Set to false to disable timeout.",
+                    "description": "Total request timeout in ms. Applied to non-SSE responses only; SSE streams use chunkTimeout. Default is 300000 (5 minutes). Set to false to disable.",
                     "type": "integer",
                     "exclusiveMinimum": 0,
                     "maximum": 9007199254740991
                   },
                   {
-                    "description": "Disable timeout for this provider entirely.",
+                    "description": "Disable request timeout for this provider entirely.",
                     "type": "boolean",
                     "const": false
                   }
                 ]
               },
               "chunkTimeout": {
-                "description": "Timeout in milliseconds between streamed SSE chunks for this provider. If no chunk arrives within this window, the request is aborted.",
+                "description": "Timeout in ms between streamed SSE chunks. Default is 600000 (10 minutes). If no chunk arrives within this window, the request is aborted.",
                 "type": "integer",
                 "exclusiveMinimum": 0,
                 "maximum": 9007199254740991
@@ -23945,8 +25668,26 @@
                   "type": "string"
                 }
               },
+              "disabled_files": {
+                "description": "List of skill SKILL.md file paths to deactivate (precise per-file disable)",
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "evolution_disabled_files": {
+                "description": "List of skill SKILL.md file paths whose self-evolution is disabled",
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "evolution_enabled": {
+                "description": "Global master switch for skill self-evolution. When false, no project triggers background review (default: true)",
+                "type": "boolean"
+              },
               "creation_nudge_interval": {
-                "description": "LLM steps without skill_manage before background skill review triggers (default: 10, 0 to disable)",
+                "description": "LLM steps without skill_manage before background skill review triggers (default: 80, 0 to disable)",
                 "type": "integer",
                 "minimum": 0,
                 "maximum": 9007199254740991
@@ -23956,6 +25697,22 @@
                 "type": "integer",
                 "minimum": 1,
                 "maximum": 9007199254740991
+              },
+              "review_max_step_chars": {
+                "description": "Max characters a single step of a background skill review may stream before that step is cut off, guarding against a model that never stops emitting within one step (default: 300000)",
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 9007199254740991
+              },
+              "review_max_total_chars": {
+                "description": "Max characters a whole background skill review may stream (summed across all steps) before the review is stopped, guarding against a slow grind that never stops taking steps (default: 1000000)",
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 9007199254740991
+              },
+              "curator_enabled": {
+                "description": "Whether the skill curator runs its periodic maintenance (counting usage, marking stale, archiving unused skills). Default: true.",
+                "type": "boolean"
               }
             }
           },
@@ -25077,6 +26834,9 @@
           },
           "force": {
             "type": "boolean"
+          },
+          "deleteBranch": {
+            "type": "boolean"
           }
         },
         "required": [
@@ -25335,6 +27095,29 @@
               "settings",
               "firstReadCompleted",
               "firstReadDismissed"
+            ]
+          },
+          "match": {
+            "type": "object",
+            "properties": {
+              "scope": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "const": "title"
+                  },
+                  {
+                    "type": "string",
+                    "const": "messages"
+                  }
+                ]
+              },
+              "text": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "scope"
             ]
           },
           "project": {
@@ -25796,6 +27579,155 @@
           "prompt",
           "description",
           "agent"
+        ]
+      },
+      "ModelsDevStatus": {
+        "type": "object",
+        "properties": {
+          "source": {
+            "type": "string",
+            "enum": [
+              "path",
+              "cache",
+              "embedded",
+              "remote",
+              "none"
+            ]
+          },
+          "checkedAt": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "updatedAt": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "etag": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "hash": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "source",
+          "checkedAt",
+          "updatedAt",
+          "etag",
+          "hash",
+          "error"
+        ]
+      },
+      "CodexModelsStatus": {
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "none",
+              "fallback",
+              "cache",
+              "remote"
+            ]
+          },
+          "checkedAt": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "updatedAt": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "etag": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "hash": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "enabled",
+          "source",
+          "checkedAt",
+          "updatedAt",
+          "etag",
+          "hash",
+          "error"
         ]
       },
       "ProviderAuthMethod": {
@@ -26736,6 +28668,15 @@
             "type": "integer",
             "exclusiveMinimum": 0,
             "maximum": 9007199254740991
+          },
+          "mcp": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {
+              "type": "boolean"
+            }
           }
         },
         "required": [

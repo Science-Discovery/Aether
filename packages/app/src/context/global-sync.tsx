@@ -241,6 +241,7 @@ function createGlobalSync() {
   }
 
   let recentTask: Promise<void> | undefined
+  let providerTask: Promise<void> | undefined
 
   function refreshRecent() {
     if (recentTask) return recentTask
@@ -260,6 +261,32 @@ function createGlobalSync() {
         recentTask = undefined
       })
     return recentTask
+  }
+
+  function refreshProviders() {
+    if (providerTask) return providerTask
+    providerTask = Promise.all([
+      globalSDK.client.provider.list().then((x) => {
+        if (x.data) setGlobalStore("provider", reconcile(x.data))
+      }),
+      ...Object.keys(children.children).map((directory) =>
+        sdkFor(directory)
+          .provider.list()
+          .then((x) => {
+            if (!x.data) return
+            const child = children.getChild(directory)
+            if (child) child[1]("provider", reconcile(x.data))
+          }),
+      ),
+    ])
+      .then(() => {})
+      .catch((err) => {
+        console.error("Failed to refresh providers", err)
+      })
+      .finally(() => {
+        providerTask = undefined
+      })
+    return providerTask
   }
 
   async function loadSessions(directory: string, opts?: { force?: boolean }) {
@@ -413,6 +440,7 @@ function createGlobalSync() {
           if (recent) return
           queue.refresh()
         },
+        providers: refreshProviders,
         setGlobalProject: setProjects,
       })
       if (event.type === "project.updated" || event.type === "project.recent.updated") {

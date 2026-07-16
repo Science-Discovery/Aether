@@ -51,6 +51,7 @@ import { GoogleAuth } from "google-auth-library"
 import { ProviderTransform } from "./transform"
 import { Installation } from "../installation"
 import { ModelID, ProviderID } from "./schema"
+import { CodexModels } from "../plugin/codex-models"
 
 const DEFAULT_CHUNK_TIMEOUT = 600_000
 const DEFAULT_REQUEST_TIMEOUT = 300_000
@@ -1313,6 +1314,13 @@ export namespace Provider {
       varsLoaders,
     }
   })
+
+  ModelsDev.onUpdated(() => state.reset())
+  CodexModels.onUpdated(() => state.reset())
+
+  export function reset() {
+    state.reset()
+  }
 
   export async function list() {
     return state().then((state) => state.providers)

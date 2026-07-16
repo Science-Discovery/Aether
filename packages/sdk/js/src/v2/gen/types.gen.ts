@@ -26,6 +26,16 @@ export type EventInstallationUpdateAvailable = {
   }
 }
 
+export type EventProviderModelsUpdated = {
+  type: "provider.models.updated"
+  properties: {
+    checkedAt: number
+    updatedAt: number
+    hash: string
+    source?: "models.dev" | "codex"
+  }
+}
+
 export type EventDbRecoveryStarted = {
   type: "db.recovery.started"
   properties: {
@@ -1079,6 +1089,7 @@ export type EventSessionDeleted = {
 export type Event =
   | EventInstallationUpdated
   | EventInstallationUpdateAvailable
+  | EventProviderModelsUpdated
   | EventDbRecoveryStarted
   | EventDbRecoveryProgress
   | EventDbRecoveryCompleted
@@ -1371,6 +1382,12 @@ export type AgentConfig = {
    */
   maxSteps?: number
   permission?: PermissionConfig
+  /**
+   * MCP servers whose tools should be visible to this agent. Keys are MCP server names; true = visible. When any server is enabled here, only those servers' tools are exposed (others hidden); when absent, all connected MCP tools are exposed (default behavior).
+   */
+  mcp?: {
+    [key: string]: boolean
+  }
   [key: string]:
     | unknown
     | string
@@ -1395,12 +1412,16 @@ export type AgentConfig = {
     | "info"
     | number
     | PermissionConfig
+    | {
+        [key: string]: boolean
+      }
     | undefined
 }
 
 export type ProviderConfig = {
   api?: string
   name?: string
+  doc?: string
   env?: Array<string>
   id?: string
   npm?: string
@@ -1408,12 +1429,31 @@ export type ProviderConfig = {
     [key: string]: {
       id?: string
       name?: string
+      description?: string
       family?: string
       release_date?: string
+      last_updated?: string
       attachment?: boolean
       reasoning?: boolean
+      reasoning_options?: Array<
+        | {
+            type: "toggle"
+          }
+        | {
+            type: "effort"
+            values: Array<null | "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max" | "default">
+          }
+        | {
+            type: "budget_tokens"
+            min?: number
+            max?: number
+          }
+      >
       temperature?: boolean
       tool_call?: boolean
+      structured_output?: boolean
+      knowledge?: string
+      open_weights?: boolean
       interleaved?:
         | true
         | {
@@ -1422,14 +1462,33 @@ export type ProviderConfig = {
       cost?: {
         input: number
         output: number
+        reasoning?: number
         cache_read?: number
         cache_write?: number
+        input_audio?: number
+        output_audio?: number
         context_over_200k?: {
           input: number
           output: number
+          reasoning?: number
           cache_read?: number
           cache_write?: number
+          input_audio?: number
+          output_audio?: number
         }
+        tiers?: Array<{
+          input: number
+          output: number
+          reasoning?: number
+          cache_read?: number
+          cache_write?: number
+          input_audio?: number
+          output_audio?: number
+          tier: {
+            type?: "context"
+            size: number
+          }
+        }>
       }
       limit?: {
         context: number
@@ -1440,7 +1499,29 @@ export type ProviderConfig = {
         input: Array<"text" | "audio" | "image" | "video" | "pdf">
         output: Array<"text" | "audio" | "image" | "video" | "pdf">
       }
-      experimental?: boolean
+      experimental?: {
+        modes?: {
+          [key: string]: {
+            cost?: {
+              input: number
+              output: number
+              reasoning?: number
+              cache_read?: number
+              cache_write?: number
+              input_audio?: number
+              output_audio?: number
+            }
+            provider?: {
+              body?: {
+                [key: string]: unknown
+              }
+              headers?: {
+                [key: string]: string
+              }
+            }
+          }
+        }
+      }
       status?: "alpha" | "beta" | "deprecated"
       options?: {
         [key: string]: unknown
@@ -1451,6 +1532,13 @@ export type ProviderConfig = {
       provider?: {
         npm?: string
         api?: string
+        shape?: "responses" | "completions"
+        body?: {
+          [key: string]: unknown
+        }
+        headers?: {
+          [key: string]: string
+        }
       }
       /**
        * Variant-specific configuration
@@ -1480,11 +1568,11 @@ export type ProviderConfig = {
      */
     setCacheKey?: boolean
     /**
-     * Timeout in milliseconds for requests to this provider. Default is 300000 (5 minutes). Set to false to disable timeout.
+     * Total request timeout in ms. Applied to non-SSE responses only; SSE streams use chunkTimeout. Default is 300000 (5 minutes). Set to false to disable.
      */
     timeout?: number | false
     /**
-     * Timeout in milliseconds between streamed SSE chunks for this provider. If no chunk arrives within this window, the request is aborted.
+     * Timeout in ms between streamed SSE chunks. Default is 600000 (10 minutes). If no chunk arrives within this window, the request is aborted.
      */
     chunkTimeout?: number
     [key: string]: unknown | string | boolean | number | false | number | undefined
@@ -2212,6 +2300,25 @@ export type SubtaskPartInput = {
   command?: string
 }
 
+export type ModelsDevStatus = {
+  source: "path" | "cache" | "embedded" | "remote" | "none"
+  checkedAt: number | null
+  updatedAt: number | null
+  etag: string | null
+  hash: string | null
+  error: string | null
+}
+
+export type CodexModelsStatus = {
+  enabled: boolean
+  source: "none" | "fallback" | "cache" | "remote"
+  checkedAt: number | null
+  updatedAt: number | null
+  etag: string | null
+  hash: string | null
+  error: string | null
+}
+
 export type ProviderAuthMethod = {
   type: "oauth" | "api"
   label: string
@@ -2447,6 +2554,9 @@ export type Agent = {
     [key: string]: unknown
   }
   steps?: number
+  mcp?: {
+    [key: string]: boolean
+  }
 }
 
 export type LspStatus = {
@@ -5602,6 +5712,7 @@ export type ProviderListResponses = {
     all: Array<{
       api?: string
       name: string
+      doc?: string
       env: Array<string>
       id: string
       npm?: string
@@ -5609,12 +5720,31 @@ export type ProviderListResponses = {
         [key: string]: {
           id: string
           name: string
+          description?: string
           family?: string
           release_date: string
+          last_updated?: string
           attachment: boolean
           reasoning: boolean
-          temperature: boolean
+          reasoning_options?: Array<
+            | {
+                type: "toggle"
+              }
+            | {
+                type: "effort"
+                values: Array<null | "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max" | "default">
+              }
+            | {
+                type: "budget_tokens"
+                min?: number
+                max?: number
+              }
+          >
+          temperature?: boolean
           tool_call: boolean
+          structured_output?: boolean
+          knowledge?: string
+          open_weights?: boolean
           interleaved?:
             | true
             | {
@@ -5623,14 +5753,33 @@ export type ProviderListResponses = {
           cost?: {
             input: number
             output: number
+            reasoning?: number
             cache_read?: number
             cache_write?: number
+            input_audio?: number
+            output_audio?: number
             context_over_200k?: {
               input: number
               output: number
+              reasoning?: number
               cache_read?: number
               cache_write?: number
+              input_audio?: number
+              output_audio?: number
             }
+            tiers?: Array<{
+              input: number
+              output: number
+              reasoning?: number
+              cache_read?: number
+              cache_write?: number
+              input_audio?: number
+              output_audio?: number
+              tier: {
+                type?: "context"
+                size: number
+              }
+            }>
           }
           limit: {
             context: number
@@ -5641,9 +5790,31 @@ export type ProviderListResponses = {
             input: Array<"text" | "audio" | "image" | "video" | "pdf">
             output: Array<"text" | "audio" | "image" | "video" | "pdf">
           }
-          experimental?: boolean
+          experimental?: {
+            modes?: {
+              [key: string]: {
+                cost?: {
+                  input: number
+                  output: number
+                  reasoning?: number
+                  cache_read?: number
+                  cache_write?: number
+                  input_audio?: number
+                  output_audio?: number
+                }
+                provider?: {
+                  body?: {
+                    [key: string]: unknown
+                  }
+                  headers?: {
+                    [key: string]: string
+                  }
+                }
+              }
+            }
+          }
           status?: "alpha" | "beta" | "deprecated"
-          options: {
+          options?: {
             [key: string]: unknown
           }
           headers?: {
@@ -5652,6 +5823,13 @@ export type ProviderListResponses = {
           provider?: {
             npm?: string
             api?: string
+            shape?: "responses" | "completions"
+            body?: {
+              [key: string]: unknown
+            }
+            headers?: {
+              [key: string]: string
+            }
           }
           variants?: {
             [key: string]: {
@@ -5669,6 +5847,45 @@ export type ProviderListResponses = {
 }
 
 export type ProviderListResponse = ProviderListResponses[keyof ProviderListResponses]
+
+export type ProviderModelsStatusData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/provider/models/status"
+}
+
+export type ProviderModelsStatusResponses = {
+  /**
+   * Models.dev refresh status
+   */
+  200: ModelsDevStatus
+}
+
+export type ProviderModelsStatusResponse = ProviderModelsStatusResponses[keyof ProviderModelsStatusResponses]
+
+export type ProviderModelsCodexStatusData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/provider/models/codex/status"
+}
+
+export type ProviderModelsCodexStatusResponses = {
+  /**
+   * Codex model catalog refresh status
+   */
+  200: CodexModelsStatus
+}
+
+export type ProviderModelsCodexStatusResponse =
+  ProviderModelsCodexStatusResponses[keyof ProviderModelsCodexStatusResponses]
 
 export type ProviderAuthData = {
   body?: never
