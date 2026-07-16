@@ -8,7 +8,6 @@ import { List } from "@opencode-ai/ui/list"
 import { TextField } from "@opencode-ai/ui/text-field"
 import { useMutation } from "@tanstack/solid-query"
 import { showToast } from "@opencode-ai/ui/toast"
-import { useNavigate } from "@solidjs/router"
 import { createEffect, createMemo, createResource, onCleanup, Show } from "solid-js"
 import { createStore, reconcile } from "solid-js/store"
 import { ServerHealthIndicator, ServerRow } from "@/components/server/server-row"
@@ -172,7 +171,6 @@ function ServerForm(props: ServerFormProps) {
 }
 
 export function DialogSelectServer() {
-  const navigate = useNavigate()
   const dialog = useDialog()
   const server = useServer()
   const platform = usePlatform()
@@ -299,8 +297,9 @@ export function DialogSelectServer() {
     const newConn = server.add(next)
     if (!newConn) return
     const nextActive = active === ServerConnection.key(original) ? ServerConnection.key(newConn) : active
-    if (nextActive) server.setActive(nextActive)
-    server.remove(ServerConnection.key(original))
+    const fallback = server.remove(ServerConnection.key(original))
+    if (nextActive) server.activate(nextActive)
+    else if (fallback) server.activate(fallback)
   }
 
   const items = createMemo(() => {
@@ -353,12 +352,11 @@ export function DialogSelectServer() {
     if (!persist && store.status[ServerConnection.key(conn)]?.healthy === false) return
     dialog.close()
     if (persist && conn.type === "http") {
-      server.add(conn)
-      navigate("/")
+      const added = server.add(conn)
+      if (added) server.activate(ServerConnection.key(added))
       return
     }
-    navigate("/")
-    queueMicrotask(() => server.setActive(ServerConnection.key(conn)))
+    server.activate(ServerConnection.key(conn))
   }
 
   const handleAddChange = (value: string) => {
@@ -496,7 +494,8 @@ export function DialogSelectServer() {
   })
 
   async function handleRemove(url: ServerConnection.Key) {
-    server.remove(url)
+    const fallback = server.remove(url)
+    if (fallback) server.activate(fallback)
     if ((await platform.getDefaultServer?.()) === url) {
       platform.setDefaultServer?.(null)
     }

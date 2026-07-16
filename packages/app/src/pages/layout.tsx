@@ -55,6 +55,7 @@ import { setNavigate } from "@/utils/notification-click"
 import { Worktree as WorktreeState } from "@/utils/worktree"
 import { setSessionHandoff } from "@/pages/session/handoff"
 import type { E2EWindow } from "@/testing/terminal"
+import { OpenIntent } from "@/utils/open-intent"
 
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { useTheme, type ColorScheme } from "@opencode-ai/ui/theme/context"
@@ -1557,6 +1558,7 @@ export default function Layout(props: ParentProps) {
     if (!directory) return
     const root = projectRoot(directory)
     server.projects.touch(directory)
+    OpenIntent.mark(server.key, directory)
     const project = layout.projects.list().find((item) => item.worktree === root)
     let dirs = project
       ? effectiveWorkspaceOrder(root, [root, ...(project.sandboxes ?? [])], store.workspaceOrder[root])
@@ -1584,6 +1586,7 @@ export default function Layout(props: ParentProps) {
       const [data] = globalSync.child(target.directory, { bootstrap: false })
       if (data.session.some((item) => item.id === target.id)) {
         setStore("lastProjectSession", directory, { directory: target.directory, id: target.id, at: Date.now() })
+        OpenIntent.mark(server.key, target.directory)
         navigateWithSidebarReset(`/${base64Encode(target.directory)}/session/${target.id}`)
         return true
       }
@@ -1594,6 +1597,7 @@ export default function Layout(props: ParentProps) {
       if (!resolved?.directory) return false
       if (!canOpen(resolved.directory)) return false
       setStore("lastProjectSession", directory, { directory: resolved.directory, id: resolved.id, at: Date.now() })
+      OpenIntent.mark(server.key, resolved.directory)
       navigateWithSidebarReset(`/${base64Encode(resolved.directory)}/session/${resolved.id}`)
       return true
     }
@@ -1635,6 +1639,7 @@ export default function Layout(props: ParentProps) {
 
   function navigateToSession(session: Session | undefined) {
     if (!session) return
+    OpenIntent.mark(server.key, session.directory)
     navigateWithSidebarReset(`/${base64Encode(session.directory)}/session/${session.id}`)
   }
 
@@ -2503,6 +2508,7 @@ export default function Layout(props: ParentProps) {
     })
 
     globalSync.child(created.directory, { bootstrap: false })
+    OpenIntent.mark(server.key, created.directory)
     navigateWithSidebarReset(`/${base64Encode(created.directory)}/session`)
   }
 

@@ -1,8 +1,11 @@
 import { batch, createMemo } from "solid-js"
 import { createStore, produce, reconcile } from "solid-js/store"
 import { Binary } from "@opencode-ai/util/binary"
+import { base64Encode } from "@opencode-ai/util/encode"
 import { retry } from "@opencode-ai/util/retry"
 import { createSimpleContext } from "@opencode-ai/ui/context"
+import { showToast } from "@opencode-ai/ui/toast"
+import { useNavigate } from "@solidjs/router"
 import {
   clearSessionPrefetch,
   getSessionPrefetch,
@@ -13,6 +16,8 @@ import { useGlobalSync } from "./global-sync"
 import { useSDK } from "./sdk"
 import type { Message, Part } from "@opencode-ai/sdk/v2/client"
 import { SESSION_CACHE_LIMIT, dropSessionCaches, pickSessionCacheEvictions } from "./global-sync/session-cache"
+import { useLanguage } from "./language"
+import { formatServerError } from "@/utils/server-errors"
 
 const SKIP_PARTS = new Set(["patch", "step-start", "step-finish"])
 
@@ -33,6 +38,11 @@ function runInflight(map: Map<string, Promise<void>>, key: string, task: () => P
 const keyFor = (directory: string, id: string) => `${directory}\n${id}`
 
 const cmp = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
+
+function scopeError(err: unknown) {
+  const msg = err instanceof Error ? err.message : typeof err === "string" ? err : ""
+  return /project not registered|not registered|session not found|project not found|404/i.test(msg)
+}
 
 function merge<T extends { id: string }>(a: readonly T[], b: readonly T[]) {
   const map = new Map(a.map((item) => [item.id, item] as const))
@@ -186,6 +196,9 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
   init: () => {
     const globalSync = useGlobalSync()
     const sdk = useSDK()
+    const navigate = useNavigate()
+    const language = useLanguage()
+    const downgraded = new Set<string>()
 
     type Child = ReturnType<(typeof globalSync)["child"]>
     type Setter = Child[1]
@@ -210,6 +223,20 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
       complete: {} as Record<string, boolean>,
       loading: {} as Record<string, boolean>,
     })
+
+    const downgrade = (directory: string, sessionID: string, err: unknown) => {
+      if (!scopeError(err)) throw err
+      const key = keyFor(directory, sessionID)
+      if (!downgraded.has(key)) {
+        downgraded.add(key)
+        showToast({
+          variant: "error",
+          title: language.t("common.requestFailed"),
+          description: formatServerError(err, language.t),
+        })
+      }
+      navigate(`/${base64Encode(directory)}/session`, { replace: true })
+    }
 
     const getSession = (sessionID: string) => {
       const store = current()[0]
@@ -510,7 +537,7 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
                     limit,
                   })
 
-            await Promise.all([sessionReq, messagesReq])
+            await Promise.all([sessionReq, messagesReq]).catch((err) => downgrade(directory, sessionID, err))
           })
         },
         async diff(sessionID: string, opts?: { force?: boolean }) {
@@ -522,10 +549,12 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
 
           const key = keyFor(directory, sessionID)
           return runInflight(inflightDiff, key, () =>
-            retry(() => client.session.diff({ sessionID })).then((diff) => {
-              if (!tracked(directory, sessionID)) return
-              setStore("session_diff", sessionID, [...(Array.isArray(diff.data) ? diff.data : [])])
-            }),
+            retry(() => client.session.diff({ sessionID }))
+              .then((diff) => {
+                if (!tracked(directory, sessionID)) return
+                setStore("session_diff", sessionID, [...(Array.isArray(diff.data) ? diff.data : [])])
+              })
+              .catch((err) => downgrade(directory, sessionID, err)),
           )
         },
         async todo(sessionID: string, opts?: { force?: boolean }) {
@@ -548,12 +577,14 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
 
           const key = keyFor(directory, sessionID)
           return runInflight(inflightTodo, key, () =>
-            retry(() => client.session.todo({ sessionID })).then((todo) => {
-              if (!tracked(directory, sessionID)) return
-              const list = todo.data ?? []
-              setStore("todo", sessionID, reconcile(list, { key: "id" }))
-              globalSync.todo.set(sessionID, list)
-            }),
+            retry(() => client.session.todo({ sessionID }))
+              .then((todo) => {
+                if (!tracked(directory, sessionID)) return
+                const list = todo.data ?? []
+                setStore("todo", sessionID, reconcile(list, { key: "id" }))
+                globalSync.todo.set(sessionID, list)
+              })
+              .catch((err) => downgrade(directory, sessionID, err)),
           )
         },
         history: {
@@ -589,7 +620,7 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
               limit: step,
               before,
               mode: "prepend",
-            })
+            }).catch((err) => downgrade(directory, sessionID, err))
           },
         },
         invalidate(sessionID: string, directory = sdk.directory) {

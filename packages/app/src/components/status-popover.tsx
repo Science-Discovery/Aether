@@ -6,7 +6,6 @@ import { Switch } from "@opencode-ai/ui/switch"
 import { Tabs } from "@opencode-ai/ui/tabs"
 import { useMutation } from "@tanstack/solid-query"
 import { showToast } from "@opencode-ai/ui/toast"
-import { useNavigate } from "@solidjs/router"
 import { type Accessor, createEffect, createMemo, createSignal, For, type JSXElement, onCleanup, Show } from "solid-js"
 import { createStore, reconcile } from "solid-js/store"
 import { ServerHealthIndicator, ServerRow } from "@/components/server/server-row"
@@ -162,7 +161,6 @@ export function StatusPopover() {
   const platform = usePlatform()
   const dialog = useDialog()
   const language = useLanguage()
-  const navigate = useNavigate()
 
   const [shown, setShown] = createSignal(false)
   let dialogRun = 0
@@ -276,8 +274,7 @@ export function StatusPopover() {
                         aria-disabled={isBlocked()}
                         onClick={() => {
                           if (isBlocked()) return
-                          navigate("/")
-                          queueMicrotask(() => server.setActive(key))
+                          server.activate(key)
                         }}
                       >
                         <ServerHealthIndicator health={health[key]} />

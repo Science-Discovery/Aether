@@ -2,12 +2,15 @@ import { DataProvider } from "@opencode-ai/ui/context"
 import { showToast } from "@opencode-ai/ui/toast"
 import { base64Encode } from "@opencode-ai/util/encode"
 import { useLocation, useNavigate, useParams } from "@solidjs/router"
-import { createEffect, createMemo, type ParentProps, Show } from "solid-js"
+import { createEffect, createMemo, createResource, type ParentProps, Show } from "solid-js"
 import { useLanguage } from "@/context/language"
 import { LocalProvider } from "@/context/local"
 import { SDKProvider } from "@/context/sdk"
+import { useGlobalSDK } from "@/context/global-sdk"
+import { useServer } from "@/context/server"
 import { SyncProvider, useSync } from "@/context/sync"
 import { decode64 } from "@/utils/base64"
+import { OpenIntent } from "@/utils/open-intent"
 
 function DirectoryDataProvider(props: ParentProps<{ directory: string }>) {
   const location = useLocation()
@@ -38,7 +41,12 @@ export default function Layout(props: ParentProps) {
   const params = useParams()
   const language = useLanguage()
   const navigate = useNavigate()
+  const global = useGlobalSDK()
+  const server = useServer()
   let invalid = ""
+  let blocked = ""
+
+  const norm = (dir: string) => dir.replace(/[\\/]+$/, "") || dir
 
   const resolved = createMemo(() => {
     if (!params.dir) return ""
@@ -70,8 +78,44 @@ export default function Layout(props: ParentProps) {
     }
   })
 
+  const [guard] = createResource(
+    () => {
+      const dir = resolved()
+      const key = server.key
+      if (!dir || !key) return
+      return { dir, key }
+    },
+    async (input) => {
+      if (OpenIntent.consume(input.key, input.dir)) return "pass"
+      const client = global.createClient({ throwOnError: true })
+      const result = await client.project.directories()
+      const dirs = new Set((result.data ?? []).map(norm))
+      if (dirs.has(norm(input.dir))) return "pass"
+      return "block"
+    },
+  )
+
+  const allowed = createMemo(() => guard.state === "ready" && guard() === "pass")
+
+  createEffect(() => {
+    const dir = resolved()
+    if (!dir) return
+    const state = guard.state
+    if (state !== "ready" && state !== "errored") return
+    if (allowed()) return
+    const id = `${server.key}\n${dir}`
+    if (blocked === id) return
+    blocked = id
+    showToast({
+      variant: "error",
+      title: language.t("common.requestFailed"),
+      description: language.t("directory.error.invalidUrl"),
+    })
+    navigate("/", { replace: true })
+  })
+
   return (
-    <Show when={resolved()} keyed>
+    <Show when={resolved() && allowed() ? resolved() : undefined} keyed>
       {(resolved) => (
         <SDKProvider directory={() => resolved}>
           <SyncProvider>
