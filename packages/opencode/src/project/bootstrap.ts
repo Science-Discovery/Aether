@@ -21,14 +21,12 @@ import { ActiveInstance } from "@/project/active-instance"
 export async function InstanceBootstrap() {
   Log.Default.info("bootstrapping", { directory: Instance.directory })
   await fs.mkdir(path.join(Instance.directory, PROJECT), { recursive: true })
-  await Plugin.init()
+
   ShareNext.init()
-  Format.init()
-  await LSP.init()
   File.init()
   Vcs.init()
-  Snapshot.init()
   FileWatcher.initGit()
+
   await SessionRecovery.repairInterrupted().catch((error) => {
     Log.Default.warn("failed to repair interrupted assistant messages", { error })
   })
@@ -41,6 +39,10 @@ export async function InstanceBootstrap() {
     },
   )()
   const deferred = () => {
+    Snapshot.init()
+    Format.init()
+    Plugin.init()
+    LSP.init()
     FileWatcher.initFull()
   }
 

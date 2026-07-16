@@ -9,6 +9,7 @@ import type {
 } from "@opencode-ai/sdk/v2/client"
 import { showToast } from "@opencode-ai/ui/toast"
 import { getFilename } from "@opencode-ai/util/path"
+import { retry } from "@opencode-ai/util/retry"
 import {
   createContext,
   createMemo,
@@ -38,7 +39,14 @@ import {
 import { trimSessions } from "./global-sync/session-trim"
 import type { ProjectMeta } from "./global-sync/types"
 import { SESSION_RECENT_LIMIT } from "./global-sync/types"
-import { isRoot, normalizeDir, sanitizeProject, sanitizeRecent } from "./global-sync/utils"
+import {
+  isRoot,
+  normalizeAgentList,
+  normalizeDir,
+  normalizeProviderList,
+  sanitizeProject,
+  sanitizeRecent,
+} from "./global-sync/utils"
 import { formatServerError } from "@/utils/server-errors"
 
 type GlobalStore = {
@@ -341,6 +349,21 @@ function createGlobalSync() {
     return promise
   }
 
+  async function loadActiveMetadata(directory: string) {
+    directory = normalizeDir(directory)
+    if (!directory) return
+    const [, setStore] = children.child(directory, { bootstrap: false })
+    const sdk = sdkFor(directory)
+    await Promise.allSettled([
+      retry(() => sdk.app.agents().then((x) => setStore("agent", normalizeAgentList(x.data)))),
+      retry(() => sdk.command.list().then((x) => setStore("command", x.data ?? []))),
+      retry(() => sdk.config.get().then((x) => setStore("config", x.data!))),
+      retry(() => sdk.provider.list().then((x) => setStore("provider", normalizeProviderList(x.data!)))),
+      retry(() => sdk.mcp.status().then((x) => setStore("mcp", x.data!))),
+      retry(() => sdk.lsp.status().then((x) => setStore("lsp", x.data!))),
+    ])
+  }
+
   async function bootstrapInstance(directory: string) {
     directory = normalizeDir(directory)
     if (!directory) return
@@ -483,6 +506,7 @@ function createGlobalSync() {
 
   const projectApi = {
     loadSessions,
+    loadActiveMetadata,
     list: () => globalStore.project,
     recent: () => globalStore.recent.filter((item) => !isRoot(item.directory)),
     get(id?: string) {

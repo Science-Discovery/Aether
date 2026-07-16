@@ -159,7 +159,9 @@ export default function Layout(props: ParentProps) {
   const currentDir = createMemo(() => decode64(params.dir) ?? "")
 
   createEffect(() => {
-    ActiveDirectory.set(currentDir())
+    const dir = currentDir()
+    ActiveDirectory.set(dir)
+    if (dir) void globalSync.project.loadActiveMetadata(dir)
   })
   onCleanup(() => ActiveDirectory.set(""))
 

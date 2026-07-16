@@ -509,6 +509,7 @@ class WeChatManagerImpl extends MobileManagerBase {
     this._qrcode = null
     this._contextTokens = {}
     this._seenIds.clear()
+    this.deactivateAllScopes()
     this.status = "idle"
   }
 

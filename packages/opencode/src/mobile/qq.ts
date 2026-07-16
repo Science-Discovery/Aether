@@ -531,6 +531,7 @@ class QQManagerImpl extends MobileManagerBase {
     this._activePrompt.clear()
     this._chatInfos = {}
     if (!reset) return
+    this.deactivateAllScopes()
     this._connectedModel = null
     this._scopeDirs = {}
     this._initialDir = ""
@@ -545,6 +546,7 @@ class QQManagerImpl extends MobileManagerBase {
   }
 
   override async clearSession(): Promise<void> {
+    this.deactivateAllScopes()
     try {
       const { rm } = await import("fs/promises")
       await rm(this.file("config.json"), { force: true })
