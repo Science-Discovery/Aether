@@ -94,10 +94,12 @@ Windows 上对应：
 
 ## 更新
 
-Aether Desktop 默认只检查 GitHub 上的正式 Release。需要试用预发布版本的用户，可以在 Aether 配置目录中放置 `update-config.jsonc`；文件存在后，桌面端检查更新时会同时考虑 GitHub pre-release。该文件可以是一个空的合法 JSONC 文件：
+Aether Desktop 默认只检查 Aether 官网的正式版本。需要试用预发布版本的用户，可以在 Aether 配置目录中放置 `update-config.jsonc`，并显式配置测试版更新源：
 
 ```jsonc
-{}
+{
+  "updateBaseUrl": "https://aether.aiphys.cn/downloadbeta"
+}
 ```
 
 默认配置目录为：
@@ -112,11 +114,11 @@ Aether Desktop 默认只检查 GitHub 上的正式 Release。需要试用预发�
 $XDG_CONFIG_HOME/aether/update-config.jsonc
 ```
 
-不再需要接收预发布版本时，删除这个文件即可。
+空配置文件不会启用预发布更新。不再需要接收预发布版本时，删除这个文件即可。
 
 ### Windows
 
-桌面版支持应用内更新。打开 `Aether Desktop` 后，使用菜单中的 `Check for Updates...` 检查更新；如果有新版本，应用会下载对应安装包并提示重启安装。启用预发布更新后，流程相同。
+桌面版支持应用内更新。打开 `Aether Desktop` 后，使用菜单中的 `Check for Updates...` 检查更新；如果有新版本，应用会下载对应安装包并提示重启安装。显式配置测试版更新源后，流程相同。
 
 ### macOS
 

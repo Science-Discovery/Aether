@@ -6,7 +6,6 @@ const channel = (() => {
   return "dev"
 })()
 
-const updater = process.env.OPENCODE_UPDATER_CHANNEL ?? "latest"
 const getBase = (): Configuration => ({
   artifactName: "aether-desktop-${os}-${arch}.${ext}",
   directories: {
@@ -118,7 +117,7 @@ function getConfig() {
         appId: "ai.aether.desktop",
         productName: "Aether Desktop",
         protocols: { name: "Aether Desktop", schemes: ["aether"] },
-        publish: { provider: "github", owner: "Science-Discovery", repo: "Aether", channel: updater },
+        publish: { provider: "generic", url: "https://aether.aiphys.cn/download/desktop/latest", channel: "latest" },
         deb: { packageName: "aether-desktop" },
         rpm: { packageName: "aether-desktop" },
       }

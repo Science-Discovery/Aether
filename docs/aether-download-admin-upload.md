@@ -4,12 +4,19 @@
 
 ## 概览
 
+Aether 客户端有两个产品线，各自有独立的产物集合、manifest 协议和自动更新通道：
+
+- **Web 版**：包体以 `aether-` 开头（如 `aether-darwin-arm64.dmg`、`aether-windows-x64.zip`），manifest 为 Aether 自定义格式（`mac-arm64.yml`、`windows-x64.yml` 等），由服务端 commit 时重新计算校验并生成。
+- **桌面版（Electron）**：包体以 `aether-desktop-` 开头，manifest 分两层：**L1 网站规范 manifest**（`desktop-mac-arm64.yml` 等，per-platform，schema 与 Web 版完全一致，由服务端 commit 时重算校验并生成）与 **L2 electron-builder 兼容 yml**（`latest*.yml`，随 GitHub Release 产物原样透传，仅供客户端自动更新，服务端不读不写）。
+
+两套产物在 OSS 对象前缀、版本索引和下载路由上完全隔离。本文档前半部分（基础约定、OSS 直传、下载接口、macOS Manifest）默认描述 Web 版；桌面版的差异在 [桌面版（Electron）产物](#桌面版electron产物)、[桌面版electron-oss-直传上传](#桌面版electron-oss-直传上传)、[桌面版下载接口](#桌面版下载接口) 中集中说明。
+
 Aether 下载服务分为两个发布渠道：
 
 - **公开渠道** (`/download/`)：正式发布，支持版本化目录、manifest、OSS 推送
 - **测试版渠道** (`/downloadbeta/`)：测试发布，结构与公开渠道一致，但版本索引和 OSS 存储与公开渠道隔离
 
-信息站点中的"手动安装"下载链接不再维护独立 manual 包，直接指向公开渠道的 `/download/latest/<filename>`，由服务端解析到当前最新公开版本。
+信息站点推荐下载按钮使用独立安装器入口 `/download/installer/<filename>`，安装器对象固定放在 OSS 的 `installer/` 前缀下；补充说明中的手动安装包链接直接指向公开渠道的 `/download/latest/<filename>`，由服务端解析到当前最新公开版本。
 
 每个渠道都有独立的管理员 OSS 直传接口。
 
@@ -22,6 +29,60 @@ Aether 下载服务分为两个发布渠道：
 - Windows x64
 - Linux x64
 - Linux ARM64
+
+## 桌面版（Electron）产物
+
+桌面版客户端基于 electron-builder 打包，产物随 GitHub Release 发布在 https://github.com/Science-Discovery/Aether 。桌面版的发布产物即 release 中以下三类文件，**包体与 L2 yml 原样上传，不做重命名或重新打包**：
+
+1. **包体**：所有以 `aether-desktop` 开头的文件，含主包、mac 自动更新用的 `*.zip`、`*.blockmap`、`.deb`/`.rpm`/`.AppImage` 等 Linux 发行版包。
+2. **L2 兼容 yml**：所有以 `latest` 开头、**文件名不含 `web`** 的 `.yml` 文件，供 electron-builder 客户端自动更新使用，原样透传。
+3. **L1 网站 manifest**：`desktop-mac-arm64.yml` / `desktop-mac-x64.yml` / `desktop-win-x64.yml` / `desktop-win-arm64.yml` / `desktop-linux-x64.yml` / `desktop-linux-arm64.yml`，**不来自 GitHub Release**，由服务端 commit 时基于已上传的主包体重算校验并生成（schema 与 Web 版 `mac-arm64.yml` 完全一致）。
+
+以 v0.7.1 release 为例，桌面版产物清单为：
+
+```text
+aether-desktop-mac-arm64.dmg            aether-desktop-mac-arm64.dmg.blockmap
+aether-desktop-mac-arm64.zip            aether-desktop-mac-arm64.zip.blockmap
+aether-desktop-mac-x64.dmg              aether-desktop-mac-x64.dmg.blockmap
+aether-desktop-mac-x64.zip              aether-desktop-mac-x64.zip.blockmap
+aether-desktop-win-x64.exe              aether-desktop-win-x64.exe.blockmap
+aether-desktop-win-arm64.exe            aether-desktop-win-arm64.exe.blockmap
+aether-desktop-linux-x86_64.AppImage
+aether-desktop-linux-x86_64.rpm
+aether-desktop-linux-amd64.deb
+aether-desktop-linux-arm64.AppImage
+aether-desktop-linux-arm64.deb
+aether-desktop-linux-aarch64.rpm
+latest.yml                  # Windows 自动更新
+latest-mac.yml              # macOS 自动更新（arm64 + x64）
+latest-linux.yml            # Linux x64 自动更新
+latest-linux-arm64.yml      # Linux ARM64 自动更新
+```
+
+服务端 commit 时额外生成的 L1 manifest（不在 GitHub Release 中，写入 OSS 同一版本目录）：
+
+```text
+desktop-mac-arm64.yml       desktop-mac-x64.yml
+desktop-win-x64.yml         desktop-win-arm64.yml
+desktop-linux-x64.yml       desktop-linux-arm64.yml
+```
+
+必须排除的文件（属于 Web 版的 electron-builder yml，**不要**作为桌面版上传）：
+
+```text
+latest-web-windows.yml
+latest-web-mac.yml
+latest-web-mac-x64.yml
+latest-web-linux.yml
+latest-web-linux-arm64.yml
+```
+
+### 上传与生成原则
+
+- **L2 兼容 yml 原样透传**：electron-builder 的 `latest*.yml` 内 `path` / `files[].path` 字段引用的是同目录下的包体文件名（含 `.blockmap`），重命名会破坏自动更新签名校验，因此 L2 yml 与包体必须保留 GitHub Release 上的原始文件名。
+- **L1 manifest 由服务端生成**：commit 阶段服务端从 OSS 拉取各平台主包（dmg/exe/AppImage），重算 `sha512`/`size`，生成 `desktop-<platform>.yml` 写回 OSS 同一版本目录，schema 与 Web 版 `buildLatestWebManifest` 输出完全一致。这与 Web 版 commit 时服务端重新计算校验并生成 `mac-arm64.yml` 的流程**同构**。
+- **L1 与 L2 解耦**：L2 yml 仅供 electron-builder 客户端自动更新，服务端不读不写；L1 manifest 是网站权威元数据，供信息站点下载页与统计读取。网站不再因 release 格式而特例化。
+- 同一版本目录下 L1 manifest、L2 yml 与包体必须共存。
 
 ## 基础约定
 
@@ -49,7 +110,7 @@ POST https://aether.aiphys.cn/api/downloadbeta/admin/commit     # 提交元数�
 公开渠道版本目录约定：
 
 - 最新通道：`/download/latest/`
-- 解析规则：`latest` 会解析到当前可用的最新公开版本，不限制大版本号
+- 解析规则：`latest` 会按平台读取 `downloads/latest-versions.json` 中配置的版本，不扫描 OSS 或本地版本目录
 - 指定版本：`/download/<version>/`
 
 例如：
@@ -62,7 +123,7 @@ POST https://aether.aiphys.cn/api/downloadbeta/admin/commit     # 提交元数�
 测试版渠道版本目录约定：
 
 - 最新通道：`/downloadbeta/latest/`
-- 解析规则：`latest` 会解析到当前可用的最新测试版，不影响公开渠道
+- 解析规则：`latest` 会按平台读取 `downloads/beta-latest-versions.json` 中配置的版本，不影响公开渠道
 - 指定版本：`/downloadbeta/<version>/`
 
 例如：
@@ -71,6 +132,21 @@ POST https://aether.aiphys.cn/api/downloadbeta/admin/commit     # 提交元数�
 - `/downloadbeta/latest/aether-darwin-arm64.dmg`
 - `/downloadbeta/1.3.3-beta.1/mac-arm64.yml`
 - `/downloadbeta/1.3.3-beta.1/aether-darwin-arm64.dmg`
+
+桌面版版本目录约定（两个渠道一致，根路径同上文，仅在渠道根之后增加 `desktop` 段）：
+
+- 最新通道：`/download/desktop/latest/`、`/downloadbeta/desktop/latest/`
+- 解析规则：`latest` 读取桌面版版本索引（公开渠道 `downloads/desktop-latest-versions.json`，测试版 `downloads/beta-desktop-latest-versions.json`），不扫描 OSS 或本地版本目录
+- 指定版本：`/download/desktop/<version>/`、`/downloadbeta/desktop/<version>/`
+
+例如：
+
+- `/download/desktop/latest/latest-mac.yml`
+- `/download/desktop/latest/desktop-mac-arm64.yml`
+- `/download/desktop/latest/aether-desktop-mac-arm64.dmg`
+- `/download/desktop/0.7.1/latest.yml`
+- `/download/desktop/0.7.1/desktop-win-x64.yml`
+- `/downloadbeta/desktop/0.7.2-beta.1/latest-linux-arm64.yml`
 
 ## 公开渠道 OSS 直传上传
 
@@ -342,7 +418,7 @@ installer/aether_linux_arm64_installer.sh
 1. 从 OSS 的 `beta/<version>/` 前缀读取各平台安装包
 2. 计算安装包的 `sha512` 和 `size`
 3. 生成 manifest 并写入 OSS 的 `beta/<version>/` 目录
-4. 更新测试版 latest 索引，建议使用 `downloads/beta-latest-versions.json` 或 OSS 内等价独立对象
+4. 更新测试版 latest 索引，当前实现写入 `downloads/beta-latest-versions.json`
 
 测试版 commit 响应中的下载链接必须指向 `/downloadbeta`，例如：
 
@@ -367,9 +443,146 @@ installer/aether_linux_arm64_installer.sh
 }
 ```
 
+## 桌面版（Electron）OSS 直传上传
+
+桌面版与 Web 版共用同一组管理员直传接口（`/api/download/admin/*` 与 `/api/downloadbeta/admin/*`），区别仅在请求体新增 `desktop` 段、OSS 对象 key 前缀改为 `desktop/<version>/`（测试版为 `beta/desktop/<version>/`）。commit 阶段服务端对**主包**重算 `sha512`/`size` 并生成 L1 per-platform manifest（与 Web 版同构），但对 **L2 yml 与 blockmap** 原样采用上游产物、不重写。
+
+发布渠道约束：
+
+- **测试版渠道**：由自动上传脚本从 GitHub Release 拉取桌面版产物后调用 `/api/downloadbeta/admin/presign` + `commit`，把桌面版纳入测试版自动更新通道。
+- **公开渠道**：保持手动上传，由管理员调用 `/api/download/admin/presign` + `commit`。
+
+流程同样分为三步：presign → upload → commit。
+
+### Step 1: 获取预签名 URL（桌面版）
+
+- Method: `POST`
+- URL:
+  - 公开渠道：`https://aether.aiphys.cn/api/download/admin/presign`
+  - 测试版渠道：`https://aether.aiphys.cn/api/downloadbeta/admin/presign`
+- Content-Type: `application/json`
+- 鉴权：请求头 `x-download-admin-password`
+
+请求体在 Web 版字段之外新增 `desktop` 段，`files` 为本次要上传的桌面版文件名清单（必须与 GitHub Release 原始文件名一致，顺序不限）：
+
+```json
+{
+  "desktop": {
+    "version": "0.7.2-beta.1",
+    "files": [
+      "aether-desktop-mac-arm64.dmg",
+      "aether-desktop-mac-arm64.dmg.blockmap",
+      "aether-desktop-mac-arm64.zip",
+      "aether-desktop-mac-arm64.zip.blockmap",
+      "aether-desktop-mac-x64.dmg",
+      "aether-desktop-mac-x64.dmg.blockmap",
+      "aether-desktop-mac-x64.zip",
+      "aether-desktop-mac-x64.zip.blockmap",
+      "aether-desktop-win-x64.exe",
+      "aether-desktop-win-x64.exe.blockmap",
+      "aether-desktop-win-arm64.exe",
+      "aether-desktop-win-arm64.exe.blockmap",
+      "aether-desktop-linux-x86_64.AppImage",
+      "aether-desktop-linux-x86_64.rpm",
+      "aether-desktop-linux-amd64.deb",
+      "aether-desktop-linux-arm64.AppImage",
+      "aether-desktop-linux-arm64.deb",
+      "aether-desktop-linux-aarch64.rpm",
+      "latest.yml",
+      "latest-mac.yml",
+      "latest-linux.yml",
+      "latest-linux-arm64.yml"
+    ]
+  }
+}
+```
+
+服务端校验文件名必须匹配桌面版产物白名单（`aether-desktop-*` 包体及其 `.blockmap`、或非 `web` 的 `latest*.yml`），拒绝 `latest-web-*.yml` 等非桌面版文件。
+
+响应示例（测试版渠道）：
+
+```json
+{
+  "ok": true,
+  "desktop": {
+    "version": "0.7.2-beta.1",
+    "files": [
+      {
+        "objectKey": "beta/desktop/0.7.2-beta.1/aether-desktop-mac-arm64.dmg",
+        "url": "https://aether-asset.oss-cn-beijing.aliyuncs.com/beta/desktop/0.7.2-beta.1/aether-desktop-mac-arm64.dmg?x-oss-signature-version=...",
+        "contentType": "application/x-apple-diskimage"
+      },
+      {
+        "objectKey": "beta/desktop/0.7.2-beta.1/latest-mac.yml",
+        "url": "https://aether-asset.oss-cn-beijing.aliyuncs.com/beta/desktop/0.7.2-beta.1/latest-mac.yml?x-oss-signature-version=...",
+        "contentType": "application/x-yaml; charset=utf-8"
+      }
+    ]
+  },
+  "expiresInSeconds": 1800
+}
+```
+
+公开渠道的对象 key 不带 `beta/` 前缀，例如 `desktop/0.7.1/aether-desktop-mac-arm64.dmg`。
+
+### Step 2: 直传文件到 OSS
+
+使用预签名 URL 将各文件**原样** PUT 到 OSS，`Content-Type` 用响应中返回的 `contentType`。`*.blockmap`、`*.zip`、yml 均需逐一上传，缺一会导致 electron-builder 自动更新解析失败。
+
+### Step 3: 提交元数据（桌面版）
+
+- Method: `POST`
+- URL:
+  - 公开渠道：`https://aether.aiphys.cn/api/download/admin/commit`
+  - 测试版渠道：`https://aether.aiphys.cn/api/downloadbeta/admin/commit`
+- Content-Type: `application/json`
+- 鉴权：请求头 `x-download-admin-password`
+
+请求体：
+
+```json
+{
+  "desktop": { "version": "0.7.2-beta.1" },
+  "releaseDate": "2026-07-03T00:00:00.000Z"
+}
+```
+
+服务端处理流程（与 Web 版 commit 同构）：
+
+1. 校验 OSS 中 `desktop/<version>/`（或 `beta/desktop/<version>/`）下 L2 yml 与包体存在
+2. 从 OSS 内网拉取各平台主包（dmg/exe/AppImage），计算 `sha512` 和 `size`
+3. 生成 L1 per-platform manifest 并写入 OSS 的 `desktop/<version>/desktop-<platform>.yml`（测试版 `beta/desktop/<version>/...`）
+4. 更新桌面版 latest 索引：公开渠道写入 `downloads/desktop-latest-versions.json`，测试版写入 `downloads/beta-desktop-latest-versions.json`，结构为 per-platform version map（与 Web 版 `latest-versions.json` 同构），例如 `{ "desktopMacArm64": "0.7.2-beta.1", "desktopWinX64": "0.7.2-beta.1", ... }`
+5. **不**重写、不重新计算 L2 yml 与 blockmap（L2 为上游原样产物，仅供客户端自动更新）
+
+commit 响应示例（测试版渠道，与 Web 版 `files[]` 同构）：
+
+```json
+{
+  "ok": true,
+  "releaseDate": "2026-07-03T00:00:00.000Z",
+  "desktop": {
+    "version": "0.7.2-beta.1",
+    "channel": "beta",
+    "files": [
+      {
+        "platform": "desktopMacArm64",
+        "version": "0.7.2-beta.1",
+        "url": "/downloadbeta/desktop/0.7.2-beta.1/aether-desktop-mac-arm64.dmg",
+        "latestUrl": "/downloadbeta/desktop/latest/aether-desktop-mac-arm64.dmg",
+        "manifestUrl": "/downloadbeta/desktop/0.7.2-beta.1/desktop-mac-arm64.yml",
+        "latestManifestUrl": "/downloadbeta/desktop/latest/desktop-mac-arm64.yml",
+        "sha512": "<base64-sha512>",
+        "size": 93444053
+      }
+    ]
+  }
+}
+```
+
 ## 手动安装包下载接口
 
-信息站点前端"手动安装"链接直接使用公开渠道最新安装包，无需维护独立 manual 对象。
+信息站点推荐下载按钮使用 `/download/installer/<filename>` 安装器入口；安装器会自动拉取最新包体。补充说明中的"手动安装"链接直接使用公开渠道最新安装包，无需维护独立 manual 对象。
 
 下载路径：
 
@@ -383,7 +596,7 @@ installer/aether_linux_arm64_installer.sh
 
 说明：
 
-- `latest` 会按平台解析到当前最新公开版本
+- `latest` 会按平台读取 `downloads/latest-versions.json` 中配置的版本
 - 通过 302 重定向到 OSS 公开地址
 - 下载成功后按公开渠道上报 analytics 事件
 
@@ -427,9 +640,10 @@ installer/aether_linux_arm64_installer.sh
 
 解析规则：
 
-- `latest` 会在公开版本目录中选择当前最新版本
-- 例如同时存在 `1.3.9`、`1.4.0`、`1.4.1` 时，`latest` 会解析到 `1.4.1`
-- 如果某个平台在最新版本下没有对应文件，则会继续向下寻找更早的可用版本
+- `latest` 不扫描版本目录，也不会按语义版本号自动选择最大版本
+- 公开渠道读取 `downloads/latest-versions.json`，测试版渠道读取 `downloads/beta-latest-versions.json`
+- 每个平台独立配置最新版本，例如 `mac`、`macIntel`、`windows`、`linux`、`linuxArm64` 可以指向不同版本
+- 如果对应平台没有配置最新版本，package / 安装脚本请求会返回错误；manifest 请求会保留字面量 `latest` 作为回退路径
 
 测试版渠道使用相同文件名和解析规则，但根路径改为 `/downloadbeta`，且只读取测试版版本索引：
 
@@ -478,6 +692,7 @@ installer/aether_linux_arm64_installer.sh
 - `/downloadbeta/<version>/mac-x64.yml`
 - `/downloadbeta/<version>/windows-x64.yml`
 - `/downloadbeta/<version>/linux-x64.yml`
+- `/downloadbeta/<version>/linux-arm64.yml`
 - `/downloadbeta/<version>/aether-darwin-arm64.dmg`
 - `/downloadbeta/<version>/update_darwin.command`
 - `/downloadbeta/<version>/aether-darwin-x64.dmg`
@@ -486,8 +701,69 @@ installer/aether_linux_arm64_installer.sh
 - `/downloadbeta/<version>/update_windows.bat`
 - `/downloadbeta/<version>/aether-linux-x64.zip`
 - `/downloadbeta/<version>/update_linux.sh`
+- `/downloadbeta/<version>/aether-linux-arm64.zip`
+- `/downloadbeta/<version>/update_linux_arm64.sh`
+
+- `/downloadbeta/<version>/aether-linux-arm64.zip`
+- `/downloadbeta/<version>/update_linux_arm64.sh`
+
+## 桌面版下载接口
+
+桌面版下载路由在 Web 版路由之下增加一段 `desktop`，两个渠道一致：
+
+- 公开：`/download/desktop/<version>/<filename>`、`/download/desktop/latest/<filename>`
+- 测试版：`/downloadbeta/desktop/<version>/<filename>`、`/downloadbeta/desktop/latest/<filename>`
+
+`<filename>` 必须在桌面版产物白名单内（`aether-desktop-*` 包体及其 `.blockmap`、非 `web` 的 `latest*.yml` L2 兼容 yml、或 `desktop-*.yml` L1 manifest），否则返回错误，避免与 Web 版文件混用。
+
+### 最新通道（桌面版）
+
+**L1 网站 manifest**（服务端生成，信息站点/统计读取，inline + no-store + 上报 update-check 事件，与 Web 版 manifest 路由同构）：
+
+- `/download/desktop/latest/desktop-mac-arm64.yml`
+- `/download/desktop/latest/desktop-mac-x64.yml`
+- `/download/desktop/latest/desktop-win-x64.yml`
+- `/download/desktop/latest/desktop-win-arm64.yml`
+- `/download/desktop/latest/desktop-linux-x64.yml`
+- `/download/desktop/latest/desktop-linux-arm64.yml`
+
+**L2 兼容 yml**（electron-builder 自动更新入口，按平台自动请求对应 yml，302 到 OSS）：
+
+- `/download/desktop/latest/latest.yml`（Windows）
+- `/download/desktop/latest/latest-mac.yml`（macOS，arm64 + x64）
+- `/download/desktop/latest/latest-linux.yml`（Linux x64）
+- `/download/desktop/latest/latest-linux-arm64.yml`（Linux ARM64）
+
+对应包体（节选，完整清单见 [桌面版产物](#桌面版electron产物)）：
+
+- `/download/desktop/latest/aether-desktop-mac-arm64.dmg`
+- `/download/desktop/latest/aether-desktop-win-x64.exe`
+- `/download/desktop/latest/aether-desktop-linux-x86_64.AppImage`
+
+测试版渠道把根路径替换为 `/downloadbeta/desktop/...` 即可。
+
+解析规则（与 Web 版 latest 通道同构）：
+
+- `latest` 读取桌面版版本索引（公开 `downloads/desktop-latest-versions.json`、测试版 `downloads/beta-desktop-latest-versions.json`），结构为 per-platform version map，按请求文件名所属平台解析到对应版本
+- 通过 302 重定向到 OSS 对象地址，OSS key 为 `desktop/<version>/<filename>`（测试版 `beta/desktop/<version>/<filename>`）
+- L1 manifest 走 inline + no-store 并上报 update-check 事件；L2 yml 与包体走 302 并上报 download-success 事件（与 Web 版 manifest/包体路由行为一致）
+- L2 yml 与包体必须在同一版本目录下共存，electron-builder 才能按 yml 内 `path` 字段按相对路径解析
+
+### electron-builder 自动更新配置
+
+桌面版客户端把更新 base URL 指向桌面版 latest 通道（注意要带 `desktop` 段，而非 Web 版的 `/downloadbeta`）：
+
+```jsonc
+{
+  "updateBaseUrl": "https://aether.aiphys.cn/downloadbeta/desktop/latest"
+}
+```
+
+electron-builder 会按平台自动追加 `latest.yml` / `latest-mac.yml` / `latest-linux.yml` / `latest-linux-arm64.yml`，并按 yml 内 `path` 字段拉取同目录包体。公开渠道同理使用 `https://aether.aiphys.cn/download/desktop/latest`。
 
 ## macOS Manifest 协议
+
+> 本节描述的是 **Web 版** 的 `mac-arm64.yml` / `mac-x64.yml` 协议。桌面版 L1 manifest（`desktop-mac-arm64.yml` 等）使用**同一 schema**，由服务端 commit 时生成，详见 [桌面版下载接口](#桌面版下载接口)；桌面版 L2 兼容 yml（`latest-mac.yml`）为 electron-builder 原生格式，由上游原样透传，服务端不生成。
 
 mac 客户端应优先读取：
 
@@ -619,7 +895,7 @@ OSS 上传失败时的响应示例：
 | --- | --- |
 | `400` | 请求格式错误、缺少版本号、版本格式非法、`releaseDate` 非法 |
 | `403` | 管理员密码错误 |
-| `500` | 服务端未配置 `DOWNLOAD_ADMIN_PASSWORD` 或 `DOWNLOAD_OSS_PUBLIC_BASE_URL` |
+| `500` | 管理员上传接口缺少 `DOWNLOAD_ADMIN_PASSWORD` 或 OSS 配置；公开下载接口缺少 `DOWNLOAD_OSS_PUBLIC_BASE_URL` |
 
 错误响应示例：
 
@@ -652,3 +928,12 @@ OSS 上传失败时的响应示例：
 - [download-upload.ts](../src/lib/server/download-upload.ts)
 - [downloads.ts](../src/lib/server/downloads.ts)
 - [oss.ts](../src/lib/server/oss.ts)
+
+桌面版相关（计划新增）：
+
+- `src/pages/download/desktop/[version]/[filename].ts`、`src/pages/download/desktop/latest/[filename].ts`（公开渠道桌面版下载路由）
+- `src/pages/downloadbeta/desktop/[version]/[filename].ts`（测试版渠道桌面版下载路由）
+- `downloads/desktop-latest-versions.json`、`downloads/beta-desktop-latest-versions.json`（桌面版 latest 索引，per-platform version map，与 Web 版 `latest-versions.json` 同构）
+- `src/lib/server/downloads.ts` 新增 `DOWNLOAD_DESKTOP_PLATFORMS`（与 `DOWNLOAD_PLATFORMS` 同构）与桌面版文件名白名单；L1 manifest 生成复用 `buildLatestWebManifest`
+- `src/lib/server/download-upload.ts` 新增 `commitDesktopDownloadUploads`，复用 Web 版 commit 的重算/生成/索引流程
+- `src/lib/downloads/catalog.ts`（信息站点下载平台配置，新增桌面版平台与 Web/桌面切换）

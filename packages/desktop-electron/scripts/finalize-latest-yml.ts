@@ -113,10 +113,12 @@ if (macX64 || macArm64) {
 // Upload to release
 const tag = `v${version}`
 const tmp = process.env.RUNNER_TEMP ?? "/tmp"
+const dist = process.env.RELEASE_DIST_DIR
 
 for (const [filename, content] of Object.entries(output)) {
   const filepath = path.join(tmp, filename)
   await Bun.write(filepath, content)
+  if (dist) await Bun.write(path.join(dist, filename), content)
   await $`gh release upload ${tag} ${filepath} --clobber --repo ${repo}`
   console.log(`uploaded ${filename}`)
 }
