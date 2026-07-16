@@ -1279,6 +1279,14 @@ PART_MAPPING["tool"] = function ToolPartDisplay(props) {
     if (part().tool !== "task") return
     return sessionLink(taskId(), useLocation().pathname, data.sessionHref)
   })
+  const taskClick = (event: MouseEvent) => {
+    event.stopPropagation()
+    const sid = taskId()
+    const nav = data.navigateToSession
+    if (!sid || !nav) return
+    event.preventDefault()
+    nav(sid)
+  }
   const taskSubtitle = createMemo(() => {
     if (part().tool !== "task") return undefined
     const value = input().description
@@ -1311,6 +1319,7 @@ PART_MAPPING["tool"] = function ToolPartDisplay(props) {
                   defaultOpen={props.defaultOpen}
                   subtitle={taskSubtitle()}
                   href={taskHref()}
+                  onHrefClick={taskClick}
                 />
               )
             }}
@@ -1737,6 +1746,14 @@ ToolRegistry.register({
     const running = createMemo(() => props.status === "pending" || props.status === "running")
 
     const href = createMemo(() => sessionLink(childSessionId(), location.pathname, data.sessionHref))
+    const click = (event: MouseEvent) => {
+      event.stopPropagation()
+      const sid = childSessionId()
+      const nav = data.navigateToSession
+      if (!sid || !nav) return
+      event.preventDefault()
+      nav(sid)
+    }
 
     const titleContent = () => <TextShimmer text={title()} active={running()} />
 
@@ -1764,7 +1781,7 @@ ToolRegistry.register({
                     "text-text-on-warning-strong": pending(),
                   }}
                   href={href()!}
-                  onClick={(e) => e.stopPropagation()}
+                  onClick={click}
                 >
                   {subtitle()}
                   <Show when={pending()}>{warningSuffix()}</Show>
