@@ -786,6 +786,7 @@ function SessionPageContent(props: SessionPageProps = {}) {
   let diffFrame: number | undefined
   let diffTimer: number | undefined
   let watcherDiff: number | undefined
+  let vcsWatch: number | undefined
   const vcsTask = new Map<VcsMode, Promise<void>>()
   const vcsRun = new Map<VcsMode, number>()
 
@@ -1114,8 +1115,12 @@ function SessionPageContent(props: SessionPageProps = {}) {
         ? (evt.details.properties as Record<string, unknown>)
         : undefined
     const file = typeof props?.file === "string" ? props.file : undefined
-    if (!file || file.startsWith(".git/")) return
-    refreshVcs()
+    if (!file || file.startsWith(".git/") || file.includes("/.git/")) return
+    if (vcsWatch !== undefined) window.clearTimeout(vcsWatch)
+    vcsWatch = window.setTimeout(() => {
+      vcsWatch = undefined
+      refreshVcs({ silent: true })
+    }, 500)
   })
   onCleanup(stopVcs)
 
@@ -2220,6 +2225,7 @@ function SessionPageContent(props: SessionPageProps = {}) {
     if (diffFrame !== undefined) cancelAnimationFrame(diffFrame)
     if (diffTimer !== undefined) window.clearTimeout(diffTimer)
     if (watcherDiff !== undefined) window.clearTimeout(watcherDiff)
+    if (vcsWatch !== undefined) window.clearTimeout(vcsWatch)
     if (scrollStateFrame !== undefined) cancelAnimationFrame(scrollStateFrame)
     if (fillFrame !== undefined) cancelAnimationFrame(fillFrame)
   })
