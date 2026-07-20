@@ -64,7 +64,14 @@ export namespace SessionPreference {
       sessionID: patch.sessionID,
       agent: patch.agent ?? prev?.agent,
       model: patch.model ?? prev?.model,
-      variant: patch.variant === null ? undefined : modelChanged ? undefined : (patch.variant ?? prev?.variant),
+      variant:
+        patch.variant === null
+          ? undefined
+          : patch.variant !== undefined
+            ? patch.variant
+            : modelChanged
+              ? undefined
+              : prev?.variant,
       autoAccept: patch.autoAccept ?? prev?.autoAccept,
     }
     store.set(patch.sessionID, merged)
