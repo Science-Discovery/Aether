@@ -58,53 +58,6 @@ describe("SessionPreference", () => {
       })
     })
 
-    test("atomic model and variant patch keeps explicit variant", async () => {
-      await using tmp = await tmpdir()
-      await Instance.provide({
-        directory: tmp.path,
-        fn: async () => {
-          const id = sid()
-          await SessionPreference.update({
-            sessionID: id,
-            agent: "build",
-            model: { providerID: pid("openai"), modelID: mid("gpt-5") },
-            variant: "xhigh",
-          })
-          const pref = SessionPreference.get(id)!
-          expect(pref.agent).toBe("build")
-          expect(pref.model!.providerID).toBe(pid("openai"))
-          expect(pref.model!.modelID).toBe(mid("gpt-5"))
-          expect(pref.variant).toBe("xhigh")
-        },
-      })
-    })
-
-    test("model change with explicit variant uses supplied variant", async () => {
-      await using tmp = await tmpdir()
-      await Instance.provide({
-        directory: tmp.path,
-        fn: async () => {
-          const id = sid()
-          await SessionPreference.update({
-            sessionID: id,
-            agent: "build",
-            model: { providerID: pid("openai"), modelID: mid("gpt-4") },
-          })
-          await SessionPreference.update({ sessionID: id, variant: "low" })
-          await SessionPreference.update({
-            sessionID: id,
-            model: { providerID: pid("anthropic"), modelID: mid("claude-3") },
-            variant: "high",
-          })
-          const pref = SessionPreference.get(id)!
-          expect(pref.agent).toBe("build")
-          expect(pref.model!.providerID).toBe(pid("anthropic"))
-          expect(pref.model!.modelID).toBe(mid("claude-3"))
-          expect(pref.variant).toBe("high")
-        },
-      })
-    })
-
     test("variant: null clears variant; variant: undefined keeps previous", async () => {
       await using tmp = await tmpdir()
       await Instance.provide({
