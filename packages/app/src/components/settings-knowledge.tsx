@@ -450,13 +450,29 @@ export const SettingsKnowledge: Component = () => {
                     />
                   </Show>
                   <Show when={!loadingModels() && (embeddingModelOptions().length === 0 || useManualModel())}>
-                    <input
-                      type="text"
-                      value={newModel()}
-                      onInput={(e) => setNewModel(e.currentTarget.value)}
-                      placeholder="text-embedding-3-small"
-                      class="h-9 flex-1 max-w-xs rounded-md border border-border-base bg-surface-base px-3 text-14-regular text-text-strong placeholder:text-text-weak focus:outline-none focus:ring-2 focus:ring-border-focus"
-                    />
+                    <div class="flex flex-col gap-1.5 max-w-xs">
+                      <input
+                        type="text"
+                        value={newModel()}
+                        onInput={(e) => setNewModel(e.currentTarget.value)}
+                        placeholder="text-embedding-3-small"
+                        class="h-9 flex-1 rounded-md border border-border-base bg-surface-base px-3 text-14-regular text-text-strong placeholder:text-text-weak focus:outline-none focus:ring-2 focus:ring-border-focus"
+                      />
+                      <Show when={useManualModel() && embeddingModelOptions().length > 0}>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setUseManualModel(false)
+                            if (newModel() && !embeddingModelOptions().includes(newModel())) {
+                              setNewModel(embeddingModelOptions()[0] ?? "")
+                            }
+                          }}
+                          class="text-12-regular text-text-weak hover:text-text-base underline self-start"
+                        >
+                          Use model list
+                        </button>
+                      </Show>
+                    </div>
                   </Show>
                 </div>
               </Show>
