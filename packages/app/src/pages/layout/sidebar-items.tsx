@@ -41,6 +41,22 @@ export const ProjectIcon = (props: { project: LocalProject; class?: string; noti
     }),
   )
   const notify = createMemo(() => props.notify && (hasPermissions() || unseenCount() > 0))
+  const isBusy = createMemo(() =>
+    dirs().some((directory) => {
+      const [store] = globalSync.child(directory, { bootstrap: false })
+      const ids = new Set([...Object.keys(store.session_status), ...Object.keys(store.message)])
+      return [...ids].some((id) => {
+        const status = store.session_status[id]
+        if (status?.type === "busy" || status?.type === "retry") return true
+        const pending = (store.message[id] ?? []).findLast(
+          (message) =>
+            message.role === "assistant" &&
+            typeof (message as { time?: { completed?: unknown } }).time?.completed !== "number",
+        )
+        return !!pending
+      })
+    }),
+  )
   const name = createMemo(() => props.project.name || getFilename(props.project.worktree))
   const recent = createMemo(() => globalSync.project.recentFromDir(props.project.worktree))
   const src = createMemo(() => {
@@ -67,6 +83,11 @@ export const ProjectIcon = (props: { project: LocalProject; class?: string; noti
             "bg-text-interactive-base": !hasPermissions() && !hasError(),
           }}
         />
+      </Show>
+      <Show when={isBusy()}>
+        <div class="absolute bottom-px right-px size-[14px] rounded-full bg-background-base flex items-center justify-center z-10">
+          <Spinner class="size-[10px] text-icon-interactive-base" />
+        </div>
       </Show>
     </div>
   )
@@ -414,12 +435,7 @@ export const SessionItem = (props: SessionItemProps): JSX.Element => {
       >
         <div class="flex min-w-0 items-center gap-1">
           <div class="min-w-0 flex-1">
-            <Show
-              when={renaming()}
-              fallback={
-                item
-              }
-            >
+            <Show when={renaming()} fallback={item}>
               <div class={`flex items-center gap-3 min-w-0 ${props.dense ? "py-0.5" : "py-1"}`}>
                 <div class="shrink-0 size-6 flex items-center justify-center">
                   <Show
