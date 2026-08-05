@@ -1278,8 +1278,14 @@ describe("ProviderTransform.message - DeepSeek reasoning content", () => {
     const flash = await sample("deepseek", "deepseek-v4-flash")
     const pro = await sample("deepseek", "deepseek-v4-pro")
 
-    expect(ProviderTransform.variants(flash)).toEqual({})
-    expect(ProviderTransform.variants(pro)).toEqual({})
+    expect(ProviderTransform.variants(flash)).toEqual({
+      high: { thinking: { type: "enabled" }, reasoningEffort: "high" },
+      max: { thinking: { type: "enabled" }, reasoningEffort: "max" },
+    })
+    expect(ProviderTransform.variants(pro)).toEqual({
+      high: { thinking: { type: "enabled" }, reasoningEffort: "high" },
+      max: { thinking: { type: "enabled" }, reasoningEffort: "max" },
+    })
     expect(flash.capabilities.interleaved).toEqual({ field: "reasoning_content" })
     expect(pro.capabilities.interleaved).toEqual({ field: "reasoning_content" })
 
@@ -2616,10 +2622,13 @@ describe("ProviderTransform.variants", () => {
       expect(result.high).toEqual({ reasoning: { effort: "high" } })
     })
 
-    test("fixture deepseek v4 keeps openrouter package without generic variants", async () => {
+    test("fixture deepseek v4 returns openrouter reasoning variants", async () => {
       const model = await sample("openrouter", "deepseek/deepseek-v4-flash")
       expect(model.api.npm).toBe("@openrouter/ai-sdk-provider")
-      expect(ProviderTransform.variants(model)).toEqual({})
+      expect(ProviderTransform.variants(model)).toEqual({
+        high: { reasoning: { effort: "high" } },
+        max: { reasoning: { effort: "max" } },
+      })
     })
 
     test("fixture openrouter gpt-5.4 uses openrouter reasoning variants", async () => {
@@ -2844,9 +2853,12 @@ describe("ProviderTransform.variants", () => {
       })
     })
 
-    test("fixture vercel deepseek v4 does not create generic gateway variants", async () => {
+    test("fixture vercel deepseek v4 returns reasoning variants", async () => {
       const model = await sample("vercel", "deepseek/deepseek-v4-flash")
-      expect(ProviderTransform.variants(model)).toEqual({})
+      expect(ProviderTransform.variants(model)).toEqual({
+        high: { thinking: { type: "enabled" }, reasoningEffort: "high" },
+        max: { thinking: { type: "enabled" }, reasoningEffort: "max" },
+      })
     })
 
     test("fixture vercel claude opus 4.7 returns summarized adaptive variants", async () => {
