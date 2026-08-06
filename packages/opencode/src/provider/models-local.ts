@@ -92,6 +92,85 @@ export const inserts = {
       "https://dashscope.aliyuncs.com/compatible-mode/v1",
       "models.dev is missing Alibaba Bailian GLM-5.2 metadata; Alibaba documents OpenAI-compatible chat completions with 1M context",
     ),
+    "qwen3.8-max": {
+      id: "qwen3.8-max",
+      name: "Qwen3.8 Max",
+      family: "qwen",
+      attachment: true,
+      reasoning: true,
+      tool_call: true,
+      structured_output: true,
+      interleaved: {
+        field: "reasoning_content",
+      },
+      temperature: true,
+      release_date: "",
+      modalities: {
+        input: ["text", "image", "video"],
+        output: ["text"],
+      },
+      provider: {
+        npm: "@ai-sdk/openai-compatible",
+        api: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      },
+      limit: {
+        context: 1_000_000,
+        input: 991_000,
+        output: 131_072,
+      },
+      options: {},
+      // Alibaba Bailian list price is CNY 12 / 1.2 (cache hit) / 36 per 1M tokens;
+      // converted to USD at 1 USD ≈ 7.2 CNY to match models.dev's USD convention.
+      cost: {
+        input: 1.67,
+        cache_read: 0.17,
+        output: 5.0,
+      },
+      meta: {
+        reason:
+          "models.dev is missing Alibaba Bailian qwen3.8-max metadata; Alibaba documents OpenAI-compatible hybrid reasoning with 1M context and image/video input",
+        verified_at: "2026-08-05",
+      },
+    },
+    "deepseek-v4-flash-0731": {
+      id: "deepseek-v4-flash-0731",
+      name: "DeepSeek V4 Flash 0731",
+      family: "deepseek",
+      attachment: false,
+      reasoning: true,
+      tool_call: true,
+      structured_output: true,
+      interleaved: {
+        field: "reasoning_content",
+      },
+      temperature: true,
+      release_date: "2026-07-31",
+      modalities: {
+        input: ["text"],
+        output: ["text"],
+      },
+      provider: {
+        npm: "@ai-sdk/openai-compatible",
+        api: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      },
+      limit: {
+        context: 1_000_000,
+        output: 393_216,
+      },
+      options: {},
+      // Alibaba Bailian list price is CNY 1 / 0.1 (cache hit) / 2 per 1M tokens;
+      // converted to USD at 1 USD ≈ 7.2 CNY to match models.dev's USD convention.
+      cost: {
+        input: 0.14,
+        cache_read: 0.01,
+        output: 0.28,
+      },
+      meta: {
+        reason:
+          "models.dev is missing Alibaba Bailian deepseek-v4-flash-0731 metadata; Alibaba documents OpenAI-compatible hybrid reasoning with 1M context and shared 393,216 output budget",
+        verified_at: "2026-08-05",
+      },
+    },
   },
   aihubmix: {
     "glm-5.2": glm(
