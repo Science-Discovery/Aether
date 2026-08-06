@@ -19,7 +19,7 @@ import { useKnowledge } from "@/context/knowledge"
 import { promptProbe } from "@/testing/prompt"
 import { Identifier } from "@/utils/id"
 import { Worktree as WorktreeState } from "@/utils/worktree"
-import { buildRequestParts, type DataAttachment } from "./build-request-parts"
+import { buildRequestParts, type DataAttachment, type PromptRequestPart } from "./build-request-parts"
 import { setCursorPosition } from "./editor-dom"
 import { createReadingQuoteMetadata, formatReadingPageRange, summarizeReadingQuoteText } from "@/utils/comment-note"
 import { createConversationQuoteMetadata } from "@/utils/conversation-quote-metadata"
@@ -202,7 +202,7 @@ export async function sendFollowupDraft(input: FollowupSendInput) {
   }
 
   const messageID = input.messageID ?? Identifier.ascending("message")
-  const { requestParts, optimisticParts } = buildRequestParts({
+  const built = buildRequestParts({
     prompt: input.draft.prompt,
     context: input.draft.context,
     images,
@@ -215,6 +215,8 @@ export async function sendFollowupDraft(input: FollowupSendInput) {
     selectedPaths: input.draft.selectedPaths,
     pdfSelectedText: input.draft.pdfSelectedText,
   })
+  const optimisticParts = built.optimisticParts
+  let requestParts = built.requestParts
 
   const message: Message = {
     id: messageID,
@@ -249,6 +251,64 @@ export async function sendFollowupDraft(input: FollowupSendInput) {
       setIdle()
       remove()
       return false
+    }
+
+    const extraction = input.globalSync.data.config.experimental?.attachment_text_extraction
+    const files = requestParts.flatMap((part) => {
+      if (part.type !== "file") return []
+      if (part.mime !== "application/pdf" && !part.mime.startsWith("image/")) return []
+      if (!part.url.startsWith("data:")) return []
+      return [{ id: part.id, mime: part.mime, filename: part.filename, url: part.url }]
+    })
+    if (extraction?.enabled && files.length > 0) {
+      if (input.optimisticBusy) {
+        setStore("session_status", input.draft.sessionID, {
+          type: "busy",
+          phase: "attachment",
+          label: files[0]?.filename ?? "attachment",
+          progress: { current: 1, total: files.length, unit: "file" },
+        })
+      }
+      const output = await input.client.session
+        .attachmentExtract(
+          {
+            sessionID: input.draft.sessionID,
+            model: input.draft.model,
+            files,
+          },
+          { throwOnError: true },
+        )
+        .then((result) => result.data)
+      const results = new Map(output?.results.map((result) => [result.partID, result]))
+      requestParts = requestParts.flatMap((part): PromptRequestPart[] => {
+        if (part.type !== "file") return [part]
+        const result = results.get(part.id)
+        if (!result) return [part]
+        return [
+          {
+            ...part,
+            ignored: true,
+            metadata: result.metadata,
+          },
+          {
+            id: Identifier.ascending("part"),
+            type: "text" as const,
+            synthetic: true,
+            text: `[Attachment text extracted from ${JSON.stringify(result.metadata.opencodeAttachmentExtraction.filename)} by MinerU]`,
+          },
+          {
+            id: Identifier.ascending("part"),
+            type: "text" as const,
+            synthetic: true,
+            text: result.text,
+            metadata: result.metadata,
+          },
+        ]
+      })
+    }
+
+    if (input.optimisticBusy) {
+      setStore("session_status", input.draft.sessionID, { type: "busy", phase: "model" })
     }
 
     await input.client.session.promptAsync({

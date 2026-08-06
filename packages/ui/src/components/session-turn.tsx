@@ -382,6 +382,17 @@ export function SessionTurn(
     if (showReasoningSummaries()) return assistantVisible() === 0
     return true
   })
+  const thinkingText = createMemo(() => {
+    const value = status()
+    if (value.type !== "busy" || value.phase !== "attachment") return i18n.t("ui.sessionTurn.status.thinking")
+    const progress = value.progress
+    const count =
+      typeof progress?.current === "number" && typeof progress.total === "number" && progress.total > 1
+        ? ` · ${progress.current}/${progress.total}`
+        : ""
+    const label = value.label ? ` · ${value.label}` : ""
+    return `${i18n.t("ui.sessionTurn.status.attachmentExtraction")}${label}${count}`
+  })
   const assistantCollapsed = createMemo(() => props.assistantCollapsed ?? false)
   const canCollapseAssistant = createMemo(() => assistantMessages().length > 0 && !working())
   const assistantExpandLabel = createMemo(() => i18n.t("ui.message.expand"))
@@ -463,7 +474,7 @@ export function SessionTurn(
               </Show>
               <Show when={showThinking() && !assistantCollapsed()}>
                 <div data-slot="session-turn-thinking">
-                  <TextShimmer text={i18n.t("ui.sessionTurn.status.thinking")} />
+                  <TextShimmer text={thinkingText()} />
                   <Show when={!showReasoningSummaries()}>
                     <TextReveal
                       text={reasoningHeading()}

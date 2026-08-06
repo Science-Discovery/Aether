@@ -24,6 +24,7 @@ import { lazy } from "../../util/lazy"
 import { Bus } from "../../bus"
 import { NamedError } from "@opencode-ai/util/error"
 import { SessionPreference } from "../../session/preference"
+import { AttachmentExtraction } from "@/attachment-extraction"
 
 const log = Log.create({ service: "server" })
 
@@ -951,6 +952,33 @@ export const SessionRoutes = lazy(() =>
         }
         const part = await Session.updatePart(body)
         return c.json(part)
+      },
+    )
+    .post(
+      "/:sessionID/attachment/extract",
+      describeRoute({
+        summary: "Extract unsupported attachments",
+        description:
+          "Convert unsupported PDF and image attachments to Markdown using the configured experimental engine.",
+        operationId: "session.attachmentExtract",
+        responses: {
+          200: {
+            description: "Attachment extraction results",
+            content: { "application/json": { schema: resolver(AttachmentExtraction.Output) } },
+          },
+          ...errors(400, 404),
+        },
+      }),
+      validator("param", z.object({ sessionID: SessionID.zod })),
+      validator("json", AttachmentExtraction.Input.omit({ sessionID: true })),
+      async (c) => {
+        const sessionID = c.req.valid("param").sessionID
+        const body = c.req.valid("json")
+        try {
+          return c.json(await AttachmentExtraction.extract({ ...body, sessionID }, c.req.raw.signal))
+        } finally {
+          await SessionStatus.set(sessionID, { type: "idle" })
+        }
       },
     )
     .post(

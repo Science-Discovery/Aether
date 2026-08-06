@@ -34,6 +34,7 @@ import {
   WebUpdateMirrorInput,
   webCheck,
 } from "../web-update"
+import { AttachmentExtraction } from "@/attachment-extraction"
 
 export { WebUpdateTest } from "../web-update"
 
@@ -136,6 +137,27 @@ async function streamEvents(c: Context, subscribe: (q: AsyncQueue<string | null>
 
 export const GlobalRoutes = lazy(() =>
   new Hono()
+    .post(
+      "/mineru/health",
+      describeRoute({
+        summary: "Check MinerU health",
+        description: "Check a user-managed MinerU API endpoint.",
+        operationId: "global.mineruHealth",
+        responses: {
+          200: {
+            description: "MinerU health response",
+            content: {
+              "application/json": {
+                schema: resolver(z.object({ base_url: z.string(), response: z.unknown() })),
+              },
+            },
+          },
+          ...errors(400),
+        },
+      }),
+      validator("json", z.object({ base_url: z.string().optional() })),
+      async (c) => c.json(await AttachmentExtraction.health(c.req.valid("json").base_url, c.req.raw.signal)),
+    )
     .get(
       "/scripts",
       describeRoute({

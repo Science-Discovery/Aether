@@ -1392,6 +1392,19 @@ export namespace Config {
         .optional(),
       experimental: z
         .object({
+          attachment_text_extraction: z
+            .object({
+              enabled: z.boolean().optional().describe("Enable experimental attachment text extraction"),
+              strategy: z.enum(["local", "vision", "local_then_vision"]).optional(),
+              mineru: z
+                .object({
+                  base_url: z.string().optional(),
+                  scope: z.enum(["selective", "all"]).optional(),
+                })
+                .optional(),
+              vision_model: ModelId.optional(),
+            })
+            .optional(),
           disable_paste_summary: z.boolean().optional(),
           batch_tool: z.boolean().optional().describe("Enable the batch tool"),
           openTelemetry: z

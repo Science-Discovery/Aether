@@ -6,7 +6,7 @@ import type { AgentPart, FileAttachmentPart, ImageAttachmentPart, Prompt } from 
 import { Identifier } from "@/utils/id"
 import { createCommentMetadata, formatCommentNote } from "@/utils/comment-note"
 
-type PromptRequestPart = (TextPartInput | FilePartInput | AgentPartInput) & { id: string }
+export type PromptRequestPart = (TextPartInput | FilePartInput | AgentPartInput) & { id: string }
 export type DataAttachment = {
   filename: string
   mime: string
@@ -78,6 +78,9 @@ const toOptimisticPart = (part: PromptRequestPart, sessionID: string, messageID:
       filename: part.filename,
       url: part.url,
       source: part.source,
+      synthetic: part.synthetic,
+      ignored: part.ignored,
+      metadata: part.metadata,
       sessionID,
       messageID,
     }

@@ -11,6 +11,7 @@ import { useTheme, type ColorScheme } from "@opencode-ai/ui/theme/context"
 import { showToast, showPromiseToast } from "@opencode-ai/ui/toast"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { useGlobalSync } from "@/context/global-sync"
+import { useGlobalSDK } from "@/context/global-sdk"
 import { useLanguage } from "@/context/language"
 import { useModels } from "@/context/models"
 import { usePlatform } from "@/context/platform"
@@ -92,6 +93,7 @@ export const SettingsGeneral: Component = () => {
   const platform = usePlatform()
   const settings = useSettings()
   const globalSync = useGlobalSync()
+  const globalSDK = useGlobalSDK()
   const models = useModels()
 
   onMount(() => {
@@ -100,7 +102,63 @@ export const SettingsGeneral: Component = () => {
 
   const [store, setStore] = createStore({
     checking: false,
+    loaded: false,
+    url: "http://127.0.0.1:8000",
+    state: "idle" as "idle" | "checking" | "ok" | "error",
   })
+
+  createEffect(() => {
+    if (store.loaded) return
+    setStore({
+      loaded: true,
+      url:
+        globalSync.data.config.experimental?.attachment_text_extraction?.mineru?.base_url || "http://127.0.0.1:8000",
+    })
+  })
+
+  const extraction = createMemo(() => globalSync.data.config.experimental?.attachment_text_extraction)
+
+  const update = async (
+    patch: Partial<NonNullable<NonNullable<typeof globalSync.data.config.experimental>["attachment_text_extraction"]>>,
+  ) => {
+    const before = globalSync.data.config.experimental
+    const next = {
+      ...before,
+      attachment_text_extraction: {
+        ...before?.attachment_text_extraction,
+        ...patch,
+      },
+    }
+    globalSync.set("config", "experimental", next)
+    try {
+      await globalSync.updateConfig({ experimental: next })
+    } catch (err) {
+      globalSync.set("config", "experimental", before)
+      showToast({
+        title: language.t("common.requestFailed"),
+        description: formatServerError(err, language.t),
+      })
+      throw err
+    }
+  }
+
+  const probe = async () => {
+    setStore("state", "checking")
+    try {
+      await globalSDK.client.global.mineruHealth({ base_url: store.url }, { throwOnError: true })
+      await update({
+        strategy: "local",
+        mineru: {
+          ...extraction()?.mineru,
+          base_url: store.url.trim(),
+          scope: "all",
+        },
+      })
+      setStore("state", "ok")
+    } catch {
+      setStore("state", "error")
+    }
+  }
 
   const capable = () => !!platform.runUpdater || !!platform.checkUpdate
   const linux = createMemo(() => platform.platform === "desktop" && platform.os === "linux")
@@ -438,6 +496,76 @@ export const SettingsGeneral: Component = () => {
             triggerStyle={{ "min-width": "220px" }}
           />
         </SettingsRow>
+
+        <SettingsRow
+          title={language.t("settings.general.row.attachmentExtraction.title")}
+          description={language.t("settings.general.row.attachmentExtraction.description")}
+        >
+          <div data-action="settings-attachment-extraction">
+            <Switch
+              checked={extraction()?.enabled === true}
+              onChange={(enabled) => {
+                void update({
+                  enabled,
+                  strategy: "local",
+                  mineru: {
+                    ...extraction()?.mineru,
+                    base_url: store.url.trim(),
+                    scope: "all",
+                  },
+                })
+              }}
+            />
+          </div>
+        </SettingsRow>
+
+        <Show when={extraction()?.enabled === true}>
+          <SettingsRow
+            title={language.t("settings.general.row.mineruUrl.title")}
+            description={language.t("settings.general.row.mineruUrl.description")}
+          >
+            <div class="flex flex-wrap items-center justify-end gap-2">
+              <TextField
+                data-action="settings-mineru-url"
+                type="text"
+                value={store.url}
+                onChange={(value) => {
+                  setStore("url", value)
+                  setStore("state", "idle")
+                }}
+                class="w-60"
+              />
+              <Button
+                data-action="settings-mineru-test"
+                variant="secondary"
+                size="small"
+                disabled={store.state === "checking" || !store.url.trim()}
+                onClick={() => void probe()}
+              >
+                {store.state === "checking"
+                  ? language.t("settings.general.row.mineruUrl.testing")
+                  : language.t("settings.general.row.mineruUrl.test")}
+              </Button>
+              <Show when={store.state === "ok"}>
+                <span class="text-12-regular text-success-base">
+                  {language.t("settings.general.row.mineruUrl.connected")}
+                </span>
+              </Show>
+              <Show when={store.state === "error"}>
+                <span class="text-12-regular text-danger-base">
+                  {language.t("settings.general.row.mineruUrl.failed")}
+                </span>
+              </Show>
+            </div>
+          </SettingsRow>
+
+          <SettingsRow
+            title={language.t("settings.general.row.mineruScope.title")}
+            description={language.t("settings.general.row.mineruScope.description")}
+          >
+            <span class="text-12-regular text-text-weak">{language.t("settings.general.row.mineruScope.all")}</span>
+          </SettingsRow>
+        </Show>
 
         <SettingsRow
           title={language.t("settings.general.row.language.title")}

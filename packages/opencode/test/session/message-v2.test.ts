@@ -234,6 +234,14 @@ describe("session.message-v2.toModelMessage", () => {
             url: "https://example.com/dir",
           },
           {
+            ...basePart(messageID, "p-ignored-file"),
+            type: "file",
+            mime: "application/pdf",
+            filename: "extracted.pdf",
+            url: "data:application/pdf;base64,JVBERg==",
+            ignored: true,
+          },
+          {
             ...basePart(messageID, "p6"),
             type: "compaction",
             auto: true,

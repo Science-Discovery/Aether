@@ -17,6 +17,7 @@ ts-dist
 **/.serena
 .serena/
 /result
+/output/
 refs
 Session.vim
 /opencode.json

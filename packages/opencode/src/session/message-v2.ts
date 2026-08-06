@@ -184,6 +184,9 @@ export namespace MessageV2 {
     filename: z.string().optional(),
     url: z.string(),
     source: FilePartSource.optional(),
+    synthetic: z.boolean().optional(),
+    ignored: z.boolean().optional(),
+    metadata: z.record(z.string(), z.any()).optional(),
   }).meta({
     ref: "FilePart",
   })
@@ -651,7 +654,12 @@ export namespace MessageV2 {
               text: part.text,
             })
           // text/plain and directory files are converted into text parts, ignore them
-          if (part.type === "file" && part.mime !== "text/plain" && part.mime !== "application/x-directory") {
+          if (
+            part.type === "file" &&
+            !part.ignored &&
+            part.mime !== "text/plain" &&
+            part.mime !== "application/x-directory"
+          ) {
             if (options?.stripMedia && isMedia(part.mime)) {
               userMessage.parts.push({
                 type: "text",

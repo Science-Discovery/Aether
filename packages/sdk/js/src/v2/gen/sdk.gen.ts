@@ -121,6 +121,8 @@ import type {
   GlobalDisposeResponses,
   GlobalEventResponses,
   GlobalHealthResponses,
+  GlobalMineruHealthErrors,
+  GlobalMineruHealthResponses,
   GlobalPingErrors,
   GlobalPingResponses,
   GlobalProxyGetResponses,
@@ -267,6 +269,8 @@ import type {
   SessionAbortResponses,
   SessionArchiveErrors,
   SessionArchiveResponses,
+  SessionAttachmentExtractErrors,
+  SessionAttachmentExtractResponses,
   SessionBackupEstimateErrors,
   SessionBackupEstimateResponses,
   SessionChildrenErrors,
@@ -682,6 +686,30 @@ export class Config extends HeyApiClient {
 }
 
 export class Global extends HeyApiClient {
+  /**
+   * Check MinerU health
+   *
+   * Check a user-managed MinerU API endpoint.
+   */
+  public mineruHealth<ThrowOnError extends boolean = false>(
+    parameters?: {
+      base_url?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams([parameters], [{ args: [{ in: "body", key: "base_url" }] }])
+    return (options?.client ?? this.client).post<GlobalMineruHealthResponses, GlobalMineruHealthErrors, ThrowOnError>({
+      url: "/global/mineru/health",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
   /**
    * List global scripts
    *
@@ -3361,6 +3389,66 @@ export class Session2 extends HeyApiClient {
   }
 
   /**
+   * Extract unsupported attachments
+   *
+   * Convert unsupported PDF and image attachments to Markdown using the configured experimental engine.
+   */
+  public attachmentExtract<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+      model?: {
+        providerID: string
+        modelID: string
+      }
+      files?: Array<{
+        id: string
+        mime: string
+        filename?: string
+        url: string
+      }>
+      ranges?: {
+        [key: string]: {
+          startPage: number
+          endPage: number
+        }
+      }
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "model" },
+            { in: "body", key: "files" },
+            { in: "body", key: "ranges" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      SessionAttachmentExtractResponses,
+      SessionAttachmentExtractErrors,
+      ThrowOnError
+    >({
+      url: "/session/{sessionID}/attachment/extract",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
    * Send async message
    *
    * Create and send a new message to a session asynchronously, starting the session if needed and returning immediately.
@@ -3450,6 +3538,11 @@ export class Session2 extends HeyApiClient {
         filename?: string
         url: string
         source?: FilePartSource
+        synthetic?: boolean
+        ignored?: boolean
+        metadata?: {
+          [key: string]: unknown
+        }
       }>
     },
     options?: Options<never, ThrowOnError>,

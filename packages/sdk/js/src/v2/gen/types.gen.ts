@@ -198,6 +198,13 @@ export type SessionStatus =
     }
   | {
       type: "busy"
+      phase?: "attachment" | "model"
+      label?: string
+      progress?: {
+        current?: number
+        total?: number
+        unit?: "file" | "page"
+      }
     }
 
 export type EventSessionStatus = {
@@ -879,6 +886,11 @@ export type FilePart = {
   filename?: string
   url: string
   source?: FilePartSource
+  synthetic?: boolean
+  ignored?: boolean
+  metadata?: {
+    [key: string]: unknown
+  }
 }
 
 export type ToolStatePending = {
@@ -1910,6 +1922,18 @@ export type Config = {
     }
   }
   experimental?: {
+    attachment_text_extraction?: {
+      /**
+       * Enable experimental attachment text extraction
+       */
+      enabled?: boolean
+      strategy?: "local" | "vision" | "local_then_vision"
+      mineru?: {
+        base_url?: string
+        scope?: "selective" | "all"
+      }
+      vision_model?: string
+    }
     disable_paste_summary?: boolean
     /**
      * Enable the batch tool
@@ -2274,6 +2298,11 @@ export type FilePartInput = {
   filename?: string
   url: string
   source?: FilePartSource
+  synthetic?: boolean
+  ignored?: boolean
+  metadata?: {
+    [key: string]: unknown
+  }
 }
 
 export type AgentPartInput = {
@@ -2571,6 +2600,36 @@ export type FormatterStatus = {
   extensions: Array<string>
   enabled: boolean
 }
+
+export type GlobalMineruHealthData = {
+  body?: {
+    base_url?: string
+  }
+  path?: never
+  query?: never
+  url: "/global/mineru/health"
+}
+
+export type GlobalMineruHealthErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type GlobalMineruHealthError = GlobalMineruHealthErrors[keyof GlobalMineruHealthErrors]
+
+export type GlobalMineruHealthResponses = {
+  /**
+   * MinerU health response
+   */
+  200: {
+    base_url: string
+    response: unknown
+  }
+}
+
+export type GlobalMineruHealthResponse = GlobalMineruHealthResponses[keyof GlobalMineruHealthResponses]
 
 export type GlobalScriptsData = {
   body?: never
@@ -5155,6 +5214,75 @@ export type PartUpdateResponses = {
 
 export type PartUpdateResponse = PartUpdateResponses[keyof PartUpdateResponses]
 
+export type SessionAttachmentExtractData = {
+  body?: {
+    model: {
+      providerID: string
+      modelID: string
+    }
+    files: Array<{
+      id: string
+      mime: string
+      filename?: string
+      url: string
+    }>
+    ranges?: {
+      [key: string]: {
+        startPage: number
+        endPage: number
+      }
+    }
+  }
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/session/{sessionID}/attachment/extract"
+}
+
+export type SessionAttachmentExtractErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type SessionAttachmentExtractError = SessionAttachmentExtractErrors[keyof SessionAttachmentExtractErrors]
+
+export type SessionAttachmentExtractResponses = {
+  /**
+   * Attachment extraction results
+   */
+  200: {
+    enabled: boolean
+    results: Array<{
+      partID: string
+      text: string
+      metadata: {
+        opencodeAttachmentExtraction: {
+          filename: string
+          mime: string
+          engine: "mineru"
+          startPage?: number
+          endPage?: number
+          characters: number
+          completedAt: number
+        }
+      }
+    }>
+  }
+}
+
+export type SessionAttachmentExtractResponse =
+  SessionAttachmentExtractResponses[keyof SessionAttachmentExtractResponses]
+
 export type SessionPromptAsyncData = {
   body?: {
     messageID?: string
@@ -5228,6 +5356,11 @@ export type SessionCommandData = {
       filename?: string
       url: string
       source?: FilePartSource
+      synthetic?: boolean
+      ignored?: boolean
+      metadata?: {
+        [key: string]: unknown
+      }
     }>
   }
   path: {

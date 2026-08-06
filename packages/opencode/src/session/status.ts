@@ -22,6 +22,15 @@ export namespace SessionStatus {
       }),
       z.object({
         type: z.literal("busy"),
+        phase: z.enum(["attachment", "model"]).optional(),
+        label: z.string().optional(),
+        progress: z
+          .object({
+            current: z.number().optional(),
+            total: z.number().optional(),
+            unit: z.enum(["file", "page"]).optional(),
+          })
+          .optional(),
       }),
     ])
     .meta({

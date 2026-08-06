@@ -15,6 +15,7 @@ import { InlineInput } from "@opencode-ai/ui/inline-input"
 import { Spinner } from "@opencode-ai/ui/spinner"
 import { SessionTurn } from "@opencode-ai/ui/session-turn"
 import { ScrollView } from "@opencode-ai/ui/scroll-view"
+import { Markdown } from "@opencode-ai/ui/markdown"
 import { TextField } from "@opencode-ai/ui/text-field"
 import type { AssistantMessage, Message as MessageType, Part, TextPart, UserMessage } from "@opencode-ai/sdk/v2"
 import { showToast } from "@opencode-ai/ui/toast"
@@ -67,6 +68,17 @@ type MessageComment = {
 type MessageReadingQuote = ReadingQuote
 type MessageConversationQuote = ConversationQuote
 
+type Extraction = {
+  filename: string
+  mime: string
+  engine: "mineru"
+  startPage?: number
+  endPage?: number
+  characters: number
+  completedAt: number
+  text: string
+}
+
 const emptyMessages: MessageType[] = []
 const idle = { type: "idle" as const }
 
@@ -107,6 +119,96 @@ const messageConversationQuotes = (parts: Part[]): MessageConversationQuote[] =>
     const next = readConversationQuoteMetadata(part.metadata)
     return next ? [next] : []
   })
+
+const extract = (parts: Part[]): Extraction[] =>
+  parts.flatMap((part) => {
+    if (part.type !== "text" || !part.synthetic) return []
+    const value = part.metadata?.opencodeAttachmentExtraction
+    if (!value || typeof value !== "object") return []
+    const meta = value as Record<string, unknown>
+    if (
+      typeof meta.filename !== "string" ||
+      typeof meta.mime !== "string" ||
+      meta.engine !== "mineru" ||
+      typeof meta.characters !== "number" ||
+      typeof meta.completedAt !== "number"
+    )
+      return []
+    return [
+      {
+        filename: meta.filename,
+        mime: meta.mime,
+        engine: "mineru" as const,
+        startPage: typeof meta.startPage === "number" ? meta.startPage : undefined,
+        endPage: typeof meta.endPage === "number" ? meta.endPage : undefined,
+        characters: meta.characters,
+        completedAt: meta.completedAt,
+        text: part.text,
+      },
+    ]
+  })
+
+function DialogExtraction(props: { item: Extraction }) {
+  const language = useLanguage()
+  const [raw, setRaw] = createSignal(false)
+
+  const download = () => {
+    const url = URL.createObjectURL(new Blob([props.item.text], { type: "text/markdown;charset=utf-8" }))
+    const link = document.createElement("a")
+    link.href = url
+    link.download = `${props.item.filename.replace(/\.[^.]+$/, "") || "attachment"}.md`
+    link.click()
+    URL.revokeObjectURL(url)
+  }
+
+  const copy = () => {
+    void navigator.clipboard.writeText(props.item.text).then(() => {
+      showToast({ title: language.t("attachmentExtraction.result.copied") })
+    })
+  }
+
+  return (
+    <Dialog
+      title={language.t("attachmentExtraction.result.title")}
+      class="w-[min(900px,calc(100vw-32px))] max-w-[calc(100vw-32px)]"
+    >
+      <div class="flex max-h-[80vh] min-w-0 flex-col gap-3 overflow-hidden p-4">
+        <div class="flex min-w-0 flex-wrap items-center gap-2">
+          <span class="truncate text-14-medium text-text-strong">{props.item.filename}</span>
+          <span class="text-12-regular text-text-weak">MinerU · {props.item.characters} chars</span>
+          <Show when={props.item.startPage && props.item.endPage}>
+            <span class="text-12-regular text-text-weak">
+              p.{props.item.startPage}-{props.item.endPage}
+            </span>
+          </Show>
+          <div class="ml-auto flex items-center gap-2">
+            <Button variant="ghost" size="small" onClick={() => setRaw(!raw())}>
+              {language.t(raw() ? "attachmentExtraction.result.preview" : "attachmentExtraction.result.raw")}
+            </Button>
+            <Button variant="ghost" size="small" onClick={copy}>
+              {language.t("attachmentExtraction.result.copy")}
+            </Button>
+            <Button variant="secondary" size="small" onClick={download}>
+              {language.t("attachmentExtraction.result.download")}
+            </Button>
+          </div>
+        </div>
+        <div class="min-h-0 min-w-0 flex-1 overflow-auto rounded-md border border-border-weak-base bg-background-stronger p-4">
+          <Show
+            when={!raw()}
+            fallback={
+              <pre class="min-w-0 whitespace-pre-wrap break-words text-13-regular text-text-strong">
+                {props.item.text}
+              </pre>
+            }
+          >
+            <Markdown text={props.item.text} />
+          </Show>
+        </div>
+      </div>
+    </Dialog>
+  )
+}
 
 function DialogReadingQuoteTextContent(props: { quote: MessageReadingQuote }) {
   return (
@@ -1585,9 +1687,25 @@ export function MessageTimeline(props: {
                           quote.fullText === b[i].fullText,
                       ),
                   })
+                  const extractions = createMemo(
+                    () => extract(sync.data.part[messageID] ?? []),
+                    [],
+                    {
+                      equals: (a, b) =>
+                        a.length === b.length &&
+                        a.every(
+                          (item, i) =>
+                            item.filename === b[i].filename &&
+                            item.characters === b[i].characters &&
+                            item.completedAt === b[i].completedAt &&
+                            item.text === b[i].text,
+                        ),
+                    },
+                  )
                   const commentCount = createMemo(() => comments().length)
                   const readingQuoteCount = createMemo(() => readingQuotes().length)
                   const conversationQuoteCount = createMemo(() => conversationQuotes().length)
+                  const extracted = createMemo(() => extractions().length)
                   return (
                     <div
                       id={props.anchor(messageID)}
@@ -1602,7 +1720,14 @@ export function MessageTimeline(props: {
                         "contain-intrinsic-size": isAssistantCollapsed(messageID) ? "auto 20px" : "auto 500px",
                       }}
                     >
-                      <Show when={commentCount() > 0 || readingQuoteCount() > 0 || conversationQuoteCount() > 0}>
+                      <Show
+                        when={
+                          commentCount() > 0 ||
+                          readingQuoteCount() > 0 ||
+                          conversationQuoteCount() > 0 ||
+                          extracted() > 0
+                        }
+                      >
                         <div class="w-full px-4 md:px-5 pb-2">
                           <div class="ml-auto max-w-[82%] min-w-0 overflow-x-auto no-scrollbar overscroll-x-contain">
                             <div class="flex w-max min-w-full justify-end gap-2">
@@ -1694,6 +1819,29 @@ export function MessageTimeline(props: {
                                   </div>
                                 </button>
                               </Show>
+                              <Index each={extractions()}>
+                                {(item) => (
+                                  <div class="w-[300px] max-w-full shrink-0 rounded-[6px] border border-border-weak-base bg-background-stronger px-2.5 py-2">
+                                    <div class="flex items-center gap-1.5 min-w-0 text-11-medium text-text-strong">
+                                      <FileIcon
+                                        node={{ path: item().filename, type: "file" }}
+                                        class="size-3.5 shrink-0"
+                                      />
+                                      <span class="truncate">{item().filename}</span>
+                                    </div>
+                                    <div class="mt-1 flex items-center gap-2 text-11-medium text-text-weak">
+                                      <span>{language.t("attachmentExtraction.result.completed")}</span>
+                                      <button
+                                        type="button"
+                                        class="text-text-interactive hover:underline"
+                                        onClick={() => dialog.show(() => <DialogExtraction item={item()} />)}
+                                      >
+                                        {language.t("attachmentExtraction.result.view")}
+                                      </button>
+                                    </div>
+                                  </div>
+                                )}
+                              </Index>
                             </div>
                           </div>
                         </div>
