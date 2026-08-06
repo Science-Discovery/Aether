@@ -49,6 +49,7 @@ import {
   sanitizeRecent,
 } from "./global-sync/utils"
 import { formatServerError } from "@/utils/server-errors"
+import { serverScopedKey } from "@/utils/server-scope"
 
 type GlobalStore = {
   ready: boolean
@@ -68,6 +69,7 @@ type GlobalStore = {
 function createGlobalSync() {
   const globalSDK = useGlobalSDK()
   const server = useServer()
+  const serverKey = server.key
   const language = useLanguage()
   const owner = getOwner()
   if (!owner) throw new Error("GlobalSync must be created within owner")
@@ -79,11 +81,11 @@ function createGlobalSync() {
   const deleting = new Set<string>()
 
   const [projectCache, setProjectCache, projectInit] = persisted(
-    Persist.global(`globalSync.project.${server.key}`),
+    Persist.global(serverScopedKey("globalSync.project", server.key), ["globalSync.project.v1"]),
     createStore({ value: [] as Project[] }),
   )
   const [recentCache, setRecentCache, recentInit] = persisted(
-    Persist.global(`globalSync.recent.${server.key}`),
+    Persist.global(serverScopedKey("globalSync.recent", server.key), ["globalSync.recent.v1"]),
     createStore({ value: [] as ProjectRecent[] }),
   )
 
@@ -226,8 +228,9 @@ function createGlobalSync() {
       queue.clear(directory)
       sessionMeta.delete(directory)
       sdkCache.delete(directory)
-      clearSessionPrefetchDirectory(directory)
+      clearSessionPrefetchDirectory(serverScopedKey(directory, serverKey))
     },
+    server: serverKey,
     translate: language.t,
   })
 

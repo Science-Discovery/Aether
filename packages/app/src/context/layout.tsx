@@ -13,6 +13,7 @@ import { same } from "@/utils/same"
 import { createScrollPersistence, type SessionScroll } from "./layout-scroll"
 import { createPathHelpers } from "./file/path"
 import { setupSkillEvolutionAutoOpen } from "@/skill-evolution/auto-open"
+import { serverScopedKey, serverSessionKey } from "@/utils/server-scope"
 
 const AVATAR_COLOR_KEYS = ["pink", "mint", "orange", "purple", "cyan", "lime"] as const
 const DEFAULT_PANEL_WIDTH = 344
@@ -75,6 +76,24 @@ export function createSessionKeyReader(sessionKey: string | Accessor<string>, en
   }
 }
 
+export function sessionKeyForServer(dir: string | undefined, id: string | undefined, server: string | undefined) {
+  return serverSessionKey(dir, id, server)
+}
+
+export function parseSessionKey(key: string) {
+  const scoped = key.indexOf("//server:")
+  const hash = scoped >= 0 ? key.slice(scoped + "//server:".length) : undefined
+  const base = scoped >= 0 ? key.slice(0, scoped) : key
+  const slash = base.indexOf("/")
+  const dir = slash >= 0 ? base.slice(0, slash) : base
+  const session = slash >= 0 ? base.slice(slash + 1) || undefined : undefined
+  return {
+    dir,
+    session,
+    storage: hash ? `${dir}\nserver:${hash}` : dir,
+  }
+}
+
 export function pruneSessionKeys(input: {
   keep?: string
   max: number
@@ -107,7 +126,7 @@ function nextSessionTabsForOpen(current: SessionTabs | undefined, tab: string): 
 }
 
 const sessionPath = (key: string) => {
-  const dir = key.split("/")[0]
+  const dir = parseSessionKey(key).dir
   if (!dir) return
   const root = decode64(dir)
   if (!root) return
@@ -285,13 +304,15 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
 
     const dropSessionState = (keys: string[]) => {
       for (const key of keys) {
-        const parts = key.split("/")
-        const dir = parts[0]
-        const session = parts[1]
+        const parsed = parseSessionKey(key)
+        const dir = parsed.dir
+        const session = parsed.session
         if (!dir) continue
 
         for (const entry of SESSION_STATE_KEYS) {
-          const target = session ? Persist.session(dir, session, entry.key) : Persist.workspace(dir, entry.key)
+          const target = session
+            ? Persist.session(parsed.storage, session, entry.key)
+            : Persist.workspace(parsed.storage, entry.key)
           void removePersisted(target, platform)
 
           const legacyKey = `${dir}/${entry.legacy}${session ? "/" + session : ""}.${entry.version}`

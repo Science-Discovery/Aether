@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { createRoot, createSignal } from "solid-js"
-import { createSessionKeyReader, ensureSessionKey, pruneSessionKeys } from "./layout"
+import { createSessionKeyReader, ensureSessionKey, parseSessionKey, pruneSessionKeys, sessionKeyForServer } from "./layout"
 
 describe("layout session-key helpers", () => {
   test("couples touch and scroll seed in order", () => {
@@ -30,6 +30,32 @@ describe("layout session-key helpers", () => {
     })
 
     expect(seen).toEqual(["dir/one", "dir/two"])
+  })
+
+  test("scopes session keys by server while keeping directory first", () => {
+    const a = sessionKeyForServer("ZGly", "ses_1", "http://one.example")
+    const b = sessionKeyForServer("ZGly", "ses_1", "http://two.example")
+
+    expect(a).not.toBe(b)
+    expect(a.split("/")[0]).toBe("ZGly")
+    expect(a.split("/")[1]).toBe("ses_1")
+  })
+
+  test("scopes workspace keys without creating a session segment", () => {
+    const key = sessionKeyForServer("ZGly", undefined, "http://one.example")
+
+    expect(key.split("/")[0]).toBe("ZGly")
+    expect(key.split("/")[1]).toBe("")
+    expect(key).toContain("//server:")
+  })
+
+  test("parses scoped session keys into persisted storage scope", () => {
+    const key = sessionKeyForServer("ZGly", "ses_1", "http://one.example")
+    const parsed = parseSessionKey(key)
+
+    expect(parsed.dir).toBe("ZGly")
+    expect(parsed.session).toBe("ses_1")
+    expect(parsed.storage).toBe("ZGly\nserver:" + key.split("//server:")[1])
   })
 })
 

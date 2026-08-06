@@ -4,7 +4,9 @@ import { Icon } from "@opencode-ai/ui/icon"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useLanguage } from "@/context/language"
 import { useLayout } from "@/context/layout"
+import { useServer } from "@/context/server"
 import { useSettings } from "@/context/settings"
+import { serverScopedKey } from "@/utils/server-scope"
 import { errorMessage as formatErrorMessage } from "@/pages/layout/helpers"
 import { Match, Show, Switch, createEffect, createMemo, createSignal, onMount } from "solid-js"
 import {
@@ -45,6 +47,7 @@ export function SidebarBranchView(props: {
   const navigate = useNavigate()
   const globalSDK = useGlobalSDK()
   const layout = useLayout()
+  const server = useServer()
   const settings = useSettings()
   const language = useLanguage()
   const zh = createMemo(() => language.locale() === "zh" || language.locale() === "zht")
@@ -82,7 +85,7 @@ export function SidebarBranchView(props: {
   const loadGraph = async (sessionID: string) => {
     const version = ++requestVersion
     const refreshKey = props.refreshKey ?? ""
-    const cacheKey = `${props.directory}:${sessionID}:${refreshKey}`
+    const cacheKey = `${serverScopedKey(props.directory, server.key)}:${sessionID}:${refreshKey}`
     const cached = graphCache.get(cacheKey)
     if (cached) {
       setGraph(cached)

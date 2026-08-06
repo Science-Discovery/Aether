@@ -9,7 +9,9 @@ import { useSDK } from "./sdk"
 import { useSync } from "./sync"
 import { useLanguage } from "@/context/language"
 import { formatServerError } from "@/utils/server-errors"
-import { useLayout } from "@/context/layout"
+import { sessionKeyForServer, useLayout } from "@/context/layout"
+import { useServer } from "@/context/server"
+import { serverScopedKey } from "@/utils/server-scope"
 import { createPathHelpers } from "./file/path"
 import {
   approxBytes,
@@ -132,8 +134,10 @@ export const { use: useFile, provider: FileProvider } = createSimpleContext({
     const params = useParams()
     const language = useLanguage()
     const layout = useLayout()
+    const server = useServer()
 
     const scope = createMemo(() => sdk.directory)
+    const storage = createMemo(() => serverScopedKey(scope(), server.key))
     const path = createPathHelpers(scope)
 
     // 文件树中选中的文件/文件夹路径（共享状态，供聊天面板读取）
@@ -240,7 +244,7 @@ export const { use: useFile, provider: FileProvider } = createSimpleContext({
       document.removeEventListener("mousedown", handleMousedown, true)
       clearHighlight()
     })
-    const tabs = layout.tabs(() => `${params.dir}${params.id ? "/" + params.id : ""}`)
+    const tabs = layout.tabs(() => sessionKeyForServer(params.dir, params.id, server.key))
 
     const inflight = new Map<string, Promise<void>>()
     const [store, setStore] = createStore<{
@@ -264,9 +268,9 @@ export const { use: useFile, provider: FileProvider } = createSimpleContext({
           description: formatServerError(message, language.t),
         })
       },
-      initialExpanded: new Set(treeExpandStore[scope()] ?? []),
+      initialExpanded: new Set(treeExpandStore[storage()] ?? []),
       onExpandedChange: (expanded) => {
-        setTreeExpandStore(scope(), [...expanded])
+        setTreeExpandStore(storage(), [...expanded])
       },
     })
 
@@ -286,13 +290,13 @@ export const { use: useFile, provider: FileProvider } = createSimpleContext({
 
     createEffect(
       on(
-        scope,
-        (dir) => {
+        storage,
+        (key) => {
           inflight.clear()
           resetFileContentLru()
           batch(() => {
             setStore("file", reconcile({}))
-            tree.reset(untrack(() => treeExpandStore[dir] ?? []))
+            tree.reset(untrack(() => treeExpandStore[key] ?? []))
           })
         },
         { defer: false },
@@ -300,7 +304,7 @@ export const { use: useFile, provider: FileProvider } = createSimpleContext({
     )
 
     const viewCache = createFileViewCache()
-    const view = createMemo(() => viewCache.load(scope(), params.id))
+    const view = createMemo(() => viewCache.load(storage(), params.id))
 
     const ensure = (file: string) => {
       if (!file) return
@@ -460,8 +464,7 @@ export const { use: useFile, provider: FileProvider } = createSimpleContext({
     const setSelectedLines = (input: string, range: SelectedLineRange | null) =>
       withPath(input, (file) => view().setSelectedLines(file, range))
     const setWordWrap = (input: string, wrap: boolean) => withPath(input, (file) => view().setWordWrap(file, wrap))
-    const setIsEditing = (input: string, editing: boolean) =>
-      withPath(input, (file) => view().setIsEditing(file, editing))
+    const setIsEditing = (input: string, editing: boolean) => withPath(input, (file) => view().setIsEditing(file, editing))
     const setDraft = (input: string, value: string) => withPath(input, (file) => view().setDraft(file, value))
     const setDraftBase = (input: string, value: string) => withPath(input, (file) => view().setDraftBase(file, value))
     const clearDraftMeta = (input: string) => withPath(input, (file) => view().clearDraftMeta(file))

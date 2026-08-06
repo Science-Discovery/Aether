@@ -4,6 +4,8 @@ import { createSimpleContext } from "@opencode-ai/ui/context"
 import { useParams } from "@solidjs/router"
 import { Persist, persisted } from "@/utils/persist"
 import { createScopedCache } from "@/utils/scoped-cache"
+import { useServer } from "@/context/server"
+import { serverScopedKey } from "@/utils/server-scope"
 import { uuid } from "@/utils/uuid"
 import type { SelectedLineRange } from "@/context/file"
 
@@ -200,6 +202,7 @@ export const { use: useComments, provider: CommentsProvider } = createSimpleCont
   gate: false,
   init: () => {
     const params = useParams()
+    const server = useServer()
     const cache = createScopedCache(
       (key) => {
         const decoded = decodeSessionKey(key)
@@ -221,7 +224,7 @@ export const { use: useComments, provider: CommentsProvider } = createSimpleCont
       return cache.get(key).value
     }
 
-    const session = createMemo(() => load(params.dir!, params.id))
+    const session = createMemo(() => load(serverScopedKey(params.dir!, server.key), params.id))
 
     return {
       ready: () => session().ready(),

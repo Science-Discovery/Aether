@@ -4,7 +4,9 @@ import { useParams } from "@solidjs/router"
 import { batch, createMemo, createRoot, getOwner, onCleanup } from "solid-js"
 import { createStore, type SetStoreFunction } from "solid-js/store"
 import type { FileSelection } from "@/context/file"
+import { useServer } from "@/context/server"
 import { Persist, persisted } from "@/utils/persist"
+import { serverScopedKey } from "@/utils/server-scope"
 
 interface PartBase {
   content: string
@@ -229,6 +231,7 @@ export const { use: usePrompt, provider: PromptProvider } = createSimpleContext(
   gate: false,
   init: () => {
     const params = useParams()
+    const server = useServer()
     const cache = new Map<string, PromptCacheEntry>()
 
     const disposeAll = () => {
@@ -273,8 +276,8 @@ export const { use: usePrompt, provider: PromptProvider } = createSimpleContext(
       return entry.value
     }
 
-    const session = createMemo(() => load(params.dir!, params.id))
-    const pick = (scope?: Scope) => (scope ? load(scope.dir, scope.id) : session())
+    const session = createMemo(() => load(serverScopedKey(params.dir!, server.key), params.id))
+    const pick = (scope?: Scope) => (scope ? load(serverScopedKey(scope.dir, server.key), scope.id) : session())
 
     return {
       ready: () => session().ready(),
