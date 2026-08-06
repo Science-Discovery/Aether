@@ -576,6 +576,21 @@ export namespace ProviderTransform {
       ["opus-4-6", "opus-4.6", "4-6-opus", "4.6-opus", "sonnet-4-6", "sonnet-4.6"].some((v) => api.includes(v))
     const adaptiveEfforts = opus ? ["low", "medium", "high", "xhigh", "max"] : ["low", "medium", "high", "max"]
     if (
+      /(^|\/)deepseek-v4-(pro|flash)$/.test(model.api.id.toLowerCase()) &&
+      ["deepseek", "vercel", "openrouter"].includes(model.providerID)
+    ) {
+      if (model.providerID === "openrouter") {
+        return {
+          high: { reasoning: { effort: "high" } },
+          max: { reasoning: { effort: "max" } },
+        }
+      }
+      return {
+        high: { thinking: { type: "enabled" }, reasoningEffort: "high" },
+        max: { thinking: { type: "enabled" }, reasoningEffort: "max" },
+      }
+    }
+    if (
       id.includes("deepseek") ||
       id.includes("minimax") ||
       id.includes("glm") ||
