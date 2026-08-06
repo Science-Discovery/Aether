@@ -3159,6 +3159,28 @@ describe("ProviderTransform.variants", () => {
       expect(ProviderTransform.variants(model)).toEqual({})
     })
 
+    test("fixture alibaba cn deepseek v4 returns reasoning variants", async () => {
+      const flash = await sample("alibaba-cn", "deepseek-v4-flash")
+      const pro = await sample("alibaba-cn", "deepseek-v4-pro")
+      const r1 = await sample("alibaba-cn", "deepseek-r1")
+      const want = {
+        high: { reasoningEffort: "high" },
+        max: { reasoningEffort: "max" },
+      }
+
+      expect(ProviderTransform.variants(flash)).toEqual(want)
+      expect(ProviderTransform.variants(pro)).toEqual(want)
+      expect(ProviderTransform.variants(r1)).toEqual({})
+
+      const base = ProviderTransform.options({ model: pro, sessionID: "test", providerOptions: {} })
+      expect(ProviderTransform.providerOptions(pro, { ...base, ...want.max })).toEqual({
+        "alibaba-cn": {
+          enable_thinking: true,
+          reasoningEffort: "max",
+        },
+      })
+    })
+
     test("fixture chutes non-reasoning model has no variants", async () => {
       const model = await sample("chutes", "XiaomiMiMo/MiMo-V2-Flash-TEE")
       expect(model.api.npm).toBe("@ai-sdk/openai-compatible")
