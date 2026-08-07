@@ -1,4 +1,4 @@
-import { Component, Show, createEffect, createMemo, createResource, onMount, type JSX } from "solid-js"
+import { Component, Show, createEffect, createMemo, createResource, onMount } from "solid-js"
 import { createStore } from "solid-js/store"
 import { Button } from "@opencode-ai/ui/button"
 import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
@@ -11,7 +11,6 @@ import { useTheme, type ColorScheme } from "@opencode-ai/ui/theme/context"
 import { showToast, showPromiseToast } from "@opencode-ai/ui/toast"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { useGlobalSync } from "@/context/global-sync"
-import { useGlobalSDK } from "@/context/global-sdk"
 import { useLanguage } from "@/context/language"
 import { useModels } from "@/context/models"
 import { usePlatform } from "@/context/platform"
@@ -20,7 +19,8 @@ import { playSoundById, SOUND_OPTIONS } from "@/utils/sound"
 import { isChatModel, isVoiceModel } from "@/utils/voice"
 import { Link } from "./link"
 import { formatServerError } from "@/utils/server-errors"
-import { SettingsList } from "./settings-list"
+import { SettingsList, SettingsRow } from "./settings-list"
+import { SettingsMineru } from "./settings-mineru"
 
 let demoSoundState = {
   cleanup: undefined as (() => void) | undefined,
@@ -93,7 +93,6 @@ export const SettingsGeneral: Component = () => {
   const platform = usePlatform()
   const settings = useSettings()
   const globalSync = useGlobalSync()
-  const globalSDK = useGlobalSDK()
   const models = useModels()
 
   onMount(() => {
@@ -102,63 +101,7 @@ export const SettingsGeneral: Component = () => {
 
   const [store, setStore] = createStore({
     checking: false,
-    loaded: false,
-    url: "http://127.0.0.1:8000",
-    state: "idle" as "idle" | "checking" | "ok" | "error",
   })
-
-  createEffect(() => {
-    if (store.loaded) return
-    setStore({
-      loaded: true,
-      url:
-        globalSync.data.config.experimental?.attachment_text_extraction?.mineru?.base_url || "http://127.0.0.1:8000",
-    })
-  })
-
-  const extraction = createMemo(() => globalSync.data.config.experimental?.attachment_text_extraction)
-
-  const update = async (
-    patch: Partial<NonNullable<NonNullable<typeof globalSync.data.config.experimental>["attachment_text_extraction"]>>,
-  ) => {
-    const before = globalSync.data.config.experimental
-    const next = {
-      ...before,
-      attachment_text_extraction: {
-        ...before?.attachment_text_extraction,
-        ...patch,
-      },
-    }
-    globalSync.set("config", "experimental", next)
-    try {
-      await globalSync.updateConfig({ experimental: next })
-    } catch (err) {
-      globalSync.set("config", "experimental", before)
-      showToast({
-        title: language.t("common.requestFailed"),
-        description: formatServerError(err, language.t),
-      })
-      throw err
-    }
-  }
-
-  const probe = async () => {
-    setStore("state", "checking")
-    try {
-      await globalSDK.client.global.mineruHealth({ base_url: store.url }, { throwOnError: true })
-      await update({
-        strategy: "local",
-        mineru: {
-          ...extraction()?.mineru,
-          base_url: store.url.trim(),
-          scope: "all",
-        },
-      })
-      setStore("state", "ok")
-    } catch {
-      setStore("state", "error")
-    }
-  }
 
   const capable = () => !!platform.runUpdater || !!platform.checkUpdate
   const linux = createMemo(() => platform.platform === "desktop" && platform.os === "linux")
@@ -498,76 +441,6 @@ export const SettingsGeneral: Component = () => {
         </SettingsRow>
 
         <SettingsRow
-          title={language.t("settings.general.row.attachmentExtraction.title")}
-          description={language.t("settings.general.row.attachmentExtraction.description")}
-        >
-          <div data-action="settings-attachment-extraction">
-            <Switch
-              checked={extraction()?.enabled === true}
-              onChange={(enabled) => {
-                void update({
-                  enabled,
-                  strategy: "local",
-                  mineru: {
-                    ...extraction()?.mineru,
-                    base_url: store.url.trim(),
-                    scope: "all",
-                  },
-                })
-              }}
-            />
-          </div>
-        </SettingsRow>
-
-        <Show when={extraction()?.enabled === true}>
-          <SettingsRow
-            title={language.t("settings.general.row.mineruUrl.title")}
-            description={language.t("settings.general.row.mineruUrl.description")}
-          >
-            <div class="flex flex-wrap items-center justify-end gap-2">
-              <TextField
-                data-action="settings-mineru-url"
-                type="text"
-                value={store.url}
-                onChange={(value) => {
-                  setStore("url", value)
-                  setStore("state", "idle")
-                }}
-                class="w-60"
-              />
-              <Button
-                data-action="settings-mineru-test"
-                variant="secondary"
-                size="small"
-                disabled={store.state === "checking" || !store.url.trim()}
-                onClick={() => void probe()}
-              >
-                {store.state === "checking"
-                  ? language.t("settings.general.row.mineruUrl.testing")
-                  : language.t("settings.general.row.mineruUrl.test")}
-              </Button>
-              <Show when={store.state === "ok"}>
-                <span class="text-12-regular text-success-base">
-                  {language.t("settings.general.row.mineruUrl.connected")}
-                </span>
-              </Show>
-              <Show when={store.state === "error"}>
-                <span class="text-12-regular text-danger-base">
-                  {language.t("settings.general.row.mineruUrl.failed")}
-                </span>
-              </Show>
-            </div>
-          </SettingsRow>
-
-          <SettingsRow
-            title={language.t("settings.general.row.mineruScope.title")}
-            description={language.t("settings.general.row.mineruScope.description")}
-          >
-            <span class="text-12-regular text-text-weak">{language.t("settings.general.row.mineruScope.all")}</span>
-          </SettingsRow>
-        </Show>
-
-        <SettingsRow
           title={language.t("settings.general.row.language.title")}
           description={language.t("settings.general.row.language.description")}
         >
@@ -801,6 +674,8 @@ export const SettingsGeneral: Component = () => {
             class="w-24"
           />
         </SettingsRow>
+
+        <SettingsMineru />
       </SettingsList>
     </div>
   )
@@ -1340,24 +1215,6 @@ export const SettingsGeneral: Component = () => {
           }}
         </Show>
       </div>
-    </div>
-  )
-}
-
-interface SettingsRowProps {
-  title: string | JSX.Element
-  description: string | JSX.Element
-  children: JSX.Element
-}
-
-const SettingsRow: Component<SettingsRowProps> = (props) => {
-  return (
-    <div class="flex flex-wrap items-center gap-4 py-3 border-b border-border-weak-base last:border-none sm:flex-nowrap">
-      <div class="flex min-w-0 flex-1 flex-col gap-0.5">
-        <span class="text-14-medium text-text-strong">{props.title}</span>
-        <span class="text-12-regular text-text-weak">{props.description}</span>
-      </div>
-      <div class="flex w-full justify-end sm:w-auto sm:shrink-0">{props.children}</div>
     </div>
   )
 }

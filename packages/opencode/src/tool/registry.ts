@@ -39,6 +39,8 @@ import {
   CronUpdateTool,
 } from "./cron"
 import { MemoryForgetTool, MemoryReflectTool, MemoryRememberTool, MemorySearchTool } from "./memory"
+import { MineruConvertTool, MineruStartTool, MineruStatusTool } from "./mineru"
+import { ManagedMinerU } from "@/mineru/managed"
 import { Glob } from "../util/glob"
 import { pathToFileURL } from "url"
 import { Effect, Layer, ServiceMap } from "effect"
@@ -141,6 +143,7 @@ export namespace ToolRegistry {
           WebSearchTool,
           CodeSearchTool,
           SkillTool,
+          ...mineru(cfg),
           ApplyPatchTool,
           CronListTool,
           CronGetTool,
@@ -245,6 +248,7 @@ export namespace ToolRegistry {
 
   export function registerForSession(sessionId: string, tool: Tool.Info) {
     const existing = _sessionTools.get(sessionId) ?? []
+    if (existing.some((item) => item.id === tool.id)) return
     _sessionTools.set(sessionId, [...existing, tool])
   }
 
@@ -255,4 +259,12 @@ export namespace ToolRegistry {
   export function getSessionTools(sessionId: string): Tool.Info[] {
     return _sessionTools.get(sessionId) ?? []
   }
+
+  function mineru(cfg: Config.Info, available = ManagedMinerU.supported()) {
+    const current = cfg.experimental?.attachment_text_extraction
+    if (!available || current?.enabled !== true || current.mineru?.mode !== "managed") return []
+    return [MineruStatusTool, MineruStartTool, MineruConvertTool]
+  }
+
+  export const Test = { mineru }
 }

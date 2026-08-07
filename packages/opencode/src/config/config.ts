@@ -1400,6 +1400,7 @@ export namespace Config {
                 .object({
                   base_url: z.string().optional(),
                   scope: z.enum(["selective", "all"]).optional(),
+                  mode: z.enum(["managed", "external"]).optional(),
                 })
                 .optional(),
               vision_model: ModelId.optional(),

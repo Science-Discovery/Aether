@@ -16,6 +16,9 @@ import { useSessionLayout } from "@/pages/session/session-layout"
 import { Identifier } from "@/utils/id"
 import { createReadingQuoteMetadata, summarizeReadingQuoteText } from "@/utils/comment-note"
 import { formatServerError } from "@/utils/server-errors"
+import { confirmMineruStart } from "@/components/dialog-mineru-setup"
+import { ensureManagedMineru } from "@/utils/mineru-managed"
+import { attachmentInput } from "@/utils/model-capabilities"
 
 type Options = {
   activeFilePath: Accessor<string | undefined>
@@ -35,6 +38,13 @@ export function useQuickReadingController(options: Options) {
   const sync = useSync()
   const { params, view } = useSessionLayout()
   const [firstReadOpen, setFirstReadOpen] = createSignal(false)
+
+  const managed = (prompt: boolean) =>
+    ensureManagedMineru({
+      client: sdk.client,
+      prompt,
+      confirm: () => confirmMineruStart(dialog),
+    })
 
   const quickReadingPdfPath = createMemo(() => view().quickReading.pdfPath())
 
@@ -74,6 +84,7 @@ export function useQuickReadingController(options: Options) {
       },
       agent: currentAgent.name,
       variant: local.model.variant.current(),
+      capabilities: attachmentInput(currentModel),
     }
   }
 
@@ -101,6 +112,8 @@ export function useQuickReadingController(options: Options) {
       client: sdk.client,
       sync,
       globalSync,
+      capabilities: sendContext.capabilities,
+      managed,
       draft,
       messageID: Identifier.ascending("message"),
       optimisticBusy: true,

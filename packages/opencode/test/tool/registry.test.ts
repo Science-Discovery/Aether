@@ -4,12 +4,38 @@ import fs from "fs/promises"
 import { tmpdir } from "../fixture/fixture"
 import { Instance } from "../../src/project/instance"
 import { ToolRegistry } from "../../src/tool/registry"
+import { Config } from "../../src/config/config"
+import { MineruSetupTool } from "../../src/tool/mineru-setup"
 
 afterEach(async () => {
   await Instance.disposeAll()
 })
 
 describe("tool.registry", () => {
+  test("keeps MinerU tools out of ordinary conversations until managed extraction is enabled", () => {
+    const tools = (input: unknown) => ToolRegistry.Test.mineru(Config.Info.parse(input), true).map((item) => item.id)
+
+    expect(tools({})).toEqual([])
+    expect(
+      tools({ experimental: { attachment_text_extraction: { enabled: false, mineru: { mode: "managed" } } } }),
+    ).toEqual([])
+    expect(
+      tools({ experimental: { attachment_text_extraction: { enabled: true, mineru: { mode: "external" } } } }),
+    ).toEqual([])
+    expect(
+      tools({ experimental: { attachment_text_extraction: { enabled: true, mineru: { mode: "managed" } } } }),
+    ).toEqual(["mineru_status", "mineru_start", "mineru_convert"])
+  })
+
+  test("deduplicates MinerU setup registration for its configuration conversation", () => {
+    const id = "ses_mineru_setup"
+    ToolRegistry.registerForSession(id, MineruSetupTool)
+    ToolRegistry.registerForSession(id, MineruSetupTool)
+    expect(ToolRegistry.getSessionTools(id).map((item) => item.id)).toEqual(["mineru_setup"])
+    ToolRegistry.unregisterSession(id)
+    expect(ToolRegistry.getSessionTools(id)).toEqual([])
+  })
+
   test("loads tools from .opencode/tool (singular)", async () => {
     await using tmp = await tmpdir({
       init: async (dir) => {

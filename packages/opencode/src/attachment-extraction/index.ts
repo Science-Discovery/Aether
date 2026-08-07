@@ -5,6 +5,7 @@ import { ModelID, ProviderID } from "@/provider/schema"
 import { SessionID } from "@/session/schema"
 import { SessionStatus } from "@/session/status"
 import { Log } from "@/util/log"
+import { ManagedMinerU } from "@/mineru/managed"
 
 export namespace AttachmentExtraction {
   const log = Log.create({ service: "attachment-extraction" })
@@ -156,15 +157,16 @@ export namespace AttachmentExtraction {
     }
   }
 
-  async function convert(input: {
+  export async function convert(input: {
     root: string
     file: z.infer<typeof File>
+    blob?: Blob
     range?: z.infer<typeof Range>
     signal?: AbortSignal
   }) {
     const form = new FormData()
     const name = input.file.filename || (input.file.mime === "application/pdf" ? "document.pdf" : "image")
-    form.append("files", new globalThis.File([bytes(input.file.url)], name, { type: input.file.mime }))
+    form.append("files", new globalThis.File([input.blob ?? bytes(input.file.url)], name, { type: input.file.mime }))
     form.append("backend", "pipeline")
     form.append("parse_method", "auto")
     form.append("return_md", "true")
@@ -207,6 +209,7 @@ export namespace AttachmentExtraction {
     }).then(json)
     const text = [...new Set(markdown(result))].join("\n\n").trim()
     if (!text) throw new Error("MinerU completed without returning Markdown")
+    await ManagedMinerU.cleanup(id, input.root).catch(() => undefined)
     return text
   }
 

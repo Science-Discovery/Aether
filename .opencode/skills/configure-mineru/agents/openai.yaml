@@ -1,0 +1,7 @@
+interface:
+  display_name: "Configure MinerU"
+  short_description: "Inspect Windows and safely configure local MinerU"
+  default_prompt: "Use $configure-mineru to inspect this computer and guide me through configuring local MinerU."
+
+policy:
+  allow_implicit_invocation: true

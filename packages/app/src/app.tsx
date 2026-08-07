@@ -48,6 +48,7 @@ import Layout from "@/pages/layout"
 import { ErrorPage } from "./pages/error"
 import { useCheckServerHealth } from "./utils/server-health"
 import { LegacyDBGuard } from "@/components/legacy-db-guard"
+import { MineruMonitor } from "@/components/mineru-monitor"
 
 const HomeRoute = lazy(() => import("@/pages/home"))
 const Session = lazy(() => import("@/pages/session"))
@@ -128,6 +129,7 @@ function RouterRoot(props: ParentProps<{ appChildren?: JSX.Element }>) {
   return (
     <AppShellProviders>
       <LegacyDBGuard />
+      <MineruMonitor />
       <Suspense fallback={<Loading />}>
         {props.appChildren}
         {props.children}

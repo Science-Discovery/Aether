@@ -43,6 +43,7 @@ export namespace Skill {
     content: z.string(),
   })
   export type Info = z.infer<typeof Info>
+  const Meta = Info.pick({ name: true, description: true, id: true }).extend({ hidden: z.boolean().optional() })
 
   export const InvalidError = NamedError.create(
     "SkillInvalidError",
@@ -71,6 +72,7 @@ export namespace Skill {
 
   type State = {
     skills: Record<string, Info>
+    hidden: Set<string>
     dirs: Set<string>
     sources: Source[]
   }
@@ -249,7 +251,7 @@ export namespace Skill {
 
     if (!md) return
 
-    const parsed = Info.pick({ name: true, description: true, id: true }).safeParse(md.data)
+    const parsed = Meta.safeParse(md.data)
     if (!parsed.success) return
 
     if (state.skills[parsed.data.name]) {
@@ -268,6 +270,8 @@ export namespace Skill {
       location: match,
       content: md.content,
     }
+    if (parsed.data.hidden) state.hidden.add(parsed.data.name)
+    if (!parsed.data.hidden) state.hidden.delete(parsed.data.name)
   }
 
   const scan = async (state: State, root: string, pattern: string, opts?: { dot?: boolean; scope?: string }) => {
@@ -388,7 +392,7 @@ export namespace Skill {
       const state = yield* InstanceState.make(
         Effect.fn("Skill.state")((ctx) =>
           Effect.gen(function* () {
-            const s: State = { skills: {}, dirs: new Set(), sources: [] }
+            const s: State = { skills: {}, hidden: new Set(), dirs: new Set(), sources: [] }
             yield* Effect.promise(() => loadSkills(s, discovery, ctx.directory, ctx.worktree, String(ctx.project.id)))
             return s
           }),
@@ -427,7 +431,7 @@ export namespace Skill {
 
       const available = Effect.fn("Skill.available")(function* (agent?: Agent.Info) {
         const s = yield* getState()
-        const list = Object.values(s.skills).toSorted((a, b) => a.name.localeCompare(b.name))
+        const list = visible(Object.values(s.skills), s.hidden)
         if (!agent) return list
         return list.filter((skill) => Permission.evaluate("skill", skill.name, agent.permission).action !== "deny")
       })
@@ -464,6 +468,12 @@ export namespace Skill {
 
     return ["## Available Skills", ...list.map((skill) => `- **${skill.name}**: ${skill.description}`)].join("\n")
   }
+
+  function visible(skills: Info[], hidden: Set<string>) {
+    return skills.filter((skill) => !hidden.has(skill.name)).toSorted((a, b) => a.name.localeCompare(b.name))
+  }
+
+  export const Test = { Meta, visible }
 
   const { runPromise } = makeRuntime(Service, defaultLayer)
 

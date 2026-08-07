@@ -14,6 +14,9 @@ import { useServer } from "@/context/server"
 import { useSync } from "@/context/sync"
 import { Identifier } from "@/utils/id"
 import { formatServerError } from "@/utils/server-errors"
+import { confirmMineruStart } from "@/components/dialog-mineru-setup"
+import { ensureManagedMineru } from "@/utils/mineru-managed"
+import { attachmentInput } from "@/utils/model-capabilities"
 
 function auth(input: { username?: string; password?: string; json?: boolean }) {
   const headers: Record<string, string> = {}
@@ -178,7 +181,21 @@ const Gate: Component<{
         model: { providerID: model.provider.id, modelID: model.id },
         variant: local.model.variant.current(),
       }
-      const ok = await sendFollowupDraft({ client: sdk.client, sync, globalSync: global, draft, messageID: id, optimisticBusy: true })
+      const ok = await sendFollowupDraft({
+        client: sdk.client,
+        sync,
+        globalSync: global,
+        capabilities: attachmentInput(model),
+        managed: (prompt) =>
+          ensureManagedMineru({
+            client: sdk.client,
+            prompt,
+            confirm: () => confirmMineruStart(dialog),
+          }),
+        draft,
+        messageID: id,
+        optimisticBusy: true,
+      })
       if (!ok) return
       props.onQueued(id)
     } catch (cause) {

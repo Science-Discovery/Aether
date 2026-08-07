@@ -16,6 +16,9 @@ import { useSync } from "@/context/sync"
 import { Identifier } from "@/utils/id"
 import { upsertSessionList } from "@/utils/session-store"
 import { formatServerError } from "@/utils/server-errors"
+import { confirmMineruStart } from "@/components/dialog-mineru-setup"
+import { ensureManagedMineru } from "@/utils/mineru-managed"
+import { attachmentInput } from "@/utils/model-capabilities"
 
 const promptedSessions = new Set<string>()
 const PRE_READ_LIMIT = 50
@@ -245,6 +248,13 @@ const ReadingFirstReadDialog: Component<{
         client: sdk.client,
         sync,
         globalSync,
+        capabilities: attachmentInput(currentModel),
+        managed: (prompt) =>
+          ensureManagedMineru({
+            client: sdk.client,
+            prompt,
+            confirm: () => confirmMineruStart(dialog),
+          }),
         draft,
         messageID,
         optimisticBusy: true,

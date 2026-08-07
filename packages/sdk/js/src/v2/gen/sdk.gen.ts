@@ -123,6 +123,17 @@ import type {
   GlobalHealthResponses,
   GlobalMineruHealthErrors,
   GlobalMineruHealthResponses,
+  GlobalMineruManagedLogResponses,
+  GlobalMineruManagedMeasureErrors,
+  GlobalMineruManagedMeasureResponses,
+  GlobalMineruManagedRemoveResponses,
+  GlobalMineruManagedSessionResponses,
+  GlobalMineruManagedStartErrors,
+  GlobalMineruManagedStartResponses,
+  GlobalMineruManagedStatusResponses,
+  GlobalMineruManagedStopResponses,
+  GlobalMineruManagedUninstallErrors,
+  GlobalMineruManagedUninstallResponses,
   GlobalPingErrors,
   GlobalPingResponses,
   GlobalProxyGetResponses,
@@ -686,6 +697,124 @@ export class Config extends HeyApiClient {
 }
 
 export class Global extends HeyApiClient {
+  /**
+   * Remove managed MinerU
+   */
+  public mineruManagedRemove<ThrowOnError extends boolean = false>(
+    parameters?: {
+      adopted?: boolean
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams([parameters], [{ args: [{ in: "body", key: "adopted" }] }])
+    return (options?.client ?? this.client).delete<GlobalMineruManagedRemoveResponses, unknown, ThrowOnError>({
+      url: "/global/mineru/managed",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Get managed MinerU status
+   */
+  public mineruManagedStatus<ThrowOnError extends boolean = false>(options?: Options<never, ThrowOnError>) {
+    return (options?.client ?? this.client).get<GlobalMineruManagedStatusResponses, unknown, ThrowOnError>({
+      url: "/global/mineru/managed",
+      ...options,
+    })
+  }
+
+  /**
+   * Get managed MinerU log
+   */
+  public mineruManagedLog<ThrowOnError extends boolean = false>(options?: Options<never, ThrowOnError>) {
+    return (options?.client ?? this.client).get<GlobalMineruManagedLogResponses, unknown, ThrowOnError>({
+      url: "/global/mineru/managed/log",
+      ...options,
+    })
+  }
+
+  /**
+   * Link the MinerU setup conversation
+   */
+  public mineruManagedSession<ThrowOnError extends boolean = false>(
+    parameters?: {
+      id?: string
+      directory?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "body", key: "id" },
+            { in: "body", key: "directory" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<GlobalMineruManagedSessionResponses, unknown, ThrowOnError>({
+      url: "/global/mineru/managed/session",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Measure managed MinerU storage
+   */
+  public mineruManagedMeasure<ThrowOnError extends boolean = false>(options?: Options<never, ThrowOnError>) {
+    return (options?.client ?? this.client).post<
+      GlobalMineruManagedMeasureResponses,
+      GlobalMineruManagedMeasureErrors,
+      ThrowOnError
+    >({ url: "/global/mineru/managed/storage", ...options })
+  }
+
+  /**
+   * Start managed MinerU
+   */
+  public mineruManagedStart<ThrowOnError extends boolean = false>(options?: Options<never, ThrowOnError>) {
+    return (options?.client ?? this.client).post<
+      GlobalMineruManagedStartResponses,
+      GlobalMineruManagedStartErrors,
+      ThrowOnError
+    >({ url: "/global/mineru/managed/start", ...options })
+  }
+
+  /**
+   * Stop managed MinerU
+   */
+  public mineruManagedStop<ThrowOnError extends boolean = false>(options?: Options<never, ThrowOnError>) {
+    return (options?.client ?? this.client).post<GlobalMineruManagedStopResponses, unknown, ThrowOnError>({
+      url: "/global/mineru/managed/stop",
+      ...options,
+    })
+  }
+
+  /**
+   * Inspect managed MinerU removal targets
+   */
+  public mineruManagedUninstall<ThrowOnError extends boolean = false>(options?: Options<never, ThrowOnError>) {
+    return (options?.client ?? this.client).get<
+      GlobalMineruManagedUninstallResponses,
+      GlobalMineruManagedUninstallErrors,
+      ThrowOnError
+    >({ url: "/global/mineru/managed/uninstall", ...options })
+  }
+
   /**
    * Check MinerU health
    *

@@ -46,6 +46,9 @@ import { sendFollowupDraft, type FollowupDraft } from "@/components/prompt-input
 import { createReadingQuoteMetadata, summarizeReadingQuoteText } from "@/utils/comment-note"
 import { Identifier } from "@/utils/id"
 import { formatServerError } from "@/utils/server-errors"
+import { confirmMineruStart } from "@/components/dialog-mineru-setup"
+import { ensureManagedMineru } from "@/utils/mineru-managed"
+import { attachmentInput } from "@/utils/model-capabilities"
 
 function FileCommentMenu(props: {
   moreLabel: string
@@ -460,6 +463,13 @@ export function FileTabContent(props: { tab: string }) {
       client: sdk.client,
       sync,
       globalSync,
+      capabilities: attachmentInput(model),
+      managed: (prompt) =>
+        ensureManagedMineru({
+          client: sdk.client,
+          prompt,
+          confirm: () => confirmMineruStart(dialog),
+        }),
       messageID: Identifier.ascending("message"),
       optimisticBusy: true,
       draft: {

@@ -1931,6 +1931,7 @@ export type Config = {
       mineru?: {
         base_url?: string
         scope?: "selective" | "all"
+        mode?: "managed" | "external"
       }
       vision_model?: string
     }
@@ -2600,6 +2601,491 @@ export type FormatterStatus = {
   extensions: Array<string>
   enabled: boolean
 }
+
+export type GlobalMineruManagedRemoveData = {
+  body?: {
+    adopted?: boolean
+  }
+  path?: never
+  query?: never
+  url: "/global/mineru/managed"
+}
+
+export type GlobalMineruManagedRemoveResponses = {
+  /**
+   * Managed MinerU status
+   */
+  200: {
+    supported: boolean
+    strategy: "skill"
+    runtime: "managed" | "adopted"
+    install: "unconfigured" | "installing" | "ready" | "failed" | "cancelled"
+    run: "stopped" | "starting" | "running"
+    stage?: "check" | "uv" | "python" | "venv" | "mineru" | "models" | "verify"
+    step: {
+      current: number
+      total: number
+    }
+    progress?: {
+      current: number
+      total: number
+      unit: "byte"
+      speed?: number
+      eta?: number
+    }
+    message: string
+    error?: string
+    warning?: string
+    version: {
+      uv?: string
+      python?: string
+      mineru: string
+    }
+    source?: "modelscope" | "huggingface" | "local"
+    backend?: "pipeline"
+    device?: string
+    directory: string
+    data_directory: string
+    executable?: string
+    base_url?: string
+    started_at?: number
+    elapsed?: number
+    size?: number
+    size_scope: "installation" | "aether_data" | "detected"
+    storage?: {
+      total: number
+      environment: number
+      models: number
+      aether: number
+      model_directories: Array<string>
+    }
+    scanned_at?: number
+    session?: {
+      id: string
+      directory: string
+    }
+    logs: Array<string>
+  }
+}
+
+export type GlobalMineruManagedRemoveResponse =
+  GlobalMineruManagedRemoveResponses[keyof GlobalMineruManagedRemoveResponses]
+
+export type GlobalMineruManagedStatusData = {
+  body?: never
+  path?: never
+  query?: never
+  url: "/global/mineru/managed"
+}
+
+export type GlobalMineruManagedStatusResponses = {
+  /**
+   * Managed MinerU status
+   */
+  200: {
+    supported: boolean
+    strategy: "skill"
+    runtime: "managed" | "adopted"
+    install: "unconfigured" | "installing" | "ready" | "failed" | "cancelled"
+    run: "stopped" | "starting" | "running"
+    stage?: "check" | "uv" | "python" | "venv" | "mineru" | "models" | "verify"
+    step: {
+      current: number
+      total: number
+    }
+    progress?: {
+      current: number
+      total: number
+      unit: "byte"
+      speed?: number
+      eta?: number
+    }
+    message: string
+    error?: string
+    warning?: string
+    version: {
+      uv?: string
+      python?: string
+      mineru: string
+    }
+    source?: "modelscope" | "huggingface" | "local"
+    backend?: "pipeline"
+    device?: string
+    directory: string
+    data_directory: string
+    executable?: string
+    base_url?: string
+    started_at?: number
+    elapsed?: number
+    size?: number
+    size_scope: "installation" | "aether_data" | "detected"
+    storage?: {
+      total: number
+      environment: number
+      models: number
+      aether: number
+      model_directories: Array<string>
+    }
+    scanned_at?: number
+    session?: {
+      id: string
+      directory: string
+    }
+    logs: Array<string>
+  }
+}
+
+export type GlobalMineruManagedStatusResponse =
+  GlobalMineruManagedStatusResponses[keyof GlobalMineruManagedStatusResponses]
+
+export type GlobalMineruManagedLogData = {
+  body?: never
+  path?: never
+  query?: never
+  url: "/global/mineru/managed/log"
+}
+
+export type GlobalMineruManagedLogResponses = {
+  /**
+   * Complete local MinerU log
+   */
+  200: {
+    text: string
+  }
+}
+
+export type GlobalMineruManagedLogResponse = GlobalMineruManagedLogResponses[keyof GlobalMineruManagedLogResponses]
+
+export type GlobalMineruManagedSessionData = {
+  body?: {
+    id: string
+    directory: string
+  }
+  path?: never
+  query?: never
+  url: "/global/mineru/managed/session"
+}
+
+export type GlobalMineruManagedSessionResponses = {
+  /**
+   * Managed MinerU status
+   */
+  200: {
+    supported: boolean
+    strategy: "skill"
+    runtime: "managed" | "adopted"
+    install: "unconfigured" | "installing" | "ready" | "failed" | "cancelled"
+    run: "stopped" | "starting" | "running"
+    stage?: "check" | "uv" | "python" | "venv" | "mineru" | "models" | "verify"
+    step: {
+      current: number
+      total: number
+    }
+    progress?: {
+      current: number
+      total: number
+      unit: "byte"
+      speed?: number
+      eta?: number
+    }
+    message: string
+    error?: string
+    warning?: string
+    version: {
+      uv?: string
+      python?: string
+      mineru: string
+    }
+    source?: "modelscope" | "huggingface" | "local"
+    backend?: "pipeline"
+    device?: string
+    directory: string
+    data_directory: string
+    executable?: string
+    base_url?: string
+    started_at?: number
+    elapsed?: number
+    size?: number
+    size_scope: "installation" | "aether_data" | "detected"
+    storage?: {
+      total: number
+      environment: number
+      models: number
+      aether: number
+      model_directories: Array<string>
+    }
+    scanned_at?: number
+    session?: {
+      id: string
+      directory: string
+    }
+    logs: Array<string>
+  }
+}
+
+export type GlobalMineruManagedSessionResponse =
+  GlobalMineruManagedSessionResponses[keyof GlobalMineruManagedSessionResponses]
+
+export type GlobalMineruManagedMeasureData = {
+  body?: never
+  path?: never
+  query?: never
+  url: "/global/mineru/managed/storage"
+}
+
+export type GlobalMineruManagedMeasureErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type GlobalMineruManagedMeasureError = GlobalMineruManagedMeasureErrors[keyof GlobalMineruManagedMeasureErrors]
+
+export type GlobalMineruManagedMeasureResponses = {
+  /**
+   * Managed MinerU status
+   */
+  200: {
+    supported: boolean
+    strategy: "skill"
+    runtime: "managed" | "adopted"
+    install: "unconfigured" | "installing" | "ready" | "failed" | "cancelled"
+    run: "stopped" | "starting" | "running"
+    stage?: "check" | "uv" | "python" | "venv" | "mineru" | "models" | "verify"
+    step: {
+      current: number
+      total: number
+    }
+    progress?: {
+      current: number
+      total: number
+      unit: "byte"
+      speed?: number
+      eta?: number
+    }
+    message: string
+    error?: string
+    warning?: string
+    version: {
+      uv?: string
+      python?: string
+      mineru: string
+    }
+    source?: "modelscope" | "huggingface" | "local"
+    backend?: "pipeline"
+    device?: string
+    directory: string
+    data_directory: string
+    executable?: string
+    base_url?: string
+    started_at?: number
+    elapsed?: number
+    size?: number
+    size_scope: "installation" | "aether_data" | "detected"
+    storage?: {
+      total: number
+      environment: number
+      models: number
+      aether: number
+      model_directories: Array<string>
+    }
+    scanned_at?: number
+    session?: {
+      id: string
+      directory: string
+    }
+    logs: Array<string>
+  }
+}
+
+export type GlobalMineruManagedMeasureResponse =
+  GlobalMineruManagedMeasureResponses[keyof GlobalMineruManagedMeasureResponses]
+
+export type GlobalMineruManagedStartData = {
+  body?: never
+  path?: never
+  query?: never
+  url: "/global/mineru/managed/start"
+}
+
+export type GlobalMineruManagedStartErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type GlobalMineruManagedStartError = GlobalMineruManagedStartErrors[keyof GlobalMineruManagedStartErrors]
+
+export type GlobalMineruManagedStartResponses = {
+  /**
+   * Managed MinerU status
+   */
+  200: {
+    supported: boolean
+    strategy: "skill"
+    runtime: "managed" | "adopted"
+    install: "unconfigured" | "installing" | "ready" | "failed" | "cancelled"
+    run: "stopped" | "starting" | "running"
+    stage?: "check" | "uv" | "python" | "venv" | "mineru" | "models" | "verify"
+    step: {
+      current: number
+      total: number
+    }
+    progress?: {
+      current: number
+      total: number
+      unit: "byte"
+      speed?: number
+      eta?: number
+    }
+    message: string
+    error?: string
+    warning?: string
+    version: {
+      uv?: string
+      python?: string
+      mineru: string
+    }
+    source?: "modelscope" | "huggingface" | "local"
+    backend?: "pipeline"
+    device?: string
+    directory: string
+    data_directory: string
+    executable?: string
+    base_url?: string
+    started_at?: number
+    elapsed?: number
+    size?: number
+    size_scope: "installation" | "aether_data" | "detected"
+    storage?: {
+      total: number
+      environment: number
+      models: number
+      aether: number
+      model_directories: Array<string>
+    }
+    scanned_at?: number
+    session?: {
+      id: string
+      directory: string
+    }
+    logs: Array<string>
+  }
+}
+
+export type GlobalMineruManagedStartResponse =
+  GlobalMineruManagedStartResponses[keyof GlobalMineruManagedStartResponses]
+
+export type GlobalMineruManagedStopData = {
+  body?: never
+  path?: never
+  query?: never
+  url: "/global/mineru/managed/stop"
+}
+
+export type GlobalMineruManagedStopResponses = {
+  /**
+   * Managed MinerU status
+   */
+  200: {
+    supported: boolean
+    strategy: "skill"
+    runtime: "managed" | "adopted"
+    install: "unconfigured" | "installing" | "ready" | "failed" | "cancelled"
+    run: "stopped" | "starting" | "running"
+    stage?: "check" | "uv" | "python" | "venv" | "mineru" | "models" | "verify"
+    step: {
+      current: number
+      total: number
+    }
+    progress?: {
+      current: number
+      total: number
+      unit: "byte"
+      speed?: number
+      eta?: number
+    }
+    message: string
+    error?: string
+    warning?: string
+    version: {
+      uv?: string
+      python?: string
+      mineru: string
+    }
+    source?: "modelscope" | "huggingface" | "local"
+    backend?: "pipeline"
+    device?: string
+    directory: string
+    data_directory: string
+    executable?: string
+    base_url?: string
+    started_at?: number
+    elapsed?: number
+    size?: number
+    size_scope: "installation" | "aether_data" | "detected"
+    storage?: {
+      total: number
+      environment: number
+      models: number
+      aether: number
+      model_directories: Array<string>
+    }
+    scanned_at?: number
+    session?: {
+      id: string
+      directory: string
+    }
+    logs: Array<string>
+  }
+}
+
+export type GlobalMineruManagedStopResponse = GlobalMineruManagedStopResponses[keyof GlobalMineruManagedStopResponses]
+
+export type GlobalMineruManagedUninstallData = {
+  body?: never
+  path?: never
+  query?: never
+  url: "/global/mineru/managed/uninstall"
+}
+
+export type GlobalMineruManagedUninstallErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type GlobalMineruManagedUninstallError =
+  GlobalMineruManagedUninstallErrors[keyof GlobalMineruManagedUninstallErrors]
+
+export type GlobalMineruManagedUninstallResponses = {
+  /**
+   * Managed MinerU removal plan
+   */
+  200: {
+    runtime: "managed" | "adopted"
+    owned: {
+      path: string
+      size?: number
+    }
+    environment?: {
+      path: string
+      size?: number
+    }
+    models: Array<{
+      path: string
+      size?: number
+    }>
+    config?: string
+    removable: number
+  }
+}
+
+export type GlobalMineruManagedUninstallResponse =
+  GlobalMineruManagedUninstallResponses[keyof GlobalMineruManagedUninstallResponses]
 
 export type GlobalMineruHealthData = {
   body?: {

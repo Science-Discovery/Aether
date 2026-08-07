@@ -35,6 +35,9 @@ import {
   webCheck,
 } from "../web-update"
 import { AttachmentExtraction } from "@/attachment-extraction"
+import { ManagedMinerU } from "@/mineru/managed"
+import { ToolRegistry } from "@/tool/registry"
+import { MineruSetupTool } from "@/tool/mineru-setup"
 
 export { WebUpdateTest } from "../web-update"
 
@@ -137,6 +140,138 @@ async function streamEvents(c: Context, subscribe: (q: AsyncQueue<string | null>
 
 export const GlobalRoutes = lazy(() =>
   new Hono()
+    .get(
+      "/mineru/managed",
+      describeRoute({
+        summary: "Get managed MinerU status",
+        operationId: "global.mineruManagedStatus",
+        responses: {
+          200: {
+            description: "Managed MinerU status",
+            content: { "application/json": { schema: resolver(ManagedMinerU.Status) } },
+          },
+        },
+      }),
+      async (c) => {
+        const state = await ManagedMinerU.status()
+        if (state.session && state.install !== "ready") ToolRegistry.registerForSession(state.session.id, MineruSetupTool)
+        return c.json(state)
+      },
+    )
+    .get(
+      "/mineru/managed/log",
+      describeRoute({
+        summary: "Get managed MinerU log",
+        operationId: "global.mineruManagedLog",
+        responses: {
+          200: {
+            description: "Complete local MinerU log",
+            content: { "application/json": { schema: resolver(z.object({ text: z.string() })) } },
+          },
+        },
+      }),
+      async (c) => c.json({ text: await ManagedMinerU.logs() }),
+    )
+    .post(
+      "/mineru/managed/session",
+      describeRoute({
+        summary: "Link the MinerU setup conversation",
+        operationId: "global.mineruManagedSession",
+        responses: {
+          200: {
+            description: "Managed MinerU status",
+            content: { "application/json": { schema: resolver(ManagedMinerU.Status) } },
+          },
+        },
+      }),
+      validator("json", z.object({ id: z.string(), directory: z.string() })),
+      async (c) => {
+        const input = c.req.valid("json")
+        const before = await ManagedMinerU.status()
+        if (before.session?.id && before.session.id !== input.id) ToolRegistry.unregisterSession(before.session.id)
+        const state = await ManagedMinerU.link(input)
+        ToolRegistry.registerForSession(input.id, MineruSetupTool)
+        return c.json(state)
+      },
+    )
+    .post(
+      "/mineru/managed/storage",
+      describeRoute({
+        summary: "Measure managed MinerU storage",
+        operationId: "global.mineruManagedMeasure",
+        responses: {
+          200: {
+            description: "Managed MinerU status",
+            content: { "application/json": { schema: resolver(ManagedMinerU.Status) } },
+          },
+          ...errors(400),
+        },
+      }),
+      async (c) => c.json(await ManagedMinerU.measure()),
+    )
+    .post(
+      "/mineru/managed/start",
+      describeRoute({
+        summary: "Start managed MinerU",
+        operationId: "global.mineruManagedStart",
+        responses: {
+          200: {
+            description: "Managed MinerU status",
+            content: { "application/json": { schema: resolver(ManagedMinerU.Status) } },
+          },
+          ...errors(400),
+        },
+      }),
+      async (c) => c.json(await ManagedMinerU.start()),
+    )
+    .post(
+      "/mineru/managed/stop",
+      describeRoute({
+        summary: "Stop managed MinerU",
+        operationId: "global.mineruManagedStop",
+        responses: {
+          200: {
+            description: "Managed MinerU status",
+            content: { "application/json": { schema: resolver(ManagedMinerU.Status) } },
+          },
+        },
+      }),
+      async (c) => c.json(await ManagedMinerU.stop()),
+    )
+    .get(
+      "/mineru/managed/uninstall",
+      describeRoute({
+        summary: "Inspect managed MinerU removal targets",
+        operationId: "global.mineruManagedUninstall",
+        responses: {
+          200: {
+            description: "Managed MinerU removal plan",
+            content: { "application/json": { schema: resolver(ManagedMinerU.Uninstall) } },
+          },
+          ...errors(400),
+        },
+      }),
+      async (c) => c.json(await ManagedMinerU.uninstall()),
+    )
+    .delete(
+      "/mineru/managed",
+      describeRoute({
+        summary: "Remove managed MinerU",
+        operationId: "global.mineruManagedRemove",
+        responses: {
+          200: {
+            description: "Managed MinerU status",
+            content: { "application/json": { schema: resolver(ManagedMinerU.Status) } },
+          },
+        },
+      }),
+      validator("json", z.object({ adopted: z.boolean().optional() })),
+      async (c) => {
+        const state = await ManagedMinerU.status()
+        if (state.session) ToolRegistry.unregisterSession(state.session.id)
+        return c.json(await ManagedMinerU.remove(c.req.valid("json")))
+      },
+    )
     .post(
       "/mineru/health",
       describeRoute({
@@ -509,7 +644,7 @@ export const GlobalRoutes = lazy(() =>
         },
       }),
       async (c) => {
-        await Instance.disposeAll()
+        await Promise.all([Instance.disposeAll(), ManagedMinerU.dispose()])
         GlobalBus.emit("event", {
           directory: "global",
           payload: {

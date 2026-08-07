@@ -3,6 +3,7 @@ import { showToast } from "@opencode-ai/ui/toast"
 import { base64Encode } from "@opencode-ai/util/encode"
 import { Binary } from "@opencode-ai/util/binary"
 import { useNavigate, useParams } from "@solidjs/router"
+import { useDialog } from "@opencode-ai/ui/context/dialog"
 import type { Accessor } from "solid-js"
 import type { FileSelection } from "@/context/file"
 import { useFile } from "@/context/file"
@@ -24,6 +25,9 @@ import { setCursorPosition } from "./editor-dom"
 import { createReadingQuoteMetadata, formatReadingPageRange, summarizeReadingQuoteText } from "@/utils/comment-note"
 import { createConversationQuoteMetadata } from "@/utils/conversation-quote-metadata"
 import { formatServerError } from "@/utils/server-errors"
+import { confirmMineruStart } from "@/components/dialog-mineru-setup"
+import { ensureManagedMineru, needsMineru } from "@/utils/mineru-managed"
+import { attachmentInput } from "@/utils/model-capabilities"
 
 type PendingPrompt = {
   abort: AbortController
@@ -60,6 +64,8 @@ type FollowupSendInput = {
   optimisticBusy?: boolean
   before?: () => Promise<boolean> | boolean
   knowledgeBase?: { path?: string; paths?: string[]; apiKey?: string; baseURL?: string }
+  capabilities?: { image: boolean; pdf: boolean }
+  managed?: (prompt: boolean) => Promise<boolean>
 }
 
 const draftText = (prompt: Prompt) => prompt.map((part) => ("content" in part ? part.content : "")).join("")
@@ -254,57 +260,70 @@ export async function sendFollowupDraft(input: FollowupSendInput) {
     }
 
     const extraction = input.globalSync.data.config.experimental?.attachment_text_extraction
-    const files = requestParts.flatMap((part) => {
-      if (part.type !== "file") return []
-      if (part.mime !== "application/pdf" && !part.mime.startsWith("image/")) return []
-      if (!part.url.startsWith("data:")) return []
-      return [{ id: part.id, mime: part.mime, filename: part.filename, url: part.url }]
-    })
-    if (extraction?.enabled && files.length > 0) {
-      if (input.optimisticBusy) {
+    if (extraction?.enabled === true) {
+      const files = requestParts.flatMap((part) => {
+        if (part.type !== "file") return []
+        if (part.mime !== "application/pdf" && !part.mime.startsWith("image/")) return []
+        if (!part.url.startsWith("data:")) return []
+        return [{ id: part.id, mime: part.mime, filename: part.filename, url: part.url }]
+      })
+      const needed = needsMineru(input.capabilities, files)
+      if (extraction.mineru?.mode === "managed" && needed && input.optimisticBusy) {
         setStore("session_status", input.draft.sessionID, {
           type: "busy",
           phase: "attachment",
-          label: files[0]?.filename ?? "attachment",
-          progress: { current: 1, total: files.length, unit: "file" },
+          label: "Starting MinerU",
         })
       }
-      const output = await input.client.session
-        .attachmentExtract(
-          {
-            sessionID: input.draft.sessionID,
-            model: input.draft.model,
-            files,
-          },
-          { throwOnError: true },
-        )
-        .then((result) => result.data)
-      const results = new Map(output?.results.map((result) => [result.partID, result]))
-      requestParts = requestParts.flatMap((part): PromptRequestPart[] => {
-        if (part.type !== "file") return [part]
-        const result = results.get(part.id)
-        if (!result) return [part]
-        return [
-          {
-            ...part,
-            ignored: true,
-            metadata: result.metadata,
-          },
-          {
-            id: Identifier.ascending("part"),
-            type: "text" as const,
-            synthetic: true,
-            text: `[Attachment text extracted from ${JSON.stringify(result.metadata.opencodeAttachmentExtraction.filename)} by MinerU]`,
-          },
-          {
-            id: Identifier.ascending("part"),
-            type: "text" as const,
-            synthetic: true,
-            text: result.text,
-            metadata: result.metadata,
-          },
-        ]
-      })
+      const enabled =
+        files.length > 0 &&
+        (extraction.mineru?.mode !== "managed" || (needed && ((await input.managed?.(true)) ?? false)))
+      if (enabled) {
+        if (input.optimisticBusy) {
+          setStore("session_status", input.draft.sessionID, {
+            type: "busy",
+            phase: "attachment",
+            label: files[0]?.filename ?? "attachment",
+            progress: { current: 1, total: files.length, unit: "file" },
+          })
+        }
+        const output = await input.client.session
+          .attachmentExtract(
+            {
+              sessionID: input.draft.sessionID,
+              model: input.draft.model,
+              files,
+            },
+            { throwOnError: true },
+          )
+          .then((result) => result.data)
+        const results = new Map(output?.results.map((result) => [result.partID, result]))
+        requestParts = requestParts.flatMap((part): PromptRequestPart[] => {
+          if (part.type !== "file") return [part]
+          const result = results.get(part.id)
+          if (!result) return [part]
+          return [
+            {
+              ...part,
+              ignored: true,
+              metadata: result.metadata,
+            },
+            {
+              id: Identifier.ascending("part"),
+              type: "text" as const,
+              synthetic: true,
+              text: `[Attachment text extracted from ${JSON.stringify(result.metadata.opencodeAttachmentExtraction.filename)} by MinerU]`,
+            },
+            {
+              id: Identifier.ascending("part"),
+              type: "text" as const,
+              synthetic: true,
+              text: result.text,
+              metadata: result.metadata,
+            },
+          ]
+        })
+      }
     }
 
     if (input.optimisticBusy) {
@@ -426,6 +445,14 @@ export function createPromptSubmit(input: PromptSubmitInput) {
   const knowledge = useKnowledge()
   const fileCtx = useFile()
   const server = useServer()
+  const dialog = useDialog()
+
+  const managed = (prompt: boolean) =>
+    ensureManagedMineru({
+      client: sdk.client,
+      prompt,
+      confirm: () => confirmMineruStart(dialog),
+    })
 
   const errorMessage = (err: unknown) => {
     if (err && typeof err === "object" && "data" in err) {
@@ -677,6 +704,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       modelID: currentModel.id,
       providerID: currentModel.provider.id,
     }
+    const capabilities = attachmentInput(currentModel)
     const agent = currentAgent.name
     const context = prompt.context.items().slice()
     const openPaths = input.openTabPaths?.() ?? []
@@ -901,6 +929,8 @@ export function createPromptSubmit(input: PromptSubmitInput) {
         client,
         sync,
         globalSync,
+        capabilities,
+        managed,
         draft: requestDraft,
         messageID,
         optimisticBusy: sessionDirectory === projectDirectory,
@@ -1012,6 +1042,8 @@ export function createPromptSubmit(input: PromptSubmitInput) {
         client,
         sync,
         globalSync,
+        capabilities,
+        managed,
         draft: requestDraft,
         messageID,
         optimisticBusy: sessionDirectory === projectDirectory,
@@ -1159,6 +1191,8 @@ export function createPromptSubmit(input: PromptSubmitInput) {
         client,
         sync,
         globalSync,
+        capabilities,
+        managed,
         draft: requestDraft,
         messageID,
         optimisticBusy: sessionDirectory === projectDirectory,
@@ -1200,6 +1234,8 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       client,
       sync,
       globalSync,
+      capabilities,
+      managed,
       draft,
       messageID,
       optimisticBusy: sessionDirectory === projectDirectory,

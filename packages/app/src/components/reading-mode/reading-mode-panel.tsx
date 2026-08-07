@@ -16,6 +16,9 @@ import { sendFollowupDraft, type FollowupDraft } from "@/components/prompt-input
 import { Identifier } from "@/utils/id"
 import { formatServerError } from "@/utils/server-errors"
 import { createSizing, type Sizing } from "@/pages/session/helpers"
+import { confirmMineruStart } from "@/components/dialog-mineru-setup"
+import { ensureManagedMineru } from "@/utils/mineru-managed"
+import { attachmentInput } from "@/utils/model-capabilities"
 
 export const ReadingModePanel: Component<{
   sessionID: string
@@ -142,6 +145,13 @@ export const ReadingModePanel: Component<{
       client: sdk.client,
       sync,
       globalSync,
+      capabilities: attachmentInput(currentModel),
+      managed: (prompt) =>
+        ensureManagedMineru({
+          client: sdk.client,
+          prompt,
+          confirm: () => confirmMineruStart(dialog),
+        }),
       draft,
       messageID: Identifier.ascending("message"),
       optimisticBusy: true,
@@ -225,6 +235,13 @@ export const ReadingModePanel: Component<{
       client: sdk.client,
       sync,
       globalSync,
+      capabilities: attachmentInput(currentModel),
+      managed: (prompt) =>
+        ensureManagedMineru({
+          client: sdk.client,
+          prompt,
+          confirm: () => confirmMineruStart(dialog),
+        }),
       draft,
       messageID: Identifier.ascending("message"),
       optimisticBusy: true,

@@ -93,4 +93,31 @@ describe("attachment extraction MinerU client", () => {
       server.stop(true)
     }
   })
+
+  test("uploads a local Blob without requiring a data URL copy", async () => {
+    const server = Bun.serve({
+      port: 0,
+      async fetch(req) {
+        const url = new URL(req.url)
+        if (url.pathname === "/tasks") {
+          const form = await req.formData()
+          expect(await (form.get("files") as File).text()).toBe("local-pdf")
+          return Response.json({ task_id: "job-blob" }, { status: 202 })
+        }
+        if (url.pathname === "/tasks/job-blob") return Response.json({ status: "completed" })
+        if (url.pathname === "/tasks/job-blob/result") return Response.json({ md_content: "# Local" })
+        return new Response("not found", { status: 404 })
+      },
+    })
+    try {
+      const text = await AttachmentExtraction.convert({
+        root: server.url.toString().replace(/\/$/, ""),
+        file: { id: "local", mime: "application/pdf", filename: "local.pdf", url: "not-a-data-url" },
+        blob: new Blob(["local-pdf"]),
+      })
+      expect(text).toBe("# Local")
+    } finally {
+      server.stop(true)
+    }
+  })
 })
