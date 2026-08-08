@@ -1,89 +1,17 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test"
+import { afterEach, describe, expect, test } from "bun:test"
 import path from "path"
-import { ManagedMinerU } from "../../src/mineru/managed"
+import { Config } from "../../src/config/config"
 import { Instance } from "../../src/project/instance"
-import { MineruConvertTool, MineruStartTool, MineruStatusTool, MineruToolTest } from "../../src/tool/mineru"
-import { MessageID, SessionID } from "../../src/session/schema"
+import { MineruToolTest } from "../../src/tool/mineru"
+import { MineruSetupTool } from "../../src/tool/mineru-setup"
+import { ToolRegistry } from "../../src/tool/registry"
 import { tmpdir } from "../fixture/fixture"
 
-const ctx = {
-  sessionID: SessionID.make("ses_mineru_tool"),
-  messageID: MessageID.make("msg_mineru_tool"),
-  callID: "call_mineru_tool",
-  agent: "build",
-  abort: AbortSignal.any([]),
-  messages: [],
-  metadata: () => {},
-  ask: async () => {},
-}
-
-beforeEach(() => ManagedMinerU.Test.reset())
 afterEach(async () => {
-  await ManagedMinerU.Test.reset()
   await Instance.disposeAll()
 })
 
 describe("MinerU AI tools", () => {
-  test("reports status but blocks start and conversion before managed setup is ready", async () => {
-    await using tmp = await tmpdir({
-      init: async (dir) => {
-        await Bun.write(
-          path.join(dir, "opencode.json"),
-          JSON.stringify({
-            experimental: { attachment_text_extraction: { mineru: { mode: "managed" } } },
-          }),
-        )
-      },
-    })
-    await Instance.provide({
-      directory: tmp.path,
-      fn: async () => {
-        const status = await MineruStatusTool.init()
-        const start = await MineruStartTool.init()
-        const convert = await MineruConvertTool.init()
-        const result = await status.execute({}, ctx)
-        expect(JSON.parse(result.output)).toMatchObject({
-          configured: false,
-          mode: "managed",
-          ai_conversion_available: false,
-        })
-        await expect(start.execute({}, ctx)).rejects.toThrow("has not been configured")
-        await expect(convert.execute({ input: "paper.pdf" }, ctx)).rejects.toThrow("has not been configured")
-      },
-    })
-  })
-
-  test("detects a custom service without contacting it and refuses AI file transfer", async () => {
-    await using tmp = await tmpdir({
-      init: async (dir) => {
-        await Bun.write(path.join(dir, "paper.pdf"), "%PDF")
-        await Bun.write(
-          path.join(dir, "opencode.json"),
-          JSON.stringify({
-            experimental: {
-              attachment_text_extraction: {
-                mineru: { mode: "external", base_url: "https://mineru.example.invalid" },
-              },
-            },
-          }),
-        )
-      },
-    })
-    await Instance.provide({
-      directory: tmp.path,
-      fn: async () => {
-        const status = await MineruStatusTool.init()
-        const convert = await MineruConvertTool.init()
-        expect(JSON.parse((await status.execute({}, ctx)).output)).toMatchObject({
-          configured: true,
-          mode: "external",
-          ai_conversion_available: false,
-        })
-        await expect(convert.execute({ input: "paper.pdf" }, ctx)).rejects.toThrow("cannot send files")
-      },
-    })
-  })
-
   test("limits input and output to workspace files and never overwrites Markdown", async () => {
     await using outer = await tmpdir({ init: async (dir) => Bun.write(path.join(dir, "outside.pdf"), "%PDF") })
     await using tmp = await tmpdir({
@@ -107,5 +35,29 @@ describe("MinerU AI tools", () => {
         )
       },
     })
+  })
+
+  test("keeps MinerU tools out of ordinary conversations until managed extraction is enabled", () => {
+    const tools = (input: unknown) => ToolRegistry.Test.mineru(Config.Info.parse(input), true).map((item) => item.id)
+
+    expect(tools({})).toEqual([])
+    expect(
+      tools({ experimental: { attachment_text_extraction: { enabled: false, mineru: { mode: "managed" } } } }),
+    ).toEqual([])
+    expect(
+      tools({ experimental: { attachment_text_extraction: { enabled: true, mineru: { mode: "external" } } } }),
+    ).toEqual([])
+    expect(
+      tools({ experimental: { attachment_text_extraction: { enabled: true, mineru: { mode: "managed" } } } }),
+    ).toEqual(["mineru_status", "mineru_start", "mineru_convert"])
+  })
+
+  test("deduplicates MinerU setup registration for its configuration conversation", () => {
+    const id = "ses_mineru_setup"
+    ToolRegistry.registerForSession(id, MineruSetupTool)
+    ToolRegistry.registerForSession(id, MineruSetupTool)
+    expect(ToolRegistry.getSessionTools(id).map((item) => item.id)).toEqual(["mineru_setup"])
+    ToolRegistry.unregisterSession(id)
+    expect(ToolRegistry.getSessionTools(id)).toEqual([])
   })
 })

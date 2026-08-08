@@ -69,6 +69,7 @@ import { createWorkingState, type ChildrenSource } from "@/utils/working-state"
 import { childMapByParent } from "@/pages/layout/helpers"
 import { SteerButton } from "@/components/steer-button"
 import { VoiceInputButton, type VoiceInputAPI } from "@/components/voice-input-button"
+import { confirmMineruStart } from "@/components/dialog-mineru-setup"
 
 interface PromptInputProps {
   class?: string
@@ -1203,6 +1204,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     readingQuestion: () => readingMode?.store.pendingQuestion ?? null,
     readingSessionMeta: () => readingMode?.store.sessionMeta,
     readingTotalPages: () => readingMode?.store.totalPages,
+    confirmMineru: () => confirmMineruStart(dialog),
     onReadingQuestionClear: () => readingMode?.setPendingQuestion(null),
   })
 

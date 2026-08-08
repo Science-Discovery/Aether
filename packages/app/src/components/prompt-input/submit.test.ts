@@ -74,14 +74,6 @@ beforeAll(async () => {
     showToast: () => 0,
   }))
 
-  mock.module("@opencode-ai/ui/context/dialog", () => ({
-    useDialog: () => ({}),
-  }))
-
-  mock.module("@/components/dialog-mineru-setup", () => ({
-    confirmMineruStart: async () => true,
-  }))
-
   mock.module("@opencode-ai/util/encode", () => ({
     base64Encode: (value: string) => value,
   }))

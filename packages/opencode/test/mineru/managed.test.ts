@@ -4,9 +4,27 @@ import { createServer } from "net"
 import path from "path"
 import { Global } from "../../src/global"
 import { ManagedMinerU } from "../../src/mineru/managed"
+import { Instance } from "../../src/project/instance"
+import { MessageID, SessionID } from "../../src/session/schema"
+import { MineruConvertTool, MineruStartTool, MineruStatusTool } from "../../src/tool/mineru"
+import { tmpdir } from "../fixture/fixture"
+
+const ctx = {
+  sessionID: SessionID.make("ses_mineru_tool"),
+  messageID: MessageID.make("msg_mineru_tool"),
+  callID: "call_mineru_tool",
+  agent: "build",
+  abort: AbortSignal.any([]),
+  messages: [],
+  metadata: () => {},
+  ask: async () => {},
+}
 
 describe.serial("managed MinerU skill setup", () => {
-  afterEach(() => ManagedMinerU.Test.reset())
+  afterEach(async () => {
+    await ManagedMinerU.Test.reset()
+    await Instance.disposeAll()
+  })
 
   test("limits setup to the Windows x64 desktop sidecar", () => {
     expect(ManagedMinerU.Test.supported({ platform: "win32", arch: "x64", client: "desktop" })).toBe(true)
@@ -64,6 +82,7 @@ describe.serial("managed MinerU skill setup", () => {
   })
 
   test("inspects an existing environment without executing it", async () => {
+    if (process.platform !== "win32") return
     const root = path.join(Global.Path.data, "candidate")
     const api = path.join(root, "Scripts", "mineru-api.exe")
     const dist = path.join(root, "Lib", "site-packages", "mineru-3.4.4.dist-info")
@@ -242,13 +261,16 @@ describe.serial("managed MinerU skill setup", () => {
     expect(await fs.stat(api).then(() => true)).toBe(true)
     expect(await fs.stat(path.join(ms, "snapshots", "master", "model.bin")).then(() => true)).toBe(true)
 
-    await ManagedMinerU.Test.erase(state, { adopted: true })
-    expect(await fs.stat(env).then(() => true).catch(() => false)).toBe(false)
-    expect(await fs.stat(hf).then(() => true).catch(() => false)).toBe(false)
-    expect(await fs.stat(ms).then(() => true).catch(() => false)).toBe(false)
-    expect(await fs.stat(lock).then(() => true).catch(() => false)).toBe(false)
-    expect(await fs.stat(config).then(() => true).catch(() => false)).toBe(false)
+    if (process.platform === "win32") {
+      await ManagedMinerU.Test.erase(state, { adopted: true })
+      expect(await fs.stat(env).then(() => true).catch(() => false)).toBe(false)
+      expect(await fs.stat(hf).then(() => true).catch(() => false)).toBe(false)
+      expect(await fs.stat(ms).then(() => true).catch(() => false)).toBe(false)
+      expect(await fs.stat(lock).then(() => true).catch(() => false)).toBe(false)
+      expect(await fs.stat(config).then(() => true).catch(() => false)).toBe(false)
+    }
     expect(await fs.stat(other).then(() => true)).toBe(true)
+    await Promise.all([env, hf, ms, lock, config, other].map((item) => fs.rm(item, { recursive: true, force: true })))
     expect(await fs.stat(path.dirname(other)).then((item) => item.isDirectory())).toBe(true)
   })
 
@@ -301,5 +323,65 @@ describe.serial("managed MinerU skill setup", () => {
         .then(() => true)
         .catch(() => false),
     ).toBe(false)
+  })
+
+  test("reports status but blocks start and conversion before managed setup is ready", async () => {
+    await using tmp = await tmpdir({
+      init: async (dir) => {
+        await Bun.write(
+          path.join(dir, "opencode.json"),
+          JSON.stringify({
+            experimental: { attachment_text_extraction: { mineru: { mode: "managed" } } },
+          }),
+        )
+      },
+    })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const status = await MineruStatusTool.init()
+        const start = await MineruStartTool.init()
+        const convert = await MineruConvertTool.init()
+        const result = await status.execute({}, ctx)
+        expect(JSON.parse(result.output)).toMatchObject({
+          configured: false,
+          mode: "managed",
+          ai_conversion_available: false,
+        })
+        await expect(start.execute({}, ctx)).rejects.toThrow("has not been configured")
+        await expect(convert.execute({ input: "paper.pdf" }, ctx)).rejects.toThrow("has not been configured")
+      },
+    })
+  })
+
+  test("detects a custom service without contacting it and refuses AI file transfer", async () => {
+    await using tmp = await tmpdir({
+      init: async (dir) => {
+        await Bun.write(path.join(dir, "paper.pdf"), "%PDF")
+        await Bun.write(
+          path.join(dir, "opencode.json"),
+          JSON.stringify({
+            experimental: {
+              attachment_text_extraction: {
+                mineru: { mode: "external", base_url: "https://mineru.example.invalid" },
+              },
+            },
+          }),
+        )
+      },
+    })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const status = await MineruStatusTool.init()
+        const convert = await MineruConvertTool.init()
+        expect(JSON.parse((await status.execute({}, ctx)).output)).toMatchObject({
+          configured: true,
+          mode: "external",
+          ai_conversion_available: false,
+        })
+        await expect(convert.execute({ input: "paper.pdf" }, ctx)).rejects.toThrow("cannot send files")
+      },
+    })
   })
 })

@@ -564,7 +564,10 @@ export namespace ManagedMinerU {
   }
 
   async function candidate(input: string) {
-    const value = await fs.realpath(input).catch(() => "")
+    const value = await fs
+      .realpath(input)
+      .then((item) => item.replace(/^\\\\\?\\/, ""))
+      .catch(() => "")
     if (!/^[a-zA-Z]:\\/.test(value) || path.basename(value).toLowerCase() !== "mineru-api.exe") return
     const info = await fs.stat(value).catch(() => undefined)
     if (!info?.isFile()) return

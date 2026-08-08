@@ -3,7 +3,6 @@ import { showToast } from "@opencode-ai/ui/toast"
 import { base64Encode } from "@opencode-ai/util/encode"
 import { Binary } from "@opencode-ai/util/binary"
 import { useNavigate, useParams } from "@solidjs/router"
-import { useDialog } from "@opencode-ai/ui/context/dialog"
 import type { Accessor } from "solid-js"
 import type { FileSelection } from "@/context/file"
 import { useFile } from "@/context/file"
@@ -25,7 +24,6 @@ import { setCursorPosition } from "./editor-dom"
 import { createReadingQuoteMetadata, formatReadingPageRange, summarizeReadingQuoteText } from "@/utils/comment-note"
 import { createConversationQuoteMetadata } from "@/utils/conversation-quote-metadata"
 import { formatServerError } from "@/utils/server-errors"
-import { confirmMineruStart } from "@/components/dialog-mineru-setup"
 import { ensureManagedMineru, needsMineru } from "@/utils/mineru-managed"
 import { attachmentInput } from "@/utils/model-capabilities"
 
@@ -377,6 +375,7 @@ type PromptSubmitInput = {
   readingSessionMeta?: Accessor<ReadingMeta | null | undefined>
   readingTotalPages?: Accessor<number | undefined>
   onReadingQuestionClear?: () => void
+  confirmMineru?: () => Promise<boolean>
 }
 
 type QuoteQuestion = {
@@ -445,13 +444,11 @@ export function createPromptSubmit(input: PromptSubmitInput) {
   const knowledge = useKnowledge()
   const fileCtx = useFile()
   const server = useServer()
-  const dialog = useDialog()
-
   const managed = (prompt: boolean) =>
     ensureManagedMineru({
       client: sdk.client,
       prompt,
-      confirm: () => confirmMineruStart(dialog),
+      confirm: input.confirmMineru ?? (() => Promise.resolve(false)),
     })
 
   const errorMessage = (err: unknown) => {
