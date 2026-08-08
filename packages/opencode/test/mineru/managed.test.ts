@@ -83,6 +83,18 @@ describe.serial("managed MinerU skill setup", () => {
     expect("MINERU_MODEL_SOURCE" in env).toBe(false)
   })
 
+  test("keeps broad cache roots outside adopted removal targets", async () => {
+    expect(await ManagedMinerU.Test.safe(Global.Path.home)).toBe(false)
+    expect(await ManagedMinerU.Test.safe(path.join(Global.Path.home, ".cache"))).toBe(false)
+    expect(await ManagedMinerU.Test.safe(path.join(Global.Path.home, ".cache", "huggingface", "hub"))).toBe(false)
+    expect(
+      await ManagedMinerU.Test.safe(
+        path.join(Global.Path.home, ".cache", "huggingface", "hub", "models--opendatalab--PDF-Extract-Kit-1.0"),
+      ),
+    ).toBe(true)
+    expect(await ManagedMinerU.Test.safe(path.join(path.dirname(Global.Path.home), "outside"))).toBe(false)
+  })
+
   test("inspects an existing environment without executing it", async () => {
     if (process.platform !== "win32") return
     const root = path.join(Global.Path.data, "candidate")

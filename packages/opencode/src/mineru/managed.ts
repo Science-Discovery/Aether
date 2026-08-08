@@ -339,13 +339,25 @@ export namespace ManagedMinerU {
     return value === root || value.startsWith(`${root}${path.sep}`)
   }
 
+  function canonical(input: string) {
+    const value = input.replace(/^\\\\\?\\UNC\\/i, "\\\\").replace(/^\\\\\?\\/, "")
+    return path.resolve(value)
+  }
+
+  async function real(input: string) {
+    return fs
+      .realpath(input)
+      .then(canonical)
+      .catch(() => canonical(input))
+  }
+
   async function folders(input: Array<string | undefined>) {
     const values = await Promise.all(
       input.filter((item): item is string => !!item).map(async (item) => {
         const value = item.startsWith(`~${path.sep}`) ? path.join(Global.Path.home, item.slice(2)) : item
         const info = await fs.stat(value).catch(() => undefined)
         if (!info?.isDirectory()) return
-        return fs.realpath(value).catch(() => path.resolve(value))
+        return real(value)
       }),
     )
     return values
@@ -391,10 +403,9 @@ export namespace ManagedMinerU {
     return marker.test(parent) ? parent : value
   }
 
-  function safe(input: string) {
-    const value = path.resolve(input)
-    const home = path.resolve(Global.Path.home)
-    if (!inside(value, home) && !inside(value, root())) return false
+  async function safe(input: string) {
+    const [value, home, owned] = await Promise.all([real(input), real(Global.Path.home), real(root())])
+    if (!inside(value, home) && !inside(value, owned)) return false
     const blocked = [
       path.parse(value).root,
       home,
@@ -427,7 +438,11 @@ export namespace ManagedMinerU {
       ),
     )
     const configured = Object.values(config.config?.["models-dir"] ?? {}).map(repository)
-    return folders([...configured, ...detected.flat()]).then((rows) => rows.filter((item) => safe(item) && marker.test(item)))
+    const rows = await folders([...configured, ...detected.flat()])
+    const values = await Promise.all(
+      rows.map(async (item) => ((await safe(item)) && marker.test(item) ? item : undefined)),
+    )
+    return values.filter((item): item is string => !!item)
   }
 
   async function plan(state: Stored) {
@@ -485,13 +500,14 @@ export namespace ManagedMinerU {
     }
     if (!state.adopted_api) throw new Error("The adopted MinerU executable is missing")
     const checked = await candidate(state.adopted_api)
-    if (!checked || path.resolve(checked.path).toLowerCase() !== path.resolve(state.adopted_api).toLowerCase())
+    if (!checked || checked.path.toLowerCase() !== (await real(state.adopted_api)).toLowerCase())
       throw new Error("The adopted MinerU environment could not be verified and was not removed")
     const value = await plan(state)
     const targets = [value.environment?.path, ...value.models.map((item) => item.path)].filter(
       (item): item is string => !!item,
     )
-    if (targets.some((item) => !safe(item))) throw new Error("A MinerU removal target failed the path safety check")
+    if ((await Promise.all(targets.map(safe))).some((item) => !item))
+      throw new Error("A MinerU removal target failed the path safety check")
     await Promise.all(
       targets.map((item) => fs.rm(item, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 })),
     )
@@ -564,10 +580,7 @@ export namespace ManagedMinerU {
   }
 
   async function candidate(input: string) {
-    const value = await fs
-      .realpath(input)
-      .then((item) => item.replace(/^\\\\\?\\/, ""))
-      .catch(() => "")
+    const value = await real(input)
     if (!/^[a-zA-Z]:\\/.test(value) || path.basename(value).toLowerCase() !== "mineru-api.exe") return
     const info = await fs.stat(value).catch(() => undefined)
     if (!info?.isFile()) return
@@ -1174,6 +1187,7 @@ export namespace ManagedMinerU {
     candidate,
     discover,
     cleanup,
+    safe,
     plan,
     erase,
     async measure() {
