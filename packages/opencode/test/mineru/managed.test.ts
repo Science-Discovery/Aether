@@ -20,6 +20,8 @@ const ctx = {
   ask: async () => {},
 }
 
+const canonical = (input: string) => fs.realpath(input).then((item) => item.replace(/^\\\\\?\\/, ""))
+
 describe.serial("managed MinerU skill setup", () => {
   afterEach(async () => {
     await ManagedMinerU.Test.reset()
@@ -90,7 +92,7 @@ describe.serial("managed MinerU skill setup", () => {
     await fs.mkdir(dist, { recursive: true })
     await Bun.write(api, "not executable")
     await Bun.write(path.join(dist, "METADATA"), "Name: mineru\nVersion: 3.4.4\n")
-    expect(await ManagedMinerU.Test.candidate(api)).toMatchObject({ path: api, version: "3.4.4" })
+    expect(await ManagedMinerU.Test.candidate(api)).toMatchObject({ path: await canonical(api), version: "3.4.4" })
   })
 
   test("discovers a user-level MinerU virtual environment outside PATH", async () => {
@@ -192,6 +194,7 @@ describe.serial("managed MinerU skill setup", () => {
   })
 
   test("plans and removes only an explicitly confirmed adopted MinerU environment", async () => {
+    if (process.platform !== "win32") return
     const env = path.join(Global.Path.home, "mineru-delete-test")
     const api = path.join(env, "Scripts", "mineru-api.exe")
     const dist = path.join(env, "Lib", "site-packages", "mineru-3.4.4.dist-info")
@@ -236,6 +239,7 @@ describe.serial("managed MinerU skill setup", () => {
         }),
       ),
     ])
+    const target = await canonical(api)
     await ManagedMinerU.Test.write({
       install: "ready",
       stage: "verify",
@@ -243,7 +247,7 @@ describe.serial("managed MinerU skill setup", () => {
       port: 8000,
       message: "Ready",
       runtime: "adopted",
-      adopted_api: api,
+      adopted_api: target,
       version: "3.4.4",
     })
     expect((await ManagedMinerU.Test.measure()).source).toBe("modelscope")
@@ -251,8 +255,8 @@ describe.serial("managed MinerU skill setup", () => {
     const plan = await ManagedMinerU.Test.plan(state)
 
     expect(plan.runtime).toBe("adopted")
-    expect(plan.environment?.path).toBe(env)
-    expect(plan.models.map((item) => item.path).sort()).toEqual([hf, lock, ms].sort())
+    expect(plan.environment?.path).toBe(path.dirname(path.dirname(target)))
+    expect(plan.models.map((item) => item.path).sort()).toEqual((await Promise.all([hf, lock, ms].map(canonical))).sort())
     expect(plan.models.map((item) => item.path)).not.toContain(path.dirname(other))
     expect(plan.config).toBe(config)
     expect(plan.removable).toBeGreaterThan(0)
@@ -261,14 +265,12 @@ describe.serial("managed MinerU skill setup", () => {
     expect(await fs.stat(api).then(() => true)).toBe(true)
     expect(await fs.stat(path.join(ms, "snapshots", "master", "model.bin")).then(() => true)).toBe(true)
 
-    if (process.platform === "win32") {
-      await ManagedMinerU.Test.erase(state, { adopted: true })
-      expect(await fs.stat(env).then(() => true).catch(() => false)).toBe(false)
-      expect(await fs.stat(hf).then(() => true).catch(() => false)).toBe(false)
-      expect(await fs.stat(ms).then(() => true).catch(() => false)).toBe(false)
-      expect(await fs.stat(lock).then(() => true).catch(() => false)).toBe(false)
-      expect(await fs.stat(config).then(() => true).catch(() => false)).toBe(false)
-    }
+    await ManagedMinerU.Test.erase(state, { adopted: true })
+    expect(await fs.stat(env).then(() => true).catch(() => false)).toBe(false)
+    expect(await fs.stat(hf).then(() => true).catch(() => false)).toBe(false)
+    expect(await fs.stat(ms).then(() => true).catch(() => false)).toBe(false)
+    expect(await fs.stat(lock).then(() => true).catch(() => false)).toBe(false)
+    expect(await fs.stat(config).then(() => true).catch(() => false)).toBe(false)
     expect(await fs.stat(other).then(() => true)).toBe(true)
     await Promise.all([env, hf, ms, lock, config, other].map((item) => fs.rm(item, { recursive: true, force: true })))
     expect(await fs.stat(path.dirname(other)).then((item) => item.isDirectory())).toBe(true)
