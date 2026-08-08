@@ -84,15 +84,20 @@ describe.serial("managed MinerU skill setup", () => {
   })
 
   test("keeps broad cache roots outside adopted removal targets", async () => {
+    const repo = path.join(
+      Global.Path.home,
+      ".cache",
+      "huggingface",
+      "hub",
+      "models--opendatalab--PDF-Extract-Kit-safe-test",
+    )
+    await fs.mkdir(repo, { recursive: true })
     expect(await ManagedMinerU.Test.safe(Global.Path.home)).toBe(false)
     expect(await ManagedMinerU.Test.safe(path.join(Global.Path.home, ".cache"))).toBe(false)
     expect(await ManagedMinerU.Test.safe(path.join(Global.Path.home, ".cache", "huggingface", "hub"))).toBe(false)
-    expect(
-      await ManagedMinerU.Test.safe(
-        path.join(Global.Path.home, ".cache", "huggingface", "hub", "models--opendatalab--PDF-Extract-Kit-1.0"),
-      ),
-    ).toBe(true)
+    expect(await ManagedMinerU.Test.safe(repo)).toBe(true)
     expect(await ManagedMinerU.Test.safe(path.join(path.dirname(Global.Path.home), "outside"))).toBe(false)
+    await fs.rm(repo, { recursive: true, force: true })
   })
 
   test("inspects an existing environment without executing it", async () => {
