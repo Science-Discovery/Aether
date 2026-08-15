@@ -334,7 +334,7 @@ export namespace SessionPrompt {
       if (
         lastAssistant?.finish &&
         !["tool-calls"].includes(lastAssistant.finish) &&
-        lastUser.id < lastAssistant.id
+        lastAssistant.parentID === lastUser.id
       ) {
         _finalResponse = true
         log.info("exiting loop", { sessionID })

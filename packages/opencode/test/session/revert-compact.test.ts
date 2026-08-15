@@ -14,6 +14,41 @@ const projectRoot = path.join(__dirname, "../..")
 Log.init({ print: false })
 
 describe("revert + compact workflow", () => {
+  test("cleans up the chronological suffix when message IDs are nonmonotonic", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const session = await Session.create({})
+        const ids = [
+          MessageID.make("msg_fe000000000000000000000000"),
+          MessageID.make("msg_ff000000000000000000000000"),
+          MessageID.make("msg_00000000000000000000000000"),
+        ]
+        for (const [at, id] of ids.entries()) {
+          await Session.updateMessage({
+            id,
+            role: "user",
+            sessionID: session.id,
+            agent: "build",
+            model: { providerID: ProviderID.make("test"), modelID: ModelID.make("test") },
+            time: { created: at + 1 },
+          })
+        }
+        await Session.setRevert({
+          sessionID: session.id,
+          revert: { messageID: ids[2] },
+          summary: { additions: 0, deletions: 0, files: 0 },
+        })
+
+        await SessionRevert.cleanup(await Session.get(session.id))
+        const msgs = await Session.messages({ sessionID: session.id })
+
+        expect(msgs.map((msg) => msg.info.id)).toEqual(ids.slice(0, 2))
+      },
+    })
+  })
+
   test("should properly handle compact command after revert", async () => {
     await using tmp = await tmpdir({ git: true })
     await Instance.provide({

@@ -8,6 +8,7 @@ import { MessageV2 } from "../../src/session/message-v2"
 import { Database, eq } from "../../src/storage/db"
 import { MessageID, PartID } from "../../src/session/schema"
 import { SessionTable } from "../../src/session/session.sql"
+import { tmpdir } from "../fixture/fixture"
 
 const projectRoot = path.join(__dirname, "../..")
 Log.init({ print: false })
@@ -144,6 +145,57 @@ describe("step-finish token propagation via Bus event", () => {
 })
 
 describe("session tree IDs", () => {
+  test("forks the chronological prefix when message IDs are nonmonotonic", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const root = await Session.create({ title: "Rollover" })
+        const first = MessageID.make("msg_fe000000000000000000000000")
+        const reply = MessageID.make("msg_ff000000000000000000000000")
+        const latest = MessageID.make("msg_00000000000000000000000000")
+        await Session.updateMessage({
+          id: first,
+          sessionID: root.id,
+          role: "user",
+          time: { created: 1 },
+          agent: "build",
+          model: { providerID: "test", modelID: "test" },
+        } as MessageV2.User)
+        await Session.updateMessage({
+          id: reply,
+          sessionID: root.id,
+          role: "assistant",
+          parentID: first,
+          time: { created: 2, completed: 2 },
+          providerID: "test",
+          modelID: "test",
+          mode: "build",
+          agent: "build",
+          path: { cwd: tmp.path, root: tmp.path },
+          cost: 0,
+          tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+          finish: "stop",
+        } as MessageV2.Assistant)
+        await Session.updateMessage({
+          id: latest,
+          sessionID: root.id,
+          role: "user",
+          time: { created: 3 },
+          agent: "build",
+          model: { providerID: "test", modelID: "test" },
+        } as MessageV2.User)
+
+        const child = await Session.fork({ sessionID: root.id, messageID: latest })
+        const msgs = await Session.messages({ sessionID: child.id })
+
+        expect(msgs).toHaveLength(2)
+        expect(msgs.map((msg) => msg.info.role)).toEqual(["user", "assistant"])
+        if (msgs[1]?.info.role === "assistant") expect(msgs[1].info.parentID).toBe(msgs[0]?.info.id)
+      },
+    })
+  })
+
   test("new root sessions get a treeID and forked children inherit it", async () => {
     await Instance.provide({
       directory: projectRoot,

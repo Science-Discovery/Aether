@@ -23,6 +23,7 @@ import { createSessionTabs } from "@/pages/session/helpers"
 import { extractPromptFromParts } from "@/utils/prompt"
 import { UserMessage } from "@opencode-ai/sdk/v2"
 import { useSessionLayout } from "@/pages/session/session-layout"
+import { MessageOrder } from "@/utils/message-order"
 
 export type SessionCommandContext = {
   navigateMessageByOffset: (offset: number) => void
@@ -104,7 +105,7 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
   const visibleUserMessages = () => {
     const revert = info()?.revert?.messageID
     if (!revert) return userMessages()
-    return userMessages().filter((m) => m.id < revert)
+    return MessageOrder.before(userMessages(), revert)
   }
 
   const showAllFiles = () => {
@@ -452,7 +453,8 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
             return
           }
           const revert = info()?.revert?.messageID
-          const message = findLast(userMessages(), (x) => !revert || x.id < revert)
+          const list = userMessages()
+          const message = revert ? MessageOrder.prev(list, revert) : list.at(-1)
           if (!message) return
           await sdk.client.session.revert({ sessionID, messageID: message.id })
           const parts = sync.data.part[message.id]
@@ -460,7 +462,7 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
             const restored = extractPromptFromParts(parts, { directory: sdk.directory })
             prompt.set(restored)
           }
-          const priorMessage = findLast(userMessages(), (x) => x.id < message.id)
+          const priorMessage = MessageOrder.prev(list, message.id)
           setActiveMessage(priorMessage)
         },
       }),
@@ -479,16 +481,16 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
           }
           const revertMessageID = info()?.revert?.messageID
           if (!revertMessageID) return
-          const nextMessage = userMessages().find((x) => x.id > revertMessageID)
+          const list = userMessages()
+          const nextMessage = MessageOrder.next(list, revertMessageID)
           if (!nextMessage) {
             await sdk.client.session.unrevert({ sessionID })
             prompt.reset()
-            const lastMsg = findLast(userMessages(), (x) => x.id >= revertMessageID)
-            setActiveMessage(lastMsg)
+            setActiveMessage(list.at(-1))
             return
           }
           await sdk.client.session.revert({ sessionID, messageID: nextMessage.id })
-          const priorMsg = findLast(userMessages(), (x) => x.id < nextMessage.id)
+          const priorMsg = MessageOrder.prev(list, nextMessage.id)
           setActiveMessage(priorMsg)
         },
       }),
