@@ -85,7 +85,8 @@ export namespace SessionRevert {
         const to = await Snapshot.track()
         diffs = to ? await Snapshot.diffFull(from, to) : []
       } else {
-        const remaining = all.filter((msg) => msg.info.id < revert!.messageID)
+        const at = all.findIndex((msg) => msg.info.id === revert!.messageID)
+        const remaining = at < 0 ? [] : all.slice(0, at)
         diffs = await SessionSummary.computeDiff({ messages: remaining })
       }
       await Storage.write(["session_diff", input.sessionID], diffs)
@@ -134,25 +135,10 @@ export namespace SessionRevert {
     const sessionID = session.id
     const msgs = await Session.messages({ sessionID })
     const messageID = session.revert.messageID
-    const preserve = [] as MessageV2.WithParts[]
-    const remove = [] as MessageV2.WithParts[]
-    let target: MessageV2.WithParts | undefined
-    for (const msg of msgs) {
-      if (msg.info.id < messageID) {
-        preserve.push(msg)
-        continue
-      }
-      if (msg.info.id > messageID) {
-        remove.push(msg)
-        continue
-      }
-      if (session.revert.partID) {
-        preserve.push(msg)
-        target = msg
-        continue
-      }
-      remove.push(msg)
-    }
+    const at = msgs.findIndex((msg) => msg.info.id === messageID)
+    const offset = session.revert.partID ? 1 : 0
+    const preserve = at < 0 ? msgs : msgs.slice(0, at + offset)
+    const remove = at < 0 ? [] : msgs.slice(at + offset)
     for (const msg of remove) {
       SyncEvent.run(MessageV2.Event.Removed, {
         sessionID: sessionID,
@@ -179,9 +165,9 @@ export namespace SessionRevert {
         sessionID: sessionID,
         messageID: msg.info.id,
       })
-      if (msg === target) target = undefined
     }
     const boundaryMsg = msgs.find((m) => m.info.id === messageID)
+    const target = session.revert.partID ? preserve.find((msg) => msg.info.id === messageID) : undefined
     const revertTime = (boundaryMsg?.info as MessageV2.Assistant | MessageV2.User)?.time?.created ?? 0
     for (const msg of preserve) {
       for (const part of msg.parts) {

@@ -73,6 +73,7 @@ import { Identifier } from "@/utils/id"
 import { extractPromptFromParts } from "@/utils/prompt"
 import { same } from "@/utils/same"
 import { formatServerError } from "@/utils/server-errors"
+import { MessageOrder } from "@/utils/message-order"
 
 const emptyUserMessages: UserMessage[] = []
 const emptyFollowups: (FollowupDraft & { id: string })[] = []
@@ -667,7 +668,7 @@ function SessionPageContent(props: SessionPageProps = {}) {
     () => {
       const revert = revertMessageID()
       if (!revert) return userMessages()
-      return userMessages().filter((m) => m.id < revert)
+      return MessageOrder.before(userMessages(), revert)
     },
     emptyUserMessages,
     {
@@ -2033,7 +2034,7 @@ function SessionPageContent(props: SessionPageProps = {}) {
       const sessionID = params.id
       if (!sessionID) return
 
-      const next = userMessages().find((item) => item.id > id)
+      const next = MessageOrder.next(userMessages(), id)
       const prev = prompt.current().slice()
       const last = info()?.revert
 
@@ -2142,9 +2143,7 @@ function SessionPageContent(props: SessionPageProps = {}) {
   const rolled = createMemo(() => {
     const id = revertMessageID()
     if (!id) return []
-    return userMessages()
-      .filter((item) => item.id >= id)
-      .map((item) => ({ id: item.id, text: line(item.id) }))
+    return MessageOrder.from(userMessages(), id).map((item) => ({ id: item.id, text: line(item.id) }))
   })
 
   const actions = { fork, revert }

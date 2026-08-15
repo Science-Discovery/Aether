@@ -4,11 +4,11 @@ import { applyOptimisticAdd, applyOptimisticRemove, mergeOptimisticPage } from "
 
 type Text = Extract<Part, { type: "text" }>
 
-const userMessage = (id: string, sessionID: string): Message => ({
+const userMessage = (id: string, sessionID: string, created = 1): Message => ({
   id,
   sessionID,
   role: "user",
-  time: { created: 1 },
+  time: { created },
   agent: "assistant",
   model: { providerID: "openai", modelID: "gpt" },
 })
@@ -37,6 +37,22 @@ describe("sync optimistic reducers", () => {
 
     expect(draft.message[sessionID]?.map((x) => x.id)).toEqual(["msg_1", "msg_2"])
     expect(draft.part.msg_1?.map((x) => x.id)).toEqual(["prt_1", "prt_2"])
+  })
+
+  test("applyOptimisticAdd keeps a post-rollover message at the end", () => {
+    const sessionID = "ses_1"
+    const draft = {
+      message: { [sessionID]: [userMessage("msg_fe", sessionID, 1)] },
+      part: {} as Record<string, Part[] | undefined>,
+    }
+
+    applyOptimisticAdd(draft, {
+      sessionID,
+      message: userMessage("msg_00", sessionID, 2),
+      parts: [],
+    })
+
+    expect(draft.message[sessionID]?.map((x) => x.id)).toEqual(["msg_fe", "msg_00"])
   })
 
   test("applyOptimisticRemove removes message and part entries", () => {

@@ -741,20 +741,15 @@ export namespace Session {
         await SessionPreference.update({ sessionID: session.id, ...prefData })
       }
       const idMap = new Map<string, MessageID>()
-      const copyIDs = new Set<string>()
-      for (const msg of msgs) {
-        if (input.messageID && msg.info.id >= input.messageID) break
-        copyIDs.add(msg.info.id)
-      }
+      const at = input.messageID ? msgs.findIndex((msg) => msg.info.id === input.messageID) : msgs.length
+      const copy = msgs.slice(0, at < 0 ? msgs.length : at)
       const completedCompactionTriggers = new Set<string>()
-      for (const msg of msgs) {
-        if (!copyIDs.has(msg.info.id)) continue
+      for (const msg of copy) {
         if (msg.info.role === "assistant" && msg.info.summary && msg.info.finish && !msg.info.error)
           completedCompactionTriggers.add(msg.info.parentID)
       }
       const orphanedCompactionTriggers = new Set<string>()
-      for (const msg of msgs) {
-        if (!copyIDs.has(msg.info.id)) continue
+      for (const msg of copy) {
         if (
           msg.info.role === "user" &&
           msg.parts.some((part) => part.type === "compaction") &&
@@ -763,8 +758,7 @@ export namespace Session {
           orphanedCompactionTriggers.add(msg.info.id)
       }
 
-      for (const msg of msgs) {
-        if (input.messageID && msg.info.id >= input.messageID) break
+      for (const msg of copy) {
         if (orphanedCompactionTriggers.has(msg.info.id)) continue
         const newID = MessageID.ascending()
         idMap.set(msg.info.id, newID)

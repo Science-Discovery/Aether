@@ -56,6 +56,7 @@ import { Worktree as WorktreeState } from "@/utils/worktree"
 import { setSessionHandoff } from "@/pages/session/handoff"
 import type { E2EWindow } from "@/testing/terminal"
 import { OpenIntent } from "@/utils/open-intent"
+import { MessageOrder } from "@/utils/message-order"
 
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { useTheme, type ColorScheme } from "@opencode-ai/ui/theme/context"
@@ -962,7 +963,7 @@ export default function Layout(props: ParentProps) {
 
             const items = (messages.data ?? []).filter((x) => !!x?.info?.id)
             const next = items.map((x) => x.info).filter((m): m is Message => !!m?.id)
-            const sorted = mergeByID([], next)
+            const sorted = MessageOrder.sort(next)
             const stale = markPrefetched(directory, sessionID)
             const cursor = messages.response.headers.get("x-next-cursor") ?? undefined
             const meta = {
@@ -980,7 +981,7 @@ export default function Layout(props: ParentProps) {
             }
 
             const current = store.message[sessionID] ?? []
-            const merged = mergeByID(
+            const merged = MessageOrder.merge(
               current.filter((item): item is Message => !!item?.id),
               sorted,
             )

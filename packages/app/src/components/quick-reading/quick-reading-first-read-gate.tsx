@@ -280,7 +280,9 @@ export const QuickReadingFirstReadGate: Component<{
   createEffect(() => {
     const id = pending()
     if (!id || status().type !== "idle") return
-    const done = messages().some((item) => item.role === "assistant" && item.id > id && typeof item.time.completed === "number")
+    const done = messages().some(
+      (item) => item.role === "assistant" && item.parentID === id && typeof item.time.completed === "number",
+    )
     if (!done) return
     setPending(undefined)
   })

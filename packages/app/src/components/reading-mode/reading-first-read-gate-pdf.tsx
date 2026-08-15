@@ -445,7 +445,7 @@ export const ReadingFirstReadGate: Component<{ sessionID: string }> = (props) =>
     if (!triggerID || patching()) return
 
     const assistantDone = messages().some(
-      (item) => item.role === "assistant" && item.id > triggerID && typeof item.time.completed === "number",
+      (item) => item.role === "assistant" && item.parentID === triggerID && typeof item.time.completed === "number",
     )
     if (!assistantDone) return
 

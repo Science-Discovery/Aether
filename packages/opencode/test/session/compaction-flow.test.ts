@@ -206,6 +206,44 @@ function main(hits: Hit[]) {
   return hits.filter((hit) => !JSON.stringify(hit.body).includes("Generate a title for this conversation"))
 }
 
+describe("session prompt loop", () => {
+  test("replies to the latest user when message IDs are nonmonotonic", async () => {
+    const srv = await stub([
+      { type: "text", text: "first answer" },
+      { type: "text", text: "second answer" },
+    ])
+    await using tmp = await setup(srv.url)
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const session = await Session.create({ title: "Pinned" })
+        await SessionPrompt.prompt({
+          sessionID: session.id,
+          agent: "build",
+          model,
+          parts: [{ type: "text", text: "first" }],
+        })
+        await Bun.sleep(2)
+        const user = await SessionPrompt.prompt({
+          sessionID: session.id,
+          messageID: MessageID.make("msg_00000000000000000000000000"),
+          agent: "build",
+          model,
+          noReply: true,
+          parts: [{ type: "text", text: "second" }],
+        })
+        const result = await SessionPrompt.loop({ sessionID: session.id })
+
+        expect(result.info.role).toBe("assistant")
+        if (result.info.role === "assistant") expect(result.info.parentID).toBe(user.info.id)
+        expect(texts([result])).toContain("second answer")
+        expect(main(srv.hits)).toHaveLength(2)
+      },
+    })
+  })
+})
+
 describe("session compaction flow", () => {
   test("auto compacts after finish-step usage crosses the model context budget", async () => {
     const srv = await stub([

@@ -18,7 +18,6 @@ import { ScrollView } from "@opencode-ai/ui/scroll-view"
 import { TextField } from "@opencode-ai/ui/text-field"
 import type { AssistantMessage, Message as MessageType, Part, TextPart, UserMessage } from "@opencode-ai/sdk/v2"
 import { showToast } from "@opencode-ai/ui/toast"
-import { Binary } from "@opencode-ai/util/binary"
 import { getFilename } from "@opencode-ai/util/path"
 import { Popover as KobaltePopover } from "@kobalte/core/popover"
 import { shouldMarkBoundaryGesture, normalizeWheelDelta } from "@/pages/session/message-gesture"
@@ -399,8 +398,7 @@ export function MessageTimeline(props: {
     const parentID = pending()?.parentID
     if (parentID) {
       const messages = sessionMessages()
-      const result = Binary.search(messages, parentID, (message) => message.id)
-      const message = result.found ? messages[result.index] : messages.find((item) => item.id === parentID)
+      const message = messages.find((item) => item.id === parentID)
       if (message && message.role === "user") return message.id
     }
 
