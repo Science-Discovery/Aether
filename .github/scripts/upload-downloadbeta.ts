@@ -82,12 +82,9 @@ const desktop = [
   "aether-desktop-win-x64.exe.blockmap",
   "aether-desktop-win-arm64.exe",
   "aether-desktop-win-arm64.exe.blockmap",
-  "aether-desktop-linux-x86_64.AppImage",
-  "aether-desktop-linux-x86_64.rpm",
+  // downloadbeta currently accepts Linux .deb artifacts only.
   "aether-desktop-linux-amd64.deb",
-  "aether-desktop-linux-arm64.AppImage",
   "aether-desktop-linux-arm64.deb",
-  "aether-desktop-linux-aarch64.rpm",
   "latest.yml",
   "latest-mac.yml",
   "latest-linux.yml",
