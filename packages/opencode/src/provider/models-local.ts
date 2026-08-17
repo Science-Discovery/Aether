@@ -171,6 +171,45 @@ export const inserts = {
         verified_at: "2026-08-05",
       },
     },
+    "deepseek-v4-pro-0813": {
+      id: "deepseek-v4-pro-0813",
+      name: "DeepSeek V4 Pro 0813",
+      family: "deepseek",
+      attachment: false,
+      reasoning: true,
+      tool_call: true,
+      structured_output: true,
+      interleaved: {
+        field: "reasoning_content",
+      },
+      temperature: true,
+      release_date: "2026-08-13",
+      modalities: {
+        input: ["text"],
+        output: ["text"],
+      },
+      provider: {
+        npm: "@ai-sdk/openai-compatible",
+        api: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      },
+      limit: {
+        context: 1_000_000,
+        output: 393_216,
+      },
+      options: {},
+      // Alibaba Bailian peak-hour list price is CNY 9 / 0.9 (cache hit) / 27 per 1M tokens;
+      // converted to USD at 1 USD ≈ 7.2 CNY to match models.dev's USD convention.
+      cost: {
+        input: 1.25,
+        cache_read: 0.125,
+        output: 3.75,
+      },
+      meta: {
+        reason:
+          "models.dev is missing Alibaba Bailian deepseek-v4-pro-0813 metadata; Alibaba documents OpenAI-compatible hybrid reasoning with 1M context and shared 393,216 output budget",
+        verified_at: "2026-08-17",
+      },
+    },
   },
   aihubmix: {
     "glm-5.2": glm(
