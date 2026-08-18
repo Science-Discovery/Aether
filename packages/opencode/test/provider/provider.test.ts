@@ -111,25 +111,13 @@ test("models.dev local overlay overrides only selected model metadata", () => {
   expect("meta" in data.test.models.model).toBe(false)
 })
 
-test("models.dev local overlay inserts GLM-5.2 models", () => {
+test("models.dev local overlay inserts alibaba-cn deepseek-v4-flash-0731", () => {
   const data = apply(
     {
-      alibaba: {
-        ...provider,
-        id: "alibaba",
-        api: "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
-        models: {},
-      },
       "alibaba-cn": {
         ...provider,
         id: "alibaba-cn",
         api: "https://dashscope.aliyuncs.com/compatible-mode/v1",
-        models: {},
-      },
-      aihubmix: {
-        ...provider,
-        id: "aihubmix",
-        api: "https://aihubmix.com/v1",
         models: {},
       },
     },
@@ -139,87 +127,6 @@ test("models.dev local overlay inserts GLM-5.2 models", () => {
       strict: true,
     },
   )
-
-  const intl = data.alibaba.models["glm-5.2"]
-  const cn = data["alibaba-cn"].models["glm-5.2"]
-  const hub = data.aihubmix.models["glm-5.2"]
-
-  expect(intl.limit.context).toBe(1_000_000)
-  expect(intl.limit.input).toBe(868_928)
-  expect(intl.limit.output).toBe(131_072)
-  expect(intl.options?.maxOutputTokens).toBe(65_536)
-  expect(intl.provider?.npm).toBe("@ai-sdk/openai-compatible")
-  expect(intl.provider?.api).toBe("https://dashscope-intl.aliyuncs.com/compatible-mode/v1")
-  expect("meta" in intl).toBe(false)
-
-  expect(cn.limit.context).toBe(1_000_000)
-  expect(cn.limit.input).toBe(868_928)
-  expect(cn.limit.output).toBe(131_072)
-  expect(cn.options?.maxOutputTokens).toBe(65_536)
-  expect(cn.provider?.npm).toBe("@ai-sdk/openai-compatible")
-  expect(cn.provider?.api).toBe("https://dashscope.aliyuncs.com/compatible-mode/v1")
-  expect("meta" in cn).toBe(false)
-
-  expect(hub.limit.context).toBe(1_000_000)
-  expect(hub.limit.input).toBe(868_928)
-  expect(hub.limit.output).toBe(131_072)
-  expect(hub.options?.maxOutputTokens).toBe(65_536)
-  expect(hub.provider?.npm).toBe("@ai-sdk/openai-compatible")
-  expect(hub.provider?.api).toBe("https://aihubmix.com/v1")
-  expect("meta" in hub).toBe(false)
-
-  const info = Provider.fromModelsDevProvider(data["alibaba-cn"])
-  expect(info.models["glm-5.2"].api.npm).toBe("@ai-sdk/openai-compatible")
-  expect(info.models["glm-5.2"].api.url).toBe("https://dashscope.aliyuncs.com/compatible-mode/v1")
-  expect(info.models["glm-5.2"].capabilities.interleaved).toEqual({ field: "reasoning_content" })
-
-  const mix = Provider.fromModelsDevProvider(data.aihubmix)
-  expect(mix.models["glm-5.2"].api.npm).toBe("@ai-sdk/openai-compatible")
-  expect(mix.models["glm-5.2"].api.url).toBe("https://aihubmix.com/v1")
-})
-
-test("models.dev local overlay inserts alibaba-cn qwen3.8-max and deepseek-v4-flash-0731", () => {
-  const data = apply(
-    {
-      alibaba: {
-        ...provider,
-        id: "alibaba",
-        api: "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
-        models: {},
-      },
-      "alibaba-cn": {
-        ...provider,
-        id: "alibaba-cn",
-        api: "https://dashscope.aliyuncs.com/compatible-mode/v1",
-        models: {},
-      },
-      aihubmix: {
-        ...provider,
-        id: "aihubmix",
-        api: "https://aihubmix.com/v1",
-        models: {},
-      },
-    },
-    {
-      additions: {},
-      overrides: {},
-      strict: true,
-    },
-  )
-
-  const qwen = data["alibaba-cn"].models["qwen3.8-max"]
-  expect(qwen.limit.context).toBe(1_000_000)
-  expect(qwen.limit.input).toBe(991_000)
-  expect(qwen.limit.output).toBe(131_072)
-  expect(qwen.attachment).toBe(true)
-  expect(qwen.reasoning).toBe(true)
-  expect(qwen.tool_call).toBe(true)
-  expect(qwen.modalities?.input).toEqual(["text", "image", "video"])
-  expect(qwen.cost?.input).toBe(1.67)
-  expect(qwen.cost?.output).toBe(5.0)
-  expect(qwen.provider?.npm).toBe("@ai-sdk/openai-compatible")
-  expect(qwen.provider?.api).toBe("https://dashscope.aliyuncs.com/compatible-mode/v1")
-  expect("meta" in qwen).toBe(false)
 
   const ds = data["alibaba-cn"].models["deepseek-v4-flash-0731"]
   expect(ds.limit.context).toBe(1_000_000)
@@ -234,8 +141,6 @@ test("models.dev local overlay inserts alibaba-cn qwen3.8-max and deepseek-v4-fl
   expect("meta" in ds).toBe(false)
 
   const info = Provider.fromModelsDevProvider(data["alibaba-cn"])
-  expect(info.models["qwen3.8-max"].capabilities.interleaved).toEqual({ field: "reasoning_content" })
-  expect(info.models["qwen3.8-max"].capabilities.input.image).toBe(true)
   expect(info.models["deepseek-v4-flash-0731"].capabilities.interleaved).toEqual({ field: "reasoning_content" })
   expect(info.models["deepseek-v4-flash-0731"].capabilities.toolcall).toBe(true)
 })

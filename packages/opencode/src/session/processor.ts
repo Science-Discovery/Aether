@@ -9,6 +9,7 @@ import { SessionRetry } from "./retry"
 import { SessionStatus } from "./status"
 import { Plugin } from "@/plugin"
 import type { Provider } from "@/provider/provider"
+import { ProviderTransform } from "@/provider/transform"
 import { LLM } from "./llm"
 import { Config } from "@/config/config"
 import { SessionCompaction } from "./compaction"
@@ -63,11 +64,28 @@ export namespace SessionProcessor {
         needsCompaction = false
         idle = false
         const shouldBreak = (await Config.get()).experimental?.continue_loop_on_deny !== true
+        let recovered = false
         while (true) {
           try {
             let currentText: MessageV2.TextPart | undefined
             let reasoningMap: Record<string, MessageV2.ReasoningPart> = {}
-            const stream = await LLM.stream(streamInput)
+            let reasoning = false
+            let text = false
+            let tools = false
+            let finish = ""
+            const request = recovered
+              ? {
+                  ...streamInput,
+                  override: {
+                    ...streamInput.override,
+                    enable_thinking: false,
+                    thinking_budget: undefined,
+                    reasoningEffort: undefined,
+                    reasoning_effort: undefined,
+                  },
+                }
+              : streamInput
+            const stream = await LLM.stream(request)
 
             // Runaway guard: the counter (set only for background reviews) owns
             // both the per-step count and the whole-review total. Reset the
@@ -107,6 +125,7 @@ export namespace SessionProcessor {
                   break
 
                 case "reasoning-delta":
+                  if (value.text.trim()) reasoning = true
                   if (value.id in reasoningMap) {
                     const part = reasoningMap[value.id]
                     part.text += value.text
@@ -138,6 +157,7 @@ export namespace SessionProcessor {
                   break
 
                 case "tool-input-start":
+                  tools = true
                   const part = await Session.updatePart({
                     id: toolcalls[value.id]?.id ?? PartID.ascending(),
                     messageID: input.assistantMessage.id,
@@ -161,6 +181,7 @@ export namespace SessionProcessor {
                   break
 
                 case "tool-call": {
+                  tools = true
                   const match = toolcalls[value.toolCallId]
                   if (match) {
                     const part = await Session.updatePart({
@@ -207,6 +228,7 @@ export namespace SessionProcessor {
                   break
                 }
                 case "tool-result": {
+                  tools = true
                   const match = toolcalls[value.toolCallId]
                   if (match && match.state.status === "running") {
                     await Session.updatePart({
@@ -231,6 +253,7 @@ export namespace SessionProcessor {
                 }
 
                 case "tool-error": {
+                  tools = true
                   const match = toolcalls[value.toolCallId]
                   if (match && match.state.status === "running") {
                     await Session.updatePart({
@@ -271,6 +294,7 @@ export namespace SessionProcessor {
                   break
 
                 case "finish-step":
+                  finish = value.finishReason
                   const usage = Session.getUsage({
                     model: input.model,
                     usage: value.usage,
@@ -359,6 +383,7 @@ export namespace SessionProcessor {
                       { text: currentText.text },
                     )
                     currentText.text = textOutput.text
+                    if (currentText.text.trim()) text = true
                     currentText.time = {
                       start: Date.now(),
                       end: Date.now(),
@@ -392,6 +417,32 @@ export namespace SessionProcessor {
                 reviewStopped = true
                 break
               }
+            }
+            const retry =
+              !recovered &&
+              ["alibaba", "alibaba-cn"].includes(input.model.providerID) &&
+              input.model.api.npm === "@ai-sdk/openai-compatible" &&
+              ProviderTransform.glm52(input.model) &&
+              ["stop", "length"].includes(finish) &&
+              reasoning &&
+              !text &&
+              !tools &&
+              !needsCompaction &&
+              !blocked &&
+              !reviewStopped
+            if (retry) {
+              recovered = true
+              log.warn("retrying GLM-5.2 without thinking after reasoning-only response", {
+                sessionID: input.sessionID,
+                finish,
+              })
+              continue
+            }
+            if (recovered && ["stop", "length"].includes(finish) && reasoning && !text && !tools) {
+              log.warn("GLM-5.2 recovery response still has no visible text", {
+                sessionID: input.sessionID,
+                finish,
+              })
             }
           } catch (e: any) {
             log.error("process", {

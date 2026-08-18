@@ -31,6 +31,13 @@ providers:
           temperature: true
           tool: true
           interleaved: reasoning_content
+      - id: glm-5.2
+        cases: [p0-basic, p1-reasoning]
+        capabilities:
+          reasoning: true
+          temperature: true
+          tool: true
+          interleaved: reasoning_content
 
   - id: deepseek
     name: DeepSeek Official
