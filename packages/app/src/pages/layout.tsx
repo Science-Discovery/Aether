@@ -1798,7 +1798,7 @@ export default function Layout(props: ParentProps) {
     })
   }
 
-  async function chooseProject() {
+  function chooseProject() {
     function resolve(result: string | string[] | null) {
       if (Array.isArray(result)) {
         for (const directory of result) {
@@ -1810,22 +1810,14 @@ export default function Layout(props: ParentProps) {
       }
     }
 
-    if (platform.openDirectoryPickerDialog && server.isLocal()) {
-      const result = await platform.openDirectoryPickerDialog?.({
-        title: language.t("command.project.open"),
-        multiple: true,
-      })
-      resolve(result)
-    } else {
-      const run = ++dialogRun
-      void import("@/components/dialog-select-directory").then((x) => {
-        if (dialogDead || dialogRun !== run) return
-        dialog.show(
-          () => <x.DialogSelectDirectory multiple={true} onSelect={resolve} />,
-          () => resolve(null),
-        )
-      })
-    }
+    const run = ++dialogRun
+    void import("@/components/dialog-select-directory").then((x) => {
+      if (dialogDead || dialogRun !== run) return
+      dialog.show(
+        () => <x.DialogSelectDirectory multiple={true} onSelect={resolve} />,
+        () => resolve(null),
+      )
+    })
   }
 
   const deleteWorkspace = async (
