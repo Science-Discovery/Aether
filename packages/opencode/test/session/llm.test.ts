@@ -570,7 +570,7 @@ describe("session.llm.stream", () => {
     })
   })
 
-  test("uses model maxOutputTokens option as request cap", async () => {
+  test("sends bounded thinking controls for Alibaba GLM-5.2", async () => {
     const server = state.server
     if (!server) {
       throw new Error("Server not initialized")
@@ -596,6 +596,19 @@ describe("session.llm.stream", () => {
             enabled_providers: [providerID],
             provider: {
               [providerID]: {
+                models: {
+                  [modelID]: {
+                    name: "GLM-5.2",
+                    reasoning: true,
+                    tool_call: true,
+                    interleaved: { field: "reasoning_content" },
+                    limit: { context: 1_000_000, output: 131_072 },
+                    modalities: { input: ["text"], output: ["text"] },
+                    provider: {
+                      npm: "@ai-sdk/openai-compatible",
+                    },
+                  },
+                },
                 options: {
                   apiKey: "test-key",
                   baseURL: `${server.url.origin}/v1`,
@@ -642,8 +655,11 @@ describe("session.llm.stream", () => {
         }
 
         const capture = await request
-        expect(capture.body.max_tokens).toBe(65_536)
+        expect(capture.body.max_tokens).toBe(32_000)
         expect(capture.body.maxOutputTokens).toBeUndefined()
+        expect(capture.body.enable_thinking).toBe(true)
+        expect(capture.body.thinking_budget).toBe(32_000)
+        expect(capture.body.clear_thinking).toBe(true)
       },
     })
   })

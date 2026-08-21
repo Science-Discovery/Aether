@@ -19,6 +19,34 @@ async function sample(pid: string, id: string) {
   return model
 }
 
+function glm(pid: string, npm = "@ai-sdk/openai-compatible", id = "glm-5.2"): Provider.Model {
+  return {
+    id: ModelID.make(id),
+    providerID: ProviderID.make(pid),
+    api: {
+      id,
+      url: "https://api.test.com/v1",
+      npm,
+    },
+    name: "GLM-5.2",
+    capabilities: {
+      temperature: true,
+      reasoning: true,
+      attachment: false,
+      toolcall: true,
+      input: { text: true, audio: false, image: false, video: false, pdf: false },
+      output: { text: true, audio: false, image: false, video: false, pdf: false },
+      interleaved: { field: "reasoning_content" },
+    },
+    cost: { input: 1, output: 1, cache: { read: 0, write: 0 } },
+    limit: { context: 1_000_000, output: 131_072 },
+    status: "active",
+    options: {},
+    headers: {},
+    release_date: "2026-06-25",
+  }
+}
+
 describe("ProviderTransform.options - setCacheKey", () => {
   const sessionID = "test-session-123"
 
@@ -180,6 +208,27 @@ describe("ProviderTransform.options - zai/zhipuai thinking", () => {
       })
     })
   }
+})
+
+describe("ProviderTransform.options - Alibaba GLM-5.2 thinking", () => {
+  test("sets a bounded thinking budget for Alibaba endpoints", () => {
+    const intl = ProviderTransform.options({ model: glm("alibaba"), sessionID: "test" })
+    const cn = ProviderTransform.options({ model: glm("alibaba-cn"), sessionID: "test" })
+
+    expect(intl.enable_thinking).toBe(true)
+    expect(intl.thinking_budget).toBe(32_000)
+    expect(intl.clear_thinking).toBeUndefined()
+    expect(cn.enable_thinking).toBe(true)
+    expect(cn.thinking_budget).toBe(32_000)
+    expect(cn.clear_thinking).toBe(true)
+  })
+
+  test("does not add the budget to other GLM models or providers", () => {
+    expect(
+      ProviderTransform.options({ model: glm("alibaba-cn", undefined, "glm-5.1"), sessionID: "test" }).thinking_budget,
+    ).toBeUndefined()
+    expect(ProviderTransform.options({ model: glm("aihubmix"), sessionID: "test" }).thinking_budget).toBeUndefined()
+  })
 })
 
 describe("ProviderTransform.options - google thinkingConfig gating", () => {
@@ -2516,6 +2565,36 @@ describe("ProviderTransform.variants", () => {
     })
     const result = ProviderTransform.variants(model)
     expect(result).toEqual({})
+  })
+
+  test("Alibaba GLM-5.2 exposes every documented reasoning effort", () => {
+    for (const pid of ["alibaba", "alibaba-cn"]) {
+      const result = ProviderTransform.variants(glm(pid))
+      expect(Object.keys(result)).toEqual(["none", "minimal", "low", "medium", "high", "xhigh", "max"])
+      expect(result.none).toEqual({
+        enable_thinking: false,
+        thinking_budget: undefined,
+        reasoningEffort: undefined,
+        reasoning_effort: undefined,
+      })
+      expect(result.minimal).toEqual({ enable_thinking: true, reasoningEffort: "minimal" })
+      expect(result.max).toEqual({ enable_thinking: true, reasoningEffort: "max" })
+    }
+  })
+
+  test("GLM-5.2 uses provider-specific upstream variants", () => {
+    expect(ProviderTransform.variants(glm("openrouter", "@openrouter/ai-sdk-provider"))).toEqual({
+      high: { reasoning: { effort: "high" } },
+      xhigh: { reasoning: { effort: "xhigh" } },
+    })
+    expect(ProviderTransform.variants(glm("aihubmix"))).toEqual({
+      high: { reasoningEffort: "high" },
+      max: { reasoningEffort: "max" },
+    })
+    expect(ProviderTransform.variants(glm("anthropic", "@ai-sdk/anthropic", "vendor/glm-5p2"))).toEqual({
+      high: { effort: "high" },
+      max: { effort: "max" },
+    })
   })
 
     test("mistral returns empty object", () => {

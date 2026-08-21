@@ -565,6 +565,11 @@ export namespace ProviderTransform {
     return major > 4 || (major === 4 && minor >= 7)
   }
 
+  export function glm52(model: Provider.Model) {
+    const api = `${model.id} ${model.api.id}`.toLowerCase()
+    return ["glm-5.2", "glm-5-2", "glm-5p2"].some((id) => api.includes(id))
+  }
+
   export function variants(model: Provider.Model): Record<string, Record<string, any>> {
     if (!model.capabilities.reasoning) return {}
 
@@ -575,6 +580,45 @@ export namespace ProviderTransform {
       opus ||
       ["opus-4-6", "opus-4.6", "4-6-opus", "4.6-opus", "sonnet-4-6", "sonnet-4.6"].some((v) => api.includes(v))
     const adaptiveEfforts = opus ? ["low", "medium", "high", "xhigh", "max"] : ["low", "medium", "high", "max"]
+    if (
+      glm52(model) &&
+      ["alibaba", "alibaba-cn"].includes(model.providerID) &&
+      model.api.npm === "@ai-sdk/openai-compatible"
+    ) {
+      return Object.fromEntries(
+        ["none", "minimal", "low", "medium", "high", "xhigh", "max"].map((effort) => [
+          effort,
+          effort === "none"
+            ? {
+                enable_thinking: false,
+                thinking_budget: undefined,
+                reasoningEffort: undefined,
+                reasoning_effort: undefined,
+              }
+            : { enable_thinking: true, reasoningEffort: effort },
+        ]),
+      )
+    }
+    if (glm52(model)) {
+      if (model.api.npm === "@openrouter/ai-sdk-provider") {
+        return {
+          high: { reasoning: { effort: "high" } },
+          xhigh: { reasoning: { effort: "xhigh" } },
+        }
+      }
+      if (model.api.npm === "@ai-sdk/openai-compatible") {
+        return {
+          high: { reasoningEffort: "high" },
+          max: { reasoningEffort: "max" },
+        }
+      }
+      if (model.api.npm === "@ai-sdk/anthropic") {
+        return {
+          high: { effort: "high" },
+          max: { effort: "max" },
+        }
+      }
+    }
     if (
       /(^|\/)deepseek-v4-(pro|flash)$/.test(model.api.id.toLowerCase()) &&
       ["deepseek", "vercel", "openrouter"].includes(model.providerID)
@@ -593,7 +637,7 @@ export namespace ProviderTransform {
     if (
       id.includes("deepseek") ||
       id.includes("minimax") ||
-      id.includes("glm") ||
+      (api.includes("glm") && !glm52(model)) ||
       id.includes("mistral") ||
       id.includes("kimi") ||
       // TODO: Remove this after models.dev data is fixed to use "kimi-k2.5" instead of "k2p5"
@@ -1037,6 +1081,15 @@ export namespace ProviderTransform {
 
     // Enable thinking by default for kimi-k2.5/k2p5 models using anthropic SDK
     const modelId = input.model.api.id.toLowerCase()
+    if (
+      glm52(input.model) &&
+      ["alibaba", "alibaba-cn"].includes(input.model.providerID) &&
+      input.model.api.npm === "@ai-sdk/openai-compatible"
+    ) {
+      result["enable_thinking"] = true
+      result["thinking_budget"] = 32_000
+      if (input.model.providerID === "alibaba-cn") result["clear_thinking"] = true
+    }
     if (
       (input.model.api.npm === "@ai-sdk/anthropic" || input.model.api.npm === "@ai-sdk/google-vertex/anthropic") &&
       (modelId.includes("k2p5") || modelId.includes("kimi-k2.5") || modelId.includes("kimi-k2p5"))

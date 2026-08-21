@@ -79,6 +79,7 @@ export namespace LLM {
     retries?: number
     toolChoice?: "auto" | "required" | "none"
     purpose?: "chat" | "title" | "compaction"
+    override?: Record<string, unknown>
   }
 
   export type StreamOutput = StreamTextResult<ToolSet, unknown>
@@ -184,6 +185,7 @@ export namespace LLM {
       mergeDeep(input.model.options),
       mergeDeep(input.agent.options),
       mergeDeep(variant),
+      mergeDeep(input.override ?? {}),
     )
     if (isOpenaiOauth) {
       options.instructions = system.join("\n")
