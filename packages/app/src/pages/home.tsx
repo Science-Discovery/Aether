@@ -9,7 +9,6 @@ import { usePlatform } from "@/context/platform"
 import { DateTime } from "luxon"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { DialogSelectDirectory } from "@/components/dialog-select-directory"
-import { DialogNewProject } from "@/components/dialog-new-project"
 import { DialogSelectServer } from "@/components/dialog-select-server"
 import { useServer } from "@/context/server"
 import { useGlobalSync } from "@/context/global-sync"
@@ -44,12 +43,13 @@ export default function Home() {
     navigate(`/${base64Encode(directory)}`)
   }
 
-  async function newProject() {
+  function newProject() {
     dialog.show(
       () => (
-        <DialogNewProject
+        <DialogSelectDirectory
+          title={language.t("dialog.newProject.title")}
           onSelect={(result) => {
-            if (result) openProject(result)
+            if (typeof result === "string") openProject(result)
           }}
         />
       ),
@@ -57,7 +57,7 @@ export default function Home() {
     )
   }
 
-  async function chooseProject() {
+  function chooseProject() {
     function resolve(result: string | string[] | null) {
       if (Array.isArray(result)) {
         for (const directory of result) {
@@ -68,18 +68,10 @@ export default function Home() {
       }
     }
 
-    if (platform.openDirectoryPickerDialog && server.isLocal()) {
-      const result = await platform.openDirectoryPickerDialog?.({
-        title: language.t("command.project.open"),
-        multiple: true,
-      })
-      resolve(result)
-    } else {
-      dialog.show(
-        () => <DialogSelectDirectory multiple={true} onSelect={resolve} />,
-        () => resolve(null),
-      )
-    }
+    dialog.show(
+      () => <DialogSelectDirectory multiple={true} onSelect={resolve} />,
+      () => resolve(null),
+    )
   }
 
   return (
