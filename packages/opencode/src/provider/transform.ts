@@ -621,12 +621,18 @@ export namespace ProviderTransform {
     }
     if (
       /(^|\/)deepseek-v4-(pro|flash)$/.test(model.api.id.toLowerCase()) &&
-      ["deepseek", "vercel", "openrouter"].includes(model.providerID)
+      ["deepseek", "vercel", "openrouter", "alibaba-cn"].includes(model.providerID)
     ) {
       if (model.providerID === "openrouter") {
         return {
           high: { reasoning: { effort: "high" } },
           max: { reasoning: { effort: "max" } },
+        }
+      }
+      if (model.providerID === "alibaba-cn") {
+        return {
+          high: { reasoningEffort: "high" },
+          max: { reasoningEffort: "max" },
         }
       }
       return {
