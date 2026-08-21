@@ -111,7 +111,7 @@ test("models.dev local overlay overrides only selected model metadata", () => {
   expect("meta" in data.test.models.model).toBe(false)
 })
 
-test("models.dev local overlay inserts alibaba-cn deepseek-v4-flash-0731", () => {
+test("models.dev local overlay inserts alibaba-cn deepseek-v4-flash-0731 and deepseek-v4-pro-0813", () => {
   const data = apply(
     {
       "alibaba-cn": {
@@ -140,9 +140,24 @@ test("models.dev local overlay inserts alibaba-cn deepseek-v4-flash-0731", () =>
   expect(ds.provider?.api).toBe("https://dashscope.aliyuncs.com/compatible-mode/v1")
   expect("meta" in ds).toBe(false)
 
+  const pro = data["alibaba-cn"].models["deepseek-v4-pro-0813"]
+  expect(pro.limit.context).toBe(1_000_000)
+  expect(pro.limit.output).toBe(393_216)
+  expect(pro.attachment).toBe(false)
+  expect(pro.reasoning).toBe(true)
+  expect(pro.tool_call).toBe(true)
+  expect(pro.modalities?.input).toEqual(["text"])
+  expect(pro.cost?.input).toBe(1.25)
+  expect(pro.cost?.cache_read).toBe(0.125)
+  expect(pro.cost?.output).toBe(3.75)
+  expect(pro.provider?.api).toBe("https://dashscope.aliyuncs.com/compatible-mode/v1")
+  expect("meta" in pro).toBe(false)
+
   const info = Provider.fromModelsDevProvider(data["alibaba-cn"])
   expect(info.models["deepseek-v4-flash-0731"].capabilities.interleaved).toEqual({ field: "reasoning_content" })
   expect(info.models["deepseek-v4-flash-0731"].capabilities.toolcall).toBe(true)
+  expect(info.models["deepseek-v4-pro-0813"].capabilities.interleaved).toEqual({ field: "reasoning_content" })
+  expect(info.models["deepseek-v4-pro-0813"].capabilities.toolcall).toBe(true)
 })
 
 test("models.dev local overlay rejects duplicate model insertions", () => {
