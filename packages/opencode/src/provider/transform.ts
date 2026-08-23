@@ -620,7 +620,7 @@ export namespace ProviderTransform {
       }
     }
     if (
-      /(^|\/)deepseek-v4-(pro|flash)$/.test(model.api.id.toLowerCase()) &&
+      /(^|\/)deepseek-v4-(pro|flash)(-\d+)?$/.test(model.api.id.toLowerCase()) &&
       ["deepseek", "vercel", "openrouter", "alibaba-cn"].includes(model.providerID)
     ) {
       if (model.providerID === "openrouter") {

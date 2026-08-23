@@ -3260,6 +3260,25 @@ describe("ProviderTransform.variants", () => {
       })
     })
 
+    test("alibaba cn deepseek v4 dated variants return reasoning effort", () => {
+      const want = {
+        high: { reasoningEffort: "high" },
+        max: { reasoningEffort: "max" },
+      }
+      for (const id of ["deepseek-v4-flash-0731", "deepseek-v4-pro-0813"]) {
+        const model = createMockModel({
+          id,
+          providerID: "alibaba-cn",
+          api: {
+            id,
+            url: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+            npm: "@ai-sdk/openai-compatible",
+          },
+        })
+        expect(ProviderTransform.variants(model)).toEqual(want)
+      }
+    })
+
     test("fixture chutes non-reasoning model has no variants", async () => {
       const model = await sample("chutes", "XiaomiMiMo/MiMo-V2-Flash-TEE")
       expect(model.api.npm).toBe("@ai-sdk/openai-compatible")
