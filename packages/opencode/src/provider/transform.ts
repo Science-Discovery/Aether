@@ -577,8 +577,7 @@ export namespace ProviderTransform {
     const api = `${id} ${model.api.id.toLowerCase()}`
     const opus = opus47(api)
     const isAnthropicAdaptive =
-      opus ||
-      ["opus-4-6", "opus-4.6", "4-6-opus", "4.6-opus", "sonnet-4-6", "sonnet-4.6"].some((v) => api.includes(v))
+      opus || ["opus-4-6", "opus-4.6", "4-6-opus", "4.6-opus", "sonnet-4-6", "sonnet-4.6"].some((v) => api.includes(v))
     const adaptiveEfforts = opus ? ["low", "medium", "high", "xhigh", "max"] : ["low", "medium", "high", "max"]
     if (
       glm52(model) &&
@@ -638,6 +637,14 @@ export namespace ProviderTransform {
       return {
         high: { thinking: { type: "enabled" }, reasoningEffort: "high" },
         max: { thinking: { type: "enabled" }, reasoningEffort: "max" },
+      }
+    }
+    if (id.includes("kimi-k3") && model.providerID === "alibaba-cn" && model.api.npm === "@ai-sdk/openai-compatible") {
+      // Kimi K3 always thinks and accepts top-level reasoning_effort: low / high / max (default max)
+      return {
+        low: { reasoningEffort: "low" },
+        high: { reasoningEffort: "high" },
+        max: { reasoningEffort: "max" },
       }
     }
     if (
@@ -1042,7 +1049,10 @@ export namespace ProviderTransform {
       result["promptCacheKey"] = input.messageCount ? `${input.sessionID}:${input.messageCount}` : input.sessionID
     }
 
-    if (input.model.api.npm === "@openrouter/ai-sdk-provider" || input.model.api.npm === "@llmgateway/ai-sdk-provider") {
+    if (
+      input.model.api.npm === "@openrouter/ai-sdk-provider" ||
+      input.model.api.npm === "@llmgateway/ai-sdk-provider"
+    ) {
       result["usage"] = {
         include: true,
       }
@@ -1109,12 +1119,13 @@ export namespace ProviderTransform {
     // Enable thinking for reasoning models on providers using DashScope-style OpenAI-compatible APIs.
     // These APIs require `enable_thinking: true` in the request body to return reasoning_content.
     // Without it, models never output thinking/reasoning tokens.
-    // Note: kimi-k2-thinking is excluded as it returns reasoning_content by default.
+    // Note: kimi-k2-thinking and kimi-k3 are excluded as they return reasoning_content by default.
     if (
       ["alibaba-cn", "siliconflow-cn"].includes(input.model.providerID) &&
       input.model.capabilities.reasoning &&
       input.model.api.npm === "@ai-sdk/openai-compatible" &&
-      !modelId.includes("kimi-k2-thinking")
+      !modelId.includes("kimi-k2-thinking") &&
+      !modelId.includes("kimi-k3")
     ) {
       result["enable_thinking"] = true
     }
@@ -1128,10 +1139,7 @@ export namespace ProviderTransform {
       if (!input.model.api.id.includes("gpt-5-pro") && !input.model.api.id.includes("gpt-5.4")) {
         result["reasoningEffort"] = "medium"
         result["reasoningSummary"] = "auto"
-        if (
-          input.model.api.npm === "@ai-sdk/openai" ||
-          input.model.api.npm === "@ai-sdk/amazon-bedrock/mantle"
-        ) {
+        if (input.model.api.npm === "@ai-sdk/openai" || input.model.api.npm === "@ai-sdk/amazon-bedrock/mantle") {
           result["include"] = ["reasoning.encrypted_content"]
         }
       }

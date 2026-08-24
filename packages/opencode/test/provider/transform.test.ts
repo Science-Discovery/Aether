@@ -1254,24 +1254,21 @@ describe("ProviderTransform.schema - moonshot $ref siblings", () => {
   } as any
 
   test("removes sibling descriptions from referenced schemas", () => {
-    const result = ProviderTransform.schema(
-      moonshotModel,
-      {
-        type: "object",
-        properties: {
-          value: {
-            $ref: "#/$defs/Value",
-            description: "Moonshot rejects sibling keywords after ref expansion.",
-          },
+    const result = ProviderTransform.schema(moonshotModel, {
+      type: "object",
+      properties: {
+        value: {
+          $ref: "#/$defs/Value",
+          description: "Moonshot rejects sibling keywords after ref expansion.",
         },
-        $defs: {
-          Value: {
-            description: "Referenced schema description stays here.",
-            type: "object",
-          },
+      },
+      $defs: {
+        Value: {
+          description: "Referenced schema description stays here.",
+          type: "object",
         },
-      } as any,
-    ) as any
+      },
+    } as any) as any
 
     expect(result.properties.value).toEqual({
       $ref: "#/$defs/Value",
@@ -2597,11 +2594,11 @@ describe("ProviderTransform.variants", () => {
     })
   })
 
-    test("mistral returns empty object", () => {
-      const model = createMockModel({
-        id: "mistral/mistral-large",
-        providerID: "mistral",
-        api: {
+  test("mistral returns empty object", () => {
+    const model = createMockModel({
+      id: "mistral/mistral-large",
+      providerID: "mistral",
+      api: {
         id: "mistral-large-latest",
         url: "https://api.mistral.com",
         npm: "@ai-sdk/mistral",
@@ -3279,6 +3276,45 @@ describe("ProviderTransform.variants", () => {
       }
     })
 
+    test("alibaba cn kimi-k3 returns reasoning variants and skips enable_thinking", () => {
+      const model = createMockModel({
+        id: "alibaba-cn/kimi-k3",
+        providerID: "alibaba-cn",
+        api: {
+          id: "kimi-k3",
+          url: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+          npm: "@ai-sdk/openai-compatible",
+        },
+      })
+      const want = {
+        low: { reasoningEffort: "low" },
+        high: { reasoningEffort: "high" },
+        max: { reasoningEffort: "max" },
+      }
+      expect(ProviderTransform.variants(model)).toEqual(want)
+
+      const base = ProviderTransform.options({ model, sessionID: "test", providerOptions: {} })
+      expect(base.enable_thinking).toBeUndefined()
+      expect(ProviderTransform.providerOptions(model, { ...base, ...want.max })).toEqual({
+        "alibaba-cn": {
+          reasoningEffort: "max",
+        },
+      })
+    })
+
+    test("kimi-k3 outside alibaba-cn returns no variants", () => {
+      const model = createMockModel({
+        id: "moonshotai/kimi-k3",
+        providerID: "moonshotai",
+        api: {
+          id: "kimi-k3",
+          url: "https://api.moonshot.cn/v1",
+          npm: "@ai-sdk/openai-compatible",
+        },
+      })
+      expect(ProviderTransform.variants(model)).toEqual({})
+    })
+
     test("fixture chutes non-reasoning model has no variants", async () => {
       const model = await sample("chutes", "XiaomiMiMo/MiMo-V2-Flash-TEE")
       expect(model.api.npm).toBe("@ai-sdk/openai-compatible")
@@ -3346,7 +3382,9 @@ describe("ProviderTransform.variants", () => {
     test("cloudflare ai gateway migrated models use gateway package override", async () => {
       const model = await sample("cloudflare-ai-gateway", "anthropic/claude-opus-4-7")
       expect(model.api.npm).toBe("ai-gateway-provider")
-      expect(model.api.url).toBe("https://gateway.ai.cloudflare.com/v1/${CLOUDFLARE_ACCOUNT_ID}/${CLOUDFLARE_GATEWAY_ID}/compat/")
+      expect(model.api.url).toBe(
+        "https://gateway.ai.cloudflare.com/v1/${CLOUDFLARE_ACCOUNT_ID}/${CLOUDFLARE_GATEWAY_ID}/compat/",
+      )
       expect(ProviderTransform.variants(model)).toEqual({
         low: { reasoningEffort: "low" },
         medium: { reasoningEffort: "medium" },
