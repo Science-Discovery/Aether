@@ -28,6 +28,7 @@ import { ConfigMarkdown } from "./markdown"
 import { constants, existsSync, statSync } from "fs"
 import { Bus } from "@/bus"
 import { GlobalBus } from "@/bus/global"
+import { ProviderEvent } from "../provider/event"
 import { Event } from "../server/event"
 import { Glob } from "../util/glob"
 import { PackageRegistry } from "@/bun/registry"
@@ -1786,6 +1787,14 @@ export namespace Config {
     "skills",
   ])
 
+  const PROVIDER_CONFIG_KEYS = new Set([
+    "provider",
+    "provider_remove",
+    "enabled_providers",
+    "disabled_providers",
+    "disabled_models",
+  ])
+
   export async function updateGlobal(config: Info) {
     const filepath = globalConfigFile()
     const found = existsSync(filepath)
@@ -1835,8 +1844,14 @@ export namespace Config {
 
     global.reset()
 
-    const hasUnsafeKey = Object.keys(config).some((k) => !SAFE_CONFIG_KEYS.has(k))
-    if (hasUnsafeKey) {
+    const keys = Object.keys(config)
+    const provider = keys.some((key) => PROVIDER_CONFIG_KEYS.has(key))
+    const unsafe = keys.some((key) => !SAFE_CONFIG_KEYS.has(key) && !PROVIDER_CONFIG_KEYS.has(key))
+    if (provider) {
+      state.reset()
+      ProviderEvent.update()
+    }
+    if (unsafe) {
       void Instance.disposeAll()
         .catch(() => undefined)
         .finally(() => {
@@ -1848,10 +1863,10 @@ export namespace Config {
             },
           })
         })
-    } else {
-      state.reset()
+      return next
     }
 
+    if (!provider) state.reset()
     return next
   }
 

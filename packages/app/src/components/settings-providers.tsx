@@ -136,8 +136,7 @@ export const SettingsProviders: Component = () => {
       .remove({ providerID })
       .then(async () => {
         try {
-          await globalSDK.client.global.dispose()
-          await globalSync.bootstrap()
+          await globalSync.provider.refresh()
         } catch (err) {
           console.error("Failed to refresh after provider disconnect", err)
         }

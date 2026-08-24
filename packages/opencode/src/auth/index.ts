@@ -4,6 +4,7 @@ import { makeRuntime } from "@/effect/run-service"
 import { zod } from "@/util/effect-zod"
 import { Global } from "../global"
 import { Filesystem } from "../util/filesystem"
+import { ProviderEvent } from "../provider/event"
 
 export const OAUTH_DUMMY_KEY = "opencode-oauth-dummy-key"
 
@@ -72,23 +73,28 @@ export namespace Auth {
       const set = Effect.fn("Auth.set")(function* (key: string, info: Info) {
         const norm = key.replace(/\/+$/, "")
         const data = yield* all()
+        const prev = data[norm] ?? data[key] ?? data[norm + "/"]
         if (norm !== key) delete data[key]
         delete data[norm + "/"]
         yield* Effect.tryPromise({
           try: () => Filesystem.writeJson(file, { ...data, [norm]: info }, 0o600),
           catch: fail("Failed to write auth data"),
         })
+        ProviderEvent.update(!prev || prev.type !== info.type)
       })
 
       const remove = Effect.fn("Auth.remove")(function* (key: string) {
         const norm = key.replace(/\/+$/, "")
         const data = yield* all()
+        const found = key in data || norm in data || norm + "/" in data
         delete data[key]
         delete data[norm]
+        delete data[norm + "/"]
         yield* Effect.tryPromise({
           try: () => Filesystem.writeJson(file, data, 0o600),
           catch: fail("Failed to write auth data"),
         })
+        ProviderEvent.update(found)
       })
 
       return Service.of({ get, all, set, remove })
