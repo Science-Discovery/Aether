@@ -1,6 +1,7 @@
 import { useFilteredList } from "@opencode-ai/ui/hooks"
 import { ProviderIcon } from "@opencode-ai/ui/provider-icon"
 import { Switch } from "@opencode-ai/ui/switch"
+import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { Icon } from "@opencode-ai/ui/icon"
 import { IconButton } from "@opencode-ai/ui/icon-button"
 import { TextField } from "@opencode-ai/ui/text-field"
@@ -87,6 +88,16 @@ export const SettingsModels: Component = () => {
     },
   })
 
+  const owned = (id: string) => models.list().filter((x) => x.provider.id === id)
+  const enabled = (id: string) =>
+    owned(id).every((x) => models.visible({ providerID: x.provider.id, modelID: x.id }))
+  const toggle = (id: string, checked: boolean) => {
+    models.setManyVisibility(
+      owned(id).map((x) => ({ providerID: x.provider.id, modelID: x.id })),
+      checked,
+    )
+  }
+
   return (
     <div class="flex flex-col h-full overflow-y-auto no-scrollbar px-4 pb-10 sm:px-10 sm:pb-10">
       <div class="sticky top-0 z-10 bg-[linear-gradient(to_bottom,var(--surface-stronger-non-alpha)_calc(100%_-_24px),transparent)]">
@@ -154,10 +165,34 @@ export const SettingsModels: Component = () => {
           >
             <For each={list.grouped.latest}>
               {(group) => (
-                <div class="flex flex-col gap-1">
-                  <div class="flex items-center gap-2 pb-2">
-                    <ProviderIcon id={group.category} class="size-5 shrink-0 icon-strong-base" />
-                    <span class="text-14-medium text-text-strong">{group.items[0].provider.name}</span>
+                <div
+                  class="flex flex-col gap-1"
+                  data-component="settings-model-provider"
+                  data-provider={group.category}
+                >
+                  <div class="flex items-center justify-between gap-3 pb-2">
+                    <div class="flex min-w-0 items-center gap-2">
+                      <ProviderIcon id={group.category} class="size-5 shrink-0 icon-strong-base" />
+                      <span class="truncate text-14-medium text-text-strong">{group.items[0].provider.name}</span>
+                    </div>
+                    <Tooltip
+                      placement="top"
+                      value={language.t("dialog.model.manage.provider.toggle", {
+                        provider: group.items[0].provider.name,
+                      })}
+                    >
+                      <Switch
+                        class="shrink-0"
+                        data-action="toggle-provider-models"
+                        checked={enabled(group.category)}
+                        onChange={(checked) => toggle(group.category, checked)}
+                        hideLabel
+                      >
+                        {language.t("dialog.model.manage.provider.toggle", {
+                          provider: group.items[0].provider.name,
+                        })}
+                      </Switch>
+                    </Tooltip>
                   </div>
                   <SettingsList>
                     <For each={group.items}>
