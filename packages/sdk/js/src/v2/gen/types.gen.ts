@@ -36,6 +36,13 @@ export type EventProviderModelsUpdated = {
   }
 }
 
+export type EventProviderUpdated = {
+  type: "provider.updated"
+  properties: {
+    [key: string]: unknown
+  }
+}
+
 export type EventDbRecoveryStarted = {
   type: "db.recovery.started"
   properties: {
@@ -1090,6 +1097,7 @@ export type Event =
   | EventInstallationUpdated
   | EventInstallationUpdateAvailable
   | EventProviderModelsUpdated
+  | EventProviderUpdated
   | EventDbRecoveryStarted
   | EventDbRecoveryProgress
   | EventDbRecoveryCompleted

@@ -322,8 +322,7 @@ export function DialogConnectProvider(props: { provider: string }) {
 
   async function complete() {
     try {
-      await globalSDK.client.global.dispose()
-      await globalSync.bootstrap()
+      await globalSync.provider.refresh()
     } catch (err) {
       console.error("Failed to refresh after provider connect", err)
     }

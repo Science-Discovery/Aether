@@ -45,10 +45,11 @@ export function applyGlobalEvent(input: {
 
   if (input.event.type === "global.disposed" || input.event.type === "server.connected") {
     input.refresh()
+    input.providers?.()
     return
   }
 
-  if (input.event.type === "provider.models.updated") {
+  if (input.event.type === "provider.updated" || input.event.type === "provider.models.updated") {
     input.providers?.()
     return
   }

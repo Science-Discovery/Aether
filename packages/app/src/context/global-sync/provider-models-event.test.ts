@@ -19,3 +19,22 @@ test("handles provider.models.updated without triggering a full refresh", () => 
   expect(refresh).toBe(0)
   expect(providers).toBe(1)
 })
+
+test("handles provider.updated without triggering a full refresh", () => {
+  let refresh = 0
+  let providers = 0
+  applyGlobalEvent({
+    event: { type: "provider.updated" },
+    project: [],
+    refresh: () => {
+      refresh += 1
+    },
+    providers: () => {
+      providers += 1
+    },
+    setGlobalProject() {},
+  })
+
+  expect(refresh).toBe(0)
+  expect(providers).toBe(1)
+})

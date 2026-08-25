@@ -16,7 +16,7 @@ import { retry } from "@opencode-ai/util/retry"
 import { batch } from "solid-js"
 import { reconcile, type SetStoreFunction, type Store } from "solid-js/store"
 import type { State, VcsCache } from "./types"
-import { cmp, normalizeProviderList } from "./utils"
+import { cmp } from "./utils"
 import { formatServerError } from "@/utils/server-errors"
 
 type GlobalStore = {
@@ -76,6 +76,7 @@ function showErrors(input: {
 
 export async function bootstrapGlobal(input: {
   globalSDK: OpencodeClient
+  provider: () => Promise<unknown>
   requestFailedTitle: string
   translate: (key: string, vars?: Record<string, string | number>) => string
   formatMoreCount: (count: number) => string
@@ -94,12 +95,7 @@ export async function bootstrapGlobal(input: {
           input.setGlobalStore("config", x.data!)
         }),
       ),
-    () =>
-      retry(() =>
-        input.globalSDK.provider.list().then((x) => {
-          input.setGlobalStore("provider", normalizeProviderList(x.data!))
-        }),
-      ),
+    () => retry(input.provider),
   ]
 
   const slow = [

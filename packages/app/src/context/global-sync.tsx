@@ -31,6 +31,7 @@ import { bootstrapDirectory, bootstrapGlobal } from "./global-sync/bootstrap"
 import { createChildStoreManager } from "./global-sync/child-store"
 import { applyDirectoryEvent, applyGlobalEvent, cleanupDroppedSessionCaches } from "./global-sync/event-reducer"
 import { createRefreshQueue } from "./global-sync/queue"
+import { createProviderRefresh } from "./global-sync/provider-refresh"
 import { clearSessionPrefetchDirectory } from "./global-sync/session-prefetch"
 import {
   estimateRootSessionTotal,
@@ -40,14 +41,7 @@ import {
 import { trimSessions } from "./global-sync/session-trim"
 import type { ProjectMeta } from "./global-sync/types"
 import { SESSION_RECENT_LIMIT } from "./global-sync/types"
-import {
-  isRoot,
-  normalizeAgentList,
-  normalizeDir,
-  normalizeProviderList,
-  sanitizeProject,
-  sanitizeRecent,
-} from "./global-sync/utils"
+import { isRoot, normalizeAgentList, normalizeDir, sanitizeProject, sanitizeRecent } from "./global-sync/utils"
 import { formatServerError } from "@/utils/server-errors"
 
 type GlobalStore = {
@@ -242,8 +236,37 @@ function createGlobalSync() {
     return sdk
   }
 
+  const root = {}
+  const providers = createProviderRefresh({
+    global: () => ({
+      key: "global",
+      identity: root,
+      current: () => (active ? root : undefined),
+      load: () => globalSDK.client.provider.list().then((x) => x.data),
+      apply: (data) => setGlobalStore("provider", reconcile(data)),
+    }),
+    child: (directory) => {
+      directory = normalizeDir(directory)
+      const child = children.getChild(directory)
+      if (!child) return
+      return {
+        key: `directory:${directory}`,
+        identity: child,
+        current: () => children.getChild(directory),
+        load: () =>
+          sdkFor(directory)
+            .provider.list()
+            .then((x) => x.data),
+        apply: (data) => child[1]("provider", reconcile(data)),
+      }
+    },
+    list: () => Object.keys(children.children),
+    error: (key, err) => {
+      console.error(`Failed to refresh providers for ${key}`, err)
+    },
+  })
+
   let recentTask: Promise<void> | undefined
-  let providerTask: Promise<void> | undefined
 
   function refreshRecent() {
     if (recentTask) return recentTask
@@ -266,29 +289,7 @@ function createGlobalSync() {
   }
 
   function refreshProviders() {
-    if (providerTask) return providerTask
-    providerTask = Promise.all([
-      globalSDK.client.provider.list().then((x) => {
-        if (x.data) setGlobalStore("provider", reconcile(x.data))
-      }),
-      ...Object.keys(children.children).map((directory) =>
-        sdkFor(directory)
-          .provider.list()
-          .then((x) => {
-            if (!x.data) return
-            const child = children.getChild(directory)
-            if (child) child[1]("provider", reconcile(x.data))
-          }),
-      ),
-    ])
-      .then(() => {})
-      .catch((err) => {
-        console.error("Failed to refresh providers", err)
-      })
-      .finally(() => {
-        providerTask = undefined
-      })
-    return providerTask
+    return providers.all()
   }
 
   async function loadSessions(directory: string, opts?: { force?: boolean }) {
@@ -387,7 +388,7 @@ function createGlobalSync() {
       retry(() => sdk.app.agents().then((x) => setStore("agent", normalizeAgentList(x.data)))),
       retry(() => sdk.command.list().then((x) => setStore("command", x.data ?? []))),
       retry(() => sdk.config.get().then((x) => setStore("config", x.data!))),
-      retry(() => sdk.provider.list().then((x) => setStore("provider", normalizeProviderList(x.data!)))),
+      retry(() => providers.child(directory)),
       retry(() => sdk.mcp.status().then((x) => setStore("mcp", x.data!))),
       retry(() => sdk.lsp.status().then((x) => setStore("lsp", x.data!))),
     ])
@@ -507,6 +508,7 @@ function createGlobalSync() {
     try {
       await bootstrapGlobal({
         globalSDK: globalSDK.client,
+        provider: providers.global,
         requestFailedTitle: language.t("common.requestFailed"),
         translate: language.t,
         formatMoreCount: (count) => language.t("common.moreCountSuffix", { count }),
@@ -595,11 +597,15 @@ function createGlobalSync() {
   }
 
   const updateConfig = async (config: Config) => {
+    const provider = ["provider", "provider_remove", "enabled_providers", "disabled_providers", "disabled_models"].some(
+      (key) => key in config,
+    )
     setGlobalStore("reload", "pending")
     return globalSDK.client.global.config
       .update({ config })
       .then(bootstrap)
-      .then(() => {
+      .then(async () => {
+        if (provider) await refreshProviders()
         queue.refresh()
         setGlobalStore("reload", undefined)
         queue.refresh()
@@ -623,6 +629,9 @@ function createGlobalSync() {
     peek: children.peek,
     bootstrap,
     updateConfig,
+    provider: {
+      refresh: refreshProviders,
+    },
     project: projectApi,
     todo: {
       set: setSessionTodo,

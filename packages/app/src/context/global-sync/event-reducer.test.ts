@@ -106,30 +106,40 @@ describe("applyGlobalEvent", () => {
 
   test("handles global.disposed by triggering refresh", () => {
     let refreshCount = 0
+    let providers = 0
     applyGlobalEvent({
       event: { type: "global.disposed" },
       project: [],
       refresh: () => {
         refreshCount += 1
       },
+      providers: () => {
+        providers += 1
+      },
       setGlobalProject() {},
     })
 
     expect(refreshCount).toBe(1)
+    expect(providers).toBe(1)
   })
 
   test("handles server.connected by triggering refresh", () => {
     let refreshCount = 0
+    let providers = 0
     applyGlobalEvent({
       event: { type: "server.connected" },
       project: [],
       refresh: () => {
         refreshCount += 1
       },
+      providers: () => {
+        providers += 1
+      },
       setGlobalProject() {},
     })
 
     expect(refreshCount).toBe(1)
+    expect(providers).toBe(1)
   })
 
   test("upserts a project from session.created when the project is missing", () => {
