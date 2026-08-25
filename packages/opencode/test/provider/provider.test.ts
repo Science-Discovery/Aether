@@ -111,7 +111,7 @@ test("models.dev local overlay overrides only selected model metadata", () => {
   expect("meta" in data.test.models.model).toBe(false)
 })
 
-test("models.dev local overlay inserts alibaba-cn deepseek-v4-flash-0731 and deepseek-v4-pro-0813", () => {
+test("models.dev local overlay inserts alibaba-cn deepseek-v4-flash-0731, deepseek-v4-pro-0813 and kimi-k3", () => {
   const data = apply(
     {
       "alibaba-cn": {
@@ -153,11 +153,28 @@ test("models.dev local overlay inserts alibaba-cn deepseek-v4-flash-0731 and dee
   expect(pro.provider?.api).toBe("https://dashscope.aliyuncs.com/compatible-mode/v1")
   expect("meta" in pro).toBe(false)
 
+  const k3 = data["alibaba-cn"].models["kimi-k3"]
+  expect(k3.limit.context).toBe(1_048_576)
+  expect(k3.limit.output).toBe(131_072)
+  expect(k3.attachment).toBe(true)
+  expect(k3.reasoning).toBe(true)
+  expect(k3.tool_call).toBe(true)
+  expect(k3.temperature).toBe(false)
+  expect(k3.modalities?.input).toEqual(["text", "image"])
+  expect(k3.cost?.input).toBe(2.78)
+  expect(k3.cost?.cache_read).toBe(0.28)
+  expect(k3.cost?.output).toBe(13.89)
+  expect(k3.provider?.api).toBe("https://dashscope.aliyuncs.com/compatible-mode/v1")
+  expect("meta" in k3).toBe(false)
+
   const info = Provider.fromModelsDevProvider(data["alibaba-cn"])
   expect(info.models["deepseek-v4-flash-0731"].capabilities.interleaved).toEqual({ field: "reasoning_content" })
   expect(info.models["deepseek-v4-flash-0731"].capabilities.toolcall).toBe(true)
   expect(info.models["deepseek-v4-pro-0813"].capabilities.interleaved).toEqual({ field: "reasoning_content" })
   expect(info.models["deepseek-v4-pro-0813"].capabilities.toolcall).toBe(true)
+  expect(info.models["kimi-k3"].capabilities.interleaved).toEqual({ field: "reasoning_content" })
+  expect(info.models["kimi-k3"].capabilities.toolcall).toBe(true)
+  expect(info.models["kimi-k3"].capabilities.input.image).toBe(true)
 })
 
 test("models.dev local overlay rejects duplicate model insertions", () => {

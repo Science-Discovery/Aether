@@ -76,6 +76,45 @@ export const inserts = {
         verified_at: "2026-08-05",
       },
     },
+    "kimi-k3": {
+      id: "kimi-k3",
+      name: "Kimi K3",
+      family: "kimi",
+      attachment: true,
+      reasoning: true,
+      tool_call: true,
+      structured_output: true,
+      interleaved: {
+        field: "reasoning_content",
+      },
+      temperature: false,
+      release_date: "2026-07-27",
+      modalities: {
+        input: ["text", "image"],
+        output: ["text"],
+      },
+      provider: {
+        npm: "@ai-sdk/openai-compatible",
+        api: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      },
+      limit: {
+        context: 1_048_576,
+        output: 131_072,
+      },
+      options: {},
+      // Alibaba Bailian list price is CNY 20 / 2 (cache hit) / 100 per 1M tokens;
+      // converted to USD at 1 USD ≈ 7.2 CNY to match models.dev's USD convention.
+      cost: {
+        input: 2.78,
+        cache_read: 0.28,
+        output: 13.89,
+      },
+      meta: {
+        reason:
+          "models.dev is missing Alibaba Bailian kimi-k3 metadata; Kimi K3 always thinks with configurable reasoning_effort (low/high/max), streams reasoning_content by default, supports vision input, 1M context and 131,072 default output budget",
+        verified_at: "2026-08-25",
+      },
+    },
     "deepseek-v4-pro-0813": {
       id: "deepseek-v4-pro-0813",
       name: "DeepSeek V4 Pro 0813",
