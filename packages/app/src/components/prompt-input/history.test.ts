@@ -3,16 +3,25 @@ import type { Prompt } from "@/context/prompt"
 import {
   canNavigateHistoryAtCursor,
   clonePromptParts,
+  migratePromptHistory,
   normalizePromptHistoryEntry,
   navigatePromptHistory,
   prependHistoryEntry,
   promptLength,
   type PromptHistoryComment,
+  type PromptHistoryStoredEntry,
 } from "./history"
 
 const DEFAULT_PROMPT: Prompt = [{ type: "text", content: "", start: 0, end: 0 }]
 
 const text = (value: string): Prompt => [{ type: "text", content: value, start: 0, end: value.length }]
+const image = (id: string): Prompt[number] => ({
+  type: "image",
+  id,
+  filename: `${id}.pdf`,
+  mime: "application/pdf",
+  dataUrl: `data:application/pdf;base64,${id}`,
+})
 const comment = (id: string, value = "note"): PromptHistoryComment => ({
   id,
   path: "src/a.ts",
@@ -41,13 +50,47 @@ describe("prompt-input history", () => {
     expect(dedupedComments).toBe(commentsOnly)
   })
 
+  test("prependHistoryEntry persists prompt content without attachments", () => {
+    const entries = prependHistoryEntry([], [...text("summarize this"), image("large")])
+    expect(entries).toHaveLength(1)
+    expect(normalizePromptHistoryEntry(entries[0]!).prompt).toEqual(text("summarize this"))
+    expect(JSON.stringify(entries)).not.toContain("data:application/pdf")
+
+    expect(prependHistoryEntry([], [image("attachment-only")])).toEqual([])
+
+    const deduped = prependHistoryEntry(entries, [...text("summarize this"), image("different")])
+    expect(deduped).toBe(entries)
+  })
+
+  test("migratePromptHistory removes legacy attachments and drops attachment-only entries", () => {
+    const migrated = migratePromptHistory({
+      entries: [
+        { prompt: [...text("keep me"), image("remove")], comments: [comment("c1")] },
+        [image("drop")],
+        { prompt: [image("commented")], comments: [comment("c2")] },
+        { prompt: [...text("canonical"), null] },
+      ],
+    }) as { entries: PromptHistoryStoredEntry[] }
+
+    expect(migrated.entries).toHaveLength(3)
+    expect(normalizePromptHistoryEntry(migrated.entries[0]!).prompt).toEqual(text("keep me"))
+    expect(normalizePromptHistoryEntry(migrated.entries[0]!).comments).toEqual([comment("c1")])
+    expect(normalizePromptHistoryEntry(migrated.entries[1]!).prompt).toEqual(DEFAULT_PROMPT)
+    expect(normalizePromptHistoryEntry(migrated.entries[1]!).comments).toEqual([comment("c2")])
+    expect(normalizePromptHistoryEntry(migrated.entries[2]!).prompt).toEqual(text("canonical"))
+    expect(normalizePromptHistoryEntry(migrated.entries[2]!).comments).toEqual([])
+    expect(JSON.stringify(migrated)).not.toContain("data:application/pdf")
+    expect(migratePromptHistory(null)).toEqual({ entries: [] })
+    expect(migratePromptHistory({ entries: null })).toEqual({ entries: [] })
+  })
+
   test("navigatePromptHistory restores saved prompt when moving down from newest", () => {
     const entries = [text("third"), text("second"), text("first")]
     const up = navigatePromptHistory({
       direction: "up",
       entries,
       historyIndex: -1,
-      currentPrompt: text("draft"),
+      currentPrompt: [...text("draft"), image("draft")],
       currentComments: [comment("draft")],
       savedPrompt: null,
     })
@@ -69,6 +112,7 @@ describe("prompt-input history", () => {
     if (!down.handled) throw new Error("expected handled")
     expect(down.historyIndex).toBe(-1)
     expect(down.entry.prompt[0]?.type === "text" ? down.entry.prompt[0].content : "").toBe("draft")
+    expect(down.entry.prompt[1]).toEqual(image("draft"))
     expect(down.entry.comments).toEqual([comment("draft")])
   })
 

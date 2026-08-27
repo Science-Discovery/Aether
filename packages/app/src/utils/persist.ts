@@ -17,6 +17,7 @@ type PersistTarget = {
   key: string
   legacy?: string[]
   migrate?: (value: unknown) => unknown
+  sanitize?: (value: unknown) => unknown
 }
 
 const LEGACY_STORAGE = "default.dat"
@@ -208,6 +209,10 @@ function normalize(defaults: unknown, raw: string, migrate?: (value: unknown) =>
   return JSON.stringify(merged)
 }
 
+function serialize(value: unknown, sanitize?: (value: unknown) => unknown) {
+  return JSON.stringify(sanitize ? sanitize(value) : value) ?? "null"
+}
+
 function workspaceStorage(dir: string) {
   const head = (dir.slice(0, 12) || "workspace").replace(/[^a-zA-Z0-9._-]/g, "-")
   const sum = checksum(dir) ?? "0"
@@ -305,6 +310,7 @@ export const PersistTesting = {
   localStorageDirect,
   localStorageWithPrefix,
   normalize,
+  serialize,
   workspaceStorage,
 }
 
@@ -453,16 +459,23 @@ export function persisted<T>(
     return api
   })()
 
-  const [state, setState, init] = makePersisted(store, { name: config.key, storage })
+  const [state, setState, init] = makePersisted(store, {
+    name: config.key,
+    storage,
+    serialize: (value) => serialize(value, config.sanitize),
+  })
 
-  const isAsync = init instanceof Promise
+  if (!(init instanceof Promise)) {
+    return [state, setState, init, Object.assign(() => true, { promise: undefined })]
+  }
+
   const [ready] = createResource(
     () => init,
     async (initValue) => {
       if (initValue instanceof Promise) await initValue
       return true
     },
-    { initialValue: !isAsync },
+    { initialValue: false },
   )
 
   return [
@@ -470,7 +483,7 @@ export function persisted<T>(
     setState,
     init,
     Object.assign(() => ready() === true, {
-      promise: init instanceof Promise ? init : undefined,
+      promise: init,
     }),
   ]
 }

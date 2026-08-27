@@ -1,5 +1,6 @@
 import type { Prompt } from "@/context/prompt"
 import type { SelectedLineRange } from "@/context/file"
+import { sanitizePrompt } from "@/context/prompt-persist"
 
 const DEFAULT_PROMPT: Prompt = [{ type: "text", content: "", start: 0, end: 0 }]
 
@@ -21,6 +22,76 @@ export type PromptHistoryEntry = {
 }
 
 export type PromptHistoryStoredEntry = Prompt | PromptHistoryEntry
+
+function record(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+}
+
+function content(prompt: unknown[]) {
+  return prompt.some((part) => record(part) && typeof part.content === "string" && !!part.content.trim())
+}
+
+function selection(value: unknown): SelectedLineRange | undefined {
+  if (!record(value)) return
+  if (typeof value.start !== "number" || typeof value.end !== "number") return
+  const side = value.side === "additions" || value.side === "deletions" ? value.side : undefined
+  const endSide = value.endSide === "additions" || value.endSide === "deletions" ? value.endSide : undefined
+  return { start: value.start, end: value.end, ...(side ? { side } : {}), ...(endSide ? { endSide } : {}) }
+}
+
+function comments(value: unknown): PromptHistoryComment[] {
+  if (!Array.isArray(value)) return []
+  return value.flatMap((comment): PromptHistoryComment[] => {
+    if (!record(comment)) return []
+    if (typeof comment.id !== "string") return []
+    if (typeof comment.path !== "string") return []
+    if (typeof comment.comment !== "string") return []
+    if (typeof comment.time !== "number") return []
+    const range = selection(comment.selection)
+    if (!range) return []
+    const origin = comment.origin === "review" || comment.origin === "file" ? comment.origin : undefined
+    return [
+      {
+        id: comment.id,
+        path: comment.path,
+        selection: range,
+        comment: comment.comment,
+        time: comment.time,
+        ...(origin ? { origin } : {}),
+        ...(typeof comment.preview === "string" ? { preview: comment.preview } : {}),
+      },
+    ]
+  })
+}
+
+function clean(prompt: Prompt) {
+  return sanitizePrompt(prompt)
+}
+
+export function migratePromptHistory(value: unknown) {
+  if (!record(value)) return { entries: [] }
+  if (!Array.isArray(value.entries)) return { ...value, entries: [] }
+
+  const entries = value.entries.flatMap((entry) => {
+    const legacy = Array.isArray(entry)
+    const prompt = legacy ? entry : record(entry) && Array.isArray(entry.prompt) ? entry.prompt : undefined
+    if (!prompt) return []
+
+    const next = sanitizePrompt(prompt)
+    const notes = !legacy && record(entry) ? comments(entry.comments) : []
+    if (!content(next) && !notes.some((comment) => !!comment.comment.trim())) return []
+
+    return [
+      {
+        prompt: next.length ? next : clonePromptParts(DEFAULT_PROMPT),
+        comments: notes,
+      } satisfies PromptHistoryEntry,
+    ]
+  })
+
+  const unique = entries.filter((entry, index) => index === 0 || !isPromptEqual(entries[index - 1]!, entry))
+  return { ...value, entries: unique.slice(0, MAX_HISTORY) }
+}
 
 export function canNavigateHistoryAtCursor(direction: "up" | "down", text: string, cursor: number, inHistory = false) {
   const position = Math.max(0, Math.min(cursor, text.length))
@@ -61,13 +132,15 @@ export function clonePromptHistoryComments(comments: PromptHistoryComment[]) {
 
 export function normalizePromptHistoryEntry(entry: PromptHistoryStoredEntry): PromptHistoryEntry {
   if (Array.isArray(entry)) {
+    const prompt = clean(entry)
     return {
-      prompt: clonePromptParts(entry),
+      prompt: prompt.length ? prompt : clonePromptParts(DEFAULT_PROMPT),
       comments: [],
     }
   }
+  const prompt = clean(entry.prompt)
   return {
-    prompt: clonePromptParts(entry.prompt),
+    prompt: prompt.length ? prompt : clonePromptParts(DEFAULT_PROMPT),
     comments: clonePromptHistoryComments(entry.comments),
   }
 }
@@ -82,16 +155,16 @@ export function prependHistoryEntry(
   comments: PromptHistoryComment[] = [],
   max = MAX_HISTORY,
 ) {
-  const text = prompt
+  const stored = clean(prompt)
+  const text = stored
     .map((part) => ("content" in part ? part.content : ""))
     .join("")
     .trim()
-  const hasImages = prompt.some((part) => part.type === "image")
   const hasComments = comments.some((comment) => !!comment.comment.trim())
-  if (!text && !hasImages && !hasComments) return entries
+  if (!text && !hasComments) return entries
 
   const entry = {
-    prompt: clonePromptParts(prompt),
+    prompt: stored.length ? stored : clonePromptParts(DEFAULT_PROMPT),
     comments: clonePromptHistoryComments(comments),
   } satisfies PromptHistoryEntry
   const last = entries[0]

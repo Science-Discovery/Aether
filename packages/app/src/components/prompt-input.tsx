@@ -48,6 +48,7 @@ import { createPromptAttachments } from "./prompt-input/attachments"
 import { ACCEPTED_FILE_TYPES } from "./prompt-input/files"
 import {
   canNavigateHistoryAtCursor,
+  migratePromptHistory,
   navigatePromptHistory,
   prependHistoryEntry,
   type PromptHistoryComment,
@@ -370,7 +371,11 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
   })
 
   const [history, setHistory] = persisted(
-    Persist.global("prompt-history", ["prompt-history.v1"]),
+    {
+      ...Persist.global("prompt-history", ["prompt-history.v1"]),
+      migrate: migratePromptHistory,
+      sanitize: migratePromptHistory,
+    },
     createStore<{
       entries: PromptHistoryStoredEntry[]
     }>({
@@ -378,7 +383,11 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     }),
   )
   const [shellHistory, setShellHistory] = persisted(
-    Persist.global("prompt-history-shell", ["prompt-history-shell.v1"]),
+    {
+      ...Persist.global("prompt-history-shell", ["prompt-history-shell.v1"]),
+      migrate: migratePromptHistory,
+      sanitize: migratePromptHistory,
+    },
     createStore<{
       entries: PromptHistoryStoredEntry[]
     }>({
