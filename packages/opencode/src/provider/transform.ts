@@ -565,9 +565,13 @@ export namespace ProviderTransform {
     return major > 4 || (major === 4 && minor >= 7)
   }
 
+  // GLM-5.2 and newer GLM-5.x that need thinking variants and reasoning-only recovery handling.
   export function glm52(model: Provider.Model) {
     const api = `${model.id} ${model.api.id}`.toLowerCase()
-    return ["glm-5.2", "glm-5-2", "glm-5p2"].some((id) => api.includes(id))
+    return (
+      ["glm-5.2", "glm-5-2", "glm-5p2"].some((id) => api.includes(id)) ||
+      ["glm-5.3", "glm-5-3", "glm-5p3"].some((id) => api.includes(id))
+    )
   }
 
   export function variants(model: Provider.Model): Record<string, Record<string, any>> {
