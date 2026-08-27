@@ -1,6 +1,6 @@
 export const popularProviders = [
   "opencode",
-  "opencode-go",  
+  "opencode-go",
   "anthropic",
   "openai",
   "google",
@@ -11,7 +11,7 @@ export const popularProviders = [
   "tatu-maas",
   "siliconflow-cn",
   "deepseek",
-  "zhipuai"
+  "zhipuai-coding-plan",
 ]
 
 export function rank(id: string) {

@@ -35,7 +35,53 @@ export const additions = {
   "tatu-maas": MaaS.provider,
 } satisfies Record<string, ModelsDev.Provider>
 
+function glm53(api: string, context: number, label: string, billed: boolean): Record<string, Insert> {
+  const date = "2026-08-27"
+  const zero = { input: 0, cache_read: 0, cache_write: 0, output: 0 }
+  // Zhipu list prices USD per 1M tokens; Flash runs a 50% promotion until 2026-09-09.
+  const costs = billed
+    ? [
+        { input: 1.4, cache_read: 0.26, cache_write: 0, output: 4.4 },
+        { input: 0.15, cache_read: 0.03, cache_write: 0, output: 0.5 },
+      ]
+    : [zero, zero]
+  const note = billed
+    ? "Zhipu documents OpenAI-compatible hybrid reasoning at GLM-5.2 list prices; Flash has a 50% promotion until 2026-09-09"
+    : "coding plan bundles models at zero incremental token cost"
+  const entry = (id: string, name: string, family: string, cost: typeof zero): Insert => ({
+    id,
+    name,
+    family,
+    attachment: false,
+    reasoning: true,
+    tool_call: true,
+    structured_output: true,
+    interleaved: { field: "reasoning_content" },
+    temperature: true,
+    release_date: date,
+    last_updated: date,
+    modalities: { input: ["text"], output: ["text"] },
+    open_weights: false,
+    provider: { npm: "@ai-sdk/openai-compatible", api },
+    limit: { context, output: 131_072 },
+    options: {},
+    cost,
+    meta: {
+      reason: `models.dev is missing ${label} ${name} metadata; ${note}`,
+      verified_at: date,
+    },
+  })
+  return {
+    "glm-5.3": entry("glm-5.3", "GLM-5.3", "glm", costs[0]),
+    "glm-5.3-flash": entry("glm-5.3-flash", "GLM-5.3-Flash", "glm-flash", costs[1]),
+  }
+}
+
 export const inserts = {
+  zhipuai: glm53("https://open.bigmodel.cn/api/paas/v4", 204_800, "Zhipu", true),
+  zai: glm53("https://api.z.ai/api/paas/v4", 204_800, "Z.AI", true),
+  "zhipuai-coding-plan": glm53("https://open.bigmodel.cn/api/coding/paas/v4", 200_000, "Zhipu coding-plan", false),
+  "zai-coding-plan": glm53("https://api.z.ai/api/coding/paas/v4", 200_000, "Z.AI coding-plan", false),
   "alibaba-cn": {
     "deepseek-v4-flash-0731": {
       id: "deepseek-v4-flash-0731",

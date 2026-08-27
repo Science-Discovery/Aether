@@ -2594,6 +2594,17 @@ describe("ProviderTransform.variants", () => {
     })
   })
 
+  test("GLM-5.3 reuses GLM-5.2 variants and detection", () => {
+    for (const id of ["glm-5.3", "glm-5.3-flash", "glm-5-3", "glm-5p3"]) {
+      expect(ProviderTransform.variants(glm("zhipuai", undefined, id))).toEqual({
+        high: { reasoningEffort: "high" },
+        max: { reasoningEffort: "max" },
+      })
+      expect(ProviderTransform.glm52(glm("zai-coding-plan", undefined, id))).toBe(true)
+    }
+    expect(ProviderTransform.glm52(glm("zhipuai", undefined, "glm-5.1"))).toBe(false)
+  })
+
   test("mistral returns empty object", () => {
     const model = createMockModel({
       id: "mistral/mistral-large",

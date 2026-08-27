@@ -432,14 +432,14 @@ export namespace SessionProcessor {
               !reviewStopped
             if (retry) {
               recovered = true
-              log.warn("retrying GLM-5.2 without thinking after reasoning-only response", {
+              log.warn("retrying GLM-5.2/5.3 without thinking after reasoning-only response", {
                 sessionID: input.sessionID,
                 finish,
               })
               continue
             }
             if (recovered && ["stop", "length"].includes(finish) && reasoning && !text && !tools) {
-              log.warn("GLM-5.2 recovery response still has no visible text", {
+              log.warn("GLM-5.2/5.3 recovery response still has no visible text", {
                 sessionID: input.sessionID,
                 finish,
               })

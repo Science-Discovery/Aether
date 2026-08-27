@@ -120,6 +120,30 @@ test("models.dev local overlay inserts alibaba-cn deepseek-v4-flash-0731, deepse
         api: "https://dashscope.aliyuncs.com/compatible-mode/v1",
         models: {},
       },
+      zhipuai: {
+        ...provider,
+        id: "zhipuai",
+        api: "https://open.bigmodel.cn/api/paas/v4",
+        models: {},
+      },
+      zai: {
+        ...provider,
+        id: "zai",
+        api: "https://api.z.ai/api/paas/v4",
+        models: {},
+      },
+      "zhipuai-coding-plan": {
+        ...provider,
+        id: "zhipuai-coding-plan",
+        api: "https://open.bigmodel.cn/api/coding/paas/v4",
+        models: {},
+      },
+      "zai-coding-plan": {
+        ...provider,
+        id: "zai-coding-plan",
+        api: "https://api.z.ai/api/coding/paas/v4",
+        models: {},
+      },
     },
     {
       additions: {},
@@ -175,6 +199,75 @@ test("models.dev local overlay inserts alibaba-cn deepseek-v4-flash-0731, deepse
   expect(info.models["kimi-k3"].capabilities.interleaved).toEqual({ field: "reasoning_content" })
   expect(info.models["kimi-k3"].capabilities.toolcall).toBe(true)
   expect(info.models["kimi-k3"].capabilities.input.image).toBe(true)
+})
+
+test("models.dev local overlay inserts zhipuai/zai/coding-plan glm-5.3 and glm-5.3-flash", () => {
+  const base: Record<string, ModelsDev.Provider> = {
+    "alibaba-cn": {
+      ...provider,
+      id: "alibaba-cn",
+      api: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      models: {},
+    },
+    zhipuai: {
+      ...provider,
+      id: "zhipuai",
+      api: "https://open.bigmodel.cn/api/paas/v4",
+      models: {},
+    },
+    zai: {
+      ...provider,
+      id: "zai",
+      api: "https://api.z.ai/api/paas/v4",
+      models: {},
+    },
+    "zhipuai-coding-plan": {
+      ...provider,
+      id: "zhipuai-coding-plan",
+      api: "https://open.bigmodel.cn/api/coding/paas/v4",
+      models: {},
+    },
+    "zai-coding-plan": {
+      ...provider,
+      id: "zai-coding-plan",
+      api: "https://api.z.ai/api/coding/paas/v4",
+      models: {},
+    },
+  }
+  const data = apply(base, { additions: {}, overrides: {}, strict: true })
+
+  for (const pid of ["zhipuai", "zai"] as const) {
+    const m = data[pid].models["glm-5.3"]
+    expect(m.limit.context).toBe(204_800)
+    expect(m.limit.output).toBe(131_072)
+    expect(m.reasoning).toBe(true)
+    expect(m.tool_call).toBe(true)
+    expect(m.structured_output).toBe(true)
+    expect(m.interleaved).toEqual({ field: "reasoning_content" })
+    expect(m.cost?.input).toBe(1.4)
+    expect(m.cost?.cache_read).toBe(0.26)
+    expect(m.cost?.output).toBe(4.4)
+    expect("meta" in m).toBe(false)
+
+    const f = data[pid].models["glm-5.3-flash"]
+    expect(f.limit.context).toBe(204_800)
+    expect(f.family).toBe("glm-flash")
+    expect(f.cost?.input).toBe(0.15)
+    expect(f.cost?.cache_read).toBe(0.03)
+    expect(f.cost?.output).toBe(0.5)
+    expect(f.cost?.cache_write).toBe(0)
+    expect("meta" in f).toBe(false)
+  }
+
+  for (const pid of ["zhipuai-coding-plan", "zai-coding-plan"] as const) {
+    const m = data[pid].models["glm-5.3"]
+    expect(m.limit.context).toBe(200_000)
+    expect(m.cost?.input).toBe(0)
+    expect(m.cost?.output).toBe(0)
+    const f = data[pid].models["glm-5.3-flash"]
+    expect(f.cost?.input).toBe(0)
+    expect(f.cost?.output).toBe(0)
+  }
 })
 
 test("models.dev local overlay rejects duplicate model insertions", () => {
