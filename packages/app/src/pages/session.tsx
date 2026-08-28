@@ -78,8 +78,6 @@ import { MessageOrder } from "@/utils/message-order"
 
 const emptyUserMessages: UserMessage[] = []
 const emptyFollowups: (FollowupDraft & { id: string })[] = []
-const READING_CHAT_MIN_WIDTH = CHAT_MIN
-const READING_REVIEW_MIN_WIDTH = REVIEW_MIN
 
 type ChangeMode = "git" | "branch" | "session" | "turn" | "graph"
 type VcsMode = "git" | "branch"
@@ -554,8 +552,8 @@ function SessionPageContent(props: SessionPageProps = {}) {
       return `${cap === undefined ? w : Math.min(cap, w)}px`
     }
     return pdfWidth > 0
-      ? `calc(100% - ${layout.fileTree.width()}px - ${pdfWidth}px)`
-      : `calc(100% - ${layout.fileTree.width()}px)`
+      ? `calc(100% - ${Math.max(TREE_MIN, layout.fileTree.width())}px - ${pdfWidth}px)`
+      : `calc(100% - ${Math.max(TREE_MIN, layout.fileTree.width())}px)`
   })
   const centered = createMemo(() => isDesktop() && !desktopReviewOpen())
   const readingSessionResizeSize = createMemo(() => {
@@ -597,6 +595,7 @@ function SessionPageContent(props: SessionPageProps = {}) {
     return Math.ceil(demand)
   })
   createEffect(() => layout.demand.set(rowDemand()))
+  onCleanup(() => layout.demand.set(0))
   const pushSidebar = (deficit: number) => {
     if (deficit <= 0) return
     const cur = layout.sidebar.width()

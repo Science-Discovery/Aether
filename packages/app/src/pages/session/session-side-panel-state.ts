@@ -1,4 +1,4 @@
-import { TREE_MIN } from "@/pages/session/reading-layout"
+import { SESSION_MIN, TREE_MIN } from "@/pages/session/reading-layout"
 
 export function panel(input: {
   desktop: boolean
@@ -23,7 +23,7 @@ export function panel(input: {
       : !open
         ? "0px"
         : review
-          ? `calc(100% - ${input.session_width}px)`
+          ? `calc(100% - ${Math.max(SESSION_MIN, input.session_width)}px)`
           : `${clamped}px`
 
   return {

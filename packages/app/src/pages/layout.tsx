@@ -2,6 +2,7 @@ import {
   batch,
   createEffect,
   createMemo,
+  createSignal,
   For,
   on,
   onCleanup,
@@ -2342,19 +2343,25 @@ export default function Layout(props: ParentProps) {
     ),
   )
 
-  createEffect(() => {
-    const sidebarWidth = layout.sidebar.opened() ? layout.sidebar.width() : 48
-    document.documentElement.style.setProperty("--dialog-left-margin", `${sidebarWidth}px`)
+  const [viewport, setViewport] = createSignal(typeof window === "undefined" ? 1280 : window.innerWidth)
+  onMount(() => {
+    const sync = () => setViewport(window.innerWidth)
+    window.addEventListener("resize", sync)
+    onCleanup(() => window.removeEventListener("resize", sync))
   })
 
   const side = createMemo(() => {
     const demand = layout.demand.px()
     const stored = Math.max(layout.sidebar.width(), SIDEBAR_MIN)
     if (demand <= 0) return stored
-    const viewport = typeof window === "undefined" ? 1280 : window.innerWidth
-    return Math.max(SIDEBAR_MIN, Math.min(stored, viewport - demand))
+    return Math.max(SIDEBAR_MIN, Math.min(stored, viewport() - demand))
   })
   const panel = createMemo(() => Math.max(side() - 64, 0))
+
+  createEffect(() => {
+    const sidebarWidth = layout.sidebar.opened() ? side() : 48
+    document.documentElement.style.setProperty("--dialog-left-margin", `${sidebarWidth}px`)
+  })
 
   const loadedSessionDirs = new Set<string>()
 
@@ -2973,7 +2980,7 @@ export default function Layout(props: ParentProps) {
               >
                 <ResizeHandle
                   direction="horizontal"
-                  size={layout.sidebar.width()}
+                  size={side()}
                   min={SIDEBAR_MIN}
                   max={typeof window === "undefined" ? 3000 : window.innerWidth}
                   onResize={(w) => {
