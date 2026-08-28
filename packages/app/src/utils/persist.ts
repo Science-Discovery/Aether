@@ -25,6 +25,38 @@ const GLOBAL_STORAGE = "opencode.global.dat"
 const LOCAL_PREFIX = "opencode."
 const fallback = new Map<string, boolean>()
 
+type Journal = {
+  version: number
+  pending: Promise<void>
+}
+
+// Desktop hydration can outlive its component, so writes are coordinated by backing store and key.
+const journals = new WeakMap<AsyncStorage, Map<string, Journal>>()
+
+function journal(storage: AsyncStorage, key: string) {
+  const cached = journals.get(storage)
+  if (cached) {
+    const value = cached.get(key)
+    if (value) return value
+    const next = { version: 0, pending: Promise.resolve() }
+    cached.set(key, next)
+    return next
+  }
+
+  const next = { version: 0, pending: Promise.resolve() }
+  journals.set(storage, new Map([[key, next]]))
+  return next
+}
+
+function queue<T>(journal: Journal, task: () => Promise<T>) {
+  const next = journal.pending.then(task, task)
+  journal.pending = next.then(
+    () => undefined,
+    () => undefined,
+  )
+  return next
+}
+
 const CACHE_MAX_ENTRIES = 500
 const CACHE_MAX_BYTES = 8 * 1024 * 1024
 
@@ -334,7 +366,11 @@ export function removePersisted(target: { storage?: string; key: string }, platf
   const isDesktop = platform?.platform === "desktop" && !!platform.storage
 
   if (isDesktop) {
-    return platform.storage?.(target.storage)?.removeItem(target.key)
+    const storage = platform.storage?.(target.storage) as AsyncStorage | undefined
+    if (!storage) return
+    const writes = journal(storage, target.key)
+    writes.version += 1
+    return queue(writes, () => storage.removeItem(target.key))
   }
 
   if (!target.storage) {
@@ -416,17 +452,19 @@ export function persisted<T>(
 
     const current = currentStorage as AsyncStorage
     const legacyStore = legacyStorage as AsyncStorage | undefined
+    const writes = journal(current, config.key)
 
     const api: AsyncStorage = {
       getItem: async (key) => {
+        const version = writes.version
         const raw = await current.getItem(key)
         if (raw !== null) {
           const next = normalize(defaults, raw, config.migrate)
           if (next === undefined) {
-            await current.removeItem(key).catch(() => undefined)
+            if (version === writes.version) await queue(writes, () => current.removeItem(key)).catch(() => undefined)
             return null
           }
-          if (raw !== next) await current.setItem(key, next)
+          if (raw !== next && version === writes.version) await queue(writes, () => current.setItem(key, next))
           return next
         }
 
@@ -441,7 +479,8 @@ export function persisted<T>(
             await legacyStore.removeItem(legacyKey).catch(() => undefined)
             continue
           }
-          await current.setItem(key, next)
+          if (version !== writes.version) return next
+          await queue(writes, () => current.setItem(key, next))
           await legacyStore.removeItem(legacyKey)
           return next
         }
@@ -449,10 +488,12 @@ export function persisted<T>(
         return null
       },
       setItem: async (key, value) => {
-        await current.setItem(key, value)
+        writes.version += 1
+        await queue(writes, () => current.setItem(key, value))
       },
       removeItem: async (key) => {
-        await current.removeItem(key)
+        writes.version += 1
+        await queue(writes, () => current.removeItem(key))
       },
     }
 
