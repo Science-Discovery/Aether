@@ -595,7 +595,7 @@ export function MessageTimeline(props: {
     })
   }
 
-  const parent = (node: Node | null) => (node instanceof Element ? node : node?.parentElement ?? undefined)
+  const parent = (node: Node | null) => (node instanceof Element ? node : (node?.parentElement ?? undefined))
 
   const rects = (input: { range: Range; container: HTMLElement }) => {
     const list: Array<{
@@ -1222,7 +1222,7 @@ export function MessageTimeline(props: {
                   "w-full": true,
                   "pb-4": true,
                   "pl-2 pr-3 md:pl-4 md:pr-3": true,
-                  "md:max-w-200 md:mx-auto 2xl:max-w-[1000px]": props.centered,
+                  "md:max-w-[2400px] md:mx-auto 2xl:max-w-[3000px]": props.centered,
                 }}
               >
                 <div class="h-12 w-full flex items-center justify-between gap-2">
@@ -1520,7 +1520,7 @@ export function MessageTimeline(props: {
               class="flex flex-col items-start justify-start pb-16 transition-[margin]"
               classList={{
                 "w-full": true,
-                "md:max-w-200 md:mx-auto 2xl:max-w-[1000px]": props.centered,
+                "md:max-w-[2400px] md:mx-auto 2xl:max-w-[3000px]": props.centered,
                 "mt-0.5": props.centered,
                 "mt-0": !props.centered,
               }}
@@ -1570,19 +1570,23 @@ export function MessageTimeline(props: {
                           quote.imageDataUrl === b[i].imageDataUrl,
                       ),
                   })
-                  const conversationQuotes = createMemo(() => messageConversationQuotes(sync.data.part[messageID] ?? []), [], {
-                    equals: (a, b) =>
-                      a.length === b.length &&
-                      a.every(
-                        (quote, i) =>
-                          quote.kind === b[i].kind &&
-                          quote.source === b[i].source &&
-                          quote.action === b[i].action &&
-                          quote.sourceMessageID === b[i].sourceMessageID &&
-                          quote.summary === b[i].summary &&
-                          quote.fullText === b[i].fullText,
-                      ),
-                  })
+                  const conversationQuotes = createMemo(
+                    () => messageConversationQuotes(sync.data.part[messageID] ?? []),
+                    [],
+                    {
+                      equals: (a, b) =>
+                        a.length === b.length &&
+                        a.every(
+                          (quote, i) =>
+                            quote.kind === b[i].kind &&
+                            quote.source === b[i].source &&
+                            quote.action === b[i].action &&
+                            quote.sourceMessageID === b[i].sourceMessageID &&
+                            quote.summary === b[i].summary &&
+                            quote.fullText === b[i].fullText,
+                        ),
+                    },
+                  )
                   const commentCount = createMemo(() => comments().length)
                   const readingQuoteCount = createMemo(() => readingQuotes().length)
                   const conversationQuoteCount = createMemo(() => conversationQuotes().length)
@@ -1593,7 +1597,7 @@ export function MessageTimeline(props: {
                       data-assistant-collapsed={isAssistantCollapsed(messageID) ? "true" : undefined}
                       classList={{
                         "min-w-0 w-full max-w-full": true,
-                        "md:max-w-200 2xl:max-w-[1000px]": props.centered,
+                        "md:max-w-[2400px] 2xl:max-w-[3000px]": props.centered,
                       }}
                       style={{
                         "content-visibility": "auto",
@@ -1677,7 +1681,9 @@ export function MessageTimeline(props: {
                                   }}
                                 >
                                   <div class="pt-1 text-11-medium text-text-weak">
-                                    {conversationQuoteCount() === 1 ? "Ask" : `Ask · ${conversationQuoteCount()} quotes`}
+                                    {conversationQuoteCount() === 1
+                                      ? "Ask"
+                                      : `Ask · ${conversationQuoteCount()} quotes`}
                                   </div>
                                   <div class="mt-2 flex max-h-[172px] flex-col gap-2 overflow-y-auto pr-1">
                                     <Index each={conversationQuotes()}>

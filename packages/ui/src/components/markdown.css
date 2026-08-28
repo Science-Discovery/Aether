@@ -267,13 +267,13 @@
 
 /* ── Review mode: enhanced styling for file preview panel ── */
 [data-file-content] > [data-component="markdown"] {
-  max-width: min(860px, 100%);
+  max-width: min(2580px, 100%);
   width: 100%;
   margin-inline: auto;
   padding-inline: 26px;
   color: color-mix(in srgb, var(--text-strong) 94%, var(--text-base));
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif,
-    "Apple Color Emoji", "Segoe UI Emoji";
+  font-family:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
   font-size: 16px;
   line-height: 1.6;
   letter-spacing: 0;

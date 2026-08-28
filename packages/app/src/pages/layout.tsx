@@ -54,6 +54,7 @@ import { createAim } from "@/utils/aim"
 import { setNavigate } from "@/utils/notification-click"
 import { Worktree as WorktreeState } from "@/utils/worktree"
 import { setSessionHandoff } from "@/pages/session/handoff"
+import { SIDEBAR_MIN } from "@/pages/session/reading-layout"
 import type { E2EWindow } from "@/testing/terminal"
 import { OpenIntent } from "@/utils/open-intent"
 import { MessageOrder } from "@/utils/message-order"
@@ -2346,7 +2347,13 @@ export default function Layout(props: ParentProps) {
     document.documentElement.style.setProperty("--dialog-left-margin", `${sidebarWidth}px`)
   })
 
-  const side = createMemo(() => Math.max(layout.sidebar.width(), 244))
+  const side = createMemo(() => {
+    const demand = layout.demand.px()
+    const stored = Math.max(layout.sidebar.width(), SIDEBAR_MIN)
+    if (demand <= 0) return stored
+    const viewport = typeof window === "undefined" ? 1280 : window.innerWidth
+    return Math.max(SIDEBAR_MIN, Math.min(stored, viewport - demand))
+  })
   const panel = createMemo(() => Math.max(side() - 64, 0))
 
   const loadedSessionDirs = new Set<string>()
@@ -2967,8 +2974,8 @@ export default function Layout(props: ParentProps) {
                 <ResizeHandle
                   direction="horizontal"
                   size={layout.sidebar.width()}
-                  min={244}
-                  max={typeof window === "undefined" ? 1000 : window.innerWidth * 0.3 + 64}
+                  min={SIDEBAR_MIN}
+                  max={typeof window === "undefined" ? 3000 : window.innerWidth}
                   onResize={(w) => {
                     setState("sizing", true)
                     if (sizet !== undefined) clearTimeout(sizet)

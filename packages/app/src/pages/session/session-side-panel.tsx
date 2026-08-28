@@ -54,6 +54,8 @@ export function SessionSidePanel(props: {
   reviewOpenOverride?: boolean
   fileOpenOverride?: boolean
   treeWidthOverride?: number
+  treeMaxWidth?: number
+  onOverflow?: (deficit: number) => void
   fileTreeResizable?: boolean
   canReview: () => boolean
   diffs: () => FileDiff[]
@@ -344,6 +346,7 @@ export function SessionSidePanel(props: {
   const reviewTab = createMemo(() => state().review_tab)
   const panelWidth = createMemo(() => state().panel_width)
   const treeWidth = createMemo(() => state().tree_width)
+  let treeEl: HTMLDivElement | undefined
 
   const diffFiles = createMemo(() => {
     const d = props.diffs()
@@ -848,7 +851,11 @@ export function SessionSidePanel(props: {
           "transition-[width] duration-[240ms] ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[width] motion-reduce:transition-none":
             !props.size.active() && !props.reviewSnap,
         }}
-        style={{ ...(props.style ?? {}), width: panelWidth() }}
+        style={{
+          ...(props.style ?? {}),
+          width: panelWidth(),
+          "min-width": open() ? `${(reviewOpen() ? 107 : 0) + (fileOpen() ? 67 : 0)}px` : "0px",
+        }}
       >
         <div class="size-full flex border-l border-border-weaker-base">
           <div
@@ -858,6 +865,7 @@ export function SessionSidePanel(props: {
             classList={{
               "pointer-events-none": !reviewOpen(),
             }}
+            style={{ "min-width": reviewOpen() ? "107px" : undefined }}
           >
             <div class="size-full min-w-0 h-full bg-background-base">
               <DragDropProvider
@@ -1024,13 +1032,20 @@ export function SessionSidePanel(props: {
             id="file-tree-panel"
             aria-hidden={!fileOpen()}
             inert={!fileOpen()}
-            class="relative min-w-0 h-full shrink-0 overflow-hidden"
+            ref={(el) => {
+              treeEl = el
+            }}
+            class="relative min-w-0 h-full overflow-hidden"
             classList={{
               "pointer-events-none": !fileOpen(),
               "transition-[width] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[width] motion-reduce:transition-none":
                 !props.size.active(),
             }}
-            style={{ width: treeWidth() }}
+            style={{
+              width: treeWidth(),
+              "min-width": fileOpen() ? "67px" : undefined,
+              "max-width": reviewOpen() ? "calc(100% - 107px)" : undefined,
+            }}
           >
             <div
               class="h-full flex flex-col overflow-hidden group/filetree"
@@ -1252,10 +1267,13 @@ export function SessionSidePanel(props: {
                       ? Math.max(0, props.treeWidthOverride)
                       : layout.fileTree.width()
                   }
-                  min={200}
-                  max={480}
+                  min={67}
+                  max={Math.max(67, props.treeMaxWidth ?? 1440)}
                   onResize={(width) => {
                     props.size.touch()
+                    const aside = treeEl?.parentElement?.clientWidth ?? 0
+                    const room = aside - (reviewOpen() ? 107 : 0)
+                    if (reviewOpen() && aside > 0 && width > room) props.onOverflow?.(width - room)
                     layout.fileTree.resize(width)
                   }}
                 />

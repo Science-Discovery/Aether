@@ -1,5 +1,5 @@
 import { createStore, produce } from "solid-js/store"
-import { batch, createEffect, createMemo, onCleanup, onMount, type Accessor } from "solid-js"
+import { batch, createEffect, createMemo, createSignal, onCleanup, onMount, type Accessor } from "solid-js"
 import { createSimpleContext } from "@opencode-ai/ui/context"
 import { useGlobalSync } from "./global-sync"
 import { useGlobalSDK } from "./global-sdk"
@@ -489,8 +489,18 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
 
     setupSkillEvolutionAutoOpen(globalSync, server)
 
+    const [demandPx, setDemandPx] = createSignal(0)
+
     return {
       ready,
+      demand: {
+        px: demandPx,
+        set(px: number) {
+          const next = Math.max(0, Math.floor(px))
+          if (next === demandPx()) return
+          setDemandPx(next)
+        },
+      },
       handoff: {
         tabs: createMemo(() => store.handoff?.tabs),
         setTabs(dir: string, id: string) {
