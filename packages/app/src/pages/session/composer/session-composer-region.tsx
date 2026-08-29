@@ -52,7 +52,9 @@ export function SessionComposerRegion(props: {
   const readingMode = useMaybeReadingMode()
   const quickReadingMode = useMaybeQuickReadingMode()
   const route = useSessionKey()
-  const quotes = createMemo(() => quote?.store.pendingQuestions.filter((item) => item.sessionID === route.params.id) ?? [])
+  const quotes = createMemo(
+    () => quote?.store.pendingQuestions.filter((item) => item.sessionID === route.params.id) ?? [],
+  )
   const quoteCards = createMemo(() => quotes().slice().reverse())
   const pendingQuestion = createMemo(() => {
     const quickPending = quickReadingMode?.store.pendingQuestion
@@ -147,7 +149,7 @@ export function SessionComposerRegion(props: {
       <div
         classList={{
           "w-full px-3 pointer-events-auto": true,
-          "md:max-w-200 md:mx-auto 2xl:max-w-[1000px]": props.centered,
+          "md:max-w-[2400px] md:mx-auto 2xl:max-w-[3000px]": props.centered,
         }}
       >
         <Show when={props.state.questionRequest()} keyed>

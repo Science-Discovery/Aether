@@ -10,6 +10,12 @@ export type ReadingLayoutMode =
   | "review-tree-left"
   | "review-tree-right"
 
+export const SIDEBAR_MIN = 81
+export const SESSION_MIN = 150
+export const REVIEW_MIN = 107
+export const TREE_MIN = 67
+export const CHAT_MIN = 120
+
 export const VARIANT_DEFAULTS: Record<LayoutVariant, { pdf: number; chat: number }> = {
   "two-pane": { pdf: 0.55, chat: 0.45 },
   tree: { pdf: 0.5, chat: 0.35 },
@@ -25,15 +31,15 @@ export const FILE_TREE_RATIOS: Record<LayoutVariant, number> = {
 }
 
 export const PDF_RATIO_BOUNDS: Record<LayoutVariant, { min: number; max: number }> = {
-  "two-pane": { min: 0.3, max: 0.75 },
-  tree: { min: 0.3, max: 0.6 },
-  review: { min: 0.3, max: 0.45 },
-  "review-tree": { min: 0.3, max: 0.4 },
+  "two-pane": { min: 0.1, max: 0.9 },
+  tree: { min: 0.1, max: 0.9 },
+  review: { min: 0.1, max: 0.9 },
+  "review-tree": { min: 0.1, max: 0.9 },
 }
 
 export const CHAT_RATIO_BOUNDS: Partial<Record<LayoutVariant, { min: number; max: number }>> = {
-  review: { min: 0.25, max: 0.4 },
-  "review-tree": { min: 0.25, max: 0.3 },
+  review: { min: 0.0833, max: 0.9 },
+  "review-tree": { min: 0.0833, max: 0.9 },
 }
 
 export function getReadingLayoutVariant(reviewOpen: boolean, fileTreeOpen: boolean): LayoutVariant {

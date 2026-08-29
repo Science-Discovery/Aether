@@ -1,3 +1,5 @@
+import { SESSION_MIN, TREE_MIN } from "@/pages/session/reading-layout"
+
 export function panel(input: {
   desktop: boolean
   review_override?: boolean
@@ -14,14 +16,15 @@ export function panel(input: {
   const file = input.desktop && (typeof input.file_override === "boolean" ? input.file_override : input.file_open)
   const open = review || file
   const tree = typeof input.tree_width_override === "number" ? Math.max(0, input.tree_width_override) : input.tree_width
+  const clamped = Math.max(TREE_MIN, tree)
   const width =
     typeof input.width_override === "number"
       ? `${Math.max(0, input.width_override)}px`
       : !open
         ? "0px"
         : review
-          ? `calc(100% - ${input.session_width}px)`
-          : `${input.tree_width}px`
+          ? `calc(100% - ${Math.max(SESSION_MIN, input.session_width)}px)`
+          : `${clamped}px`
 
   return {
     review,
@@ -29,7 +32,7 @@ export function panel(input: {
     open,
     review_tab: input.desktop,
     panel_width: width,
-    tree_width: file ? `${tree}px` : "0px",
+    tree_width: file ? `${clamped}px` : "0px",
   }
 }
 

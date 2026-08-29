@@ -10,45 +10,17 @@ import { CommentsProvider } from "@/context/comments"
 import { useLayout } from "@/context/layout"
 import { useSessionLayout } from "@/pages/session/session-layout"
 import { createSizing } from "@/pages/session/helpers"
+import {
+  FILE_TREE_RATIOS,
+  PDF_RATIO_BOUNDS,
+  CHAT_RATIO_BOUNDS,
+  VARIANT_DEFAULTS,
+  type LayoutVariant,
+  type ReadingLayoutMode,
+} from "@/pages/session/reading-layout"
 import SessionPage from "./session"
 
-type LayoutVariant = "two-pane" | "tree" | "review" | "review-tree"
-type ReadingLayoutMode =
-  | "two-left"
-  | "two-right"
-  | "tree-left"
-  | "tree-right"
-  | "review-left"
-  | "review-right"
-  | "review-tree-left"
-  | "review-tree-right"
-
 const LAYOUT_STORAGE_PREFIX = "aether-reading-layout:"
-const VARIANT_DEFAULTS: Record<LayoutVariant, { pdf: number; chat: number }> = {
-  "two-pane": { pdf: 0.55, chat: 0.45 },
-  tree: { pdf: 0.5, chat: 0.35 },
-  review: { pdf: 0.4, chat: 0.25 },
-  "review-tree": { pdf: 0.4, chat: 0.25 },
-}
-
-const FILE_TREE_RATIOS: Record<LayoutVariant, number> = {
-  "two-pane": 0,
-  tree: 0.15,
-  review: 0,
-  "review-tree": 0.12,
-}
-
-const PDF_RATIO_BOUNDS: Record<LayoutVariant, { min: number; max: number }> = {
-  "two-pane": { min: 0.3, max: 0.75 },
-  tree: { min: 0.3, max: 0.6 },
-  review: { min: 0.3, max: 0.45 },
-  "review-tree": { min: 0.3, max: 0.4 },
-}
-
-const CHAT_RATIO_BOUNDS: Partial<Record<LayoutVariant, { min: number; max: number }>> = {
-  review: { min: 0.25, max: 0.4 },
-  "review-tree": { min: 0.25, max: 0.3 },
-}
 
 const ReadingSession: Component = () => {
   const params = useParams<{ id: string }>()
@@ -286,7 +258,10 @@ const ReadingSession: Component = () => {
     const total = totalWidth()
     const bounds = chatRatioBounds()
     if (total <= 0 || !bounds) return
-    const nextComposite = Math.min(compositeResizeBounds().max / total, Math.max(compositeResizeBounds().min / total, width / total))
+    const nextComposite = Math.min(
+      compositeResizeBounds().max / total,
+      Math.max(compositeResizeBounds().min / total, width / total),
+    )
     switch (mode()) {
       case "review-left":
       case "review-tree-left": {
@@ -309,11 +284,7 @@ const ReadingSession: Component = () => {
   const handleResizeSessionWidth = (width: number) => {
     const total = totalWidth()
     const bounds = chatRatioBounds()
-    if (
-      total <= 0 ||
-      !bounds ||
-      (mode() !== "review-right" && mode() !== "review-tree-right")
-    ) {
+    if (total <= 0 || !bounds || (mode() !== "review-right" && mode() !== "review-tree-right")) {
       return
     }
     const nextChat = Math.min(bounds.max, Math.max(bounds.min, width / total))
@@ -335,11 +306,11 @@ const ReadingSession: Component = () => {
                       minWidth={pdfMinWidth()}
                       maxWidth={Math.max(pdfMinWidth(), pdfMaxWidth())}
                       layoutSwapped={layoutSwapped()}
-                    onSwapLayout={handleSwapLayout}
-                    onResizeWidth={handleResizeWidth}
-                    resizeHandleEnabled={mode() !== "review-right" && mode() !== "review-tree-right"}
-                    sizing={sizing}
-                  />
+                      onSwapLayout={handleSwapLayout}
+                      onResizeWidth={handleResizeWidth}
+                      resizeHandleEnabled={mode() !== "review-right" && mode() !== "review-tree-right"}
+                      sizing={sizing}
+                    />
                   }
                   readingPanePosition={layoutSwapped() ? "after" : "before"}
                   readingPaneWidth={pdfPixelWidth()}

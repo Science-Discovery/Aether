@@ -67,6 +67,7 @@ import { SessionSidePanel } from "@/pages/session/session-side-panel"
 import { TerminalPanel } from "@/pages/session/terminal-panel"
 import { useQuickReadingController } from "@/pages/session/use-quick-reading-controller"
 import { useQuickReadingLayout } from "@/pages/session/use-quick-reading-layout"
+import { CHAT_MIN, REVIEW_MIN, SESSION_MIN, SIDEBAR_MIN, TREE_MIN } from "@/pages/session/reading-layout"
 import { useSessionCommands } from "@/pages/session/use-session-commands"
 import { useSessionHashScroll } from "@/pages/session/use-session-hash-scroll"
 import { Identifier } from "@/utils/id"
@@ -77,8 +78,6 @@ import { MessageOrder } from "@/utils/message-order"
 
 const emptyUserMessages: UserMessage[] = []
 const emptyFollowups: (FollowupDraft & { id: string })[] = []
-const READING_CHAT_MIN_WIDTH = 360
-const READING_REVIEW_MIN_WIDTH = 320
 
 type ChangeMode = "git" | "branch" | "session" | "turn" | "graph"
 type VcsMode = "git" | "branch"
@@ -456,28 +455,6 @@ function SessionPageContent(props: SessionPageProps = {}) {
   const desktopSidePanelOpen = createMemo(() => desktopReviewOpen() || desktopFileTreeOpen())
   let rowRef: HTMLDivElement | undefined
   const [rowWidth, setRowWidth] = createSignal(0)
-  const readingPaneWidth = createMemo(() => {
-    if (!isDesktop()) return 0
-    if (propReadingModeActive()) return Math.max(0, props.readingPaneWidth ?? 0)
-    if (quickReadingModeActive()) return quickReadingLayout.pdfPixelWidth()
-    return 0
-  })
-  const readingCompositeMinWidth = createMemo(() =>
-    propReadingModeActive()
-      ? Math.max(0, props.readingCompositeMinWidth ?? 0)
-      : quickReadingModeActive()
-        ? Math.max(0, quickReadingLayout.compositeResizeBounds().min)
-        : 0,
-  )
-  const readingCompositeMaxWidth = createMemo(() => {
-    if (!readingModeActive()) return 0
-    const fallback = propReadingModeActive()
-      ? rowWidth() > 0
-        ? rowWidth()
-        : (props.readingCompositeWidth ?? 0)
-      : quickReadingLayout.compositeResizeBounds().max
-    return Math.max(readingCompositeMinWidth(), props.readingCompositeMaxWidth ?? fallback)
-  })
   const readingFileTreeWidth = createMemo(() =>
     propReadingModeActive()
       ? Math.max(0, props.readingFileTreeWidth ?? 0)
@@ -487,13 +464,47 @@ function SessionPageContent(props: SessionPageProps = {}) {
   )
   const sidePanelMinWidth = createMemo(() => {
     let width = 0
-    if (desktopReviewOpen()) width += READING_REVIEW_MIN_WIDTH
-    if (desktopFileTreeOpen()) width += readingFileTreeWidth()
+    if (desktopReviewOpen()) width += REVIEW_MIN
+    if (desktopFileTreeOpen()) width += TREE_MIN
     return width
+  })
+  const readingPaneWidth = createMemo(() => {
+    if (!isDesktop()) return 0
+    const cap = rowWidth() > 0 ? Math.max(0, rowWidth() - sidePanelMinWidth() - CHAT_MIN) : undefined
+    if (propReadingModeActive()) {
+      const w = Math.max(0, props.readingPaneWidth ?? 0)
+      return cap === undefined ? w : Math.min(w, cap)
+    }
+    if (quickReadingModeActive()) {
+      const w = quickReadingLayout.pdfPixelWidth()
+      return cap === undefined ? w : Math.min(w, cap)
+    }
+    return 0
+  })
+  const readingCompositeMinWidth = createMemo(() => {
+    const value = propReadingModeActive()
+      ? Math.max(0, props.readingCompositeMinWidth ?? 0)
+      : quickReadingModeActive()
+        ? Math.max(0, quickReadingLayout.compositeResizeBounds().min)
+        : 0
+    if (rowWidth() <= 0) return value
+    return Math.min(value, Math.max(0, rowWidth() - sidePanelMinWidth()))
+  })
+  const readingCompositeMaxWidth = createMemo(() => {
+    if (!readingModeActive()) return 0
+    const reserved = sidePanelMinWidth()
+    const total = propReadingModeActive() ? rowWidth() : quickReadingLayout.rowWidth()
+    const absolute = total > 0 ? Math.max(0, total - reserved) : Number.POSITIVE_INFINITY
+    const fallback = propReadingModeActive()
+      ? rowWidth() > 0
+        ? Math.max(0, rowWidth() - reserved)
+        : (props.readingCompositeWidth ?? 0)
+      : Math.max(0, quickReadingLayout.compositeResizeBounds().max - reserved)
+    return Math.max(readingCompositeMinWidth(), Math.min(absolute, props.readingCompositeMaxWidth ?? fallback))
   })
   const compositeMinWidth = createMemo(() => {
     if (!readingModeActive()) return 0
-    return readingPaneWidth() + READING_CHAT_MIN_WIDTH
+    return readingPaneWidth() + CHAT_MIN
   })
   const effectiveCompositeWidth = createMemo(() => {
     if (!readingModeActive()) return 0
@@ -515,26 +526,34 @@ function SessionPageContent(props: SessionPageProps = {}) {
   const effectiveSidePanelWidth = createMemo(() => {
     if (!readingModeActive()) return undefined
     if (!desktopSidePanelOpen()) return 0
+    const min = sidePanelMinWidth()
+    const cap = rowWidth() > 0 ? Math.max(min, rowWidth() - effectiveCompositeWidth()) : undefined
     if (propReadingModeActive() && typeof props.readingSidePanelWidth === "number") {
-      return Math.max(0, props.readingSidePanelWidth)
+      const w = Math.max(min, props.readingSidePanelWidth)
+      return cap === undefined ? w : Math.min(w, cap)
     }
-    if (quickReadingModeActive()) return quickReadingLayout.sidePanelWidth()
-    return Math.max(sidePanelMinWidth(), rowWidth() - effectiveCompositeWidth())
+    if (quickReadingModeActive()) {
+      const w = Math.max(min, quickReadingLayout.sidePanelWidth())
+      return cap === undefined ? w : Math.min(w, cap)
+    }
+    return Math.max(min, rowWidth() - effectiveCompositeWidth())
   })
   const sessionPanelWidth = createMemo(() => {
     if (readingModeActive()) {
-      return `${effectiveSessionPanelWidth() ?? READING_CHAT_MIN_WIDTH}px`
+      return `${Math.max(CHAT_MIN, effectiveSessionPanelWidth() ?? CHAT_MIN)}px`
     }
     const pdfWidth = readingPaneWidth()
     if (!desktopSidePanelOpen()) {
       return pdfWidth > 0 ? `calc(100% - ${pdfWidth}px)` : "100%"
     }
     if (desktopReviewOpen()) {
-      return `${Math.max(360, layout.session.width() - pdfWidth)}px`
+      const w = Math.max(SESSION_MIN, layout.session.width() - pdfWidth)
+      const cap = rowWidth() > 0 ? Math.max(SESSION_MIN, rowWidth() - sidePanelMinWidth()) : undefined
+      return `${cap === undefined ? w : Math.min(cap, w)}px`
     }
     return pdfWidth > 0
-      ? `calc(100% - ${layout.fileTree.width()}px - ${pdfWidth}px)`
-      : `calc(100% - ${layout.fileTree.width()}px)`
+      ? `calc(100% - ${Math.max(TREE_MIN, layout.fileTree.width())}px - ${pdfWidth}px)`
+      : `calc(100% - ${Math.max(TREE_MIN, layout.fileTree.width())}px)`
   })
   const centered = createMemo(() => isDesktop() && !desktopReviewOpen())
   const readingSessionResizeSize = createMemo(() => {
@@ -548,11 +567,41 @@ function SessionPageContent(props: SessionPageProps = {}) {
     return 0
   })
   const readingSessionResizeMax = createMemo(() => {
-    if (propReadingModeActive()) return Math.max(readingSessionResizeMin(), props.readingSessionResizeMax ?? 0)
-    if (quickReadingModeActive())
-      return Math.max(readingSessionResizeMin(), quickReadingLayout.sessionResizeBounds().max)
+    const room = rowWidth() > 0 ? Math.max(0, rowWidth() - sidePanelMinWidth() - readingPaneWidth()) : undefined
+    if (propReadingModeActive()) {
+      const cap = Math.min(props.readingSessionResizeMax ?? 0, room ?? Number.POSITIVE_INFINITY)
+      return Math.max(readingSessionResizeMin(), cap)
+    }
+    if (quickReadingModeActive()) {
+      const cap = Math.min(quickReadingLayout.sessionResizeBounds().max, room ?? Number.POSITIVE_INFINITY)
+      return Math.max(readingSessionResizeMin(), cap)
+    }
     return 0
   })
+  const rowDemand = createMemo(() => {
+    if (!isDesktop()) return 0
+    if (readingModeActive()) {
+      let demand = propReadingModeActive()
+        ? Math.max(CHAT_MIN, props.readingCompositeMinWidth ?? 0)
+        : quickReadingLayout.pdfMinWidth() + CHAT_MIN
+      if (desktopReviewOpen()) demand += REVIEW_MIN
+      if (desktopFileTreeOpen()) demand += TREE_MIN
+      return Math.ceil(demand)
+    }
+    if (!desktopSidePanelOpen()) return 0
+    let demand = SESSION_MIN
+    if (desktopReviewOpen()) demand += REVIEW_MIN
+    if (desktopFileTreeOpen()) demand += TREE_MIN
+    return Math.ceil(demand)
+  })
+  createEffect(() => layout.demand.set(rowDemand()))
+  onCleanup(() => layout.demand.set(0))
+  const pushSidebar = (deficit: number) => {
+    if (deficit <= 0) return
+    const cur = layout.sidebar.width()
+    const next = Math.max(SIDEBAR_MIN, cur - deficit)
+    if (next !== cur) layout.sidebar.resize(next)
+  }
   const readingFileTreeResizable = createMemo(() => {
     if (propReadingModeActive()) return props.readingFileTreeResizable
     if (quickReadingModeActive()) return false
@@ -696,7 +745,13 @@ function SessionPageContent(props: SessionPageProps = {}) {
         authHeader={quickReadingController.authHeader()}
         width={readingPaneWidth()}
         minWidth={quickReadingLayout.pdfMinWidth()}
-        maxWidth={Math.max(quickReadingLayout.pdfMinWidth(), quickReadingLayout.pdfMaxWidth())}
+        maxWidth={Math.max(
+          quickReadingLayout.pdfMinWidth(),
+          Math.min(
+            quickReadingLayout.pdfMaxWidth(),
+            rowWidth() > 0 ? rowWidth() - sidePanelMinWidth() - CHAT_MIN : quickReadingLayout.pdfMaxWidth(),
+          ),
+        )}
         page={quickReadingController.page()}
         location={quickReadingController.location()}
         layoutSwapped={quickReadingController.layoutSwapped()}
@@ -2270,8 +2325,8 @@ function SessionPageContent(props: SessionPageProps = {}) {
 
         <Show when={readingModeActive()}>
           <div
-            class="relative flex min-h-0 shrink-0 overflow-hidden"
-            style={{ width: `${effectiveCompositeWidth()}px` }}
+            class="relative flex min-h-0 overflow-hidden"
+            style={{ width: `${effectiveCompositeWidth()}px`, "min-width": `${compositeMinWidth()}px` }}
           >
             <Show when={effectiveReadingPanePosition() !== "after"}>
               <div class="min-h-0 shrink-0" style={{ order: String(readingPaneOrder()) }}>
@@ -2280,7 +2335,7 @@ function SessionPageContent(props: SessionPageProps = {}) {
             </Show>
             <div
               classList={{
-                "@container relative shrink-0 flex flex-col min-h-0 h-full bg-background-stronger flex-1 md:flex-none": true,
+                "@container relative flex flex-col min-h-0 h-full bg-background-stronger flex-1 md:flex-initial md:min-w-[150px]": true,
                 "transition-[width] duration-[240ms] ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[width] motion-reduce:transition-none":
                   !size.active() && !ui.reviewSnap,
               }}
@@ -2406,9 +2461,16 @@ function SessionPageContent(props: SessionPageProps = {}) {
                     class="after:bg-border-base/90"
                     size={readingSessionResizeSize()}
                     min={readingSessionResizeMin()}
-                    max={readingSessionResizeMax()}
+                    max={Math.max(
+                      readingSessionResizeMin(),
+                      typeof window === "undefined"
+                        ? 3000
+                        : window.innerWidth - SIDEBAR_MIN - sidePanelMinWidth() - readingPaneWidth(),
+                    )}
                     onResize={(width) => {
                       size.touch()
+                      const room = rowWidth() > 0 ? rowWidth() - sidePanelMinWidth() - readingPaneWidth() : undefined
+                      if (room !== undefined && width > room) pushSidebar(width - room)
                       if (propReadingModeActive()) {
                         props.onReadingSessionResize?.(width)
                         return
@@ -2432,9 +2494,14 @@ function SessionPageContent(props: SessionPageProps = {}) {
                   class="after:bg-border-base/90"
                   size={effectiveCompositeWidth()}
                   min={readingCompositeMinWidth()}
-                  max={readingCompositeMaxWidth()}
+                  max={Math.max(
+                    readingCompositeMinWidth(),
+                    typeof window === "undefined" ? 3000 : window.innerWidth - SIDEBAR_MIN - sidePanelMinWidth(),
+                  )}
                   onResize={(width) => {
                     size.touch()
+                    const room = rowWidth() > 0 ? rowWidth() - sidePanelMinWidth() : undefined
+                    if (room !== undefined && width > room) pushSidebar(width - room)
                     if (propReadingModeActive()) {
                       props.onReadingCompositeResize?.(width)
                       return
@@ -2450,7 +2517,7 @@ function SessionPageContent(props: SessionPageProps = {}) {
         <Show when={!readingModeActive()}>
           <div
             classList={{
-              "@container relative shrink-0 flex flex-col min-h-0 h-full bg-background-stronger flex-1 md:flex-none": true,
+              "@container relative flex flex-col min-h-0 h-full bg-background-stronger flex-1 md:flex-initial md:min-w-[150px]": true,
               "transition-[width] duration-[240ms] ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[width] motion-reduce:transition-none":
                 !size.active() && !ui.reviewSnap,
             }}
@@ -2567,10 +2634,15 @@ function SessionPageContent(props: SessionPageProps = {}) {
                 <ResizeHandle
                   direction="horizontal"
                   size={layout.session.width()}
-                  min={450}
-                  max={typeof window === "undefined" ? 1000 : window.innerWidth * 0.45}
+                  min={SESSION_MIN}
+                  max={Math.max(
+                    SESSION_MIN,
+                    typeof window === "undefined" ? 3000 : window.innerWidth - SIDEBAR_MIN - sidePanelMinWidth(),
+                  )}
                   onResize={(width) => {
                     size.touch()
+                    const room = rowWidth() > 0 ? rowWidth() - sidePanelMinWidth() : undefined
+                    if (room !== undefined && width > room) pushSidebar(width - room)
                     layout.session.resize(width)
                   }}
                 />
@@ -2585,6 +2657,15 @@ function SessionPageContent(props: SessionPageProps = {}) {
           reviewOpenOverride={readingModeActive() ? desktopReviewOpen() : undefined}
           fileOpenOverride={readingModeActive() ? desktopFileTreeOpen() : undefined}
           treeWidthOverride={readingModeActive() ? readingFileTreeWidth() : undefined}
+          treeMaxWidth={
+            typeof window === "undefined" ? undefined : window.innerWidth - SIDEBAR_MIN - SESSION_MIN - REVIEW_MIN
+          }
+          onOverflow={(deficit) => {
+            const cur = Math.max(SESSION_MIN, layout.session.width())
+            const give = Math.min(deficit, cur - SESSION_MIN)
+            if (give > 0) layout.session.resize(cur - give)
+            if (deficit - give > 0) pushSidebar(deficit - give)
+          }}
           fileTreeResizable={readingModeActive() ? readingFileTreeResizable() : undefined}
           canReview={canReview}
           diffs={reviewDiffs}
