@@ -4,6 +4,7 @@ import { useParams } from "@solidjs/router"
 import { batch, createMemo, createRoot, getOwner, onCleanup } from "solid-js"
 import { createStore, type SetStoreFunction } from "solid-js/store"
 import type { FileSelection } from "@/context/file"
+import { sanitizePromptState } from "@/context/prompt-persist"
 import { Persist, persisted } from "@/utils/persist"
 
 interface PartBase {
@@ -165,7 +166,11 @@ function createPromptSession(dir: string, id: string | undefined) {
   const legacy = `${dir}/prompt${id ? "/" + id : ""}.v2`
 
   const [store, setStore, _, ready] = persisted(
-    Persist.scoped(dir, id, "prompt", [legacy]),
+    {
+      ...Persist.scoped(dir, id, "prompt", [legacy]),
+      migrate: sanitizePromptState,
+      sanitize: sanitizePromptState,
+    },
     createStore<{
       prompt: Prompt
       cursor?: number

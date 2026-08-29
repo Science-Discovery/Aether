@@ -26,6 +26,7 @@ describe("Database.attach() guard", () => {
     Database.detach(project.id)
     const reopened = Database.attach(project.id)
     expect(reopened).toBeDefined()
+    expect((reopened.$client.prepare("PRAGMA cache_size").get() as { cache_size: number }).cache_size).toBe(-32768)
   })
 
   test("attach() succeeds for git project registered via fromDirectory", async () => {

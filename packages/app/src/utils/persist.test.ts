@@ -1,4 +1,5 @@
 import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test"
+import { createStore } from "solid-js/store"
 
 type PersistTestingType = typeof import("./persist").PersistTesting
 
@@ -45,6 +46,7 @@ class MemoryStorage implements Storage {
 const storage = new MemoryStorage()
 
 let persistTesting: PersistTestingType
+let persisted: typeof import("./persist").persisted
 
 beforeAll(async () => {
   mock.module("@/context/platform", () => ({
@@ -53,6 +55,7 @@ beforeAll(async () => {
 
   const mod = await import("./persist")
   persistTesting = mod.PersistTesting
+  persisted = mod.persisted
 })
 
 beforeEach(() => {
@@ -103,6 +106,34 @@ describe("persist localStorage resilience", () => {
   test("normalizer rejects malformed JSON payloads", () => {
     const result = persistTesting.normalize({ value: "ok" }, '{"value":"\\x"}')
     expect(result).toBeUndefined()
+  })
+
+  test("sanitizes before serialization without mutating the live store", () => {
+    const [store, setStore] = createStore({
+      prompt: [] as Array<{ type: string; content?: string; dataUrl?: string }>,
+    })
+    const [state, setState] = persisted(
+      {
+        key: "sanitize-before-serialize",
+        sanitize: (value) => {
+          if (!value || typeof value !== "object" || !("prompt" in value) || !Array.isArray(value.prompt)) return value
+          return {
+            ...value,
+            prompt: value.prompt.filter((part) => !(part && typeof part === "object" && "dataUrl" in part)),
+          }
+        },
+      },
+      [store, setStore],
+    )
+
+    setState("prompt", [
+      { type: "image", dataUrl: "data:large" },
+      { type: "text", content: "ok" },
+    ])
+
+    expect(state.prompt).toHaveLength(2)
+    expect(state.prompt[0]).toMatchObject({ type: "image", dataUrl: "data:large" })
+    expect(storage.getItem("sanitize-before-serialize")).toBe('{"prompt":[{"type":"text","content":"ok"}]}')
   })
 
   test("workspace storage sanitizes Windows filename characters", () => {

@@ -17,12 +17,45 @@ type PersistTarget = {
   key: string
   legacy?: string[]
   migrate?: (value: unknown) => unknown
+  sanitize?: (value: unknown) => unknown
 }
 
 const LEGACY_STORAGE = "default.dat"
 const GLOBAL_STORAGE = "opencode.global.dat"
 const LOCAL_PREFIX = "opencode."
 const fallback = new Map<string, boolean>()
+
+type Journal = {
+  version: number
+  pending: Promise<void>
+}
+
+// Desktop hydration can outlive its component, so writes are coordinated by backing store and key.
+const journals = new WeakMap<AsyncStorage, Map<string, Journal>>()
+
+function journal(storage: AsyncStorage, key: string) {
+  const cached = journals.get(storage)
+  if (cached) {
+    const value = cached.get(key)
+    if (value) return value
+    const next = { version: 0, pending: Promise.resolve() }
+    cached.set(key, next)
+    return next
+  }
+
+  const next = { version: 0, pending: Promise.resolve() }
+  journals.set(storage, new Map([[key, next]]))
+  return next
+}
+
+function queue<T>(journal: Journal, task: () => Promise<T>) {
+  const next = journal.pending.then(task, task)
+  journal.pending = next.then(
+    () => undefined,
+    () => undefined,
+  )
+  return next
+}
 
 const CACHE_MAX_ENTRIES = 500
 const CACHE_MAX_BYTES = 8 * 1024 * 1024
@@ -208,6 +241,10 @@ function normalize(defaults: unknown, raw: string, migrate?: (value: unknown) =>
   return JSON.stringify(merged)
 }
 
+function serialize(value: unknown, sanitize?: (value: unknown) => unknown) {
+  return JSON.stringify(sanitize ? sanitize(value) : value) ?? "null"
+}
+
 function workspaceStorage(dir: string) {
   const head = (dir.slice(0, 12) || "workspace").replace(/[^a-zA-Z0-9._-]/g, "-")
   const sum = checksum(dir) ?? "0"
@@ -305,6 +342,7 @@ export const PersistTesting = {
   localStorageDirect,
   localStorageWithPrefix,
   normalize,
+  serialize,
   workspaceStorage,
 }
 
@@ -328,7 +366,11 @@ export function removePersisted(target: { storage?: string; key: string }, platf
   const isDesktop = platform?.platform === "desktop" && !!platform.storage
 
   if (isDesktop) {
-    return platform.storage?.(target.storage)?.removeItem(target.key)
+    const storage = platform.storage?.(target.storage) as AsyncStorage | undefined
+    if (!storage) return
+    const writes = journal(storage, target.key)
+    writes.version += 1
+    return queue(writes, () => storage.removeItem(target.key))
   }
 
   if (!target.storage) {
@@ -410,17 +452,19 @@ export function persisted<T>(
 
     const current = currentStorage as AsyncStorage
     const legacyStore = legacyStorage as AsyncStorage | undefined
+    const writes = journal(current, config.key)
 
     const api: AsyncStorage = {
       getItem: async (key) => {
+        const version = writes.version
         const raw = await current.getItem(key)
         if (raw !== null) {
           const next = normalize(defaults, raw, config.migrate)
           if (next === undefined) {
-            await current.removeItem(key).catch(() => undefined)
+            if (version === writes.version) await queue(writes, () => current.removeItem(key)).catch(() => undefined)
             return null
           }
-          if (raw !== next) await current.setItem(key, next)
+          if (raw !== next && version === writes.version) await queue(writes, () => current.setItem(key, next))
           return next
         }
 
@@ -435,7 +479,8 @@ export function persisted<T>(
             await legacyStore.removeItem(legacyKey).catch(() => undefined)
             continue
           }
-          await current.setItem(key, next)
+          if (version !== writes.version) return next
+          await queue(writes, () => current.setItem(key, next))
           await legacyStore.removeItem(legacyKey)
           return next
         }
@@ -443,26 +488,35 @@ export function persisted<T>(
         return null
       },
       setItem: async (key, value) => {
-        await current.setItem(key, value)
+        writes.version += 1
+        await queue(writes, () => current.setItem(key, value))
       },
       removeItem: async (key) => {
-        await current.removeItem(key)
+        writes.version += 1
+        await queue(writes, () => current.removeItem(key))
       },
     }
 
     return api
   })()
 
-  const [state, setState, init] = makePersisted(store, { name: config.key, storage })
+  const [state, setState, init] = makePersisted(store, {
+    name: config.key,
+    storage,
+    serialize: (value) => serialize(value, config.sanitize),
+  })
 
-  const isAsync = init instanceof Promise
+  if (!(init instanceof Promise)) {
+    return [state, setState, init, Object.assign(() => true, { promise: undefined })]
+  }
+
   const [ready] = createResource(
     () => init,
     async (initValue) => {
       if (initValue instanceof Promise) await initValue
       return true
     },
-    { initialValue: !isAsync },
+    { initialValue: false },
   )
 
   return [
@@ -470,7 +524,7 @@ export function persisted<T>(
     setState,
     init,
     Object.assign(() => ready() === true, {
-      promise: init instanceof Promise ? init : undefined,
+      promise: init,
     }),
   ]
 }
