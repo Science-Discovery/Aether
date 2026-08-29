@@ -11,6 +11,7 @@ import { useServer } from "@/context/server"
 import { SyncProvider, useSync } from "@/context/sync"
 import { decode64 } from "@/utils/base64"
 import { OpenIntent } from "@/utils/open-intent"
+import { known } from "./directory-guard"
 
 function DirectoryDataProvider(props: ParentProps<{ directory: string }>) {
   const location = useLocation()
@@ -45,8 +46,6 @@ export default function Layout(props: ParentProps) {
   const server = useServer()
   let invalid = ""
   let blocked = ""
-
-  const norm = (dir: string) => dir.replace(/[\\/]+$/, "") || dir
 
   const resolved = createMemo(() => {
     if (!params.dir) return ""
@@ -89,8 +88,7 @@ export default function Layout(props: ParentProps) {
       if (OpenIntent.consume(input.key, input.dir)) return "pass"
       const client = global.createClient({ throwOnError: true })
       const result = await client.project.directories()
-      const dirs = new Set((result.data ?? []).map(norm))
-      if (dirs.has(norm(input.dir))) return "pass"
+      if (known(input.dir, result.data ?? [])) return "pass"
       return "block"
     },
   )
