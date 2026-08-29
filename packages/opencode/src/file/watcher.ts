@@ -1,7 +1,9 @@
-import { Cause, Effect, Layer, Scope, ServiceMap } from "effect"
+import { Cause, Effect, Layer, ServiceMap } from "effect"
+import { createInterface } from "readline"
 // @ts-ignore
 import { createWrapper } from "@parcel/watcher/wrapper"
 import type ParcelWatcher from "@parcel/watcher"
+import { existsSync } from "fs"
 import { readdir } from "fs/promises"
 import path from "path"
 import z from "zod"
@@ -11,11 +13,13 @@ import { InstanceState } from "@/effect/instance-state"
 import { makeRuntime } from "@/effect/run-service"
 import { Flag } from "@/flag/flag"
 import { Git } from "@/git"
+import { Installation } from "@/installation"
 import { Instance } from "@/project/instance"
 import { lazy } from "@/util/lazy"
 import { Config } from "../config/config"
 import { FileIgnore } from "./ignore"
 import { Protected } from "./protected"
+import { Process } from "../util/process"
 import { Log } from "../util/log"
 
 declare const OPENCODE_LIBC: string | undefined
@@ -23,8 +27,8 @@ declare const OPENCODE_LIBC: string | undefined
 export namespace FileWatcher {
   const log = Log.create({ service: "file.watcher" })
   const SUBSCRIBE_TIMEOUT_MS = 10_000
-  const LINUX_DIR_LIMIT = 4096
-  const LINUX_SCAN_TIMEOUT_MS = 2_000
+  const SUBPROCESS_KILL_TIMEOUT_MS = 500
+  const sidecarDir = new URL("../../../go-watcher/bin/", import.meta.url)
 
   export const Event = {
     Updated: BusEvent.define(
@@ -39,6 +43,12 @@ export namespace FileWatcher {
       z.object({
         dir: z.string(),
         reason: z.enum(["limit", "timeout", "error"]),
+      }),
+    ),
+    NotFound: BusEvent.define(
+      "file.watcher.notfound",
+      z.object({
+        dir: z.string(),
       }),
     ),
   }
@@ -109,54 +119,49 @@ export namespace FileWatcher {
     })
   }
 
-  async function count(root: string, ignore: string[]) {
-    const end = Date.now() + LINUX_SCAN_TIMEOUT_MS
-    const list = [root]
-    let seen = 0
-
-    while (list.length) {
-      if (Date.now() > end) return { ok: false as const, reason: "timeout" as const, seen }
-
-      const dir = list.pop()!
-      seen += 1
-      if (seen > LINUX_DIR_LIMIT) return { ok: false as const, reason: "limit" as const, seen }
-
-      const rel = path.relative(root, dir)
-      if (rel && FileIgnore.match(rel, { extra: ignore })) continue
-
-      const items = await readdir(dir, { withFileTypes: true }).catch((error) => ({ error }))
-      if ("error" in items) return { ok: false as const, reason: "error" as const, seen, error: items.error }
-
-      for (const item of items) {
-        if (!item.isDirectory()) continue
-        const next = path.join(dir, item.name)
-        const rel = path.relative(root, next)
-        if (FileIgnore.match(rel, { extra: ignore })) continue
-        list.push(next)
-      }
-    }
-
-    return { ok: true as const, seen }
-  }
-
-  function warn(input: { dir: string; seen: number; reason: "limit" | "timeout" | "error" }) {
-    const detail =
-      input.reason === "limit"
-        ? `more than ${LINUX_DIR_LIMIT} directories`
-        : input.reason === "timeout"
-          ? `directory scan exceeded ${LINUX_SCAN_TIMEOUT_MS}ms`
-          : "directory scan failed"
-    log.warn("watcher skipped for linux directory budget", {
+  function warn(input: { dir: string; reason: "limit" | "timeout" | "error" }) {
+    log.warn("watcher degraded", {
       dir: input.dir,
-      seen: input.seen,
-      limit: LINUX_DIR_LIMIT,
-      timeoutMs: LINUX_SCAN_TIMEOUT_MS,
       reason: input.reason,
-      detail,
     })
     return Effect.promise(() => Bus.publish(Event.Limited, { dir: input.dir, reason: input.reason })).pipe(
       Effect.catchCause(() => Effect.void),
     )
+  }
+
+  function notfound(dir: string) {
+    return Effect.promise(() => Bus.publish(Event.NotFound, { dir })).pipe(Effect.catchCause(() => Effect.void))
+  }
+
+  function reason(input: unknown): "timeout" | "error" | "notfound" {
+    const text = input instanceof Error ? input.message : String(input)
+    if (text === "subscribe timeout" || text.includes("TimeoutException")) return "timeout"
+    if (text.includes("go watcher binary not found")) return "notfound"
+    return "error"
+  }
+
+  function sidecar() {
+    const env = process.env.OPENCODE_GO_WATCHER_PATH
+    if (env && existsSync(env)) return env
+    const name = process.platform === "win32" ? "opencode-watcher.exe" : "opencode-watcher"
+    if (Installation.isLocal()) {
+      const file = Bun.fileURLToPath(new URL(name, sidecarDir))
+      if (existsSync(file)) return file
+      return
+    }
+    const file = path.join(path.dirname(process.execPath), "native", name)
+    if (existsSync(file)) return file
+  }
+
+  function requireSidecar() {
+    const file = sidecar()
+    if (file) return file
+    const name = process.platform === "win32" ? "opencode-watcher.exe" : "opencode-watcher"
+    if (Installation.isLocal()) {
+      const local = Bun.fileURLToPath(new URL(name, sidecarDir))
+      throw new Error(`go watcher binary not found: ${local}`)
+    }
+    throw new Error(`go watcher binary not found: ${path.join(path.dirname(process.execPath), "native", name)}`)
   }
 
   export const hasNativeBinding = () => !!watcher()
@@ -168,6 +173,10 @@ export namespace FileWatcher {
     readonly deactivate: () => Effect.Effect<void>
     readonly deactivateFull: () => Effect.Effect<void>
     readonly deactivateAll: () => Effect.Effect<void>
+  }
+
+  type Subscription = ParcelWatcher.AsyncSubscription & {
+    readonly sync?: (dirs: string[]) => Promise<void>
   }
 
   export class Service extends ServiceMap.Service<Service, Interface>()("@opencode/FileWatcher") {}
@@ -190,32 +199,38 @@ export namespace FileWatcher {
         }
 
         const w = watcher()
-        if (!w) return
+        if (!w && process.platform !== "linux") return
 
         log.info("watcher backend", { directory: Instance.directory, platform: process.platform, backend })
 
-        const subs: ParcelWatcher.AsyncSubscription[] = []
+        const subs = new Set<Subscription>()
         let disposed = false
         yield* Effect.addFinalizer(() =>
           Effect.gen(function* () {
             disposed = true
-            const results = yield* Effect.promise(() => Promise.allSettled(subs.map((sub) => sub.unsubscribe())))
+            const results = yield* Effect.promise(() => Promise.allSettled([...subs].map((sub) => sub.unsubscribe())))
             const failed = results.filter((r) => r.status === "rejected")
             if (failed.length > 0) {
               log.error("watcher unsubscribe partially failed", {
                 directory: Instance.directory,
                 failedCount: failed.length,
-                totalCount: subs.length,
+                totalCount: subs.size,
                 errors: failed.map((r) => String((r as PromiseRejectedResult).reason)),
               })
             } else {
               log.info("watcher unsubscribed", {
                 directory: Instance.directory,
-                subscriptionCount: subs.length,
+                subscriptionCount: subs.size,
               })
             }
           }),
         )
+
+        const cfg = yield* Effect.promise(() => Config.get())
+        const cfgIgnores = cfg.watcher?.ignore ?? []
+        const keep = protecteds(Instance.directory)
+        const sidecarIgnore = FileIgnore.watch(cfgIgnores, keep)
+        const sidecarFilter = FileIgnore.event(cfgIgnores, keep)
 
         const cb: ParcelWatcher.SubscribeCallback = Instance.bind((err, evts) => {
           if (disposed) return
@@ -230,30 +245,70 @@ export namespace FileWatcher {
           }
         })
 
-        const subscribe = (dir: string, ignore: string[]) => {
-          const pending = w.subscribe(dir, cb, { ignore, backend })
-          return Effect.gen(function* () {
-            const sub = yield* Effect.promise(() => pending)
-            subs.push(sub)
-          }).pipe(
-            Effect.timeout(SUBSCRIBE_TIMEOUT_MS),
-            Effect.catchCause((cause) => {
-              log.error("failed to subscribe", {
+        const subscribe = (dir: string, ignore: string[], kind: "worktree" | "git") =>
+          Effect.promise(async () => {
+            const start = Date.now()
+            const watchIgnore = process.platform === "linux" && kind === "worktree" ? sidecarIgnore : ignore
+            const useSidecar = !w || (process.platform === "linux" && kind === "worktree")
+            const filter = kind === "worktree" ? sidecarFilter : []
+            let input:
+              | {
+                  pending: Promise<Subscription>
+                  cancel?: () => void
+                }
+              | undefined
+
+            try {
+              if (!useSidecar && w) {
+                input = {
+                  pending: w.subscribe(dir, cb, { ignore: watchIgnore, backend }),
+                  cancel: () => void w.unsubscribe(dir, cb, { ignore: watchIgnore, backend }).catch(() => undefined),
+                }
+              } else {
+                input = child({ dir, ignore: watchIgnore, filter, backend, cb })
+              }
+
+              const pending = input.pending
+              const sub = await Promise.race([
+                pending,
+                new Promise<never>((_, reject) =>
+                  setTimeout(() => reject(new Error("subscribe timeout")), SUBSCRIBE_TIMEOUT_MS),
+                ),
+              ])
+              subs.add(sub)
+              log.info("subscribe ready", {
                 dir,
+                kind,
                 backend,
-                timeoutMs: SUBSCRIBE_TIMEOUT_MS,
-                ignoreCount: ignore.length,
-                ignorePreview: ignore.slice(0, 20),
+                elapsedMs: Date.now() - start,
                 directory: Instance.directory,
                 worktree: Instance.project.worktree,
                 projectID: Instance.project.id,
-                cause: Cause.pretty(cause),
               })
-              pending.then((s) => s.unsubscribe()).catch(() => {})
-              return Effect.void
-            }),
-          )
-        }
+              return sub
+            } catch (error) {
+              const why = reason(error)
+              log.error("failed to subscribe", {
+                dir,
+                kind,
+                reason: why,
+                backend,
+                elapsedMs: Date.now() - start,
+                timeoutMs: SUBSCRIBE_TIMEOUT_MS,
+                ignoreCount: watchIgnore.length,
+                ignorePreview: watchIgnore.slice(0, 20),
+                directory: Instance.directory,
+                worktree: Instance.project.worktree,
+                projectID: Instance.project.id,
+                cause: error instanceof Error ? error.stack ?? error.message : error,
+              })
+              input?.cancel?.()
+              input?.pending.then((sub) => sub.unsubscribe()).catch(() => {})
+              if (kind === "worktree" && process.platform === "linux") {
+                await Effect.runPromise(why === "notfound" ? notfound(dir) : warn({ dir, reason: why }))
+              }
+            }
+          })
 
         return {
           backend,
@@ -281,16 +336,7 @@ export namespace FileWatcher {
             const ignore = [...FileIgnore.PATTERNS, ...(cfg.watcher?.ignore ?? []), ...protecteds(Instance.directory)]
 
             if (enabled) {
-              if (state.backend !== "inotify") {
-                yield* state.subscribe(Instance.directory, ignore)
-              }
-              if (state.backend === "inotify") {
-                const scan = yield* Effect.promise(() => count(Instance.directory, ignore))
-                if (scan.ok) {
-                  yield* state.subscribe(Instance.directory, ignore)
-                }
-                if (!scan.ok) yield* warn({ dir: Instance.directory, seen: scan.seen, reason: scan.reason })
-              }
+              yield* state.subscribe(Instance.directory, ignore, "worktree")
             }
             if (!enabled) {
               log.info("worktree watcher disabled", { directory: Instance.directory })
@@ -321,7 +367,7 @@ export namespace FileWatcher {
                 const ignore = (yield* Effect.promise(() => readdir(vcsDir).catch(() => []))).filter(
                   (entry) => entry !== "HEAD",
                 )
-                yield* state.subscribe(vcsDir, ignore)
+                yield* state.subscribe(vcsDir, ignore, "git")
               }
             }
           },
@@ -382,5 +428,183 @@ export namespace FileWatcher {
 
   export function deactivateAll() {
     return runPromise((svc) => svc.deactivateAll())
+  }
+
+  function child(input: {
+    dir: string
+    ignore: string[]
+    filter: string[]
+    backend: ParcelWatcher.BackendType
+    cb: ParcelWatcher.SubscribeCallback
+  }) {
+    const abort = new AbortController()
+    const file = requireSidecar()
+    const start = Date.now()
+    let why = "unknown"
+    const proc = Process.spawn([file], {
+      stdout: "pipe",
+      stderr: "pipe",
+      stdin: "pipe",
+      abort: abort.signal,
+      timeout: SUBPROCESS_KILL_TIMEOUT_MS,
+    })
+    log.info("watcher child spawn", {
+      dir: input.dir,
+      backend: input.backend,
+      file,
+    })
+    if (!proc.stdout || !proc.stderr) throw new Error("watcher child output not available")
+    const stdin = proc.stdin
+    if (!stdin) throw new Error("watcher child input not available")
+    const send = (msg: Record<string, unknown>) => {
+      if (stdin.destroyed || abort.signal.aborted) return
+      stdin.write(JSON.stringify(msg) + "\n")
+    }
+    const err = createInterface({
+      input: proc.stderr,
+      crlfDelay: Infinity,
+    })
+    err.on("line", (line) => {
+      if (!line.trim()) return
+      log.warn("watcher child stderr", {
+        dir: input.dir,
+        line,
+      })
+    })
+
+    const out = createInterface({
+      input: proc.stdout,
+      crlfDelay: Infinity,
+    })
+
+    const pending = new Promise<Subscription>((resolve, reject) => {
+      let ready = false
+      let done = false
+
+      const fail = (error: Error) => {
+        if (done) return
+        done = true
+        out.close()
+        err.close()
+        reject(error)
+      }
+
+      const stop = async () => {
+        if (done && !ready) return
+        done = true
+        out.close()
+        err.close()
+        abort.abort()
+        await proc.exited.catch(() => undefined)
+      }
+
+      out.on("line", (line) => {
+        let msg:
+          | { type: "ready"; watched?: number; ignored?: number }
+          | { type: "event"; path: string; event: "add" | "change" | "unlink" }
+          | { type: "error"; stage: string; error: string; fatal?: boolean }
+
+        try {
+          msg = JSON.parse(line)
+        } catch (error) {
+          fail(new Error(`invalid watcher child message: ${error instanceof Error ? error.message : String(error)}`))
+          return
+        }
+
+        if (msg.type === "ready") {
+          if (done) return
+          ready = true
+          done = true
+          log.info("watcher child ready", {
+            dir: input.dir,
+            backend: input.backend,
+            elapsedMs: Date.now() - start,
+            watched: msg.watched,
+            ignored: msg.ignored,
+            pid: proc.pid,
+          })
+          resolve({
+            unsubscribe() {
+              why = "unsubscribe"
+              return stop()
+            },
+          })
+          return
+        }
+
+        if (msg.type === "event") {
+          input.cb(null, [
+            {
+              path: msg.path,
+              type: msg.event === "add" ? "create" : msg.event === "change" ? "update" : "delete",
+            },
+          ] as ParcelWatcher.Event[])
+          return
+        }
+
+        if (ready) {
+          log.warn("watcher child runtime error", {
+            dir: input.dir,
+            stage: msg.stage,
+            error: msg.error,
+            fatal: msg.fatal,
+            pid: proc.pid,
+          })
+          input.cb(new Error(`watcher child ${msg.stage}: ${msg.error}`), [])
+          return
+        }
+
+        fail(new Error(`watcher child ${msg.stage}: ${msg.error}`))
+      })
+
+      proc.once("error", (error) => {
+        log.error("watcher child process error", {
+          dir: input.dir,
+          pid: proc.pid,
+          reason: why,
+          error,
+        })
+        fail(error)
+      })
+
+      proc.once("exit", (code, signal) => {
+        log.info("watcher child exit", {
+          dir: input.dir,
+          pid: proc.pid,
+          ready,
+          aborted: abort.signal.aborted,
+          reason: why,
+          code,
+          signal,
+          elapsedMs: Date.now() - start,
+        })
+        if (ready) return
+        if (abort.signal.aborted) {
+          fail(new Error(`watcher child aborted before ready: ${input.dir}`))
+          return
+        }
+        fail(new Error(`watcher child exited before ready: code=${code ?? "null"} signal=${signal ?? "null"}`))
+      })
+    })
+
+    send({
+      v: 1,
+      type: "start",
+      root: input.dir,
+      ignore: input.ignore,
+      filter: input.filter,
+      mode: "full",
+      dirs: [],
+    })
+
+    return {
+      pending,
+      cancel() {
+        if (abort.signal.aborted) return
+        why = "cancel"
+        abort.abort()
+        log.warn("watcher child aborted", { dir: input.dir, pid: proc.pid, reason: why })
+      },
+    }
   }
 }

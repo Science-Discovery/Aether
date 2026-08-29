@@ -1,9 +1,10 @@
 #!/usr/bin/env bun
 import { $ } from "bun"
 import fs from "fs"
+import path from "path"
 
 import { Script } from "@opencode-ai/script"
-import { copyBinaryToSidecarFolder, getCurrentSidecar, resolveChannel, windowsify } from "./utils"
+import { copyBinaryToSidecarFolder, copyResource, getCurrentSidecar, resolveChannel, windowsify } from "./utils"
 
 const channel = resolveChannel()
 await $`bun ./scripts/copy-icons.ts ${channel}`
@@ -19,12 +20,18 @@ const dir = "resources/opencode-binaries"
 const local = windowsify(`../opencode/dist/${sidecarConfig.ocBinary}/bin/aether`)
 
 await $`mkdir -p ${dir}`
+await $`rm -rf resources/native`
 
 if (!fs.existsSync(local)) {
   const artifact = Bun.env.OPENCODE_CLI_ARTIFACT ?? "aether-cli"
   await $`gh run download ${Bun.env.GITHUB_RUN_ID} -n ${artifact}`.cwd(dir)
 }
 
-await copyBinaryToSidecarFolder(fs.existsSync(local) ? local : windowsify(`${dir}/${sidecarConfig.ocBinary}/bin/aether`))
+const root = fs.existsSync(local) ? `../opencode/dist/${sidecarConfig.ocBinary}` : `${dir}/${sidecarConfig.ocBinary}`
+await copyBinaryToSidecarFolder(windowsify(`${root}/bin/aether`))
+if (sidecarConfig.ocBinary.includes("-linux-")) {
+  const file = path.join(root, "bin", "native", "opencode-watcher")
+  if (fs.existsSync(file)) await copyResource(file, "resources/native/opencode-watcher")
+}
 
 await $`rm -rf ${dir}`

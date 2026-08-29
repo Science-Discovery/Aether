@@ -141,6 +141,17 @@ function rust(target: string | undefined) {
   if (target === "aarch64-unknown-linux-gnu") return { os: "linux", arch: "arm64" }
 }
 
+function go(item: { arch: "arm64" | "x64" }) {
+  return item.arch === "x64" ? "amd64" : "arm64"
+}
+
+async function watcher(item: { os: string; arch: "arm64" | "x64" }, out: string) {
+  if (item.os !== "linux") return
+  const dir = path.resolve(__dirname, "../../go-watcher")
+  fs.mkdirSync(path.dirname(out), { recursive: true })
+  await $`CGO_ENABLED=0 GOOS=linux GOARCH=${go(item)} go build -ldflags="-s -w" -o ${out} ./cmd/opencode-watcher`.cwd(dir)
+}
+
 const desired = rust(process.env.RUST_TARGET)
 
 const targets = singleFlag
@@ -216,6 +227,7 @@ for (const item of targets) {
     .join("-")
   console.log(`building ${name}`)
   fs.mkdirSync(`dist/${name}/bin`, { recursive: true })
+  await watcher(item, path.resolve(dir, `dist/${name}/bin/native/opencode-watcher`))
 
   const localPath = path.resolve(dir, "node_modules/@opentui/core/parser.worker.js")
   const rootPath = path.resolve(dir, "../../node_modules/@opentui/core/parser.worker.js")
