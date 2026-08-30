@@ -40,10 +40,12 @@ const getBase = (): Configuration => ({
     {
       from: "../../.opencode/agent",
       to: ".aether/agent",
+      filter: ["**/*", "!triage.md", "!duplicate-pr.md"],
     },
     {
       from: "../../.opencode/command",
       to: ".aether/command",
+      filter: ["**/*", "!issues.md", "!commit.md", "!changelog.md"],
     },
     {
       from: "../../.opencode/themes",
