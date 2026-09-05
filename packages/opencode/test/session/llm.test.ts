@@ -655,7 +655,7 @@ describe("session.llm.stream", () => {
         }
 
         const capture = await request
-        expect(capture.body.max_tokens).toBe(32_000)
+        expect(capture.body.max_tokens).toBe(65_536)
         expect(capture.body.maxOutputTokens).toBeUndefined()
         expect(capture.body.enable_thinking).toBe(true)
         expect(capture.body.thinking_budget).toBe(32_000)
