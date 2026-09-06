@@ -9,10 +9,7 @@ import { MessageV2 } from "../../src/session/message-v2"
 import { MessageID, PartID, SessionID } from "../../src/session/schema"
 import { Instance } from "../../src/project/instance"
 import { ModelID, ProviderID } from "../../src/provider/schema"
-import { Log } from "../../src/util/log"
 import { tmpdir } from "../fixture/fixture"
-
-Log.init({ print: false })
 
 const model = {
   providerID: ProviderID.make("openai"),

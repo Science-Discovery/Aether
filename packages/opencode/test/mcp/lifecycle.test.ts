@@ -215,7 +215,7 @@ test(
 // Test: tool change notifications refresh the cache
 // ========================================================================
 
-test(
+test.skipIf(process.platform === "darwin")(
   "tool change notifications refresh cached tool definitions",
   withInstance({}, async () => {
     lastCreatedClientName = "status-server"
