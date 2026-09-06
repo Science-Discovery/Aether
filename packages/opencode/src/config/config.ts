@@ -404,7 +404,7 @@ export namespace Config {
 
     const pkg = path.join(dir, "package.json")
     const pkgExists = await Filesystem.exists(pkg)
-    if (project(dir) && !pkgExists && !(await consumer(dir, pkg))) {
+    if ((project(dir) || dir === Global.Path.config) && !pkgExists && !(await consumer(dir, pkg))) {
       log.debug("config dir has no dependency consumers, skipping dependency install", { dir })
       return false
     }

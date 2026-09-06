@@ -852,6 +852,15 @@ test("skips dependency install for empty project config dir", async () => {
   expect(await Filesystem.exists(path.join(tmp.extra, "package.json"))).toBe(false)
 })
 
+test("skips dependency install for empty global config dir", async () => {
+  await using tmp = await tmpdir()
+
+  await withGlobal(tmp.path, async () => {
+    expect(await Config.needsInstall(tmp.path)).toBe(false)
+    expect(await Filesystem.exists(path.join(tmp.path, "package.json"))).toBe(false)
+  })
+})
+
 test("installs dependencies for project config local plugins", async () => {
   await using tmp = await tmpdir<string>({
     init: async (dir) => {
@@ -876,6 +885,11 @@ test("installs dependencies in writable OPENCODE_CONFIG_DIR", async () => {
 
   const prev = process.env.OPENCODE_CONFIG_DIR
   process.env.OPENCODE_CONFIG_DIR = tmp.extra
+  const run = spyOn(BunProc, "run").mockResolvedValue({
+    code: 0,
+    stdout: Buffer.alloc(0),
+    stderr: Buffer.alloc(0),
+  })
 
   try {
     await Instance.provide({
@@ -888,7 +902,9 @@ test("installs dependencies in writable OPENCODE_CONFIG_DIR", async () => {
 
     expect(await Filesystem.exists(path.join(tmp.extra, "package.json"))).toBe(true)
     expect(await Filesystem.exists(path.join(tmp.extra, ".gitignore"))).toBe(true)
+    expect(run).toHaveBeenCalledTimes(1)
   } finally {
+    run.mockRestore()
     if (prev === undefined) delete process.env.OPENCODE_CONFIG_DIR
     else process.env.OPENCODE_CONFIG_DIR = prev
   }
