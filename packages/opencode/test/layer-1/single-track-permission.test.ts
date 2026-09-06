@@ -234,7 +234,7 @@ describe("Layer 1.5 — single-track permission contract", () => {
     })
   })
 
-  test("task dispatch preserves finalPermission (no tools overwrite)", async () => {
+  test("task dispatch preserves finalPermission and inherits the caller model", async () => {
     const srv = await stub([
       { type: "text", text: "ok", usage: { input: 4, output: 2 } },
       { type: "text", text: "done", usage: { input: 4, output: 2 } },
@@ -272,9 +272,13 @@ describe("Layer 1.5 — single-track permission contract", () => {
         )
 
         const child = await Session.get(result.metadata.sessionId)
+        const user = (await Session.messages({ sessionID: child.id })).find((x) => x.info.role === "user")
+        if (user?.info.role !== "user") throw new Error("Child user message not found")
         const hasBashDeny = child.permission?.some(
           (r) => r.permission === "bash" && r.pattern === "*" && r.action === "deny",
         )
+        expect(user.info.model).toEqual(model)
+        expect(result.metadata.model).toEqual(model)
         expect(hasBashDeny).toBe(true)
       },
     })

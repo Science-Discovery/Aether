@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test"
 import { Agent } from "../../src/agent/agent"
+import { ConfigMarkdown } from "../../src/config/markdown"
 import { Instance } from "../../src/project/instance"
 import { TaskTool } from "../../src/tool/task"
 import { tmpdir } from "../fixture/fixture"
@@ -9,6 +10,12 @@ afterEach(async () => {
 })
 
 describe("tool.task", () => {
+  test("bundled translator leaves model unset", async () => {
+    const cfg = await ConfigMarkdown.parse(import.meta.dir + "/../../../../.opencode/agent/translator.md")
+
+    expect(cfg.data.model).toBeUndefined()
+  })
+
   test("description sorts subagents by name and is stable across calls", async () => {
     await using tmp = await tmpdir({
       config: {

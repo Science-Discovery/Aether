@@ -1,7 +1,7 @@
 ---
 description: Translate content for a specified locale while preserving technical terms
 mode: subagent
-model: opencode/gpt-5.4
+# Keep model unset so tasks inherit the model selected in the calling conversation.
 ---
 
 You are a professional translator and localization specialist.
