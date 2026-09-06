@@ -121,6 +121,47 @@ export namespace LLM {
     }
   }
 
+  // Half-open connections (e.g. brief network drops) leave the SSE stream
+  // silent forever: no error, no finish, every retry path dead. Watch the gap
+  // between stream events and break the stream with a TimeoutError so the
+  // existing timeout-retry path (30s backoff) reconnects. Self-terminates one
+  // period after the last chunk even if the stream is never consumed again.
+  function idle(): LanguageModelMiddleware {
+    return {
+      async wrapStream(input) {
+        const result = await input.doStream()
+        const limit = Flag.OPENCODE_SSE_IDLE_TIMEOUT ?? 300_000
+        let last = Date.now()
+        let ctrl: TransformStreamDefaultController | undefined
+        const watch = setInterval(() => {
+          if (!ctrl || Date.now() - last < limit) return
+          clearInterval(watch)
+          try {
+            ctrl.error(new DOMException(`SSE stream idle for over ${limit} ms`, "TimeoutError"))
+          } catch {}
+          void result.stream.cancel().catch(() => {})
+        }, 30_000)
+        return {
+          ...result,
+          stream: result.stream.pipeThrough(
+            new TransformStream({
+              start(controller) {
+                ctrl = controller
+              },
+              transform(part, controller) {
+                last = Date.now()
+                controller.enqueue(part)
+              },
+              flush() {
+                clearInterval(watch)
+              },
+            }),
+          ),
+        }
+      },
+    }
+  }
+
   export async function stream(input: StreamInput) {
     const l = log
       .clone()
@@ -354,6 +395,7 @@ export namespace LLM {
         model: language,
         middleware: [
           finish(input.sessionID),
+          idle(),
           {
             async transformParams(args) {
               if (args.type === "stream") {

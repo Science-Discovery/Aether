@@ -59,6 +59,9 @@ function mergeConsecutiveAssistantMessages(msgs: ModelMessage[]): ModelMessage[]
 export namespace ProviderTransform {
   export const OUTPUT_TOKEN_MAX = Flag.OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX || 32_000
 
+  // GLM family default output cap; env default can raise but not lower it.
+  export const GLM_OUTPUT_TOKEN_MAX = 65_536
+
   // Maps npm package to the key the AI SDK expects for providerOptions
   function sdkKey(npm: string): string | undefined {
     switch (npm) {
@@ -572,6 +575,34 @@ export namespace ProviderTransform {
       ["glm-5.2", "glm-5-2", "glm-5p2"].some((id) => api.includes(id)) ||
       ["glm-5.3", "glm-5-3", "glm-5p3"].some((id) => api.includes(id))
     )
+  }
+
+  // Any GLM-family model, regardless of hosting provider (Zhipu, Z.AI, coding plans, DashScope, OpenRouter, ...).
+  export function glm(model: Provider.Model) {
+    return `${model.id} ${model.api.id}`.toLowerCase().includes("glm")
+  }
+
+  // Reasoning-intensity overrides for the reasoning-only recovery retry. Only
+  // families with a documented switch get one; everything else retries at the
+  // original intensity (empty override). GLM-5.x always thinks and 400s (code
+  // 1210) on disable switches — lowest effort instead.
+  export function noThinking(model: Provider.Model): Record<string, any> {
+    const clear = { thinking_budget: undefined, reasoningEffort: undefined, reasoning_effort: undefined }
+    const id = model.id.toLowerCase()
+    const api = `${id} ${model.api.id.toLowerCase()}`
+    const npm = model.api.npm
+    if (npm === "@ai-sdk/google" || npm === "@ai-sdk/google-vertex")
+      return { ...clear, thinkingConfig: { thinkingBudget: 0 } }
+    if (npm === "@ai-sdk/openai") return { ...clear, reasoningEffort: "minimal" }
+    if (npm === "@ai-sdk/openai-compatible") {
+      if (glm(model)) return { ...clear, reasoningEffort: "low" }
+      if (id.includes("kimi-k3") && ["alibaba", "alibaba-cn"].includes(model.providerID))
+        return { ...clear, reasoningEffort: "low" }
+      if (api.includes("qwen") || ["alibaba", "alibaba-cn"].includes(model.providerID))
+        return { ...clear, enable_thinking: false }
+      if (api.includes("deepseek")) return { ...clear, thinking: { type: "disabled" } }
+    }
+    return clear
   }
 
   export function variants(model: Provider.Model): Record<string, Record<string, any>> {
@@ -1289,7 +1320,8 @@ export namespace ProviderTransform {
 
   export function maxOutputTokens(model: Provider.Model, options?: Record<string, unknown>): number {
     const cap = options?.maxOutputTokens
-    const max = typeof cap === "number" && Number.isFinite(cap) && cap > 0 ? Math.floor(cap) : OUTPUT_TOKEN_MAX
+    const fallback = glm(model) ? Math.max(GLM_OUTPUT_TOKEN_MAX, OUTPUT_TOKEN_MAX) : OUTPUT_TOKEN_MAX
+    const max = typeof cap === "number" && Number.isFinite(cap) && cap > 0 ? Math.floor(cap) : fallback
     return Math.min(model.limit.output, max) || max
   }
 

@@ -162,7 +162,7 @@ function parts(msg: MessageV2.WithParts, type: "text" | "reasoning") {
 }
 
 describe("session processor GLM-5.2 recovery", () => {
-  test("retries a reasoning-only response once with thinking disabled", async () => {
+  test("retries a reasoning-only response once with replayed reasoning and low effort", async () => {
     const srv = await setup([{ reasoning: "internal work", finish: "length" }, { text: "final answer" }])
     await using tmp = srv.tmp
     const result = await prompt(tmp.path)
@@ -170,9 +170,16 @@ describe("session processor GLM-5.2 recovery", () => {
     expect(srv.hits).toHaveLength(2)
     expect(srv.hits[0].body.enable_thinking).toBe(true)
     expect(srv.hits[0].body.thinking_budget).toBe(32_000)
-    expect(srv.hits[1].body.enable_thinking).toBe(false)
+    expect(srv.hits[1].body.enable_thinking).toBe(true)
     expect(srv.hits[1].body.thinking_budget).toBeUndefined()
-    expect(srv.hits[1].body.reasoning_effort).toBeUndefined()
+    expect(srv.hits[1].body.reasoning_effort).toBe("low")
+    const retry = srv.hits[1].body.messages as Array<{ role: string; content: unknown }>
+    const replay = retry.at(-2)
+    expect(replay?.role).toBe("assistant")
+    expect(String(replay?.content)).toContain("internal work")
+    const nudge = retry.at(-1)
+    expect(nudge?.role).toBe("user")
+    expect(String(nudge?.content)).toContain("Continue from where your previous reasoning was cut off")
     expect(parts(result, "reasoning")).toContain("internal work")
     expect(parts(result, "text")).toContain("final answer")
   })

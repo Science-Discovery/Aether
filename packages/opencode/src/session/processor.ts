@@ -18,12 +18,15 @@ import { Question } from "@/question"
 import { PartID } from "./schema"
 import type { SessionID, MessageID } from "./schema"
 import { type ReviewCharAction, type createReviewCharCounter } from "@/skill-evolution/limits"
+import type { ModelMessage } from "ai"
 
 export namespace SessionProcessor {
   const DOOM_LOOP_THRESHOLD = 3
   const MAX_RETRY = 3
   const MAX_RETRY_RATE_LIMIT = 5
   const log = Log.create({ service: "session.processor" })
+  const NUDGE =
+    "Continue from where your previous reasoning was cut off. Do not re-derive from scratch and do not keep deliberating without producing output: call tools right away to assist (write intermediate results to files, run checks), advance one step at a time, and persist each step before moving on. Do not attempt to complete the whole derivation in your head."
 
   export type Info = Awaited<ReturnType<typeof create>>
   export type Result = Awaited<ReturnType<Info["process"]>>
@@ -64,7 +67,15 @@ export namespace SessionProcessor {
         needsCompaction = false
         idle = false
         const shouldBreak = (await Config.get()).experimental?.continue_loop_on_deny !== true
-        let recovered = false
+        // Reasoning-only recovery: retry once with the truncated reasoning
+        // replayed as context, a nudge to externalize work via tools, and
+        // reasoning intensity reduced where the family has a documented switch
+        // (unknown families retry at original intensity). Original-depth
+        // retries were tested and burn the budget again on always-thinking
+        // models (GLM-5.x).
+        let retried = false
+        let draft = ""
+        let replay: ModelMessage[] = []
         while (true) {
           try {
             let currentText: MessageV2.TextPart | undefined
@@ -73,15 +84,14 @@ export namespace SessionProcessor {
             let text = false
             let tools = false
             let finish = ""
-            const request = recovered
+            draft = ""
+            const request = retried
               ? {
                   ...streamInput,
+                  messages: [...streamInput.messages, ...replay],
                   override: {
                     ...streamInput.override,
-                    enable_thinking: false,
-                    thinking_budget: undefined,
-                    reasoningEffort: undefined,
-                    reasoning_effort: undefined,
+                    ...ProviderTransform.noThinking(streamInput.model),
                   },
                 }
               : streamInput
@@ -126,6 +136,7 @@ export namespace SessionProcessor {
 
                 case "reasoning-delta":
                   if (value.text.trim()) reasoning = true
+                  draft += value.text
                   if (value.id in reasoningMap) {
                     const part = reasoningMap[value.id]
                     part.text += value.text
@@ -418,11 +429,11 @@ export namespace SessionProcessor {
                 break
               }
             }
+            // Reasoning-only response (no visible text, no tool calls) burned the
+            // whole step: retry once with the reasoning replayed and a tool-use
+            // nudge, reducing reasoning intensity where known. Any provider/model.
             const retry =
-              !recovered &&
-              ["alibaba", "alibaba-cn"].includes(input.model.providerID) &&
-              input.model.api.npm === "@ai-sdk/openai-compatible" &&
-              ProviderTransform.glm52(input.model) &&
+              !retried &&
               ["stop", "length"].includes(finish) &&
               reasoning &&
               !text &&
@@ -431,16 +442,47 @@ export namespace SessionProcessor {
               !blocked &&
               !reviewStopped
             if (retry) {
-              recovered = true
-              log.warn("retrying GLM-5.2/5.3 without thinking after reasoning-only response", {
+              retried = true
+              replay = [
+                ...(draft.trim()
+                  ? [
+                      {
+                        role: "assistant",
+                        content: draft,
+                      } as ModelMessage,
+                    ]
+                  : []),
+                {
+                  role: "user",
+                  content: NUDGE,
+                } as ModelMessage,
+              ]
+              const suppress = ProviderTransform.noThinking(streamInput.model)
+              const reduced = Object.keys(suppress).some((k) => suppress[k] !== undefined)
+              const note = reduced
+                ? "Reasoning-only response; retrying with replayed reasoning and reduced reasoning intensity"
+                : "Reasoning-only response; retrying with replayed reasoning"
+              await SessionStatus.set(input.sessionID, {
+                type: "retry",
+                attempt: 1,
+                message: note,
+                next: Date.now(),
+              })
+              log.warn("retrying after reasoning-only response", {
                 sessionID: input.sessionID,
+                provider: input.model.providerID,
+                model: input.model.id,
                 finish,
+                chars: draft.length,
+                reduced,
               })
               continue
             }
-            if (recovered && ["stop", "length"].includes(finish) && reasoning && !text && !tools) {
-              log.warn("GLM-5.2/5.3 recovery response still has no visible text", {
+            if (retried && ["stop", "length"].includes(finish) && reasoning && !text && !tools) {
+              log.warn("recovery response still has no visible text", {
                 sessionID: input.sessionID,
+                provider: input.model.providerID,
+                model: input.model.id,
                 finish,
               })
             }
