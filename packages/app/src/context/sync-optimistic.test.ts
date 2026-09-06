@@ -1,6 +1,15 @@
-import { describe, expect, test } from "bun:test"
+import { beforeAll, describe, expect, mock, test } from "bun:test"
 import type { Message, Part } from "@opencode-ai/sdk/v2/client"
-import { applyOptimisticAdd, applyOptimisticRemove, mergeOptimisticPage } from "./sync"
+
+let sync: typeof import("./sync")
+
+beforeAll(async () => {
+  mock.module("@solidjs/router", () => ({
+    useNavigate: () => () => undefined,
+    useParams: () => ({}),
+  }))
+  sync = await import("./sync")
+})
 
 type Text = Extract<Part, { type: "text" }>
 
@@ -29,7 +38,7 @@ describe("sync optimistic reducers", () => {
       part: {} as Record<string, Part[] | undefined>,
     }
 
-    applyOptimisticAdd(draft, {
+    sync.applyOptimisticAdd(draft, {
       sessionID,
       message: userMessage("msg_1", sessionID),
       parts: [textPart("prt_2", sessionID, "msg_1"), textPart("prt_1", sessionID, "msg_1")],
@@ -46,7 +55,7 @@ describe("sync optimistic reducers", () => {
       part: {} as Record<string, Part[] | undefined>,
     }
 
-    applyOptimisticAdd(draft, {
+    sync.applyOptimisticAdd(draft, {
       sessionID,
       message: userMessage("msg_00", sessionID, 2),
       parts: [],
@@ -65,7 +74,7 @@ describe("sync optimistic reducers", () => {
       } as Record<string, Part[] | undefined>,
     }
 
-    applyOptimisticRemove(draft, { sessionID, messageID: "msg_1" })
+    sync.applyOptimisticRemove(draft, { sessionID, messageID: "msg_1" })
 
     expect(draft.message[sessionID]?.map((x) => x.id)).toEqual(["msg_2"])
     expect(draft.part.msg_1).toBeUndefined()
@@ -74,7 +83,7 @@ describe("sync optimistic reducers", () => {
 
   test("mergeOptimisticPage keeps pending messages in fetched timelines", () => {
     const sessionID = "ses_1"
-    const page = mergeOptimisticPage(
+    const page = sync.mergeOptimisticPage(
       {
         session: [userMessage("msg_1", sessionID)],
         part: [{ id: "msg_1", part: [textPart("prt_1", sessionID, "msg_1")] }],
@@ -91,7 +100,7 @@ describe("sync optimistic reducers", () => {
 
   test("mergeOptimisticPage keeps missing optimistic parts until the server has them", () => {
     const sessionID = "ses_1"
-    const page = mergeOptimisticPage(
+    const page = sync.mergeOptimisticPage(
       {
         session: [userMessage("msg_2", sessionID)],
         part: [{ id: "msg_2", part: [textPart("prt_2", sessionID, "msg_2")] }],
@@ -111,7 +120,7 @@ describe("sync optimistic reducers", () => {
 
   test("mergeOptimisticPage confirms echoed messages once all parts arrive", () => {
     const sessionID = "ses_1"
-    const page = mergeOptimisticPage(
+    const page = sync.mergeOptimisticPage(
       {
         session: [userMessage("msg_2", sessionID)],
         part: [

@@ -17,12 +17,14 @@ function DirectoryDataProvider(props: ParentProps<{ directory: string }>) {
   const location = useLocation()
   const navigate = useNavigate()
   const sync = useSync()
+  const server = useServer()
   const slug = createMemo(() => base64Encode(props.directory))
 
   createEffect(() => {
     const next = sync.data.path.directory
     if (!next || next === props.directory) return
     const path = location.pathname.slice(slug().length + 1)
+    OpenIntent.mark(server.key, next)
     navigate(`/${base64Encode(next)}${path}${location.search}${location.hash}`, { replace: true })
   })
 

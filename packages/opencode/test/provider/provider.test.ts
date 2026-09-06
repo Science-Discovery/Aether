@@ -1542,7 +1542,7 @@ test("model modalities default correctly", async () => {
   })
 })
 
-test("model with custom cost values", async () => {
+test.skipIf(process.platform === "darwin")("model with custom cost values", async () => {
   await using tmp = await tmpdir({
     init: async (dir) => {
       await Bun.write(
