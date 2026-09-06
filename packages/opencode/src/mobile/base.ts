@@ -1047,10 +1047,7 @@ export abstract class MobileManagerBase {
   }
 
   protected extractFilePathsFromText(text: string): string[] {
-    const files = [
-      ...this.extractPathTokens(text, /`([^`]+)`/g),
-      ...this.extractPathTokens(text, /([A-Za-z]:\\[^\s'"(){}<>]+|\/(?:[^\s`'"(){}<>]+\/?)+)/g),
-    ]
+    const files = [...this.extractPathTokens(text, /`([^`]+)`/g), ...this.extractBarePaths(text)]
     return [...new Set(files.filter((p) => this.isFilePath(p)))]
   }
 
@@ -1058,10 +1055,35 @@ export abstract class MobileManagerBase {
     const items: string[] = []
     for (const match of text.matchAll(pattern)) {
       const raw = (match[1] ?? match[0] ?? "").trim()
-      const file = raw.replace(/^[`'\"]+|[`'\",.;:!?]+$/g, "").trim()
+      const file = this.cleanPathToken(raw)
       if (file) items.push(file)
     }
     return items
+  }
+
+  private cleanPathToken(raw: string): string {
+    return raw.replace(/^[`'\"]+|[`'\",.;:!?。，；！？]+$/g, "").trim()
+  }
+
+  private extractBarePaths(text: string): string[] {
+    const pattern = /([A-Za-z]:\\[^\s'"(){}<>]+|\/(?:[^\s`'"(){}<>]+\/?)+)/g
+    const found: string[] = []
+    for (const match of text.matchAll(pattern)) {
+      const token = this.cleanPathToken(match[1] ?? "")
+      if (!token) continue
+      let cur = existsSync(token) ? token : ""
+      const words = text
+        .slice((match.index ?? 0) + match[0].length)
+        .split(/\s+/)
+        .slice(0, 8)
+        .filter(Boolean)
+      for (let i = 0; i < words.length; i++) {
+        const next = this.cleanPathToken([token, ...words.slice(0, i + 1)].join(" "))
+        if (next && existsSync(next)) cur = next
+      }
+      if (cur) found.push(cur)
+    }
+    return found
   }
 
   private isFilePath(p: string): boolean {
