@@ -84,21 +84,23 @@ jobs:
           - id: linux
             host: ubuntu-24.04
             rust_target: x86_64-unknown-linux-gnu
-            flag: --linux
-            files: |
-              packages/desktop-electron/dist/*.AppImage
-              packages/desktop-electron/dist/*.deb
-              packages/desktop-electron/dist/*.rpm
-              packages/desktop-electron/dist/*.blockmap
+            # AppImage and RPM are temporarily not published because downloadbeta currently accepts Linux .deb artifacts only.
+            # Re-enable their build targets and release assets together when the server contract changes.
+            flag: --linux deb --x64
+            # packages/desktop-electron/dist/*.AppImage
+            # packages/desktop-electron/dist/*.rpm
+            # packages/desktop-electron/dist/*.blockmap
+            files: packages/desktop-electron/dist/*.deb
           - id: linux-arm64
             host: ubuntu-24.04-arm
             rust_target: aarch64-unknown-linux-gnu
-            flag: --linux --arm64
-            files: |
-              packages/desktop-electron/dist/*.AppImage
-              packages/desktop-electron/dist/*.deb
-              packages/desktop-electron/dist/*.rpm
-              packages/desktop-electron/dist/*.blockmap
+            # AppImage and RPM are temporarily not published because downloadbeta currently accepts Linux .deb artifacts only.
+            # Re-enable their build targets and release assets together when the server contract changes.
+            flag: --linux deb --arm64
+            # packages/desktop-electron/dist/*.AppImage
+            # packages/desktop-electron/dist/*.rpm
+            # packages/desktop-electron/dist/*.blockmap
+            files: packages/desktop-electron/dist/*.deb
     runs-on: ${{ matrix.host }}
     steps:
       - uses: actions/checkout@v4

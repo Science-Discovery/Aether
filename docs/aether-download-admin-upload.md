@@ -34,7 +34,7 @@ Aether 下载服务分为两个发布渠道：
 
 桌面版客户端基于 electron-builder 打包，产物随 GitHub Release 发布在 https://github.com/Science-Discovery/Aether 。桌面版的发布产物即 release 中以下三类文件，**包体与 L2 yml 原样上传，不做重命名或重新打包**：
 
-1. **包体**：所有以 `aether-desktop` 开头的文件，含主包、mac 自动更新用的 `*.zip`、`*.blockmap`、`.deb`/`.rpm`/`.AppImage` 等 Linux 发行版包。
+1. **包体**：白名单内以 `aether-desktop` 开头的文件，含 mac 自动更新用的 `*.zip`、`*.blockmap`，以及 Linux x64/ARM64 的两个 `.deb` 安装包。
 2. **L2 兼容 yml**：所有以 `latest` 开头、**文件名不含 `web`** 的 `.yml` 文件，供 electron-builder 客户端自动更新使用，原样透传。
 3. **L1 网站 manifest**：`desktop-mac-arm64.yml` / `desktop-mac-x64.yml` / `desktop-win-x64.yml` / `desktop-win-arm64.yml` / `desktop-linux-x64.yml` / `desktop-linux-arm64.yml`，**不来自 GitHub Release**，由服务端 commit 时基于已上传的主包体重算校验并生成（schema 与 Web 版 `mac-arm64.yml` 完全一致）。
 
@@ -47,12 +47,8 @@ aether-desktop-mac-x64.dmg              aether-desktop-mac-x64.dmg.blockmap
 aether-desktop-mac-x64.zip              aether-desktop-mac-x64.zip.blockmap
 aether-desktop-win-x64.exe              aether-desktop-win-x64.exe.blockmap
 aether-desktop-win-arm64.exe            aether-desktop-win-arm64.exe.blockmap
-aether-desktop-linux-x86_64.AppImage
-aether-desktop-linux-x86_64.rpm
 aether-desktop-linux-amd64.deb
-aether-desktop-linux-arm64.AppImage
 aether-desktop-linux-arm64.deb
-aether-desktop-linux-aarch64.rpm
 latest.yml                  # Windows 自动更新
 latest-mac.yml              # macOS 自动更新（arm64 + x64）
 latest-linux.yml            # Linux x64 自动更新
@@ -80,7 +76,7 @@ latest-web-linux-arm64.yml
 ### 上传与生成原则
 
 - **L2 兼容 yml 原样透传**：electron-builder 的 `latest*.yml` 内 `path` / `files[].path` 字段引用的是同目录下的包体文件名（含 `.blockmap`），重命名会破坏自动更新签名校验，因此 L2 yml 与包体必须保留 GitHub Release 上的原始文件名。
-- **L1 manifest 由服务端生成**：commit 阶段服务端从 OSS 拉取各平台主包（dmg/exe/AppImage），重算 `sha512`/`size`，生成 `desktop-<platform>.yml` 写回 OSS 同一版本目录，schema 与 Web 版 `buildLatestWebManifest` 输出完全一致。这与 Web 版 commit 时服务端重新计算校验并生成 `mac-arm64.yml` 的流程**同构**。
+- **L1 manifest 由服务端生成**：commit 阶段服务端基于各平台主包（dmg/exe/deb）的 `sha512`/`size` 生成 `desktop-<platform>.yml` 并写回 OSS 同一版本目录，schema 与 Web 版 `buildLatestWebManifest` 输出完全一致。桌面版 commit 优先使用上传端提交的 `fileMetadata`，并通过 OSS HEAD 校验 `size`；未提交 metadata 时才由服务端从 OSS 流式读取主包回算 `sha512`/`size`。
 - **L1 与 L2 解耦**：L2 yml 仅供 electron-builder 客户端自动更新，服务端不读不写；L1 manifest 是网站权威元数据，供信息站点下载页与统计读取。网站不再因 release 格式而特例化。
 - 同一版本目录下 L1 manifest、L2 yml 与包体必须共存。
 
@@ -445,7 +441,7 @@ installer/aether_linux_arm64_installer.sh
 
 ## 桌面版（Electron）OSS 直传上传
 
-桌面版与 Web 版共用同一组管理员直传接口（`/api/download/admin/*` 与 `/api/downloadbeta/admin/*`），区别仅在请求体新增 `desktop` 段、OSS 对象 key 前缀改为 `desktop/<version>/`（测试版为 `beta/desktop/<version>/`）。commit 阶段服务端对**主包**重算 `sha512`/`size` 并生成 L1 per-platform manifest（与 Web 版同构），但对 **L2 yml 与 blockmap** 原样采用上游产物、不重写。
+桌面版与 Web 版共用同一组管理员直传接口（`/api/download/admin/*` 与 `/api/downloadbeta/admin/*`），区别仅在请求体新增 `desktop` 段、OSS 对象 key 前缀改为 `desktop/<version>/`（测试版为 `beta/desktop/<version>/`）。commit 阶段服务端对**主包**生成 L1 per-platform manifest（与 Web 版发布语义同构），但对 **L2 yml 与 blockmap** 原样采用上游产物、不重写。为避免桌面版大包在单个 HTTP 请求中反复下载，上传端应在 commit 请求中提供主包 `sha512`/`size`；服务端会用 OSS HEAD 校验 size，未提供时才流式回算。
 
 发布渠道约束：
 
@@ -453,6 +449,28 @@ installer/aether_linux_arm64_installer.sh
 - **公开渠道**：保持手动上传，由管理员调用 `/api/download/admin/presign` + `commit`。
 
 流程同样分为三步：presign → upload → commit。
+
+### Web Console 单 ZIP upsert
+
+管理员控制台支持选择一个 `.zip` 桌面版发布包。ZIP 仅在浏览器本地读取，应用服务器不接收、不落盘；控制台从 ZIP 中逐个提取产物，再复用下述 presign 接口直传 OSS。ZIP 内可以是完整的 18 个文件，也可以是一个待合并的子集。
+
+ZIP 内容约束：
+
+- 产物可以位于 ZIP 根目录或外层目录中，最终文件名必须属于 `DESKTOP_UPLOAD_FILENAMES` 白名单
+- 不允许重复文件名、未知文件、路径穿越或 L1 `desktop-*.yml`
+- 同一渠道和版本下，本次上传的同名对象覆盖 OSS 已有对象；ZIP 未包含的对象保持不变
+- 管理员可以向已发布版本继续上传并覆盖同名 OSS 对象；ZIP 未包含的对象仍保持不变，commit 后会重新生成 L1 manifest 并更新 latest 索引
+- 如果 upsert 后 18 个产物仍不完整，commit 返回 `status: "draft"` 和 `missingFiles`，不生成 L1 manifest、不更新 latest 索引
+- 如果最终集合完整，commit 生成全部 6 个 L1 manifest，并返回 `status: "published"`
+
+外层 ZIP 建议使用 store 模式，不要再次压缩已经压缩过的 dmg、zip、exe、deb 等大文件。例如：
+
+```bash
+zip -0 aether-desktop-0.8.0.zip \
+  aether-desktop-* latest.yml latest-mac.yml latest-linux.yml latest-linux-arm64.yml
+```
+
+控制台仍保留逐文件上传作为高级模式；单文件与 ZIP 同时包含同名产物时，单文件优先。
 
 ### Step 1: 获取预签名 URL（桌面版）
 
@@ -482,12 +500,8 @@ installer/aether_linux_arm64_installer.sh
       "aether-desktop-win-x64.exe.blockmap",
       "aether-desktop-win-arm64.exe",
       "aether-desktop-win-arm64.exe.blockmap",
-      "aether-desktop-linux-x86_64.AppImage",
-      "aether-desktop-linux-x86_64.rpm",
       "aether-desktop-linux-amd64.deb",
-      "aether-desktop-linux-arm64.AppImage",
       "aether-desktop-linux-arm64.deb",
-      "aether-desktop-linux-aarch64.rpm",
       "latest.yml",
       "latest-mac.yml",
       "latest-linux.yml",
@@ -529,6 +543,8 @@ installer/aether_linux_arm64_installer.sh
 
 使用预签名 URL 将各文件**原样** PUT 到 OSS，`Content-Type` 用响应中返回的 `contentType`。`*.blockmap`、`*.zip`、yml 均需逐一上传，缺一会导致 electron-builder 自动更新解析失败。
 
+桌面版文件数量和体积都明显大于 Web 版，上传端建议限制 OSS PUT 并发数，当前 Web Console 桌面版上传限制为最多 3 个文件同时上传；自动上传脚本也应采用相同或更低的并发上限。
+
 ### Step 3: 提交元数据（桌面版）
 
 - Method: `POST`
@@ -542,18 +558,94 @@ installer/aether_linux_arm64_installer.sh
 
 ```json
 {
-  "desktop": { "version": "0.7.2-beta.1" },
+  "desktop": {
+    "version": "0.7.2-beta.1",
+    "fileMetadata": {
+      "aether-desktop-mac-arm64.dmg": {
+        "sha512": "<base64-sha512>",
+        "size": 93444053
+      },
+      "aether-desktop-mac-x64.dmg": {
+        "sha512": "<base64-sha512>",
+        "size": 93444053
+      },
+      "aether-desktop-win-x64.exe": {
+        "sha512": "<base64-sha512>",
+        "size": 93444053
+      },
+      "aether-desktop-win-arm64.exe": {
+        "sha512": "<base64-sha512>",
+        "size": 93444053
+      },
+      "aether-desktop-linux-amd64.deb": {
+        "sha512": "<base64-sha512>",
+        "size": 93444053
+      },
+      "aether-desktop-linux-arm64.deb": {
+        "sha512": "<base64-sha512>",
+        "size": 93444053
+      }
+    }
+  },
   "releaseDate": "2026-07-03T00:00:00.000Z"
 }
 ```
 
+`mode` 与 `files` 是单 ZIP/增量上传使用的字段：
+
+- `mode: "upsert"` 时，`files` 必须是非空且无重复的桌面产物白名单子集
+- 不传 `mode` 时使用原有 `strict` 语义，要求目标版本目录已经包含完整的 18 个产物；用于兼容旧上传脚本
+- `files` 表示客户端声明的本次 PUT 对象，并在响应中原样返回；未列出的已有对象不会删除
+- `fileMetadata` 在 upsert 模式下只能包含本次 `files` 中的主包
+
+增量请求示例：
+
+```json
+{
+  "desktop": {
+    "version": "0.8.0",
+    "mode": "upsert",
+    "files": [
+      "aether-desktop-linux-arm64.deb",
+      "latest-linux-arm64.yml"
+    ],
+    "fileMetadata": {
+      "aether-desktop-linux-arm64.deb": {
+        "sha512": "<base64-sha512>",
+        "size": 93444053
+      }
+    }
+  }
+}
+```
+
+`fileMetadata` 推荐填写 6 个 L1 主包文件（macOS dmg、Windows exe、Linux deb）的 Base64 SHA-512 与字节数。当前 Web Console 会在桌面版 commit 前计算并提交这些 metadata。为兼容旧上传脚本，该字段可省略；省略时服务端会从 OSS 流式读取主包计算 `sha512`/`size`，请求耗时会明显增加。
+
 服务端处理流程（与 Web 版 commit 同构）：
 
-1. 校验 OSS 中 `desktop/<version>/`（或 `beta/desktop/<version>/`）下 L2 yml 与包体存在
-2. 从 OSS 内网拉取各平台主包（dmg/exe/AppImage），计算 `sha512` 和 `size`
-3. 生成 L1 per-platform manifest 并写入 OSS 的 `desktop/<version>/desktop-<platform>.yml`（测试版 `beta/desktop/<version>/...`）
-4. 更新桌面版 latest 索引：公开渠道写入 `downloads/desktop-latest-versions.json`，测试版写入 `downloads/beta-desktop-latest-versions.json`，结构为 per-platform version map（与 Web 版 `latest-versions.json` 同构），例如 `{ "desktopMacArm64": "0.7.2-beta.1", "desktopWinX64": "0.7.2-beta.1", ... }`
-5. **不**重写、不重新计算 L2 yml 与 blockmap（L2 为上游原样产物，仅供客户端自动更新）
+1. HEAD 检查 OSS 中 `desktop/<version>/`（或 `beta/desktop/<version>/`）下完整的 18 个 L2 yml 与包体；只把 OSS `404` 视为缺失，其他 OSS 错误直接中止
+2. `upsert` 模式下如果仍有缺失，返回 draft 状态与缺失清单，不生成 L1 manifest、不更新 latest 索引
+3. 对各平台主包（dmg/exe/deb）优先使用请求中的 `fileMetadata`，并用 OSS HEAD 校验 `size`；未提供 metadata 时流式读取 OSS 对象计算 `sha512` 和 `size`
+4. 生成 L1 per-platform manifest 并写入 OSS 的 `desktop/<version>/desktop-<platform>.yml`（测试版 `beta/desktop/<version>/...`）
+5. 所有 manifest 写入成功后才更新桌面版 latest 索引：公开渠道写入 `downloads/desktop-latest-versions.json`，测试版写入 `downloads/beta-desktop-latest-versions.json`，结构为 per-platform version map（与 Web 版 `latest-versions.json` 同构），例如 `{ "desktopMacArm64": "0.7.2-beta.1", "desktopWinX64": "0.7.2-beta.1", ... }`
+6. **不**重写、不重新计算 L2 yml 与 blockmap（L2 为上游原样产物，仅供客户端自动更新）
+
+增量包尚未补齐时返回 `200`：
+
+```json
+{
+  "ok": true,
+  "releaseDate": "2026-08-03T00:00:00.000Z",
+  "desktop": {
+    "version": "0.8.0",
+    "channel": "public",
+    "status": "draft",
+    "uploadedFiles": ["aether-desktop-linux-arm64.deb"],
+    "missingFiles": ["latest-linux-arm64.yml"]
+  },
+  "files": []
+}
+```
 
 commit 响应示例（测试版渠道，与 Web 版 `files[]` 同构）：
 
@@ -564,6 +656,7 @@ commit 响应示例（测试版渠道，与 Web 版 `files[]` 同构）：
   "desktop": {
     "version": "0.7.2-beta.1",
     "channel": "beta",
+    "status": "published",
     "files": [
       {
         "platform": "desktopMacArm64",
@@ -738,7 +831,7 @@ commit 响应示例（测试版渠道，与 Web 版 `files[]` 同构）：
 
 - `/download/desktop/latest/aether-desktop-mac-arm64.dmg`
 - `/download/desktop/latest/aether-desktop-win-x64.exe`
-- `/download/desktop/latest/aether-desktop-linux-x86_64.AppImage`
+- `/download/desktop/latest/aether-desktop-linux-amd64.deb`
 
 测试版渠道把根路径替换为 `/downloadbeta/desktop/...` 即可。
 
@@ -895,6 +988,7 @@ OSS 上传失败时的响应示例：
 | --- | --- |
 | `400` | 请求格式错误、缺少版本号、版本格式非法、`releaseDate` 非法 |
 | `403` | 管理员密码错误 |
+| `502` | manifest 写入 OSS 失败；服务端不会更新 latest 索引 |
 | `500` | 管理员上传接口缺少 `DOWNLOAD_ADMIN_PASSWORD` 或 OSS 配置；公开下载接口缺少 `DOWNLOAD_OSS_PUBLIC_BASE_URL` |
 
 错误响应示例：
