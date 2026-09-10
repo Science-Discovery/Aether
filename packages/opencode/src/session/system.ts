@@ -13,6 +13,7 @@ import type { Provider } from "@/provider/provider"
 import type { Agent } from "@/agent/agent"
 import { Permission } from "@/permission"
 import { Skill } from "@/skill"
+import { Shell } from "@/shell/shell"
 
 export namespace SystemPrompt {
   export function provider(model: Provider.Model) {
@@ -36,6 +37,7 @@ export namespace SystemPrompt {
         `  Workspace root folder: ${Instance.worktree}`,
         `  Is directory a git repo: ${project.vcs === "git" ? "yes" : "no"}`,
         `  Platform: ${process.platform}`,
+        `  Shell: ${Shell.acceptable()}`,
         `  Today's date: ${new Date().toDateString()}`,
         `</env>`,
         `<directories>`,

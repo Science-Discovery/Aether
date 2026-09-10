@@ -1,4 +1,4 @@
-Executes a given bash command in a persistent shell session with optional timeout, ensuring proper handling and security measures.
+Executes a given command in a new ${shell} process with optional timeout. Write commands for this shell's syntax and quoting rules.
 
 All commands run in ${directory} by default. Use the `workdir` parameter if you need to run a command in a different directory. AVOID using `cd <directory> && <command>` patterns - use `workdir` instead.
 
@@ -22,6 +22,9 @@ Before executing the command, please follow these steps:
 
 Usage notes:
   - The command argument is required.
+  - On Windows, check the shell above before using PowerShell syntax. When launching PowerShell from Bash/Git Bash, Bash expands `$variables`, `$(...)`, and backticks inside double-quoted `-Command` arguments before PowerShell receives them.
+  - On Windows, for PowerShell scripts with variables, pipelines, or nested quotes, use Write to save a `.ps1` file and run `pwsh -NoProfile -File "script.ps1"` (when available) or `powershell.exe -NoProfile -File "script.ps1"`. Avoid embedding these scripts in a double-quoted `-Command` argument.
+  - Windows PowerShell 5.1 requires UTF-8 with BOM for UTF-8 `.ps1` files containing non-ASCII text; PowerShell 7 (`pwsh`) supports UTF-8 without BOM. Console output encoding and script file encoding are separate concerns.
   - You can specify an optional timeout in milliseconds. If not specified, commands will time out after 120000ms (2 minutes).
   - It is very helpful if you write a clear, concise description of what this command does in 5-10 words.
   - If the output exceeds ${maxLines} lines or ${maxBytes} bytes, it will be truncated and the full output will be written to a file. You can use Read with offset/limit to read specific sections or Grep to search the full content. Do NOT use `head`, `tail`, or other truncation commands to limit output; the full output will already be captured to a file for more precise searching.

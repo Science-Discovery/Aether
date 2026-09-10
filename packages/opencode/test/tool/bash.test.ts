@@ -368,8 +368,8 @@ describe("tool.bash truncation", () => {
           ctx,
         )
         expect((result.metadata as any).truncated).toBe(false)
-        const eol = process.platform === "win32" ? "\r\n" : "\n"
-        expect(result.output).toBe(`hello${eol}`)
+        // Git Bash uses LF even when the host platform is Windows.
+        expect(result.output.replaceAll("\r\n", "\n")).toBe("hello\n")
       },
     })
   })

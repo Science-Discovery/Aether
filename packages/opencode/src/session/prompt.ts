@@ -48,6 +48,7 @@ import { SessionStatus } from "./status"
 import { LLM } from "./llm"
 import { iife } from "@/util/iife"
 import { Shell } from "@/shell/shell"
+import { ShellOutput } from "@/shell/output"
 import { cleanupNul } from "@/shell/guard"
 import { Truncate } from "@/tool/truncate"
 import { Knowledge } from "../knowledge"
@@ -1791,6 +1792,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       { cwd, sessionID: input.sessionID, callID: part.callID },
       { env: {} },
     )
+    const encoding = await ShellOutput.encoding()
     const proc = spawn(shell, args, {
       cwd,
       detached: process.platform !== "win32",
@@ -1805,8 +1807,9 @@ NOTE: At any point in time through this workflow you should feel free to ask the
 
     let output = ""
 
-    proc.stdout?.on("data", (chunk) => {
-      output += chunk.toString()
+    const append = (text: string) => {
+      if (!text) return
+      output += text
       if (part.state.status === "running") {
         part.state.metadata = {
           output: output,
@@ -1814,18 +1817,14 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         }
         Session.updatePart(part)
       }
-    })
+    }
 
-    proc.stderr?.on("data", (chunk) => {
-      output += chunk.toString()
-      if (part.state.status === "running") {
-        part.state.metadata = {
-          output: output,
-          description: "",
-        }
-        Session.updatePart(part)
-      }
-    })
+    for (const stream of [proc.stdout, proc.stderr]) {
+      const decoder = ShellOutput.decoder(encoding)
+      stream?.on("data", (chunk: Buffer) => append(decoder.write(chunk)))
+      stream?.on("end", () => append(decoder.end()))
+      stream?.on("close", () => append(decoder.end()))
+    }
 
     let aborted = false
     let exited = false
