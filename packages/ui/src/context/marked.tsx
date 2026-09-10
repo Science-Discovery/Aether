@@ -395,12 +395,160 @@ export function normalizeMath(text: string) {
     .replace(/\\\[\s*([\s\S]*?)\s*\\\]/g, (_, math) => `\n$$\n${math}\n$$\n`)
 }
 
+const blockStart = /^[ \t]*(?:\n|\||#{1,6}\s|[-*+]\s|\d+[.)]\s|```|~~~)/
+const blockBreak = /^[ \t]*(?:\n|```|~~~)/
+
+const mathy = /[\\^_{}|~=<>*+/:-]/
+const proseWord =
+  /\b(?:and|or|not|but|if|then|than|is|are|was|were|be|been|being|the|an|of|to|in|on|at|by|for|with|from|into|onto|per|via|vs|versus|up|down|out|over|under|between|each|every|some|any|all|both|more|less|most|least|only|just|also|very|too|here|there|when|where|which|who|what|that|this|these|those|its|our|you|they|them|their|will|would|can|could|should|may|might|must|does|did|have|has|had|about|after|before|during|since|until|while|total|cost|costs|price|fee|pay)\b/i
+const cjk = /[\u4e00-\u9fff\u3040-\u30ff]/
+
+export function mathLike(content: string) {
+  return !/\s/.test(content) || mathy.test(content) || (!proseWord.test(content) && !cjk.test(content))
+}
+
+function stars(span: string) {
+  return span
+    .split(/(\\(?:text|textrm|textbf|textit|mathrm|operatorname)\{[^{}]*\})/g)
+    .map((part, i) => (i % 2 ? part : part.replace(/(?<!\\)\*/g, "\\ast ")))
+    .join("")
+}
+
+function pair(text: string) {
+  let out = ""
+  let i = 0
+  while (i < text.length) {
+    const c = text[i]
+    if (c === "\\") {
+      out += text.slice(i, i + 2)
+      i += 2
+      continue
+    }
+    if (c !== "$") {
+      out += c
+      i++
+      continue
+    }
+    const display = text[i + 1] === "$"
+    const width = display ? 2 : 1
+    let j = i + width
+    let close = -1
+    while (j < text.length) {
+      if (text[j] === "\\") {
+        j += 2
+        continue
+      }
+      if (text[j] === "$") {
+        if (display === (text[j + 1] === "$")) {
+          close = j
+          break
+        }
+        j++
+        continue
+      }
+      if (text[j] === "\n" && (display ? blockBreak : blockStart).test(text.slice(j + 1, j + 40))) break
+      j++
+    }
+    if (close === -1) {
+      out += text.slice(i, i + width)
+      i += width
+      continue
+    }
+    const span = text.slice(i, close + width)
+    const flat = span.includes("\n") ? span.replace(/\s*\n[ \t]*>*[ \t]*/g, " ") : span
+    const content = flat.slice(width, flat.length - width)
+    out += mathLike(content) ? stars(flat) : "\\$".repeat(width) + content + "\\$".repeat(width)
+    i = close + width
+  }
+  return out
+}
+
+const tableRow = /^[ \t]*\|/
+const tableDelim = /^[ \t|:= -]*-[ \t|:= -]*$/
+
+export function guardPipes(text: string) {
+  const lines = text.split("\n")
+  let fence = false
+  let table = false
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]
+    if (/^[ \t]*(```|~~~)/.test(line)) {
+      fence = !fence
+      table = false
+      continue
+    }
+    if (fence) continue
+    const row: boolean = tableRow.test(line)
+    const next = lines[i + 1] ?? ""
+    const opens: boolean = row && !table && tableDelim.test(next)
+    if (row && (table || opens)) {
+      lines[i] = line.replace(/\$[^$\n]*\$/g, (span) => span.replace(/(?<!\\)\|/g, "\\|"))
+    }
+    table = row && (table || opens)
+  }
+  return lines.join("\n")
+}
+
+const fenceLine = /^[ \t]*(```|~~~)/
+
+function splitCode(text: string): [string, boolean][] {
+  const lines = text.split("\n")
+  const flags: boolean[] = []
+  let fence = false
+  let indented = false
+  let prevBlank = true
+  for (const line of lines) {
+    if (fence) {
+      flags.push(true)
+      if (fenceLine.test(line)) fence = false
+      continue
+    }
+    const blank = line.trim() === ""
+    const isIndent = /^(?: {4}|\t)/.test(line)
+    if (indented) {
+      if (isIndent || blank) flags.push(true)
+      else {
+        indented = false
+        flags.push(false)
+      }
+    } else if (isIndent && prevBlank && !fenceLine.test(line)) {
+      indented = true
+      flags.push(true)
+    } else {
+      flags.push(false)
+    }
+    if (fenceLine.test(line)) fence = true
+    prevBlank = blank
+  }
+  const groups: [string, boolean][] = []
+  let buf: string[] = [lines[0]]
+  let code = flags[0]
+  lines.slice(1).forEach((line, i) => {
+    if (flags[i + 1] !== code) {
+      groups.push([buf.join("\n"), code])
+      buf = [line]
+      code = flags[i + 1]
+    } else {
+      buf.push(line)
+    }
+  })
+  groups.push([buf.join("\n"), code])
+  return groups
+}
+
+export function joinMath(text: string) {
+  return splitCode(text.replace(/\r\n?/g, "\n"))
+    .map(([part, code]) => (code ? part : pair(guardPipes(part))))
+    .join("\n")
+}
+
 export function renderMathInText(text: string): string {
   let result = normalizeMath(text)
 
   // Display math: $$...$$
-  const displayMathRegex = /\$\$([\s\S]*?)\$\$/g
-  result = result.replace(displayMathRegex, (_, math) => {
+  const displayMathRegex = /\$\$((?:[^$<>\\]|\\[\s\S])+?)\$\$/g
+  result = result.replace(displayMathRegex, (match, math) => {
+    if (!mathLike(math)) return match
     try {
       return katex.renderToString(decodeMath(math), {
         displayMode: true,
@@ -413,8 +561,9 @@ export function renderMathInText(text: string): string {
   })
 
   // Inline math: $...$
-  const inlineMathRegex = /(?<!\$)\$(?!\$)((?:[^$\\]|\\.)+?)\$(?!\$)/g
-  result = result.replace(inlineMathRegex, (_, math) => {
+  const inlineMathRegex = /(?<!\$)\$(?!\$)((?:[^$\\<>\n]|\\.)+?)\$(?!\$)/g
+  result = result.replace(inlineMathRegex, (match, math) => {
+    if (!mathLike(math)) return match
     try {
       return katex.renderToString(decodeMath(math), {
         displayMode: false,
@@ -444,50 +593,60 @@ function renderMathExpressions(html: string): string {
     .join("")
 }
 
+const jsParser = marked.use(
+  {
+    renderer: {
+      link({ href, title, text }) {
+        const titleAttr = title ? ` title="${title}"` : ""
+        return `<a href="${href}"${titleAttr} class="external-link" target="_blank" rel="noopener noreferrer">${text}</a>`
+      },
+    },
+    tokenizer: {
+      del(src: string) {
+        const match = /^~~(?=[^\s~])((?:\\[\s\S]|[^\\])*?(?:\\[\s\S]|[^\s~\\]))~~(?=[^~]|$)/.exec(src)
+        if (!match) return
+        return {
+          type: "del" as const,
+          raw: match[0],
+          text: match[1],
+          tokens: this.lexer.inlineTokens(match[1]),
+        }
+      },
+    },
+  },
+  markedKatex({
+    throwOnError: false,
+    nonStandard: true,
+    macros: katexMacros,
+  }),
+  markedShiki({
+    async highlight(code, lang) {
+      const highlighter = await getSharedHighlighter({
+        themes: ["OpenCode"],
+        langs: [],
+        preferredHighlighter: "shiki-wasm",
+      })
+      if (!(lang in bundledLanguages)) {
+        lang = "text"
+      }
+      if (!highlighter.getLoadedLanguages().includes(lang)) {
+        await highlighter.loadLanguage(lang as BundledLanguage)
+      }
+      return highlighter.codeToHtml(code, {
+        lang: lang || "text",
+        theme: "OpenCode",
+        tabindex: false,
+      })
+    },
+  }),
+)
+
+export async function parseMarkdown(markdown: string): Promise<string> {
+  const html = await jsParser.parse(joinMath(normalizeMath(markdown)))
+  return renderMathExpressions(html)
+}
+
 export const { use: useMarked, provider: MarkedProvider } = createSimpleContext({
   name: "Marked",
-  init: () => {
-    const jsParser = marked.use(
-      {
-        renderer: {
-          link({ href, title, text }) {
-            const titleAttr = title ? ` title="${title}"` : ""
-            return `<a href="${href}"${titleAttr} class="external-link" target="_blank" rel="noopener noreferrer">${text}</a>`
-          },
-        },
-      },
-      markedKatex({
-        throwOnError: false,
-        nonStandard: true,
-        macros: katexMacros,
-      }),
-      markedShiki({
-        async highlight(code, lang) {
-          const highlighter = await getSharedHighlighter({
-            themes: ["OpenCode"],
-            langs: [],
-            preferredHighlighter: "shiki-wasm",
-          })
-          if (!(lang in bundledLanguages)) {
-            lang = "text"
-          }
-          if (!highlighter.getLoadedLanguages().includes(lang)) {
-            await highlighter.loadLanguage(lang as BundledLanguage)
-          }
-          return highlighter.codeToHtml(code, {
-            lang: lang || "text",
-            theme: "OpenCode",
-            tabindex: false,
-          })
-        },
-      }),
-    )
-
-    return {
-      async parse(markdown: string): Promise<string> {
-        const html = await jsParser.parse(normalizeMath(markdown))
-        return renderMathExpressions(html)
-      },
-    }
-  },
+  init: () => ({ parse: parseMarkdown }),
 })
