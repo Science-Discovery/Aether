@@ -28,9 +28,10 @@ export namespace SessionRetry {
   }
 
   export function delay(attempt: number, error?: MessageV2.APIError) {
-    const isTimeout = error?.data.metadata?.kind === "timeout"
-    const base = isTimeout ? TIMEOUT_RETRY_INITIAL_DELAY : RETRY_INITIAL_DELAY
-    const cap = isTimeout ? TIMEOUT_RETRY_MAX_DELAY : RETRY_MAX_DELAY_NO_HEADERS
+    const kind = error?.data.metadata?.kind
+    const slow = kind === "timeout" || kind === "conn"
+    const base = slow ? TIMEOUT_RETRY_INITIAL_DELAY : RETRY_INITIAL_DELAY
+    const cap = slow ? TIMEOUT_RETRY_MAX_DELAY : RETRY_MAX_DELAY_NO_HEADERS
     if (error) {
       const headers = error.data.responseHeaders
       if (headers) {
@@ -71,6 +72,11 @@ export namespace SessionRetry {
       if (error.data.responseBody?.includes("FreeUsageLimitError"))
         return `Free usage exceeded, add credits https://opencode.ai/zen`
       return error.data.message.includes("Overloaded") ? "Provider is overloaded" : error.data.message
+    }
+
+    const text = typeof error.data?.message === "string" ? error.data.message : ""
+    if (/certificate verification error|socket hang up|connection (refused|reset|closed)|fetch failed/i.test(text)) {
+      return "Connection error"
     }
 
     const json = iife(() => {
