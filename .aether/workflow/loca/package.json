@@ -1,0 +1,12 @@
+{
+  "name": "aether-loca-workflow",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "bun test",
+    "check": "bun run check.js"
+  },
+  "dependencies": {
+    "zod": "4.1.8"
+  }
+}

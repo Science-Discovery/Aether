@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "reviewers": 3,
+  "concurrency": 4,
+  "attempts": 2,
+  "cycles": 5,
+  "solves": 8,
+  "splits": 5,
+  "questions": 2,
+  "calls": 240,
+  "timeout": 600000,
+  "bytes": 200000,
+  "packet": 180000,
+  "execution": { "python": "python3", "timeout": 30000, "bytes": 1000000 },
+  "phases": ["contract", "solve", "split", "structure", "inputs", "validate", "review", "integrate", "awaiting_human"],
+  "checks": {
+    "contract": ["intent", "criteria", "retention", "testability"],
+    "structure": ["coverage", "single_type", "dependencies", "acceptance_independence", "artifact_fidelity"],
+    "inputs": ["provenance", "fidelity", "conditions", "relevance", "completeness"],
+    "reference": ["original_fidelity", "relevance", "applicability", "strength", "counterevidence"],
+    "reasoning": ["definitions", "principles", "inference", "consistency", "boundary", "counterexample"],
+    "computation": ["specification", "implementation", "coverage", "dataflow", "numerics", "reproducibility"],
+    "integrate": [
+      "criteria_coverage",
+      "actual_artifacts",
+      "effective_nodes",
+      "findings_closed",
+      "scope",
+      "delivery_fidelity"
+    ]
+  }
+}

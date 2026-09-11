@@ -42,6 +42,24 @@ nul
 Update/test_installer_init_flow.sh
 
 .aether/*
+!.aether/.gitignore
+!.aether/plugins/
+.aether/plugins/*
+!.aether/plugins/loca.js
+!.aether/agent/
+.aether/agent/*
+!.aether/agent/loca*.md
+!.aether/command/
+.aether/command/*
+!.aether/command/loca*.md
+!.aether/skills/
+.aether/skills/*
+!.aether/skills/loca-workflow/
+!.aether/workflow/
+.aether/workflow/*
+!.aether/workflow/loca/
+.aether/workflow/loca/.runtime/
+.aether/workflow/loca/results/
 reference/
 skill-evolution-reference/
 packages/opencode/test/system/llm/providers.local.yaml

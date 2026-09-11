@@ -1,0 +1,7 @@
+node_modules
+package.json
+bun.lock
+.gitignore
+!/.gitignore
+!/workflow/loca/package.json
+!/workflow/loca/bun.lock
