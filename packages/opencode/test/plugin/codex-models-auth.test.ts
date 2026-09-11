@@ -126,11 +126,18 @@ test("uses remote slugs as the sole allowlist and matches model api ids", async 
 })
 
 test("authenticates catalog requests with the current subscription account", async () => {
-  const request = spyOn(globalThis, "fetch").mockResolvedValue(
-    new Response(
-      JSON.stringify({
-        models: [{ slug: "gpt-5.5", visibility: "list", minimal_client_version: "0.144.0" }],
-      }),
+  const request = spyOn(globalThis, "fetch").mockImplementation(
+    Object.assign(
+      async (input: RequestInfo | URL) => {
+        const url = input instanceof Request ? input.url : input.toString()
+        if (url === CodexModels.REGISTRY) return new Response(JSON.stringify({ version: "0.154.0" }))
+        return new Response(
+          JSON.stringify({
+            models: [{ slug: "gpt-5.5", visibility: "list", minimal_client_version: "0.144.0" }],
+          }),
+        )
+      },
+      { preconnect: fetch.preconnect },
     ),
   )
   const hooks = await CodexAuthPlugin({} as unknown as PluginInput)
@@ -162,9 +169,11 @@ test("authenticates catalog requests with the current subscription account", asy
     const call = request.mock.calls.at(-1)
     const url = call?.[0]
     const headers = new Headers(call?.[1]?.headers)
-    expect(url instanceof Request ? url.url : url?.toString()).toBe(CodexModels.URL)
+    expect(url instanceof Request ? url.url : url?.toString()).toBe(CodexModels.url("0.154.0"))
     expect(headers.get("authorization")).toBe("Bearer access")
     expect(headers.get("chatgpt-account-id")).toBe("account")
+    const discovery = request.mock.calls.find((call) => call[0].toString() === CodexModels.REGISTRY)
+    expect(new Headers(discovery?.[1]?.headers).has("authorization")).toBe(false)
   } finally {
     request.mockRestore()
   }

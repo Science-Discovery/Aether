@@ -30,7 +30,7 @@ function model(slug: string, input?: { visibility?: string; version?: string | n
 
 afterEach(() => CodexModels.Test.reset())
 
-test("accepts only compatible visible slugs and ignores protocol fields", () => {
+test("accepts all visible slugs regardless of client version", () => {
   const result = CodexModels.Test.parse(
     body([
       model("zeta"),
@@ -41,7 +41,25 @@ test("accepts only compatible visible slugs and ignores protocol fields", () => 
       model("alpha"),
     ]),
   )
-  expect(result).toEqual(["alpha", "zeta"])
+  expect(result).toEqual(["alpha", "future", "invalid", "zeta"])
+})
+
+test("discovers the latest published Codex version", async () => {
+  const value = await CodexModels.Test.version({
+    force: true,
+    fetcher: async () => new Response(JSON.stringify({ version: "0.154.0" })),
+  })
+  expect(value).toBe("0.154.0")
+  expect(CodexModels.url(value)).toBe(`${CodexModels.URL}?client_version=0.154.0`)
+})
+
+test("keeps the cached Codex version when discovery fails", async () => {
+  const value = await CodexModels.Test.version({
+    force: true,
+    fallback: "0.153.0",
+    fetcher: async () => new Response("offline", { status: 503 }),
+  })
+  expect(value).toBe("0.153.0")
 })
 
 test("downloads changes and sends ETag for 304", async () => {

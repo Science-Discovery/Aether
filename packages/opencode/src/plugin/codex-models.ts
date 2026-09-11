@@ -1,6 +1,5 @@
 import fs from "fs/promises"
 import path from "path"
-import semver from "semver"
 import z from "zod"
 import { Global } from "../global"
 import { Installation } from "../installation"
@@ -13,8 +12,13 @@ export namespace CodexModels {
   const log = Log.create({ service: "plugin.codex.models" })
   const ttl = 5 * 60 * 1000
   const interval = 60 * 60 * 1000
-  export const VERSION = "0.144.0"
-  export const URL = `https://chatgpt.com/backend-api/codex/models?client_version=${VERSION}`
+  const baseline = "0.144.0"
+  export const REGISTRY = "https://registry.npmjs.org/@openai/codex/latest"
+  export const URL = "https://chatgpt.com/backend-api/codex/models"
+
+  export function url(version: string) {
+    return `${URL}?client_version=${version}`
+  }
 
   const Model = z
     .object({
@@ -24,6 +28,7 @@ export namespace CodexModels {
     })
     .passthrough()
   const Response = z.object({ models: z.array(Model) }).passthrough()
+  const Release = z.object({ version: z.string().regex(/^\d+\.\d+\.\d+$/) }).passthrough()
 
   export const Source = z.enum(["none", "fallback", "cache", "remote"])
   export const Status = z
@@ -45,7 +50,7 @@ export namespace CodexModels {
   const Cache = z
     .object({
       version: z.literal(1),
-      clientVersion: z.literal(VERSION),
+      clientVersion: z.string().regex(/^\d+\.\d+\.\d+$/),
       checkedAt: z.number().nullable(),
       updatedAt: z.number().nullable(),
       etag: z.string().nullable(),
@@ -62,6 +67,7 @@ export namespace CodexModels {
     fetcher: Request
     status: Status
     models?: string[]
+    version?: string
   }
   type Input = {
     identity?: string
@@ -73,6 +79,8 @@ export namespace CodexModels {
     models?: string[]
     fetcher: Request
     timeout?: number
+    version?: string
+    prior?: string
   }
 
   const empty: Status = {
@@ -91,6 +99,8 @@ export namespace CodexModels {
   const listeners = new Set<() => void>()
   let active: string | undefined
   let timer: ReturnType<typeof setInterval> | undefined
+  let release = { version: baseline, checkedAt: 0 }
+  let resolving: Promise<string> | undefined
 
   function message(err: unknown) {
     if (err instanceof Error) return err.message
@@ -101,15 +111,35 @@ export namespace CodexModels {
     return path.join(Global.Path.cache, `codex-models-${key}.json`)
   }
 
-  function compatible(version?: string | null) {
-    if (!version) return true
-    if (!semver.valid(version)) return false
-    return semver.lte(version, VERSION)
-  }
-
   function parse(content: string) {
     const data = Response.parse(JSON.parse(content))
-    return [...new Set(data.models.filter((x) => x.visibility === "list" && compatible(x.minimal_client_version)).map((x) => x.slug))].sort()
+    return [...new Set(data.models.filter((x) => x.visibility === "list").map((x) => x.slug))].sort()
+  }
+
+  function version(input?: { fetcher?: Request; force?: boolean; timeout?: number; fallback?: string }) {
+    if (!input?.force && Date.now() - release.checkedAt < interval) return Promise.resolve(release.version)
+    if (resolving) return resolving
+    resolving = (input?.fetcher ?? fetch)(REGISTRY, {
+      headers: { "User-Agent": Installation.USER_AGENT },
+      signal: AbortSignal.timeout(input?.timeout ?? 10 * 1000),
+    })
+      .then(async (response) => {
+        if (!response.ok) throw new Error(`Failed to discover Codex version: ${response.status}`)
+        return Release.parse(await response.json()).version
+      })
+      .then((value) => {
+        release = { version: value, checkedAt: Date.now() }
+        return value
+      })
+      .catch((err) => {
+        release = { version: input?.fallback ?? release.version, checkedAt: Date.now() }
+        log.warn("failed to discover Codex version", { error: err, fallback: release.version })
+        return release.version
+      })
+      .finally(() => {
+        resolving = undefined
+      })
+    return resolving
   }
 
   async function read(key: string) {
@@ -124,7 +154,7 @@ export namespace CodexModels {
     const tmp = `${file}.${process.pid}.${Date.now()}.tmp`
     await Filesystem.writeJson(tmp, {
       version: 1,
-      clientVersion: VERSION,
+      clientVersion: entry.version ?? baseline,
       checkedAt: entry.status.checkedAt,
       updatedAt: entry.status.updatedAt,
       etag: entry.status.etag,
@@ -140,10 +170,11 @@ export namespace CodexModels {
 
   async function download(input: Download) {
     const checkedAt = Date.now()
+    const current = input.version ?? (await version())
     const headers = new Headers({ "User-Agent": Installation.USER_AGENT })
-    if (input.previous.etag) headers.set("If-None-Match", input.previous.etag)
+    if (input.previous.etag && input.prior === current) headers.set("If-None-Match", input.previous.etag)
     const response = await input
-      .fetcher(URL, {
+      .fetcher(url(current), {
         headers,
         signal: AbortSignal.timeout(input.timeout ?? 10 * 1000),
       })
@@ -168,7 +199,7 @@ export namespace CodexModels {
     if (!response.ok) throw new Error(`Failed to fetch Codex models: ${response.status}`)
 
     const models = parse(await response.text())
-    if (models.length === 0) throw new Error("Codex models returned no compatible visible models")
+    if (models.length === 0) throw new Error("Codex models returned no visible models")
     const hash = Hash.fast(models.join("\n"))
     const changed = hash !== input.previous.hash
     return {
@@ -210,6 +241,7 @@ export namespace CodexModels {
           }
         : { ...empty, enabled: true, source: "fallback" },
       models: saved?.models,
+      version: saved?.clientVersion,
     }
     entries.set(key, entry)
     return entry
@@ -235,13 +267,17 @@ export namespace CodexModels {
     }
 
     try {
+      const current = await version({ fallback: entry.version })
       const result = await download({
         previous: entry.status,
         models: entry.models,
         fetcher: entry.fetcher,
+        version: current,
+        prior: entry.version,
       })
       entry.status = result.status
       entry.models = result.models
+      entry.version = current
       await write(entry).catch((err) => log.warn("failed to write Codex models cache", { error: err }))
       if (!result.changed || active !== entry.key || !result.status.hash || !result.status.updatedAt) {
         return { ...result.status, changed: result.changed }
@@ -288,7 +324,7 @@ export namespace CodexModels {
     const entry = await pending
     entry.fetcher = input.fetcher
     start()
-    void once(entry, false)
+    void version({ fallback: entry.version }).then((current) => once(entry, current !== entry.version))
     return select(entry)
   }
 
@@ -311,7 +347,10 @@ export namespace CodexModels {
 
   export const Test = {
     parse,
-    download,
+    download(input: Download) {
+      return download({ ...input, version: input.version ?? baseline, prior: input.prior ?? baseline })
+    },
+    version,
     once,
     filepath,
     key: Hash.fast,
@@ -340,6 +379,8 @@ export namespace CodexModels {
       entries.clear()
       loads.clear()
       tasks.clear()
+      release = { version: baseline, checkedAt: 0 }
+      resolving = undefined
       if (timer) clearInterval(timer)
       timer = undefined
     },
