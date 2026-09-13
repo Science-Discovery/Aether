@@ -653,6 +653,14 @@ export namespace ProviderTransform {
         }
       }
     }
+    // DeepSeek V4.1 Flash uses the unversioned ID on the official API.
+    if (model.providerID === "deepseek" && model.api.id.toLowerCase() === "deepseek-flash") {
+      return {
+        low: { thinking: { type: "enabled" }, reasoningEffort: "low" },
+        high: { thinking: { type: "enabled" }, reasoningEffort: "high" },
+        max: { thinking: { type: "enabled" }, reasoningEffort: "max" },
+      }
+    }
     if (
       /(^|\/)deepseek-v4-(pro|flash)(-\d+)?$/.test(model.api.id.toLowerCase()) &&
       ["deepseek", "vercel", "openrouter", "alibaba-cn"].includes(model.providerID)

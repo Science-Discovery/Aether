@@ -68,6 +68,7 @@ Aether 目前已经与上游 opencode 分离，但 LLM 调用层仍然处在高�
 - Kimi K2.5 / K2P5 在 Anthropic SDK 形态下默认启用 thinking budget。
 - Qwen / Kimi / Minimax / GLM 等模型的采样参数默认值。
 - DeepSeek、Minimax、GLM、Mistral、Kimi 等不暴露通用 reasoning variant，避免错误地传入不兼容 effort。
+- 已确认支持档位的模型使用专门适配：DeepSeek 官方 `deepseek-flash`（V4.1 Flash）提供 `low` / `high` / `max`，选择档位时发送 `thinking.type = "enabled"` 和对应的 `reasoning_effort`；“默认”不额外指定档位，由服务端默认值或已有配置决定。参数依据见 [DeepSeek 思考模式文档](https://api-docs.deepseek.com/guides/thinking_mode/)。
 - LiteLLM proxy 在历史消息含 tool call、当前无工具时注入 `_noop` 工具。
 - HTTP proxy、SSE chunk timeout、自定义 baseURL、provider config 连接语义。
 

@@ -570,6 +570,70 @@ describe("session.llm.stream", () => {
     })
   })
 
+  test.each(["low", "high", "max", undefined])("sends DeepSeek V4.1 Flash effort %s", async (effort) => {
+    const server = state.server
+    if (!server) throw new Error("Server not initialized")
+
+    await using tmp = await tmpdir({
+      config: {
+        enabled_providers: ["deepseek"],
+        provider: {
+          deepseek: {
+            options: { apiKey: "test-key", baseURL: `${server.url.origin}/v1` },
+            models: { "deepseek-flash": { reasoning: true } },
+          },
+        },
+      },
+    })
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const model = await Provider.getModel(ProviderID.make("deepseek"), ModelID.make("deepseek-flash"))
+        expect(Object.keys(model.variants ?? {})).toEqual(["low", "high", "max"])
+
+        const request = waitRequest(
+          "/chat/completions",
+          new Response(createChatStream("Hello"), {
+            headers: { "Content-Type": "text/event-stream" },
+          }),
+        )
+        const session = SessionID.make("session-deepseek-effort")
+        const agent = {
+          name: "test",
+          mode: "primary",
+          options: {},
+          permission: [{ permission: "*", pattern: "*", action: "allow" }],
+        } satisfies Agent.Info
+        const stream = await LLM.stream({
+          user: {
+            id: MessageID.make("user-deepseek-effort"),
+            sessionID: session,
+            role: "user",
+            time: { created: Date.now() },
+            agent: agent.name,
+            model: { providerID: model.providerID, modelID: model.id },
+            variant: effort,
+          },
+          sessionID: session,
+          model,
+          agent,
+          system: [],
+          abort: new AbortController().signal,
+          messages: [{ role: "user", content: "Hello" }],
+          tools: {},
+        })
+
+        expect(await stream.text).toBe("Hello")
+        const body = (await request).body
+        expect(body.model).toBe("deepseek-flash")
+        expect(body.reasoning_effort).toBe(effort)
+        expect(body.reasoningEffort).toBeUndefined()
+        expect(body.thinking).toEqual(effort ? { type: "enabled" } : undefined)
+      },
+    })
+  })
+
   test("sends bounded thinking controls for Alibaba GLM-5.2", async () => {
     const server = state.server
     if (!server) {
