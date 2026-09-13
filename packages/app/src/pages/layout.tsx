@@ -1559,9 +1559,10 @@ export default function Layout(props: ParentProps) {
 
   async function navigateToProject(directory: string | undefined) {
     if (!directory) return
+    const key = server.key
+    const current = () => !dialogDead && server.key === key
     const root = projectRoot(directory)
     server.projects.touch(directory)
-    OpenIntent.mark(server.key, directory)
     const project = layout.projects.list().find((item) => item.worktree === root)
     let dirs = project
       ? effectiveWorkspaceOrder(root, [root, ...(project.sandboxes ?? [])], store.workspaceOrder[root])
@@ -1570,10 +1571,13 @@ export default function Layout(props: ParentProps) {
       .recent()
       .filter((r) => r.kind === "project" && r.projectID === project?.id)
       .map((r) => r.directory)
-    const allDirs = [...dirs, ...siblingDirs.filter((d) => !dirs.some((x) => workspaceKey(x) === workspaceKey(d)))]
+    const entries = () => [
+      ...dirs,
+      ...siblingDirs.filter((d) => !dirs.some((x) => workspaceKey(x) === workspaceKey(d))),
+    ]
     const canOpen = (value: string | undefined) => {
       if (!value) return false
-      return allDirs.some((item) => workspaceKey(item) === workspaceKey(value))
+      return entries().some((item) => workspaceKey(item) === workspaceKey(value))
     }
     const refreshDirs = async (target?: string) => {
       if (!target || target === root || canOpen(target)) return canOpen(target)
@@ -1585,11 +1589,12 @@ export default function Layout(props: ParentProps) {
       return canOpen(target)
     }
     const openSession = async (target: { directory: string; id: string }) => {
+      if (!current()) return false
       if (!canOpen(target.directory)) return false
       const [data] = globalSync.child(target.directory, { bootstrap: false })
       if (data.session.some((item) => item.id === target.id)) {
         setStore("lastProjectSession", directory, { directory: target.directory, id: target.id, at: Date.now() })
-        OpenIntent.mark(server.key, target.directory)
+        OpenIntent.mark(key, target.directory)
         navigateWithSidebarReset(`/${base64Encode(target.directory)}/session/${target.id}`)
         return true
       }
@@ -1597,10 +1602,11 @@ export default function Layout(props: ParentProps) {
         .get({ sessionID: target.id })
         .then((x) => x.data)
         .catch(() => undefined)
+      if (!current()) return false
       if (!resolved?.directory) return false
       if (!canOpen(resolved.directory)) return false
       setStore("lastProjectSession", directory, { directory: resolved.directory, id: resolved.id, at: Date.now() })
-      OpenIntent.mark(server.key, resolved.directory)
+      OpenIntent.mark(key, resolved.directory)
       navigateWithSidebarReset(`/${base64Encode(resolved.directory)}/session/${resolved.id}`)
       return true
     }
@@ -1608,22 +1614,25 @@ export default function Layout(props: ParentProps) {
     const projectSession = store.lastProjectSession[directory]
     if (projectSession?.id) {
       await refreshDirs(projectSession.directory)
+      if (!current()) return
       const opened = await openSession(projectSession)
+      if (!current()) return
       if (opened) return
       clearLastProjectSession(directory)
     }
 
     const latest = latestRootSession(
-      allDirs.map((item) => globalSync.child(item, { bootstrap: false })[0]),
+      entries().map((item) => globalSync.child(item, { bootstrap: false })[0]),
       Date.now(),
     )
     if (latest && (await openSession(latest))) {
       return
     }
+    if (!current()) return
 
     const fetched = latestRootSession(
       await Promise.all(
-        allDirs.map(async (item) => ({
+        entries().map(async (item) => ({
           path: { directory: item },
           session: await globalSDK.client.session
             .list({ directory: item })
@@ -1637,6 +1646,8 @@ export default function Layout(props: ParentProps) {
       return
     }
 
+    if (!current()) return
+    OpenIntent.mark(key, directory)
     navigateWithSidebarReset(`/${base64Encode(directory)}/session`)
   }
 

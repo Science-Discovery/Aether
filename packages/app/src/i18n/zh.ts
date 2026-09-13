@@ -768,6 +768,7 @@ export const dict = {
   "error.globalSync.connectFailed": "无法连接到服务器。是否有服务器正在 `{{url}}` 运行？",
 
   "directory.error.invalidUrl": "URL 中的目录无效。",
+  "directory.retry": "重试",
 
   "error.chain.unknown": "未知错误",
   "error.chain.causedBy": "原因：",

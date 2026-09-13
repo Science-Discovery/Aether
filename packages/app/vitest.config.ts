@@ -10,6 +10,7 @@ export default {
     dedupe: ["solid-js"],
   },
   test: {
+    server: { deps: { inline: ["@solidjs/router"] } },
     environment: "node",
     include: ["src/**/*.vitest.ts", "src/**/*.vitest.tsx"],
     setupFiles: ["./src/test/jest-dom.ts", "./src/test/setup.ts"],

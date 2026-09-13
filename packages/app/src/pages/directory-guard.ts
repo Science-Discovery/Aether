@@ -3,6 +3,10 @@ export function known(dir: string, dirs: string[]) {
     if (/^[A-Za-z]:[\\/]/.test(value)) {
       return `win:${value.replace(/\\/g, "/").replace(/\/+$/, "")}`
     }
+    const unc = value.startsWith("\\\\") ? value.replace(/\\/g, "/") : value
+    if (/^\/\/[^/]+\/[^/]+(?:\/|$)/.test(unc) && !unc.includes("\\") && !/^\/\/[?.]\//.test(unc)) {
+      return `unc:${unc.replace(/\/+$/, "")}`
+    }
     return `path:${value.replace(/\/+$/, "") || value}`
   }
   return new Set(dirs.map(key)).has(key(dir))

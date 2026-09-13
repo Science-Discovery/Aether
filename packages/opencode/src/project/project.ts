@@ -1001,7 +1001,54 @@ export namespace Project {
   }
 
   export function directories(): string[] {
-    return [...new Set(recentList().map((item) => item.directory))]
+    // Recent projects are a display feed that hides sandbox and internal directories.
+    // Only inspect registered projects with a live project row, never historical DB files.
+    const rows = Database.use((db) => [
+      ...db
+        .select({ directory: ProjectRecentTable.directory, project_id: ProjectRecentTable.project_id })
+        .from(ProjectRecentTable)
+        .all(),
+      ...db
+        .select({ directory: GlobalProjectMapTable.directory, project_id: GlobalProjectMapTable.project_id })
+        .from(GlobalProjectMapTable)
+        .all(),
+    ])
+    const projects = [...new Set(rows.flatMap((row) => (row.project_id ? [row.project_id] : [])))].flatMap((id) => {
+      if (!Database.hasProject(id)) return []
+      return Database.useProject(id, (db) => {
+        const project = db.select().from(ProjectTable).where(eq(ProjectTable.id, id)).get()
+        if (!project) return []
+        return [
+          {
+            id,
+            dirs: [
+              project.worktree,
+              ...db
+                .select({ directory: DirectoryMetaTable.directory })
+                .from(DirectoryMetaTable)
+                .all()
+                .map((row) => row.directory),
+              ...db
+                .selectDistinct({ directory: SessionTable.directory })
+                .from(SessionTable)
+                .all()
+                .map((row) => row.directory),
+            ],
+          },
+        ]
+      })
+    })
+    const active = new Set(projects.map((project) => project.id))
+    return [
+      ...new Set(
+        [
+          ...rows.filter((row) => !row.project_id || active.has(row.project_id)).map((row) => row.directory),
+          ...projects.flatMap((project) => project.dirs),
+        ]
+          .filter(Boolean)
+          .map(norm),
+      ),
+    ]
   }
 
   export function get(id: ProjectID): Info | undefined {
