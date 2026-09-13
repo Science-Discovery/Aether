@@ -18,7 +18,7 @@ export async function execute(code, inputs, cfg, signal) {
   await writeFile(path.join(dir, "code.py"), code)
   await writeFile(
     path.join(dir, "launch.py"),
-    `import resource, runpy\nresource.setrlimit(resource.RLIMIT_CPU, (20, 20))\nresource.setrlimit(resource.RLIMIT_NPROC, (0, 0))\nresource.setrlimit(resource.RLIMIT_FSIZE, (${cfg.bytes}, ${cfg.bytes}))\nresource.setrlimit(resource.RLIMIT_NOFILE, (64, 64))\nrunpy.run_path(${JSON.stringify(path.join(dir, "code.py"))}, run_name="__main__")\n`,
+    `import resource, runpy\nresource.setrlimit(resource.RLIMIT_NPROC, (0, 0))\nresource.setrlimit(resource.RLIMIT_FSIZE, (${cfg.bytes}, ${cfg.bytes}))\nresource.setrlimit(resource.RLIMIT_NOFILE, (64, 64))\nrunpy.run_path(${JSON.stringify(path.join(dir, "code.py"))}, run_name="__main__")\n`,
   )
   const command = (() => {
     if (process.platform === "darwin" && Bun.which("sandbox-exec")) {
@@ -80,7 +80,8 @@ export async function execute(code, inputs, cfg, signal) {
   const stop = () => proc.kill("SIGKILL")
   signal?.addEventListener("abort", stop, { once: true })
   if (signal?.aborted) stop()
-  const timer = setTimeout(stop, cfg.timeout)
+  // No wall-clock or CPU-time cutoff: run duration is the caller's judgement.
+  // The abort signal is the only interrupt path; output/file limits still bound runaway producers.
   const capture = async (stream) => {
     const reader = stream.getReader()
     const chunks = []
@@ -120,7 +121,6 @@ export async function execute(code, inputs, cfg, signal) {
       }
     })
     .finally(async () => {
-      clearTimeout(timer)
       signal?.removeEventListener("abort", stop)
       stop()
       await proc.exited

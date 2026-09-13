@@ -28,7 +28,8 @@ for (const role of roles) {
     throw new Error(`Invalid role ${role}`)
   z.toJSONSchema(schema(role))
 }
-for (const name of ["loca", "loca-status", "loca-accept", "loca-cancel"]) {
+const commands = ["loca", "loca-status", "loca-accept", "loca-cancel", "loca-assumptions"]
+for (const name of commands) {
   const text = await readFile(path.join(root, "command", `${name}.md`), "utf8")
   if (Bun.YAML.parse(text.match(/^---\n([\s\S]*?)\n---/)[1]).agent !== "loca")
     throw new Error(`Invalid command ${name}`)
@@ -37,4 +38,15 @@ const files = (await readdir(import.meta.dir)).filter((file) => file.endsWith(".
 for (const file of files)
   new Bun.Transpiler({ loader: "js" }).transformSync(await readFile(path.join(import.meta.dir, file), "utf8"))
 if (cfg.reviewers < 2 || cfg.phases.at(-1) !== "awaiting_human") throw new Error("Invalid workflow policy")
-console.log(`Validated ${roles.length} role definitions, 4 commands, JSON schemas and ${files.length} runtime modules.`)
+for (const role of roles) {
+  const limit = cfg.timeout?.[role]
+  if (limit !== null && !(typeof limit === "number" && limit > 0))
+    throw new Error(`Invalid timeout for role ${role}: expected positive milliseconds or null`)
+}
+if (cfg.execution?.timeout !== undefined) throw new Error("Execution must not define a hard timeout")
+if (cfg.execution?.bytes < 1 || !cfg.execution?.python) throw new Error("Invalid execution policy")
+if (cfg.idle !== undefined && !(typeof cfg.idle === "number" && cfg.idle > 0))
+  throw new Error("Invalid idle watchdog policy")
+console.log(
+  `Validated ${roles.length} role definitions, ${commands.length} commands, JSON schemas and ${files.length} runtime modules.`,
+)

@@ -18,6 +18,7 @@ async function fixture(options = {}) {
   const dir = await mkdtemp(path.join(os.tmpdir(), "loca-test-"))
   await mkdir(path.join(dir, ".aether"))
   await symlink(path.resolve(import.meta.dir, "../../../agent"), path.join(dir, ".aether/agent"))
+  await symlink(path.resolve(import.meta.dir, "../../../command"), path.join(dir, ".aether/command"))
   const sessions = []
   const count = { value: 0, live: 0, max: 0 }
   // Scripted API boundary: real Runner, store, validators, scheduling and artifacts execute.
@@ -70,6 +71,7 @@ async function fixture(options = {}) {
               ],
               removed: [],
               questions: [],
+              assumptions: [],
             }
           if (context.role === "solve") {
             const artifact = engine.register(
@@ -265,6 +267,106 @@ test("human feedback adds a round, retains old criteria, invalidates old approva
   engine.capture("parent", { id: "h3", parts: [] })
   await engine.act("parent", { abort: new AbortController().signal })
   expect(engine.store.run("parent").phase).toBe("accepted")
+})
+
+test("store report hook streams phase and job events for live progress", async () => {
+  const { engine } = await fixture()
+  const seen = []
+  engine.store.report = (run, kind) => seen.push(kind)
+  engine.capture("parent", { id: "r1", parts: [{ type: "text", text: "Give four" }] })
+  await engine.act("parent", { abort: new AbortController().signal })
+  expect(seen).toContain("human_input")
+  expect(seen).toContain("phase")
+  expect(seen).toContain("job")
+})
+
+test("/loca-status resolves the project run from a foreign session without creating one", async () => {
+  const { engine } = await fixture()
+  engine.capture("parent", { id: "s1", parts: [{ type: "text", text: "Give four" }] })
+  await engine.act("parent", { abort: new AbortController().signal })
+  engine.commands.set("observer", { action: "status" })
+  engine.capture("observer", { id: "s2", parts: [] })
+  expect(engine.store.run("observer")).toBeFalsy()
+  const text = await engine.act("observer", { abort: new AbortController().signal })
+  expect(text).toContain("LOCA 第 1 轮")
+})
+
+test("pre-rendered command templates degrade to their bare arguments", async () => {
+  const { engine } = await fixture()
+  const template = engine.templates.find((item) => item.length > 0)
+  engine.capture("parent", { id: "t1", parts: [{ type: "text", text: `${template}\n\ncontinue` }] })
+  const run = engine.store.run("parent")
+  expect(run.pending).toHaveLength(0)
+  expect(run.round).toBe(0)
+  engine.capture("parent", { id: "t2", parts: [{ type: "text", text: `${template}\n\n目标：完成示例。` }] })
+  expect(engine.store.run("parent").pending.at(-1).text).toBe("目标：完成示例。")
+})
+
+test("non-blocking questions proceed with recorded assumptions; blocking ones stop", async () => {
+  const { engine } = await fixture()
+  // Fixture override: contract returns one non-blocking question + one assumption.
+  const originalPrompt = engine.runner.client.session.prompt
+  engine.runner.client.session.prompt = async (args) => {
+    const context = engine.children.get(args.path.id)
+    if (context?.role === "contract") {
+      const data = {
+        info: {
+          structured: {
+            goal: "Write an arithmetic result",
+            criteria: [{ id: "C1", text: "Give four", method: "Inspect the result", origin: "four" }],
+            removed: [],
+            questions: [{ id: "Q1", blocking: false, question: "Preferred format?", evidence: [] }],
+            assumptions: [{ id: "a1", reason: "Format unspecified", content: "Use plain text", evidence: [] }],
+          },
+        },
+      }
+      return { data }
+    }
+    return originalPrompt(args)
+  }
+  engine.capture("parent", { id: "h1", parts: [{ type: "text", text: "Give four" }] })
+  await engine.act("parent", { abort: new AbortController().signal })
+  const run = engine.store.run("parent")
+  expect(run.phase).not.toBe("needs_human")
+  expect(run.assumptions).toHaveLength(1)
+  expect(run.assumptions[0]).toMatchObject({ id: "A1", role: "contract", step: "R1C0", content: "Use plain text" })
+  expect(run.questions).toHaveLength(1)
+  const text = engine.renderAssumptions(run)
+  expect(text).toContain("| A1 | contract R1C0 |")
+  expect(text).toContain("Format unspecified")
+})
+
+test("blocking contract question halts with formatted clarification", async () => {
+  const { engine } = await fixture()
+  const originalPrompt = engine.runner.client.session.prompt
+  engine.runner.client.session.prompt = async (args) => {
+    const context = engine.children.get(args.path.id)
+    if (context?.role === "contract") {
+      return {
+        data: {
+          info: {
+            structured: {
+              goal: "Write an arithmetic result",
+              criteria: [{ id: "C1", text: "Give four", method: "Inspect the result", origin: "four" }],
+              removed: [],
+              questions: [
+                { id: "Q1", blocking: true, question: "Deliverable A or B? They differ materially.", evidence: [] },
+              ],
+              assumptions: [],
+            },
+          },
+        },
+      }
+    }
+    return originalPrompt(args)
+  }
+  engine.capture("parent", { id: "h1", parts: [{ type: "text", text: "Give four" }] })
+  await engine.act("parent", { abort: new AbortController().signal })
+  const run = engine.store.run("parent")
+  expect(run.phase).toBe("needs_human")
+  expect(run.error).toContain("需要你决定的事项")
+  expect(run.error).toContain("Deliverable A or B?")
+  expect(run.error).not.toContain('{"questions"')
 })
 
 test("a well-formed reviewer FAIL is execution accepted, never retried into PASS", async () => {
@@ -482,7 +584,7 @@ test("a failed audit export cannot publish a delivery summary", async () => {
       criteria: [{ id: "C1", artifacts: [artifact.id], nodes: ["V1"], scope: "this example", review: "Check answer" }],
     },
   }
-  const output = path.join(dir, ".aether/workflow/loca/results", run.id, "round-0/cycle-0-fixture")
+  const output = path.join(dir, "loca/results", run.id, "round-0/cycle-0-fixture")
   await mkdir(path.join(output, "audit.json"), { recursive: true })
   await expect(engine.deliver(run, result)).rejects.toThrow()
   expect(run.delivery).toBeUndefined()

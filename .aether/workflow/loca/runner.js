@@ -51,6 +51,8 @@ export class Runner {
     if (Buffer.byteLength(frozen) > cfg.packet)
       throw new Error("Context packet exceeds limit; split into smaller blocks (no silent truncation)")
     const errors = []
+    const limit = cfg.timeout?.[role] ?? null
+    let timeout = null
     for (const attempt of Array.from({ length: cfg.attempts }, (_, index) => index + 1)) {
       engine.guard(run, epoch)
       if (++run.calls > cfg.calls) throw new Error("Round role-call budget exhausted")
@@ -130,32 +132,85 @@ export class Runner {
         const child = unwrap(
           await this.client.session.create({
             query: { directory: dir },
-            body: { title: `LOCA R${run.round} ${role} ${slot}`, permission: permissions },
+            body: {
+              title: `LOCA R${run.round} ${role} ${slot}`,
+              // Read-only exploration is unconditional in isolated child sessions:
+              // permission asks there can never be answered and would hang a role call.
+              permission: [
+                ...permissions,
+                { permission: "read", pattern: "**", action: "allow" },
+                { permission: "read", pattern: "*", action: "allow" },
+                { permission: "glob", pattern: "**", action: "allow" },
+                { permission: "glob", pattern: "*", action: "allow" },
+                { permission: "grep", pattern: "**", action: "allow" },
+                { permission: "grep", pattern: "*", action: "allow" },
+                { permission: "loca_source", pattern: "**", action: "allow" },
+                { permission: "loca_source", pattern: "*", action: "allow" },
+                { permission: "loca_evidence", pattern: "**", action: "allow" },
+                // Deliverables live inside loca/results/<run>/...: pre-approve that
+                // subtree so solve's artifact asks never block in a headless session.
+                { permission: "edit", pattern: `${engine.root}/loca/results/**`, action: "allow" },
+                { permission: "edit", pattern: `${engine.root}/loca/results/*/**`, action: "allow" },
+              ],
+            },
           }),
         )
         job.session = child.id
         engine.children.set(child.id, context)
         store.job(run, job, "running", { directory: dir, prompt: hash(prompt), policy: hash(cfg) })
-        const timeout = AbortSignal.timeout(cfg.timeout)
-        const signal = AbortSignal.any([timeout, context.controller.signal])
+        // Per-role backstop only: dead-loop / hang protection, sized never to fire in normal work.
+        timeout = typeof limit === "number" ? AbortSignal.timeout(limit) : null
+        const signal = timeout ? AbortSignal.any([timeout, context.controller.signal]) : context.controller.signal
         const stop = () => {
           void this.client.session.abort({ path: { id: child.id }, query: { directory: dir } }).catch(() => {})
         }
         signal.addEventListener("abort", stop, { once: true })
         context.text = JSON.stringify({ packet, correction: errors.at(-1) ?? null })
-        const response = await this.client.session
-          .prompt({
-            path: { id: child.id },
-            query: { directory: dir },
-            signal,
-            body: {
-              agent: `loca-${role}`,
-              ...(!front.model && run.model ? { model: run.model } : {}),
-              parts: [{ type: "text", text: context.text }],
-              format: { type: "json_schema", schema: z.toJSONSchema(schema(role)), retryCount: 0 },
-            },
-          })
-          .finally(() => signal.removeEventListener("abort", stop))
+        // The generated SDK client silently drops `signal`, and a server-side
+        // abort can leave the request pending forever. Race the abort locally so
+        // timeouts and cancels always settle this call.
+        const aborted = new Promise((_, reject) => {
+          signal.addEventListener(
+            "abort",
+            () =>
+              reject(
+                new Error(
+                  timeout?.aborted && !context.controller.signal.aborted
+                    ? "Role backstop timeout"
+                    : "LOCA_CALL_ABORTED",
+                ),
+              ),
+            { once: true },
+          )
+        })
+        // Stream watchdog: a role call whose session produces no deltas at all
+        // (provider stall before headers, hung tool, dead stream) is aborted and
+        // retried instead of waiting out the full role timeout.
+        const began = Date.now()
+        let stallReject
+        const stalled = new Promise((_, reject) => (stallReject = reject))
+        const watchdog = setInterval(() => {
+          const idle = Date.now() - Math.max(engine.activity.get(child.id) ?? 0, began)
+          if (idle > (cfg.idle ?? 600000)) {
+            stop()
+            stallReject(new Error(`Role stall timeout: no stream activity for ${Math.round(idle / 1000)}s`))
+          }
+        }, 15000)
+        const pending = this.client.session.prompt({
+          path: { id: child.id },
+          query: { directory: dir },
+          body: {
+            agent: `loca-${role}`,
+            ...(!front.model && run.model ? { model: run.model } : {}),
+            parts: [{ type: "text", text: context.text }],
+            format: { type: "json_schema", schema: z.toJSONSchema(schema(role)), retryCount: 0 },
+          },
+        })
+        pending.catch(() => {})
+        const response = await Promise.race([pending, aborted, stalled]).finally(() => {
+          clearInterval(watchdog)
+          signal.removeEventListener("abort", stop)
+        })
         signal.throwIfAborted()
         engine.guard(run, epoch)
         store.job(run, job, "checking")
@@ -168,6 +223,7 @@ export class Runner {
           packet: job.packet,
         })
         store.job(run, job, "accepted", { report: record.id, verdict: value.verdict ?? value.status ?? null })
+        if (value.assumptions?.length) engine.assume(run, job, value.assumptions)
         return { value, record, job, produced: context.produced }
       })()
         .catch((error) => {
@@ -184,6 +240,14 @@ export class Runner {
             store.job(run, job, "cancelled", { error: String(error) })
             throw error
           }
+          if (timeout?.aborted || /timeout|timed out/i.test(String(error))) {
+            // The backstop fired or the provider stream stalled: retry the whole
+            // step in a fresh session instead of failing the run.
+            store.job(run, job, "timeout", { error: String(error) })
+            errors.push(String(error))
+            store.job(run, job, attempt < cfg.attempts ? "retrying" : "exhausted")
+            return null
+          }
           if (job.status !== "checking") {
             store.job(run, job, "error", { error: String(error) })
             throw error
@@ -195,7 +259,10 @@ export class Runner {
           return null
         })
         .finally(async () => {
-          if (job.session) engine.children.delete(job.session)
+          if (job.session) {
+            engine.children.delete(job.session)
+            engine.activity.delete(job.session)
+          }
           await this.client.instance
             ?.dispose({ query: { directory: dir } })
             .catch((error) => store.event(run, "cleanup_error", { job: job.id, error: String(error) }))

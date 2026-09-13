@@ -58,8 +58,7 @@ Update/test_installer_init_flow.sh
 !.aether/workflow/
 .aether/workflow/*
 !.aether/workflow/loca/
-.aether/workflow/loca/.runtime/
-.aether/workflow/loca/results/
+/loca/
 reference/
 skill-evolution-reference/
 packages/opencode/test/system/llm/providers.local.yaml
@@ -69,3 +68,4 @@ CLAUDE.local.md
 CLAUDE.md
 .omx/
 open_dev.sh
+.aether/workflow/loca/.runtime/

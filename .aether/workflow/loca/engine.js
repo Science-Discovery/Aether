@@ -1,5 +1,6 @@
 import path from "node:path"
 import { mkdir, readFile, realpath, writeFile } from "node:fs/promises"
+import { readFileSync } from "node:fs"
 import { randomUUID } from "node:crypto"
 import { Store, hash } from "./store.js"
 import { Runner, parallel } from "./runner.js"
@@ -10,7 +11,7 @@ import { execute } from "./execute.js"
 export const engines = new Map()
 
 export class Engine {
-  constructor(root, cfg, client, dir = path.join(root, ".aether/workflow/loca/.runtime")) {
+  constructor(root, cfg, client, dir = path.join(root, "loca/.runtime")) {
     if (cfg.reviewers < 2 || cfg.concurrency < 1 || cfg.attempts < 1 || cfg.questions < 1)
       throw new Error("Invalid workflow limits")
     this.root = root
@@ -21,7 +22,20 @@ export class Engine {
     this.children = new Map()
     this.requests = new Map()
     this.commands = new Map()
+    this.activity = new Map()
     this.owner = randomUUID()
+    // Some clients pre-render command markdown into the prompt text and bypass
+    // command.execute.before; capture() strips these known template prefixes so
+    // such paths degrade to the bare arguments instead of polluting human input.
+    this.templates = ["loca", "loca-status", "loca-accept", "loca-cancel", "loca-assumptions"]
+      .map((name) =>
+        readFileSync(path.join(root, ".aether", "command", `${name}.md`), "utf8")
+          .replace(/^---[\s\S]*?---\s*/, "")
+          .replaceAll("$ARGUMENTS", "")
+          .replace(/\$\d+/g, "")
+          .trim(),
+      )
+      .filter(Boolean)
     this.store.db.exec("CREATE TABLE IF NOT EXISTS leases (session TEXT PRIMARY KEY, owner TEXT, expires INTEGER)")
   }
 
@@ -31,11 +45,14 @@ export class Engine {
   }
 
   capture(session, message, model) {
-    const run = this.store.run(session) ?? this.store.create(session)
     const command = this.commands.get(session)
     this.commands.delete(session)
     if (command && command.action !== "work") {
       this.requests.set(session, command.action)
+      const run = this.store.run(session)
+      // A status query from a session without its own run must not create one;
+      // act() resolves the project's current run instead.
+      if (!run) return
       if (command.action === "cancel") {
         const expected = run.epoch
         run.epoch++
@@ -45,13 +62,16 @@ export class Engine {
       }
       return
     }
+    const run = this.store.run(session) ?? this.store.create(session)
     this.requests.set(session, "work")
-    const text =
+    const raw =
       command?.text ??
       message.parts
         .filter((part) => part.type === "text" && !part.synthetic)
         .map((part) => part.text)
         .join("\n")
+    const stripped = this.templates.find((template) => raw.startsWith(template))
+    const text = stripped ? raw.slice(stripped.length).trim() : raw
     if (!text.trim() || text.trim() === "continue") return
     if (
       run.history.some((item) => item.message === message.id) ||
@@ -131,11 +151,32 @@ export class Engine {
     )
   }
 
+  // The parent session stays busy for the whole round; other sessions of the
+  // same project can query progress with /loca-status, resolved here.
+  current() {
+    const held = this.store.db
+      .query("SELECT session FROM leases WHERE expires > ? ORDER BY expires DESC")
+      .all(Date.now())
+    for (const session of [...this.active.keys(), ...held.map((row) => row.session)]) {
+      const run = this.store.run(session)
+      if (run) return run
+    }
+    return this.store.latest()
+  }
+
   async act(session, ctx) {
     const action = this.requests.get(session)
-    const run = this.store.run(session)
-    if (!run) return "请先使用 /loca 输入目标和验收标准。"
+    const query = action === "status" || action === "assumptions"
+    const run = this.store.run(session) ?? (query ? this.current() : undefined)
+    if (!run) {
+      if (query) return "当前项目没有进行中的 LOCA 工作；可用 /loca 输入目标与验收标准。"
+      return "请先使用 /loca 输入目标和验收标准。"
+    }
     if (action === "status") return this.status(run)
+    if (action === "assumptions") {
+      this.requests.delete(session)
+      return this.renderAssumptions(run)
+    }
     if (action === "accept") {
       if (run.phase !== "awaiting_human" || run.pending.length)
         throw new Error("Only the current audited delivery can be accepted")
@@ -241,9 +282,18 @@ export class Engine {
             [...new Set(value.criteria.map((item) => item.id))],
             "criteria",
           )
-          const text = run.history.map((item) => item.text).join("\n")
-          if (value.criteria.some((item) => !text.includes(item.origin)))
-            throw new Error("Criterion origin must quote actual human input")
+          // Origins may quote human input verbatim or any evidence the
+          // contract itself froze while reading (documents the user pointed at).
+          const anchors = [run.history.map((item) => item.text).join("\n")]
+          for (const row of store.db
+            .query(
+              "SELECT data FROM assets WHERE json_extract(data, '$.run') = ? AND json_extract(data, '$.kind') IN ('input', 'source')",
+            )
+            .all(run.id)
+            .map((row) => JSON.parse(row.data)))
+            anchors.push(store.asset(row.id).content)
+          if (value.criteria.some((item) => !anchors.some((text) => text.includes(item.origin))))
+            throw new Error("Criterion origin must quote human input or registered evidence")
           if (value.removed.some((item) => !run.history.at(-1).text.includes(item.quote)))
             throw new Error("Removing a criterion requires a quote from current user feedback")
           run.previous?.criteria.forEach((item) => {
@@ -258,17 +308,25 @@ export class Engine {
       const fidelity = await this.runner.call(
         run,
         "fidelity",
-        this.packet(run, { history: run.history, previous: run.previous ?? null, proposed: contract.value }, [
-          raw.id,
-          contract.record.id,
-        ]),
+        this.packet(
+          run,
+          {
+            checks: this.cfg.checks.contract,
+            history: run.history,
+            previous: run.previous ?? null,
+            proposed: contract.value,
+          },
+          [raw.id, contract.record.id],
+        ),
         (value) => review(value, this.cfg.checks.contract),
       )
-      if (contract.value.questions.length || fidelity.value.verdict !== "pass") {
-        store.move(run, "needs_human", { questions: contract.value.questions, review: fidelity.value })
-        throw new Error(
-          `Contract needs clarification: ${JSON.stringify({ questions: contract.value.questions, findings: fidelity.value.findings })}`,
-        )
+      // Proceed by documented assumption; stop only for blocking questions or
+      // review failures. Resolvable ambiguity is never a reason to halt.
+      const blocking = contract.value.questions.filter((item) => item.blocking)
+      run.questions = contract.value.questions.filter((item) => !item.blocking)
+      if (blocking.length || fidelity.value.verdict !== "pass") {
+        store.move(run, "needs_human", { questions: blocking, review: fidelity.value })
+        throw new Error(this.renderClarification(blocking, fidelity.value))
       }
       run.contract = contract.value
       store.save(run)
@@ -313,7 +371,7 @@ export class Engine {
         const structure = await this.runner.call(
           run,
           "structure",
-          this.packet(run, { candidate: run.candidate, dag: run.dag }, [
+          this.packet(run, { checks: this.cfg.checks.structure, candidate: run.candidate, dag: run.dag }, [
             ...run.assets.filter(
               (id) => !["report", "port", "packet", "prompt", "policy", "fragment"].includes(store.asset(id).kind),
             ),
@@ -332,8 +390,11 @@ export class Engine {
         }
         store.move(run, "inputs")
         const inputs = await parallel(run.dag.nodes, this.cfg.concurrency, async (node) => {
-          const result = await this.runner.call(run, "inputs", this.node(run, node), (value) =>
-            review(value, this.cfg.checks.inputs),
+          const result = await this.runner.call(
+            run,
+            "inputs",
+            this.node(run, node, { checks: this.cfg.checks.inputs }),
+            (value) => review(value, this.cfg.checks.inputs),
           )
           return { node: node.id, ...result.value }
         })
@@ -545,7 +606,7 @@ export class Engine {
   async deliver(run, result) {
     const dir = path.join(
       this.root,
-      ".aether/workflow/loca/results",
+      "loca/results",
       run.id,
       `round-${run.round}`,
       `cycle-${run.cycle}-${result.record.hash.slice(0, 10)}`,
@@ -619,16 +680,80 @@ export class Engine {
     this.store.save(run)
   }
 
+  // Record role-side interpretations of ambiguity as first-class run state so
+  // users can audit and override them at any time (/loca-assumptions).
+  assume(run, job, list) {
+    run.assumptions ??= []
+    for (const item of list) {
+      run.assumptions.push({
+        id: `A${run.assumptions.length + 1}`,
+        role: job.role,
+        step: `R${job.round}C${job.cycle}`,
+        reason: item.reason,
+        content: item.content,
+        evidence: item.evidence ?? [],
+      })
+    }
+    this.store.save(run)
+    this.store.event(run, "assumption", { total: run.assumptions.length })
+  }
+
+  renderAssumptions(run) {
+    const list = run.assumptions ?? []
+    if (!list.length)
+      return "尚未记录任何假设。合约与各角色在自行消解歧义时会记录假设；总体进度可用 /loca-status 查看。"
+    const rows = list.map(
+      (a) =>
+        `| ${a.id} | ${a.role} ${a.step} | ${a.reason} | ${a.content}${a.evidence.length ? `（依据：${a.evidence.join("、")}）` : ""} |`,
+    )
+    return [
+      `LOCA 假设清单（第 ${run.round} 轮，共 ${list.length} 条）`,
+      "",
+      "| ID | 角色/步骤 | 原因 | 假设内容 |",
+      "| --- | --- | --- | --- |",
+      ...rows,
+      "",
+      "假设是对歧义的合理默认解释；如需纠正，直接在会话中补充意见（未被明确撤销的旧标准继续有效）。",
+    ].join("\n")
+  }
+
+  renderClarification(questions, review) {
+    const lines = ["需要你决定的事项（无法采用合理默认，已暂停）："]
+    questions.forEach((item, index) => {
+      lines.push(
+        `${index + 1}. ${item.question}${item.evidence?.length ? `（依据：${item.evidence.join("、")}）` : ""}`,
+      )
+    })
+    if (review.verdict !== "pass") {
+      lines.push("", `合约保真复核未通过（${review.verdict}）：`)
+      for (const finding of review.findings)
+        lines.push(`- ${finding.target}：${finding.detail}（修复方向：${finding.repair}）`)
+    }
+    lines.push("", "已采用的默认解释可用 /loca-assumptions 查看；在会话中答复后，工作将从合约阶段继续。")
+    return lines.join("\n")
+  }
+
   status(run) {
     const jobs = this.store.jobs(run)
-    return `LOCA 第 ${run.round} 轮 / 修复 ${run.cycle}：${run.phase}\n角色调用 ${run.calls}/${this.cfg.calls}；已验收执行 ${jobs.filter((job) => job.status === "accepted").length}；待处理用户输入 ${run.pending.length}。${run.error ? `\n原因：${run.error}` : ""}\n记录：${this.store.dir}/state.sqlite${run.phase === "accepted" ? `\n本轮已由人类验收。成果与审核包：${run.directory}` : run.summary ? `\n\n${run.summary}` : "\n尚未产生通过审核的交付结果。"}`
+    const open = run.questions?.filter((item) => !item.blocking) ?? []
+    return `LOCA 第 ${run.round} 轮 / 修复 ${run.cycle}：${run.phase}\n角色调用 ${run.calls}/${this.cfg.calls}；已验收执行 ${jobs.filter((job) => job.status === "accepted").length}；假设 ${run.assumptions?.length ?? 0} 条（/loca-assumptions 查看）${open.length ? `；待澄清 ${open.length} 项（已按默认继续）` : ""}；待处理用户输入 ${run.pending.length}。${run.error ? `\n原因：${run.error}` : ""}\n记录：${this.store.dir}/state.sqlite${run.phase === "accepted" ? `\n本轮已由人类验收。成果与审核包：${run.directory}` : run.summary ? `\n\n${run.summary}` : "\n尚未产生通过审核的交付结果。"}`
+  }
+
+  // Isolated child sessions have no human to answer permission asks; fail fast
+  // with an actionable message instead of hanging the role call forever.
+  static ask(ctx, request, ms = 60000) {
+    return Promise.race([
+      ctx.ask(request),
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error("Permission request unanswered in isolated context")), ms),
+      ),
+    ])
   }
 
   async source(context, args, ctx) {
-    if (context.role !== "solve") throw new Error("Only solve can introduce new sources")
     this.guard(context.run, context.epoch)
     if (/^https?:\/\//.test(args.path)) {
-      await ctx.ask({ permission: "webfetch", patterns: [args.path], always: [], metadata: { url: args.path } })
+      await Engine.ask(ctx, { permission: "webfetch", patterns: [args.path], always: [], metadata: { url: args.path } })
       const response = await fetch(args.path, {
         redirect: "error",
         signal: AbortSignal.any([ctx.abort, AbortSignal.timeout(30000)]),
@@ -652,15 +777,15 @@ export class Engine {
         retrieved: Date.now(),
       })
     }
-    const file = await realpath(path.resolve(this.root, args.path))
+    const file = await realpath(path.resolve(this.root, args.path.replace(/^file:\/\//, "")))
     if (file !== this.root && !file.startsWith(this.root + path.sep))
-      await ctx.ask({
+      await Engine.ask(ctx, {
         permission: "external_directory",
         patterns: [path.dirname(file) + "/*"],
         always: [],
         metadata: { path: file },
       })
-    await ctx.ask({ permission: "read", patterns: [file], always: [], metadata: { path: file } })
+    await Engine.ask(ctx, { permission: "read", patterns: [file], always: [], metadata: { path: file } })
     if (Bun.file(file).size > this.cfg.bytes)
       throw new Error("Source too large; provide a smaller, explicitly scoped source")
     const content = await Bun.file(file).arrayBuffer()

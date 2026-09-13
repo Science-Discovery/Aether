@@ -5,6 +5,22 @@ export { z }
 const text = z.string().min(1)
 const refs = z.array(text)
 const proof = z.object({ id: text, reason: text, evidence: refs.min(1) }).strict()
+const assumption = z
+  .object({
+    id: text,
+    reason: text,
+    content: text,
+    evidence: refs,
+  })
+  .strict()
+const question = z
+  .object({
+    id: text,
+    blocking: z.boolean(),
+    question: text,
+    evidence: refs,
+  })
+  .strict()
 const issue = z
   .object({
     id: text,
@@ -24,6 +40,7 @@ export const report = z
     verdict: z.enum(["pass", "fail", "inconclusive"]),
     checks: z.array(check).min(1),
     findings: z.array(issue),
+    assumptions: z.array(assumption).max(20).optional(),
   })
   .strict()
 
@@ -31,9 +48,12 @@ export const schemas = {
   contract: z
     .object({
       goal: text,
-      criteria: z.array(z.object({ id: text, text, method: text, origin: text }).strict()).min(1),
+      criteria: z
+        .array(z.object({ id: text, text, method: text, origin: text, evidence: refs.optional() }).strict())
+        .min(1),
       removed: z.array(z.object({ id: text, quote: text }).strict()),
-      questions: refs,
+      questions: z.array(question),
+      assumptions: z.array(assumption).max(20),
     })
     .strict(),
   solve: z
@@ -45,6 +65,7 @@ export const schemas = {
       problems: z.array(
         z.object({ id: text, detail: text, status: z.enum(["open", "closed"]), evidence: refs }).strict(),
       ),
+      assumptions: z.array(assumption).max(20).optional(),
       reason: text,
     })
     .strict(),
@@ -145,12 +166,15 @@ export function schema(role) {
 }
 
 export function exact(actual, expected, label) {
-  if (
-    new Set(actual).size !== actual.length ||
-    actual.length !== expected.length ||
-    expected.some((id) => !actual.includes(id))
-  )
-    throw new Error(`${label}: missing, duplicate or unexpected IDs`)
+  const missing = expected.filter((id) => !actual.includes(id))
+  const duplicate = actual.filter((id, index) => actual.indexOf(id) !== index)
+  const unexpected = actual.filter((id) => !expected.includes(id))
+  if (missing.length || duplicate.length || unexpected.length || actual.length !== expected.length)
+    throw new Error(
+      `${label}: missing, duplicate or unexpected IDs; expected [${expected.join(", ")}]; ` +
+        `missing [${missing.join(", ") || "none"}]; duplicate [${duplicate.join(", ") || "none"}]; ` +
+        `unexpected [${unexpected.join(", ") || "none"}]`,
+    )
 }
 
 export function review(value, checks) {

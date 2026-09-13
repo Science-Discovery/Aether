@@ -35,7 +35,7 @@ Path("answer.txt").write_text("4")
     const result = await execute(
       code,
       [{ id: "data", hash: "fixture", content: "2" }],
-      { python: "python3", timeout: 5000, bytes: 10000 },
+      { python: "python3", bytes: 10000 },
       new AbortController().signal,
     )
     await rm(dir, { recursive: true, force: true })
@@ -51,12 +51,10 @@ Path("answer.txt").write_text("4")
   },
 )
 
-test.skipIf(process.env.LOCA_SANDBOX_TEST !== "1")("sandbox timeout cannot become a successful execution", async () => {
-  const result = await execute(
-    "while True: pass",
-    [],
-    { python: "python3", timeout: 200, bytes: 10000 },
-    new AbortController().signal,
+test.skipIf(process.env.LOCA_SANDBOX_TEST !== "1")("sandbox abort signal interrupts runaway execution", async () => {
+  const abort = new AbortController()
+  setTimeout(() => abort.abort(), 200)
+  await expect(execute("while True: pass", [], { python: "python3", bytes: 10000 }, abort.signal)).rejects.toThrow(
+    "cancelled",
   )
-  expect(result.exit).not.toBe(0)
 })

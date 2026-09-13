@@ -29,6 +29,10 @@ if [ ! -f "$target/.gitignore" ]; then
   cp "$src/.aether/.gitignore" "$target/.gitignore"
 fi
 
+if [ -d "$dest/.git" ] && ! grep -qx "/loca/" "$dest/.gitignore" 2>/dev/null; then
+  printf '\n# LOCA workflow runtime output\n/loca/\n' >> "$dest/.gitignore"
+fi
+
 echo "安装插件依赖 (zod)..."
 bun install --cwd "$target/workflow/loca"
 

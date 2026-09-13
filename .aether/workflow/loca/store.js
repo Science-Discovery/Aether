@@ -28,6 +28,11 @@ export class Store {
     return row && JSON.parse(row.data)
   }
 
+  latest() {
+    const row = this.db.query("SELECT data FROM runs ORDER BY rowid DESC LIMIT 1").get()
+    return row && JSON.parse(row.data)
+  }
+
   create(session) {
     const run = {
       id: randomUUID(),
@@ -40,6 +45,8 @@ export class Store {
       history: [],
       pending: [],
       assets: [],
+      assumptions: [],
+      questions: [],
     }
     this.db.query("INSERT INTO runs VALUES (?, ?, ?, ?)").run(run.id, session, 0, JSON.stringify(run))
     this.event(run, "created", {})
@@ -54,6 +61,11 @@ export class Store {
   }
 
   event(run, kind, data) {
+    if (this.report) {
+      try {
+        this.report(run, kind, data)
+      } catch {}
+    }
     this.db
       .query("INSERT INTO events (run, time, kind, data) VALUES (?, ?, ?, ?)")
       .run(run.id, Date.now(), kind, JSON.stringify(data))
@@ -128,9 +140,10 @@ export class Store {
     const edges = {
       queued: ["preparing"],
       preparing: ["running", "error", "cancelled", "stale"],
-      running: ["checking", "error", "cancelled", "stale"],
+      running: ["checking", "timeout", "error", "cancelled", "stale"],
       checking: ["accepted", "rejected", "error", "stale", "cancelled"],
       rejected: ["retrying", "exhausted"],
+      timeout: ["retrying", "exhausted"],
       retrying: [],
       accepted: [],
       error: [],
