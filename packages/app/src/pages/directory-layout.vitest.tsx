@@ -171,7 +171,6 @@ describe("directory layout navigation", () => {
     OpenIntent.mark(server.key, dir)
     const app = mount(dir)
     await vi.waitFor(() => expect(app.host.textContent).toBe("one"))
-    OpenIntent.mark(server.key, dir)
     app.host.querySelector("button")!.click()
     await vi.waitFor(() => expect(app.host.textContent).toBe("two"))
     app.history.set({ value: "/" })

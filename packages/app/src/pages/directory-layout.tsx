@@ -3,7 +3,7 @@ import { Button } from "@opencode-ai/ui/button"
 import { showToast } from "@opencode-ai/ui/toast"
 import { base64Encode } from "@opencode-ai/util/encode"
 import { useLocation, useNavigate, useParams, useResolvedPath } from "@solidjs/router"
-import { createEffect, createMemo, createResource, onCleanup, type ParentProps, Show } from "solid-js"
+import { createEffect, createMemo, createResource, type ParentProps, Show } from "solid-js"
 import { useLanguage } from "@/context/language"
 import { LocalProvider } from "@/context/local"
 import { SDKProvider } from "@/context/sdk"
@@ -53,8 +53,6 @@ export default function Layout(props: ParentProps) {
   const navigate = useNavigate()
   const global = useGlobalSDK()
   const server = useServer()
-  const origin = server.key
-  onCleanup(() => OpenIntent.clear(origin))
   let invalid = ""
   let blocked = ""
 

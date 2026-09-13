@@ -1,13 +1,14 @@
 import { describe, expect, test } from "bun:test"
+import { $ } from "bun"
 import path from "path"
 import { existsSync } from "fs"
 import { Project } from "../../src/project/project"
 import { ProjectID } from "../../src/project/schema"
-import { DirectoryMetaTable, ProjectRecentTable } from "../../src/project/project.sql"
+import { ProjectRecentTable } from "../../src/project/project.sql"
 import { GlobalProjectMapTable } from "../../src/project/global-project-map.sql"
 import { Instance } from "../../src/project/instance"
 import { Session } from "../../src/session"
-import { Database, eq } from "../../src/storage/db"
+import { Database } from "../../src/storage/db"
 import { Log } from "../../src/util/log"
 import { tmpdir } from "../fixture/fixture"
 
@@ -44,30 +45,19 @@ describe("Project.directories", () => {
     expect(Project.directories()).toContain(Project.norm(dir))
   })
 
-  test("includes session directories that have no recent or metadata entry", async () => {
+  test("includes an existing git worktree opened without a recent entry", async () => {
+    await using root = await tmpdir({ git: true })
     await using tmp = await tmpdir()
-    const result = await Project.fromDirectory(tmp.path)
-    const dir = path.join(tmp.path, "session")
-    await Instance.provide({
-      directory: dir,
-      project: result.project,
-      worktree: tmp.path,
-      fn: async () => {
-        await Session.create({})
-        await Instance.dispose()
-      },
-    })
+    const dir = path.join(tmp.path, "worktree")
+    await $`git worktree add --detach ${dir}`.cwd(root.path).quiet()
+    const result = await Project.fromDirectory(dir)
 
-    expect(Project.recentList().some((item) => Project.norm(item.directory) === Project.norm(dir))).toBe(false)
+    expect(Project.norm(result.project.worktree)).toBe(Project.norm(root.path))
     expect(
-      Database.useProject(result.project.id, (db) =>
-        db
-          .select()
-          .from(DirectoryMetaTable)
-          .where(eq(DirectoryMetaTable.directory, Project.norm(dir)))
-          .get(),
+      Database.use((db) => db.select().from(ProjectRecentTable).all()).some(
+        (row) => Project.norm(row.directory) === Project.norm(dir),
       ),
-    ).toBeUndefined()
+    ).toBe(false)
     expect(Project.directories()).toContain(Project.norm(dir))
   })
 

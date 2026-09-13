@@ -1,16 +1,16 @@
-const intents = new Map<string, string>()
+const intents = new Set<string>()
+
+const key = (server: string, dir: string) => `${server}\n${dir}`
 
 export const OpenIntent = {
   mark(server: string, dir: string) {
     if (!server || !dir) return
-    intents.set(server, dir)
+    intents.add(key(server, dir))
   },
   consume(server: string, dir: string) {
-    const ok = intents.get(server) === dir
-    intents.delete(server)
+    const id = key(server, dir)
+    const ok = intents.has(id)
+    if (ok) intents.delete(id)
     return ok
-  },
-  clear(server: string) {
-    intents.delete(server)
   },
 }

@@ -130,7 +130,7 @@ reload / 深链 / 改持久化 active 或默认后端后刷新等路径也会绕
 
 - **会话优雅降级**：这是完整修复的必要防线，不是展示优化。降级逻辑应放在 `sync/session` 数据层或统一异步错误处理层，而不是分散在页面组件里。它需要覆盖 `get`、`sync`、`todo`、`diff`、`messages`、`history` 等所有会话相关异步链路；任一链路遇到 "project not registered"、"session not found"、跨后端目录错误或等价 404 / 作用域错误时，应统一 toast 并导航到项目首页或 `/`，保持全局事件流、顶部按钮和侧栏可用。
 - **同路径跨后端**：如果两个后端都已注册同一个绝对路径，`DirectoryLayout` 只能确认 directory 属于当前后端，不能确认 URL 中的 session id 属于当前后端；这种情况必须依赖会话降级避免中间区域空白。
-- **判定优先级**：`DirectoryLayout` 守卫的放行依据优先级为：本次用户打开 intent > 当前页面内同一服务器、同一目录已通过的校验 > 当前后端 fresh global 查询命中。后端明确返回未知目录时拦截并回 `/`；查询失败时保留原路由，显示请求错误并允许重试，校验通过前不创建 scoped SDK。持久化缓存永远不能作为放行依据。Windows 路径等价、重试、工作区目录完整性和 intent 生命周期的后续修复见 [Windows 目录导航修复](./windows-directory-navigation-fix.zh-CN.md)。
+- **判定优先级**：`DirectoryLayout` 守卫的放行依据优先级为：本次用户打开 intent > 当前页面内同一服务器、同一目录已通过的校验 > 当前后端 fresh global 查询命中。后端明确返回未知目录时拦截并回 `/`；查询失败时保留原路由，显示请求错误并允许重试，校验通过前不创建 scoped SDK。持久化缓存永远不能作为放行依据。Windows 路径等价、重试和工作区目录完整性的后续修复见 [Windows 目录导航修复](./windows-directory-navigation-fix.zh-CN.md)。
 - **缓存命名空间**：`globalSync.project` / `globalSync.recent` 的持久化 key 应按 `server.key` 命名空间化，避免首页和 recent 展示被其他后端污染。该项改善展示一致性，但不能替代 `DirectoryLayout` 的 fresh 守卫，也不能替代会话降级。
 - **服务端边界**：服务端 `db.ts:543-545` 的 not-registered 抛错和 bootstrap EACCES 是旧前端指针触发后的被动结果。前端守卫修复后，不需要通过补建幽灵项目库解决；服务端可以继续拒绝未注册 project。守卫实现应通过请求检查确认 fresh global 查询不携带 `x-opencode-directory`。
 
