@@ -52,19 +52,16 @@ function blobToDataUrl(blob: Blob) {
   })
 }
 
-function buildFirstReadPrompt(input: {
-  prompt: string
-  startPage: number
-  endPage: number
-}) {
+function buildFirstReadPrompt(input: { prompt: string; path: string; startPage: number; endPage: number }) {
   return [
     input.prompt,
     "",
     "You are performing the reading mode initial pre-read for the user.",
     `The attached PDF contains pages ${input.startPage}-${input.endPage} from the user's reading document.`,
-    "Only use the attached PDF in this message as your source.",
-    "Do not call any tools. Do not search the workspace. Do not look for the original PDF. Do not guess from filenames or paths.",
-    "If you cannot read the attached PDF, say clearly that you cannot read the current PDF attachment and stop. Do not try any fallback behavior.",
+    `Source PDF: ${JSON.stringify(input.path)}.`,
+    "Read the attached excerpt. If its contents are unavailable, use available tools to read the selected pages from the source path before reporting an access limitation.",
+    "If the content cannot be accessed, explain the access limitation. Do not claim to have read content you have not accessed.",
+    "Base your summary on the content you actually read within this page range.",
     "Please read this excerpt first and summarize its main content, overall structure, and core viewpoints.",
     "Prepare to answer the user's follow-up questions based on your understanding of this excerpt.",
   ].join("\n")
@@ -226,6 +223,7 @@ const ReadingFirstReadDialog: Component<{
           {
             text: buildFirstReadPrompt({
               prompt: sessionMeta.settings.firstReadPrompt,
+              path: sessionMeta.pdfStorePath,
               startPage: start,
               endPage: end,
             }),

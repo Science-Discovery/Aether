@@ -137,7 +137,7 @@ flowchart LR
 
 | 转换函数 | 说明 |
 |----------|------|
-| `unsupportedParts()` | 将模型不支持的 modality（图片/音频/PDF）替换为错误文本 |
+| `unsupportedParts()` | 过滤模型不支持的输入，避免发送不兼容的附件；PDF 替换为工具读取提示，其他 modality 仍替换为错误文本 |
 | `normalizeMessages()` | Anthropic 过滤空消息；Claude 清洗 toolCallId；Mistral 修复消息序列 |
 | `applyCaching()` | 为 Anthropic/Bedrock/OpenRouter 等添加 cache control 标记 |
 | `options()` | 按供应商设置 thinking/reasoning config、store、promptCacheKey 等 |

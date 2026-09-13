@@ -385,6 +385,17 @@ export namespace ProviderTransform {
         if (model.capabilities.input[modality]) return part
 
         const name = filename ? `"${filename}"` : modality
+        if (modality === "pdf") {
+          return {
+            type: "text" as const,
+            text: [
+              `PDF attachment: ${name}. This model does not support direct PDF input, so the attachment is provided as a file reference.`,
+              "Use available tools to read the file from a path or access information provided in the conversation when its contents are needed.",
+              "If no suitable tool is available, proactively suggest tools the user could enable or configure to read the PDF, briefly explaining how they would help.",
+              "If the file cannot be accessed, explain the limitation and ask for an accessible copy. Do not claim to have read content you have not accessed.",
+            ].join(" "),
+          }
+        }
         return {
           type: "text" as const,
           text: `ERROR: Cannot read ${name} (this model does not support ${modality} input). Inform the user.`,
