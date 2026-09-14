@@ -23,6 +23,15 @@ interface FetchDecompressionError extends Error {
   path: string
 }
 
+const TRANSPORT_CODES = new Set([
+  "UNKNOWN_CERTIFICATE_VERIFICATION_ERROR",
+  "ECONNREFUSED",
+  "EPIPE",
+  "ETIMEDOUT",
+  "EPROTO",
+  "EAI_AGAIN",
+])
+
 export namespace MessageV2 {
   export function isMedia(mime: string) {
     return mime.startsWith("image/") || mime === "application/pdf"
@@ -978,6 +987,22 @@ export namespace MessageV2 {
             metadata: {
               code: (e as FetchDecompressionError).code,
               message: e.message,
+            },
+          },
+          { cause: e },
+        ).toObject()
+      case e instanceof Error &&
+        (TRANSPORT_CODES.has((e as SystemError)?.code ?? "") || /certificate verification error/i.test(e.message)):
+        if (ctx.aborted) {
+          return new MessageV2.AbortedError({ message: e.message }, { cause: e }).toObject()
+        }
+        return new MessageV2.APIError(
+          {
+            message: e.message,
+            isRetryable: true,
+            metadata: {
+              code: (e as SystemError).code ?? "",
+              kind: "conn",
             },
           },
           { cause: e },
