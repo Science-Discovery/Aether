@@ -374,6 +374,13 @@ export function FileTabContent(props: { tab: string }) {
     if (!p) return
     return file.get(p)
   })
+  // Guarantee a freshly-opened tab always shows the on-disk version, for every
+  // file type (stat compare + forced reload / preview URL bump on change).
+  createEffect(
+    on(path, (p) => {
+      if (p) void file.refresh(p)
+    }),
+  )
   const meta = createMemo(() => state()?.metadata)
   const contents = createMemo(() => state()?.content?.content ?? "")
   const isImageFile = createMemo(() => meta()?.previewKind === "image")
