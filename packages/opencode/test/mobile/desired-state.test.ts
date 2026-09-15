@@ -36,6 +36,14 @@ class Manager extends MobileManagerBase {
   override file(name: string) {
     return join(this.root, name)
   }
+
+  busUnsubCount() {
+    return this._busUnsubs.length
+  }
+
+  hasGlobalListener() {
+    return this._globalBusListener !== null
+  }
 }
 
 describe("mobile desired state", () => {
@@ -58,5 +66,17 @@ describe("mobile desired state", () => {
     await using tmp = await tmpdir()
     expect(await new Manager(tmp.path).hasCredentials()).toBe(false)
     expect(await new Manager(tmp.path, { appId: "a" }).hasCredentials()).toBe(true)
+  })
+
+  test("subscribeBusEvents is idempotent and cleans up fully", () => {
+    const manager = new Manager("/tmp/unused")
+    manager.subscribeBusEvents()
+    manager.subscribeBusEvents()
+    manager.subscribeBusEvents()
+    expect(manager.busUnsubCount()).toBe(2)
+    expect(manager.hasGlobalListener()).toBe(true)
+    manager.unsubscribeBusEvents()
+    expect(manager.busUnsubCount()).toBe(0)
+    expect(manager.hasGlobalListener()).toBe(false)
   })
 })
