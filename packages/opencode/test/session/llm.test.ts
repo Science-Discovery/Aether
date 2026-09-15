@@ -580,7 +580,12 @@ describe("session.llm.stream", () => {
         provider: {
           deepseek: {
             options: { apiKey: "test-key", baseURL: `${server.url.origin}/v1` },
-            models: { "deepseek-flash": { reasoning: true } },
+            models: {
+              "deepseek-flash": {
+                reasoning: true,
+                reasoning_options: [{ type: "toggle" }, { type: "effort", values: ["low", "high", "max"] }],
+              },
+            },
           },
         },
       },

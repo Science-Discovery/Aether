@@ -653,14 +653,6 @@ export namespace ProviderTransform {
         }
       }
     }
-    // DeepSeek V4.1 Flash uses the unversioned ID on the official API.
-    if (model.providerID === "deepseek" && model.api.id.toLowerCase() === "deepseek-flash") {
-      return {
-        low: { thinking: { type: "enabled" }, reasoningEffort: "low" },
-        high: { thinking: { type: "enabled" }, reasoningEffort: "high" },
-        max: { thinking: { type: "enabled" }, reasoningEffort: "max" },
-      }
-    }
     if (
       /(^|\/)deepseek-v4-(pro|flash)(-\d+)?$/.test(model.api.id.toLowerCase()) &&
       ["deepseek", "vercel", "openrouter", "alibaba-cn"].includes(model.providerID)
@@ -1067,6 +1059,186 @@ export namespace ProviderTransform {
         return {}
     }
     return {}
+  }
+
+  // Metadata determines the available controls; SDK/provider adapters determine their wire format.
+  // Undefined means the protocol is not supported here and the caller should use legacy variants.
+  export function reasoning(
+    model: Provider.Model,
+    options: ModelsDev.Model["reasoning_options"],
+  ): Record<string, Record<string, unknown>> | undefined {
+    if (options === undefined) return
+    if (!model.capabilities.reasoning || options.length === 0) return {}
+    const budget = options.find((option) => option.type === "budget_tokens")
+    const range = bounds(model, budget)
+    const effort = options.find((option) => option.type === "effort")
+    if (effort) {
+      if (effort.values.length === 0) return {}
+      const result = effort.values.map((value) => ({
+        id: value ?? "none",
+        settings: intensity(model, value ?? "none", range),
+      }))
+      if (result.every((item) => item.settings === undefined)) return
+      return Object.fromEntries(result.flatMap((item) => (item.settings ? [[item.id, item.settings]] : [])))
+    }
+
+    const toggle = options.some((option) => option.type === "toggle") ? switcher(model) : undefined
+    if (!budget) return toggle
+    if (range.max < range.min) return toggle ?? {}
+    const result = {
+      ...toggle,
+      ...Object.fromEntries(
+        [
+          { id: "high", value: Math.max(range.min, Math.floor((range.max + 1) / 2)) },
+          { id: "max", value: range.max },
+        ].flatMap((item) => {
+          const settings = tokens(model, item.value)
+          return settings ? [[item.id, settings]] : []
+        }),
+      ),
+    }
+    return Object.keys(result).length ? result : undefined
+  }
+
+  function bounds(model: Provider.Model, budget?: { min?: number; max?: number }) {
+    return {
+      min: Math.max(
+        ["@ai-sdk/anthropic", "@ai-sdk/google-vertex/anthropic"].includes(model.api.npm) ||
+          (["@ai-sdk/amazon-bedrock", "@ai-sdk/gateway"].includes(model.api.npm) && model.api.id.includes("anthropic"))
+          ? 1024
+          : 1,
+        Math.ceil(budget?.min ?? 1),
+      ),
+      max: Math.floor(Math.min(budget?.max ?? Infinity, model.limit.output - 1, OUTPUT_TOKEN_MAX - 1)),
+    }
+  }
+
+  // Null means a known SDK rejects this value; undefined means the SDK has no adapter.
+  function intensity(
+    model: Provider.Model,
+    effort: string,
+    range: ReturnType<typeof bounds>,
+  ): Record<string, unknown> | null | undefined {
+    switch (model.api.npm) {
+      case "@openrouter/ai-sdk-provider":
+        return { reasoning: { effort } }
+      case "@ai-sdk/anthropic":
+      case "@ai-sdk/google-vertex/anthropic": {
+        if (!["low", "medium", "high", "max"].includes(effort)) return null
+        // Retain adaptive thinking and display settings for models with existing protocol adapters.
+        const settings = variants(model)
+        const config = settings[effort] ?? settings.high
+        if (config?.thinking?.type === "enabled") {
+          if (range.max < range.min) return null
+          return {
+            ...config,
+            thinking: {
+              ...config.thinking,
+              budgetTokens: Math.max(range.min, Math.min(config.thinking.budgetTokens, range.max)),
+            },
+            effort,
+          }
+        }
+        return { ...config, effort }
+      }
+      case "@ai-sdk/google":
+      case "@ai-sdk/google-vertex":
+        if (!["minimal", "low", "medium", "high"].includes(effort)) return null
+        return { thinkingConfig: { includeThoughts: true, thinkingLevel: effort } }
+      case "@ai-sdk/amazon-bedrock": {
+        if (!["low", "medium", "high", "max"].includes(effort)) return null
+        const settings = variants(model)
+        const config = (settings[effort] ?? settings.high)?.reasoningConfig
+        if (config?.type === "enabled" && typeof config.budgetTokens === "number") {
+          if (range.max < range.min) return null
+          const budget = Math.max(range.min, Math.min(config.budgetTokens, range.max))
+          return { reasoningConfig: { ...config, budgetTokens: budget, maxReasoningEffort: effort } }
+        }
+        if (config) return { reasoningConfig: { ...config, maxReasoningEffort: effort } }
+        if (model.api.id.includes("anthropic")) return
+        return { reasoningConfig: { type: "enabled", maxReasoningEffort: effort } }
+      }
+      case "@ai-sdk/gateway":
+        if (model.api.id.includes("anthropic"))
+          return intensity({ ...model, api: { ...model.api, npm: "@ai-sdk/anthropic" } }, effort, range)
+        if (model.api.id.includes("google"))
+          return intensity({ ...model, api: { ...model.api, npm: "@ai-sdk/google" } }, effort, range)
+        return { reasoningEffort: effort }
+      case "@ai-sdk/github-copilot":
+        // Copilot's non-OpenAI models have their own request protocol.
+        if (model.api.id.includes("gemini") || model.api.id.includes("claude")) return
+        return { reasoningEffort: effort, reasoningSummary: "auto", include: ["reasoning.encrypted_content"] }
+      case "@ai-sdk/openai":
+      case "@ai-sdk/azure":
+      case "@ai-sdk/amazon-bedrock/mantle":
+        return { reasoningEffort: effort, reasoningSummary: "auto", include: ["reasoning.encrypted_content"] }
+      case "@ai-sdk/openai-compatible":
+        if (model.providerID === "deepseek")
+          return effort === "none"
+            ? { thinking: { type: "disabled" } }
+            : { thinking: { type: "enabled" }, reasoningEffort: effort }
+        if (glm52(model) && ["alibaba", "alibaba-cn"].includes(model.providerID))
+          return variants(model)[effort] ?? { enable_thinking: true, reasoningEffort: effort }
+        return { reasoningEffort: effort }
+      case "@ai-sdk/xai":
+        return (model.providerID === "xai" ? ["low", "medium", "high"] : ["low", "high"]).includes(effort)
+          ? { reasoningEffort: effort }
+          : null
+      case "@ai-sdk/groq":
+        return ["none", "default", "low", "medium", "high"].includes(effort) ? { reasoningEffort: effort } : null
+      case "@ai-sdk/cerebras":
+      case "@ai-sdk/deepinfra":
+      case "@ai-sdk/togetherai":
+      case "venice-ai-sdk-provider":
+      case "ai-gateway-provider":
+        return { reasoningEffort: effort }
+    }
+  }
+
+  function switcher(model: Provider.Model): Record<string, Record<string, unknown>> | undefined {
+    switch (model.api.npm) {
+      case "@openrouter/ai-sdk-provider":
+        return { none: { reasoning: { enabled: false } }, high: { reasoning: { enabled: true } } }
+      case "@ai-sdk/cohere":
+        return { none: { thinking: { type: "disabled" } }, high: { thinking: { type: "enabled" } } }
+      case "@ai-sdk/google":
+      case "@ai-sdk/google-vertex":
+        return {
+          none: { thinkingConfig: { includeThoughts: false, thinkingBudget: 0 } },
+          high: { thinkingConfig: { includeThoughts: true, thinkingBudget: -1 } },
+        }
+      case "@ai-sdk/openai-compatible":
+        if (["deepseek", "moonshotai", "moonshotai-cn", "zai", "zhipuai"].includes(model.providerID))
+          return { none: { thinking: { type: "disabled" } }, high: { thinking: { type: "enabled" } } }
+        if (["alibaba", "alibaba-cn", "siliconflow", "siliconflow-cn"].includes(model.providerID))
+          return { none: { enable_thinking: false }, high: { enable_thinking: true } }
+    }
+  }
+
+  function tokens(model: Provider.Model, budget: number): Record<string, unknown> | undefined {
+    switch (model.api.npm) {
+      case "@openrouter/ai-sdk-provider":
+        return { reasoning: { max_tokens: budget } }
+      case "@ai-sdk/anthropic":
+      case "@ai-sdk/google-vertex/anthropic":
+        return { thinking: { type: "enabled", budgetTokens: budget } }
+      case "@ai-sdk/google":
+      case "@ai-sdk/google-vertex":
+        return { thinkingConfig: { includeThoughts: true, thinkingBudget: budget } }
+      case "@ai-sdk/amazon-bedrock":
+        if (model.api.id.includes("anthropic")) return { reasoningConfig: { type: "enabled", budgetTokens: budget } }
+        return
+      case "@ai-sdk/gateway":
+        if (model.api.id.includes("anthropic")) return { thinking: { type: "enabled", budgetTokens: budget } }
+        if (model.api.id.includes("google"))
+          return { thinkingConfig: { includeThoughts: true, thinkingBudget: budget } }
+        return
+      case "@ai-sdk/cohere":
+        return { thinking: { type: "enabled", tokenBudget: budget } }
+      case "@ai-sdk/openai-compatible":
+        if (["alibaba", "alibaba-cn", "siliconflow", "siliconflow-cn"].includes(model.providerID))
+          return { enable_thinking: true, thinking_budget: budget }
+    }
   }
 
   export function options(input: {

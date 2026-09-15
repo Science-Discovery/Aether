@@ -984,7 +984,10 @@ export namespace Provider {
       variants: {},
     }
 
-    m.variants = mapValues(ProviderTransform.variants(m), (v) => v)
+    m.variants = mapValues(
+      ProviderTransform.reasoning(m, model.reasoning_options) ?? ProviderTransform.variants(m),
+      (v) => v,
+    )
 
     return m
   }
@@ -1005,6 +1008,15 @@ export namespace Provider {
     const config = await Config.get()
     const modelsDev = await ModelsDev.get()
     const database = mapValues(modelsDev, fromModelsDevProvider)
+
+    function variants(model: Model) {
+      const cfg = config.provider?.[model.providerID]?.models?.[model.id]
+      const source = modelsDev[model.providerID]?.models[model.api.id]
+      return (
+        ProviderTransform.reasoning(model, cfg?.reasoning_options ?? source?.reasoning_options) ??
+        ProviderTransform.variants(model)
+      )
+    }
 
     const disabled = new Set(config.disabled_providers ?? [])
     const enabled = config.enabled_providers ? new Set(config.enabled_providers) : null
@@ -1158,7 +1170,7 @@ export namespace Provider {
           modalities: model.modalities ?? existingModel?.modalities,
           variants: {},
         }
-        const merged = mergeDeep(ProviderTransform.variants(parsedModel), model.variants ?? {})
+        const merged = mergeDeep(variants(parsedModel), model.variants ?? {})
         parsedModel.variants = mapValues(
           pickBy(merged, (v) => !v.disabled),
           (v) => omit(v, ["disabled"]),
@@ -1272,7 +1284,7 @@ export namespace Provider {
           delete provider.models[modelID]
         if (disabledModels.has(`${providerID}/${modelID}`) || disabledModels.has(modelID)) model.disabled = true
 
-        model.variants = mapValues(ProviderTransform.variants(model), (v) => v)
+        model.variants = mapValues(variants(model), (v) => v)
 
         // Filter out disabled variants from config
         const configVariants = configProvider?.models?.[modelID]?.variants

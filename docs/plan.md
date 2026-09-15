@@ -67,8 +67,9 @@ Aether 目前已经与上游 opencode 分离，但 LLM 调用层仍然处在高�
 - Zhipu / ZAI reasoning 参数：`thinking.type = "enabled"` 与 `clear_thinking: false`。
 - Kimi K2.5 / K2P5 在 Anthropic SDK 形态下默认启用 thinking budget。
 - Qwen / Kimi / Minimax / GLM 等模型的采样参数默认值。
-- DeepSeek、Minimax、GLM、Mistral、Kimi 等不暴露通用 reasoning variant，避免错误地传入不兼容 effort。
-- 已确认支持档位的模型使用专门适配：DeepSeek 官方 `deepseek-flash`（V4.1 Flash）提供 `low` / `high` / `max`，选择档位时发送 `thinking.type = "enabled"` 和对应的 `reasoning_effort`；“默认”不额外指定档位，由服务端默认值或已有配置决定。参数依据见 [DeepSeek 思考模式文档](https://api-docs.deepseek.com/guides/thinking_mode/)。
+- 优先从 `models.dev` 的 `reasoning_options` 生成思考档位，按现有 SDK 和提供商协议转换 effort、开关和 token 预算；缺少元数据或尚无对应协议适配时，回退到原有模型规则。显式空数组表示不生成自动档位，用户配置的 `reasoning_options`、`variants` 和 `disabled` 保持覆盖能力。
+- 目录热更新会重建 Provider 并通知模型选择器，重建时重新读取档位元数据。已有协议下的模型新增、改名和档位调整可随数据刷新生效；新增协议、SDK 不支持的档位值及新的元数据类型仍需更新客户端。当前 SDK 明确拒绝的 effort 值不会生成可选档位。
+- DeepSeek 官方模型的 effort 档位由目录提供，例如 `deepseek-flash`（V4.1 Flash）的 `low` / `high` / `max`；选择后发送 `thinking.type = "enabled"` 和对应的 `reasoning_effort`，不再依赖这个模型 ID 的专门判断。“默认”不额外指定档位，由服务端默认值或已有配置决定。参数依据见 [DeepSeek 思考模式文档](https://api-docs.deepseek.com/guides/thinking_mode/)。
 - LiteLLM proxy 在历史消息含 tool call、当前无工具时注入 `_noop` 工具。
 - HTTP proxy、SSE chunk timeout、自定义 baseURL、provider config 连接语义。
 
