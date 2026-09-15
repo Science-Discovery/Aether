@@ -161,6 +161,45 @@ export const inserts = {
         verified_at: "2026-08-25",
       },
     },
+    "glm-5.3": {
+      id: "glm-5.3",
+      name: "GLM-5.3",
+      family: "glm",
+      attachment: false,
+      reasoning: true,
+      tool_call: true,
+      structured_output: true,
+      interleaved: {
+        field: "reasoning_content",
+      },
+      temperature: true,
+      release_date: "2026-08-19",
+      modalities: {
+        input: ["text"],
+        output: ["text"],
+      },
+      provider: {
+        npm: "@ai-sdk/openai-compatible",
+        api: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      },
+      limit: {
+        context: 1_048_576,
+        output: 131_072,
+      },
+      options: {},
+      // Alibaba Bailian list price is CNY 8 / 2 (cache hit) / 28 per 1M tokens;
+      // converted to USD at 1 USD ≈ 7.2 CNY to match models.dev's USD convention.
+      cost: {
+        input: 1.11,
+        cache_read: 0.28,
+        output: 3.89,
+      },
+      meta: {
+        reason:
+          "models.dev is missing Alibaba Bailian glm-5.3 metadata; GLM-5.3 always thinks with configurable reasoning_effort (low/high/max), streams reasoning_content by default, supports text-only input with 1M context and 128K output budget",
+        verified_at: "2026-09-16",
+      },
+    },
     "deepseek-v4-pro-0813": {
       id: "deepseek-v4-pro-0813",
       name: "DeepSeek V4 Pro 0813",
