@@ -52,6 +52,7 @@ describe("file endpoints", () => {
       name: "guide.pdf",
       kind: "file",
       size: 8,
+      mtime: expect.any(Number),
       mimeType: "application/pdf",
       previewKind: "pdf",
       inline: false,
