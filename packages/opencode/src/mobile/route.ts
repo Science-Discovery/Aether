@@ -25,6 +25,7 @@ export function createMobileRoutes(platform: "feishu" | "qq" | "wechat") {
   ] as const satisfies readonly MobileStatus[]
   const statusSchema = z.object({
     status: z.enum(statusValues),
+    enabled: z.boolean(),
     ...(platform === "feishu" || platform === "qq"
       ? { appId: z.string().nullable(), hasConfig: z.boolean() }
       : platform === "wechat"
@@ -74,19 +75,15 @@ export function createMobileRoutes(platform: "feishu" | "qq" | "wechat") {
               ? { providerID: body.model.providerID as string, modelID: body.model.modelID as string }
               : undefined
           const result = await mgr.start(config, model)
+          if (result.code !== "locked") await mgr.setDesired(true)
           return c.json(result)
         } else {
           const clientId: string = body?.clientId || crypto.randomUUID()
-          const force: boolean = body?.force === true
-          if (force) {
-            await WeChatManager.forceLock(clientId)
-          } else if (!(await WeChatManager.tryLock(clientId))) {
-            return c.json({ success: false, code: "locked", message: "微信已被其他客户端连接" })
-          }
-          const result = await WeChatManager.start(body?.model, body?.autoInstall === true, body?.rescan === true)
-          if (!result.success) {
-            await WeChatManager.unlock(clientId)
-          }
+          const result = await WeChatManager.start(body?.model, body?.autoInstall === true, body?.rescan === true, {
+            clientId,
+            force: body?.force === true,
+          })
+          if (result.code !== "locked") await WeChatManager.setDesired(true)
           return c.json({ ...result, clientId })
         }
       },
@@ -107,6 +104,7 @@ export function createMobileRoutes(platform: "feishu" | "qq" | "wechat") {
       async (c) => {
         if (platform !== "wechat") return c.json({ success: false })
         const result = await WeChatManager.retry()
+        await WeChatManager.setDesired(true)
         return c.json(result)
       },
     )
@@ -126,8 +124,13 @@ export function createMobileRoutes(platform: "feishu" | "qq" | "wechat") {
       async (c) => {
         if (platform === "wechat") {
           const body = await c.req.json().catch(() => ({}))
-          if (body?.clientId) await WeChatManager.unlock(body.clientId)
+          const holder = WeChatManager.lockHolder
+          if (holder && body?.clientId && body.clientId !== holder) {
+            return c.json({ success: true, ignored: true })
+          }
+          await WeChatManager.unlock(body?.clientId).catch(() => {})
         }
+        await manager.setDesired(false)
         await manager.stop()
         return c.json({ success: true })
       },
@@ -146,10 +149,12 @@ export function createMobileRoutes(platform: "feishu" | "qq" | "wechat") {
         },
       }),
       async (c) => {
+        const enabled = await manager.desired()
         if (platform === "feishu") {
           const config = await FeishuManager.adapter.loadConfig()
           return c.json({
             status: FeishuManager.status,
+            enabled,
             appId: FeishuManager.session?.appId || null,
             hasConfig: !!config,
             error: FeishuManager.error,
@@ -158,6 +163,7 @@ export function createMobileRoutes(platform: "feishu" | "qq" | "wechat") {
           const config = await QQManager.adapter.loadConfig()
           return c.json({
             status: QQManager.status,
+            enabled,
             appId: QQManager.session?.appId || null,
             hasConfig: !!config,
             error: QQManager.error,
@@ -166,6 +172,7 @@ export function createMobileRoutes(platform: "feishu" | "qq" | "wechat") {
           const session = await WeChatManager.adapter.loadSession()
           return c.json({
             status: WeChatManager.status,
+            enabled,
             qrcode: WeChatManager.qrcode,
             user: WeChatManager.session?.user || session?.user || null,
             error: WeChatManager.error,
@@ -260,30 +267,9 @@ export function createMobileRoutes(platform: "feishu" | "qq" | "wechat") {
         },
       }),
       async (c) => {
+        await manager.setDesired(false)
         await manager.clearSession()
         return c.json({ success: true })
-      },
-    )
-    .post(
-      "/ping",
-      describeRoute({
-        summary: "Ping WeChat lease",
-        description: "Renew the WeChat lock lease or detect if stolen by another client",
-        operationId: "wechat.ping",
-        responses: {
-          200: {
-            description: "Ping result",
-            content: { "application/json": { schema: resolver(z.object({ ok: z.boolean(), stolen: z.boolean() })) } },
-          },
-        },
-      }),
-      async (c) => {
-        if (platform !== "wechat") return c.json({ ok: false, stolen: false })
-        const body = await c.req.json().catch(() => ({}))
-        const clientId: string = body?.clientId || ""
-        if (!clientId) return c.json({ ok: false, stolen: false })
-        const result = await WeChatManager.ping(clientId)
-        return c.json(result)
       },
     )
 }

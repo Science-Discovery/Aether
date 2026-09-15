@@ -357,9 +357,6 @@ import type {
   VcsGraphResponses,
   VcsRenameBranchResponses,
   WechatEventsResponses,
-  WechatPing2Responses,
-  WechatPing3Responses,
-  WechatPingResponses,
   WechatRetry2Responses,
   WechatRetry3Responses,
   WechatRetryResponses,
@@ -7610,36 +7607,6 @@ export class Wechat extends HeyApiClient {
   }
 
   /**
-   * Ping WeChat lease
-   *
-   * Renew the WeChat lock lease or detect if stolen by another client
-   */
-  public ping<ThrowOnError extends boolean = false>(
-    parameters?: {
-      directory?: string
-      workspace?: string
-    },
-    options?: Options<never, ThrowOnError>,
-  ) {
-    const params = buildClientParams(
-      [parameters],
-      [
-        {
-          args: [
-            { in: "query", key: "directory" },
-            { in: "query", key: "workspace" },
-          ],
-        },
-      ],
-    )
-    return (options?.client ?? this.client).post<WechatPingResponses, unknown, ThrowOnError>({
-      url: "/mobile/wechat/ping",
-      ...options,
-      ...params,
-    })
-  }
-
-  /**
    * Retry WeChat connection
    *
    * Retry WeChat connection from error state
@@ -7670,36 +7637,6 @@ export class Wechat extends HeyApiClient {
   }
 
   /**
-   * Ping WeChat lease
-   *
-   * Renew the WeChat lock lease or detect if stolen by another client
-   */
-  public ping2<ThrowOnError extends boolean = false>(
-    parameters?: {
-      directory?: string
-      workspace?: string
-    },
-    options?: Options<never, ThrowOnError>,
-  ) {
-    const params = buildClientParams(
-      [parameters],
-      [
-        {
-          args: [
-            { in: "query", key: "directory" },
-            { in: "query", key: "workspace" },
-          ],
-        },
-      ],
-    )
-    return (options?.client ?? this.client).post<WechatPing2Responses, unknown, ThrowOnError>({
-      url: "/mobile/feishu/ping",
-      ...options,
-      ...params,
-    })
-  }
-
-  /**
    * Retry WeChat connection
    *
    * Retry WeChat connection from error state
@@ -7724,36 +7661,6 @@ export class Wechat extends HeyApiClient {
     )
     return (options?.client ?? this.client).post<WechatRetry3Responses, unknown, ThrowOnError>({
       url: "/mobile/qq/retry",
-      ...options,
-      ...params,
-    })
-  }
-
-  /**
-   * Ping WeChat lease
-   *
-   * Renew the WeChat lock lease or detect if stolen by another client
-   */
-  public ping3<ThrowOnError extends boolean = false>(
-    parameters?: {
-      directory?: string
-      workspace?: string
-    },
-    options?: Options<never, ThrowOnError>,
-  ) {
-    const params = buildClientParams(
-      [parameters],
-      [
-        {
-          args: [
-            { in: "query", key: "directory" },
-            { in: "query", key: "workspace" },
-          ],
-        },
-      ],
-    )
-    return (options?.client ?? this.client).post<WechatPing3Responses, unknown, ThrowOnError>({
-      url: "/mobile/qq/ping",
       ...options,
       ...params,
     })
