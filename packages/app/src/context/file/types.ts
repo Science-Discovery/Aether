@@ -33,6 +33,8 @@ export type FileState = {
   loaded?: boolean
   loading?: boolean
   error?: string
+  /** `${mtime}:${size}` fingerprint from the last stat; used to detect external changes */
+  sig?: string
   metadata?: FileMetadata
   content?: FileContent
 }

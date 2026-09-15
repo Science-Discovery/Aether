@@ -118,6 +118,16 @@ describe("session.retry.retryable", () => {
     expect(SessionRetry.retryable(error)).toBeUndefined()
   })
 
+  test("retries certificate verification errors", () => {
+    const error = wrap("unknown certificate verification error")
+    expect(SessionRetry.retryable(error)).toBe("Connection error")
+  })
+
+  test("does not retry unrelated plain messages", () => {
+    const error = wrap("model refused the request")
+    expect(SessionRetry.retryable(error)).toBeUndefined()
+  })
+
   test("does not retry context overflow errors", () => {
     const error = new MessageV2.ContextOverflowError({
       message: "Input exceeds context window of this model",
@@ -201,5 +211,32 @@ describe("session.message-v2.fromError", () => {
     })
     const result = MessageV2.fromError(error, { providerID: ProviderID.make("openai") }) as MessageV2.APIError
     expect(result.data.isRetryable).toBe(true)
+  })
+
+  test("converts TLS certificate errors to retryable APIError", () => {
+    const error = Object.assign(new Error("unknown certificate verification error"), {
+      code: "UNKNOWN_CERTIFICATE_VERIFICATION_ERROR",
+    })
+    const result = MessageV2.fromError(error, { providerID }) as MessageV2.APIError
+    expect(MessageV2.APIError.isInstance(result)).toBe(true)
+    expect(result.data.isRetryable).toBe(true)
+    expect(result.data.metadata?.code).toBe("UNKNOWN_CERTIFICATE_VERIFICATION_ERROR")
+    expect(result.data.metadata?.kind).toBe("conn")
+  })
+
+  test("converts bare certificate error messages to retryable APIError", () => {
+    const result = MessageV2.fromError(new Error("Unknown certificate verification error"), { providerID })
+    expect(MessageV2.APIError.isInstance(result)).toBe(true)
+    expect((result as MessageV2.APIError).data.isRetryable).toBe(true)
+  })
+
+  test("connection errors use slow retry backoff", () => {
+    const error = new MessageV2.APIError({
+      message: "unknown certificate verification error",
+      isRetryable: true,
+      metadata: { code: "UNKNOWN_CERTIFICATE_VERIFICATION_ERROR", kind: "conn" },
+    }).toObject() as MessageV2.APIError
+    expect(SessionRetry.delay(1, error)).toBe(30_000)
+    expect(SessionRetry.delay(3, error)).toBe(120_000)
   })
 })

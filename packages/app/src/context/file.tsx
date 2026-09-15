@@ -389,6 +389,51 @@ export const { use: useFile, provider: FileProvider } = createSimpleContext({
       return promise
     }
 
+    /**
+     * Re-validate an open file against disk (stat compare) and refresh the UI
+     * when it changed externally. Type-agnostic: text files get a forced content
+     * reload; binary previews (pdf/image) get a version bump which changes the
+     * raw preview URL and forces the viewer to re-fetch.
+     */
+    const refresh = (input: string) => {
+      const file = path.normalize(input)
+      if (!file) return Promise.resolve()
+      const directory = scope()
+      const current = store.file[file]
+      if (!current?.loaded) return Promise.resolve()
+      if (untrack(() => view().isEditing(file))) return Promise.resolve()
+      return sdk.client.file
+        .metadata({ path: file })
+        .then((x) => {
+          if (scope() !== directory || !x.data) return
+          const sig = `${x.data.mtime}:${x.data.size}`
+          const prev = store.file[file]?.sig
+          if (prev === sig) return
+          batch(() => {
+            setStore("file", file, "sig", sig)
+            setStore("file", file, "metadata", x.data)
+            setStore("file", file, "version", (value) => (value ?? 0) + 1)
+          })
+          if (prev !== undefined && preview(file) === "text") void load(file, { force: true })
+        })
+        .catch(() => undefined)
+    }
+
+    // Poll open files for external changes (the worktree watcher only covers
+    // edits made through opencode tools unless the experimental flag is on).
+    createEffect(() => {
+      const timer = setInterval(() => {
+        if (typeof document !== "undefined" && document.hidden) return
+        const open = new Set<string>()
+        for (const tab of tabs.all()) {
+          const file = path.pathFromTab(tab)
+          if (file && store.file[file]?.loaded) open.add(file)
+        }
+        for (const file of open) void refresh(file)
+      }, 2500)
+      onCleanup(() => clearInterval(timer))
+    })
+
     const search = (query: string, dirs: "true" | "false") =>
       sdk.client.find.files({ query, dirs }).then(
         (x) => (x.data ?? []).map(path.normalize),
@@ -502,6 +547,7 @@ export const { use: useFile, provider: FileProvider } = createSimpleContext({
       },
       get,
       load,
+      refresh,
       scrollTop,
       scrollLeft,
       pdfPage,

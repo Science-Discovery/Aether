@@ -316,6 +316,13 @@ export type EventFileWatcherLimited = {
   }
 }
 
+export type EventFileWatcherNotfound = {
+  type: "file.watcher.notfound"
+  properties: {
+    dir: string
+  }
+}
+
 export type EventFileEdited = {
   type: "file.edited"
   properties: {
@@ -1120,6 +1127,7 @@ export type Event =
   | EventSessionCompacted
   | EventFileWatcherUpdated
   | EventFileWatcherLimited
+  | EventFileWatcherNotfound
   | EventFileEdited
   | EventTodoUpdated
   | EventTuiPromptAppend
@@ -2389,6 +2397,7 @@ export type FileMetadata = {
   name: string
   kind: "file" | "directory"
   size: number
+  mtime: number
   mimeType: string
   previewKind: "text" | "image" | "pdf" | "binary" | "directory"
   inline: boolean
