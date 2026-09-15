@@ -1,7 +1,6 @@
 import assert from "node:assert/strict"
 import path from "node:path"
 import fs from "node:fs/promises"
-import type { Agent } from "../../../src/agent/agent"
 import type { Config } from "../../../src/config/config"
 import { Auth } from "../../../src/auth"
 import { Global } from "../../../src/global"
@@ -11,8 +10,7 @@ import { CodexModels } from "../../../src/plugin/codex-models"
 import { ModelsDev } from "../../../src/provider/models"
 import { Provider } from "../../../src/provider/provider"
 import { ProviderID, ModelID } from "../../../src/provider/schema"
-import { SessionID, MessageID } from "../../../src/session/schema"
-import { LLM } from "../../../src/session/llm"
+import { stream } from "../../lib/llm"
 import { Database } from "../../../src/storage/db"
 
 const dir = process.argv[2]
@@ -73,35 +71,6 @@ GlobalBus.on("event", (event) => {
   events.push(event.payload.properties.hash)
 })
 
-async function stream(model: Provider.Model, variant?: string) {
-  const session = SessionID.make("session-subscription-refresh")
-  const agent = {
-    name: "test",
-    mode: "primary",
-    options: {},
-    permission: [{ permission: "*", pattern: "*", action: "allow" }],
-  } satisfies Agent.Info
-  const output = await LLM.stream({
-    user: {
-      id: MessageID.make("user-subscription-refresh"),
-      sessionID: session,
-      role: "user",
-      time: { created: Date.now() },
-      agent: agent.name,
-      model: { providerID: model.providerID, modelID: model.id },
-      variant,
-    },
-    sessionID: session,
-    model,
-    agent,
-    system: [],
-    abort: new AbortController().signal,
-    messages: [{ role: "user", content: "Hello" }],
-    tools: {},
-  })
-  assert.equal(await output.text, "Hello")
-}
-
 try {
   assert.equal((await ModelsDev.refresh({ force: true })).changed, true)
   await Instance.provide({
@@ -145,8 +114,8 @@ try {
       assert.deepEqual(Object.keys(configured.variants ?? {}), ["low", "manual"])
       assert.deepEqual((await model("disabled")).variants, {})
       assert.deepEqual((await model("empty")).variants, {})
-      await stream(updated)
-      await stream(await model("alias"), "future")
+      assert.equal(await stream(updated), "Hello")
+      assert.equal(await stream(await model("alias"), "future"), "Hello")
 
       const unchanged = events.length
       assert.equal((await CodexModels.refresh({ force: true })).changed, false)
@@ -160,7 +129,7 @@ try {
       assert.equal(added.limit.output, 0)
       assert.equal(added.capabilities.input.text, true)
       assert.deepEqual(Object.keys(added.variants ?? {}), ["high", "ultra", "future"])
-      await stream(added, "ultra")
+      assert.equal(await stream(added, "ultra"), "Hello")
 
       await fetch(`${origin}/next`)
       assert.equal((await CodexModels.refresh({ force: true })).changed, true)
@@ -180,7 +149,7 @@ try {
         assert.equal(current.options.reasoningEffort, undefined)
         assert.deepEqual(Object.keys(current.variants ?? {}), ["ultra", "future"])
         assert.equal((await model("configured")).options.reasoningEffort, "low")
-        await stream(current)
+        assert.equal(await stream(current), "Hello")
       }
     },
   })

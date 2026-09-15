@@ -2,6 +2,7 @@ import { expect, test } from "bun:test"
 import path from "node:path"
 import { Process } from "../../src/util/process"
 import { tmpdir } from "../fixture/fixture"
+import { reply } from "../lib/llm"
 
 test("subscription metadata refresh reaches provider models and Responses requests", async () => {
   await using tmp = await tmpdir()
@@ -87,28 +88,7 @@ test("subscription metadata refresh reaches provider models and Responses reques
         authorization: req.headers.get("authorization"),
         account: req.headers.get("chatgpt-account-id"),
       })
-      return new Response(
-        [
-          {
-            type: "response.created",
-            response: { id: "resp-1", created_at: 1, model: body.model, service_tier: null },
-          },
-          { type: "response.output_item.added", output_index: 0, item: { type: "message", id: "item-1" } },
-          { type: "response.output_text.delta", item_id: "item-1", delta: "Hello", logprobs: null },
-          { type: "response.output_item.done", output_index: 0, item: { type: "message", id: "item-1" } },
-          {
-            type: "response.completed",
-            response: {
-              incomplete_details: null,
-              usage: { input_tokens: 1, input_tokens_details: null, output_tokens: 1, output_tokens_details: null },
-              service_tier: null,
-            },
-          },
-        ]
-          .map((chunk) => `event: ${chunk.type}\ndata: ${JSON.stringify(chunk)}\n\n`)
-          .join(""),
-        { headers: { "Content-Type": "text/event-stream" } },
-      )
+      return reply("responses", body.model)
     },
   })
   try {

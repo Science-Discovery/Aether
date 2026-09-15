@@ -1,7 +1,6 @@
 import assert from "node:assert/strict"
 import path from "node:path"
 import fs from "node:fs/promises"
-import type { Agent } from "../../../src/agent/agent"
 import type { Config } from "../../../src/config/config"
 import { Global } from "../../../src/global"
 import { GlobalBus } from "../../../src/bus/global"
@@ -9,8 +8,7 @@ import { Instance } from "../../../src/project/instance"
 import { ModelsDev } from "../../../src/provider/models"
 import { Provider } from "../../../src/provider/provider"
 import { ProviderID, ModelID } from "../../../src/provider/schema"
-import { SessionID, MessageID } from "../../../src/session/schema"
-import { LLM } from "../../../src/session/llm"
+import { stream } from "../../lib/llm"
 import { Database } from "../../../src/storage/db"
 
 const dir = process.argv[2]
@@ -84,32 +82,7 @@ try {
       assert.deepEqual((await model("disabled")).variants, {})
       assert.deepEqual(Object.keys((await model("explicit")).variants ?? {}), ["medium"])
 
-      const session = SessionID.make("session-catalog-refresh")
-      const agent = {
-        name: "test",
-        mode: "primary",
-        options: {},
-        permission: [{ permission: "*", pattern: "*", action: "allow" }],
-      } satisfies Agent.Info
-      const stream = await LLM.stream({
-        user: {
-          id: MessageID.make("user-catalog-refresh"),
-          sessionID: session,
-          role: "user",
-          time: { created: Date.now() },
-          agent: agent.name,
-          model: { providerID: updated.providerID, modelID: updated.id },
-          variant: "max",
-        },
-        sessionID: session,
-        model: updated,
-        agent,
-        system: [],
-        abort: new AbortController().signal,
-        messages: [{ role: "user", content: "Hello" }],
-        tools: {},
-      })
-      assert.equal(await stream.text, "Hello")
+      assert.equal(await stream(updated, "max"), "Hello")
     },
   })
   console.log("reasoning catalog refresh verified")

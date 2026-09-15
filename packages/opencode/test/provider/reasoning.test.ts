@@ -4,6 +4,7 @@ import { Provider } from "../../src/provider/provider"
 import type { ModelsDev } from "../../src/provider/models"
 import { Process } from "../../src/util/process"
 import { tmpdir } from "../fixture/fixture"
+import { reply } from "../lib/llm"
 
 test.each([
   { name: "missing metadata falls back to legacy variants", options: undefined, expected: ["high", "max"] },
@@ -84,16 +85,7 @@ test("catalog refresh updates reasoning variants and SDK requests without restar
       }
       if (url.pathname !== "/v1/chat/completions") return new Response("not found", { status: 404 })
       state.requests.push(await req.json())
-      return new Response(
-        [
-          `data: ${JSON.stringify({ id: "chat-1", choices: [{ delta: { role: "assistant", content: "Hello" } }] })}`,
-          `data: ${JSON.stringify({ id: "chat-1", choices: [{ delta: {}, finish_reason: "stop" }] })}`,
-          "data: [DONE]",
-          "",
-          "",
-        ].join("\n\n"),
-        { headers: { "Content-Type": "text/event-stream" } },
-      )
+      return reply("chat")
     },
   })
   try {
