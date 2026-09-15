@@ -461,7 +461,7 @@ class QQManagerImpl extends MobileManagerBase {
     void this.handleMessage(chatId, messageId, text, messageId)
   }
 
-  private trackChat(messageId: string, chatId: string): void {
+  trackChat(messageId: string, chatId: string): void {
     this._currentChatId = chatId
     this._msgChats.set(messageId, chatId)
     if (this._msgChats.size <= 500) return

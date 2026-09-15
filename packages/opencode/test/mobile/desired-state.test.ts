@@ -44,6 +44,14 @@ class Manager extends MobileManagerBase {
   hasGlobalListener() {
     return this._globalBusListener !== null
   }
+
+  subscribeBus() {
+    this.subscribeBusEvents()
+  }
+
+  unsubscribeBus() {
+    this.unsubscribeBusEvents()
+  }
 }
 
 describe("mobile desired state", () => {
@@ -70,12 +78,12 @@ describe("mobile desired state", () => {
 
   test("subscribeBusEvents is idempotent and cleans up fully", () => {
     const manager = new Manager("/tmp/unused")
-    manager.subscribeBusEvents()
-    manager.subscribeBusEvents()
-    manager.subscribeBusEvents()
+    manager.subscribeBus()
+    manager.subscribeBus()
+    manager.subscribeBus()
     expect(manager.busUnsubCount()).toBe(2)
     expect(manager.hasGlobalListener()).toBe(true)
-    manager.unsubscribeBusEvents()
+    manager.unsubscribeBus()
     expect(manager.busUnsubCount()).toBe(0)
     expect(manager.hasGlobalListener()).toBe(false)
   })
