@@ -61,7 +61,7 @@ try {
       assert.deepEqual((await model("disabled")).variants, {})
       assert.deepEqual((await model("empty")).variants, {})
       assert.deepEqual(Object.keys((await model("explicit")).variants ?? {}), ["medium"])
-      assert.deepEqual((await model("protocol")).variants?.high, { reasoning: { effort: "high" } })
+      assert.deepEqual((await model("protocol")).variants?.high, { reasoning: { enabled: true, effort: "high" } })
       assert.deepEqual((await model("customized")).variants, {
         none: { thinking: { type: "disabled" }, reasoningEffort: undefined, reasoning_effort: undefined },
         high: { thinking: { type: "enabled" }, reasoningEffort: "low" },

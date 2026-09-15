@@ -1066,6 +1066,7 @@ export namespace ProviderTransform {
   export function reasoning(
     model: Provider.Model,
     options: ModelsDev.Model["reasoning_options"],
+    cfg?: Record<string, unknown>,
   ): Record<string, Record<string, unknown>> | undefined {
     if (options === undefined) return
     if (!model.capabilities.reasoning || options.length === 0) return {}
@@ -1075,10 +1076,19 @@ export namespace ProviderTransform {
     const effort = options.find((option) => option.type === "effort")
     if (effort) {
       if (effort.values.length === 0) return {}
-      const result = effort.values.map((value) => ({
-        id: value ?? "none",
-        settings: intensity(model, value ?? "none", range),
-      }))
+      // Google effort already enables thought output; its toggle would add a separate token budget.
+      const enabled = ["@ai-sdk/google", "@ai-sdk/google-vertex"].includes(model.api.npm) ? {} : (toggle?.high ?? {})
+      const result = effort.values.map((value) => {
+        const id = value ?? "none"
+        const settings =
+          model.api.npm === "@ai-sdk/azure" && chat(model, cfg) && !OPENAI_EFFORTS.includes(id)
+            ? null
+            : intensity(model, id, range)
+        return {
+          id,
+          settings: id === "none" ? (toggle?.none ?? settings) : settings && mergeDeep(enabled, settings),
+        }
+      })
       if (result.every((item) => item.settings === undefined)) return
       return {
         ...(toggle?.none ? { none: toggle.none } : {}),
@@ -1096,7 +1106,7 @@ export namespace ProviderTransform {
           { id: "max", value: range.max },
         ].flatMap((item) => {
           const settings = tokens(model, item.value)
-          return settings ? [[item.id, settings]] : []
+          return settings ? [[item.id, mergeDeep(toggle?.high ?? {}, settings)]] : []
         }),
       ),
     }
@@ -1450,7 +1460,7 @@ export namespace ProviderTransform {
 
   function chat(model: Provider.Model, cfg?: Record<string, unknown>) {
     if (model.api.npm === "@ai-sdk/openai-compatible") return true
-    if (model.api.npm === "@ai-sdk/azure") return cfg?.useCompletionUrls === true
+    if (model.api.npm === "@ai-sdk/azure") return Boolean(cfg?.useCompletionUrls)
     if (model.api.npm === "@ai-sdk/github-copilot") return copilotChat(model)
     return false
   }

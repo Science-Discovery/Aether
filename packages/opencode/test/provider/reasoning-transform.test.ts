@@ -99,6 +99,25 @@ describe("catalogue reasoning adapters", () => {
     })
   })
 
+  test.each(["@ai-sdk/google", "@ai-sdk/google-vertex"])(
+    "does not combine the Google toggle budget with an effort through %s",
+    (npm) => {
+      expect(
+        ProviderTransform.reasoning(model(npm, "google"), [{ type: "toggle" }, { type: "effort", values: ["low"] }])
+          ?.low,
+      ).toEqual({ thinkingConfig: { includeThoughts: true, thinkingLevel: "low" } })
+    },
+  )
+
+  test.each(["none", null])("retains the disabled toggle when effort includes %s", (value) => {
+    const result = ProviderTransform.reasoning(model("@openrouter/ai-sdk-provider", "openrouter"), [
+      { type: "toggle" },
+      { type: "effort", values: [value, "low"] },
+    ])!
+    expect(result.none).toEqual({ reasoning: { enabled: false, effort: undefined, max_tokens: undefined } })
+    expect(result.low).toEqual({ reasoning: { enabled: true, effort: "low" } })
+  })
+
   test.each([
     [
       "@openrouter/ai-sdk-provider",

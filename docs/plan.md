@@ -68,10 +68,10 @@ Aether 目前已经与上游 opencode 分离，但 LLM 调用层仍然处在高�
 - Kimi K2.5 / K2P5 在 Anthropic SDK 形态下默认启用 thinking budget。
 - Qwen / Kimi / Minimax / GLM 等模型的采样参数默认值。
 - 优先从 `models.dev` 的 `reasoning_options` 生成思考档位，按现有 SDK 和提供商协议转换 effort、开关和 token 预算；缺少元数据或尚无对应协议适配时，回退到原有模型规则。显式空数组表示不生成自动档位，用户配置的 `reasoning_options`、`variants` 和 `disabled` 保持覆盖能力。
-- 目录热更新会重建 Provider 并通知模型选择器，重建时重新读取档位元数据。已有协议下的模型新增、改名和档位调整可随数据刷新生效；新增协议、SDK 不支持的档位值及新的元数据类型仍需更新客户端。当前 SDK 明确拒绝的 effort 值不会生成可选档位。
+- 目录热更新会重建 Provider 并通知模型选择器，重建时重新读取档位元数据。已有协议下的模型新增、改名和档位调整可随数据刷新生效；新增协议、SDK 不支持的档位值及新的元数据类型仍需更新客户端。当前 SDK 在实际请求接口中明确拒绝的 effort 值不会生成可选档位，例如 Azure Chat 的范围与默认 Responses 不同。
 - Codex OAuth 使用订阅目录提供的名称、默认上下文、输入模态、支持档位及默认强度，用户显式配置优先；API key 模式仍使用公开目录。订阅缓存保留这些有效元数据，参数单独变化也触发刷新，兼容旧的 ID 列表缓存。订阅先发布的新模型可在提供上下文和文本输入能力时加入列表；未提供的输出上限保留未知值，不把实验性最大上下文当默认上限。
 - effort 名称由目录提供，不在目录解析层固定枚举；协议适配器决定是否能发送。模型设置页打开时每 15 秒查询本地刷新状态，让无模型变化时的检查时间及订阅启用状态也保持更新；模型和档位仍通过更新事件即时刷新。
-- DeepSeek 官方模型的 effort 档位由目录提供，例如 `deepseek-flash`（V4.1 Flash）的 `low` / `high` / `max`；选择后发送 `thinking.type = "enabled"` 和对应的 `reasoning_effort`，不再依赖这个模型 ID 的专门判断。目录同时声明 toggle 时保留 `none` 关闭选项，关闭时清除冲突的强度和预算参数。“默认”不额外指定档位，由服务端默认值或已有配置决定；供应商名为 `default` 的真实档位在菜单中单独标识，仍按原值发送。参数依据见 [DeepSeek 思考模式文档](https://api-docs.deepseek.com/guides/thinking_mode/)。
+- DeepSeek 官方模型的 effort 档位由目录提供，例如 `deepseek-flash`（V4.1 Flash）的 `low` / `high` / `max`；选择后发送 `thinking.type = "enabled"` 和对应的 `reasoning_effort`，不再依赖这个模型 ID 的专门判断。目录同时声明 toggle 时保留 `none` 关闭选项，关闭时清除冲突的强度和预算参数；选择开启档位时一并设置提供商的思考开关，覆盖模型或 Agent 中的关闭预设。“默认”不额外指定档位，由服务端默认值或已有配置决定；供应商名为 `default` 的真实档位在菜单中单独标识，仍按原值发送。参数依据见 [DeepSeek 思考模式文档](https://api-docs.deepseek.com/guides/thinking_mode/)。
 - LiteLLM proxy 在历史消息含 tool call、当前无工具时注入 `_noop` 工具。
 - HTTP proxy、SSE chunk timeout、自定义 baseURL、provider config 连接语义。
 

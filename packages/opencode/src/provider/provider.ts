@@ -1022,6 +1022,14 @@ export namespace Provider {
             (levels === undefined
               ? source?.reasoning_options
               : [{ type: "effort", values: levels.map((level) => level.effort) }]),
+          {
+            ...(providers[model.providerID]?.options ?? config.provider?.[model.providerID]?.options),
+            ...model.options,
+            // Without a registered loader, Azure's sdk.languageModel() selects Chat.
+            ...(model.api.npm === "@ai-sdk/azure" && !modelLoaders[model.providerID]
+              ? { useCompletionUrls: true }
+              : {}),
+          },
         ) ?? ProviderTransform.variants(model)
       )
     }
