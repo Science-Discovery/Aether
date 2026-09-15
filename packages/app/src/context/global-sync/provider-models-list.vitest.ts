@@ -2,37 +2,56 @@ import { expect, test } from "vitest"
 import { createRoot } from "solid-js"
 import { createStore, reconcile } from "solid-js/store"
 import { useFilteredList } from "@opencode-ai/ui/hooks"
-import type { ProviderListResponse } from "@opencode-ai/sdk/v2/client"
+import type { Model, ProviderListResponse } from "@opencode-ai/sdk/v2/client"
 import { applyGlobalEvent } from "./event-reducer"
 import { createProviderRefresh } from "./provider-refresh"
 import { resolveModelVariant } from "../model-variant"
 
-type Model = ProviderListResponse["all"][number]["models"][string]
-
 function catalog(models: Record<string, Model>): ProviderListResponse {
-  return { all: [{ id: "sample", name: "Sample", env: [], models }], connected: ["sample"], default: {} }
+  // /provider returns runtime models, although its existing response schema still
+  // describes raw catalog models. Exercise the JSON shape actually sent to the UI.
+  return {
+    all: [{ id: "sample", name: "Sample", source: "custom", env: [], options: {}, models }],
+    connected: ["sample"],
+    default: {},
+  } as unknown as ProviderListResponse
 }
 
 test.each(["provider.models.updated", "provider.updated"])("updates open model lists after %s", async (type) => {
   const old: Model = {
     id: "dynamic",
+    providerID: "sample",
+    api: { id: "dynamic", npm: "@ai-sdk/openai-compatible", url: "https://example.com" },
     name: "Old Name",
     release_date: "2026-09-15",
-    attachment: false,
-    reasoning: false,
-    tool_call: true,
+    status: "active",
+    options: {},
+    headers: {},
+    capabilities: {
+      temperature: false,
+      attachment: false,
+      reasoning: false,
+      toolcall: true,
+      input: { text: true, image: false, audio: false, video: false, pdf: false },
+      output: { text: true, image: false, audio: false, video: false, pdf: false },
+      interleaved: false,
+    },
     limit: { context: 32_000, output: 1_000 },
-    cost: { input: 1, output: 2 },
+    cost: { input: 1, output: 2, cache: { read: 0, write: 0 } },
     modalities: { input: ["text"], output: ["text"] },
     variants: { low: {}, high: {} },
   }
   const fresh: Model = {
     ...old,
     name: "New Name",
-    attachment: true,
-    reasoning: true,
+    capabilities: {
+      ...old.capabilities,
+      attachment: true,
+      reasoning: true,
+      input: { ...old.capabilities.input, image: true },
+    },
     limit: { context: 128_000, output: 8_000 },
-    cost: { input: 2, output: 4 },
+    cost: { input: 2, output: 4, cache: { read: 1, write: 2 } },
     modalities: { input: ["text", "image"], output: ["text"] },
     variants: { high: {}, max: {} },
   }
@@ -42,7 +61,7 @@ test.each(["provider.models.updated", "provider.updated"])("updates open model l
         provider: structuredClone(catalog({ dynamic: old, removed: { ...old, id: "removed" } })),
       })
       const list = useFilteredList({
-        items: () => Object.values(state.provider.all[0]!.models),
+        items: () => Object.values(state.provider.all[0]!.models) as unknown as Model[],
         key: (model) => model.id,
         filterKeys: ["name", "id"],
       })
@@ -99,7 +118,9 @@ test.each(["provider.models.updated", "provider.updated"])("updates open model l
       expect(model.limit.output).toBe(8_000)
       expect(model.cost?.input).toBe(2)
       expect(model.cost?.output).toBe(4)
-      expect(model.reasoning).toBe(true)
+      expect(model.cost.cache).toEqual({ read: 1, write: 2 })
+      expect(model.capabilities.reasoning).toBe(true)
+      expect(model.capabilities.input.image).toBe(true)
       expect(model.modalities?.input).toEqual(["text", "image"])
       const variants = Object.keys(model.variants!)
       expect(variants).toEqual(["high", "max"])

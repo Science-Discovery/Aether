@@ -56,13 +56,14 @@ try {
     fn: async () => {
       const model = (id: string) => Provider.getModel(ProviderID.make("deepseek"), ModelID.make(id))
       const first = await model("deepseek-future")
-      assert.deepEqual(Object.keys(first.variants ?? {}), ["low", "high"])
+      assert.deepEqual(Object.keys(first.variants ?? {}), ["none", "low", "high"])
       assert.deepEqual((await model("renamed")).variants, first.variants)
       assert.deepEqual((await model("disabled")).variants, {})
       assert.deepEqual((await model("empty")).variants, {})
       assert.deepEqual(Object.keys((await model("explicit")).variants ?? {}), ["medium"])
       assert.deepEqual((await model("protocol")).variants?.high, { reasoning: { effort: "high" } })
       assert.deepEqual((await model("customized")).variants, {
+        none: { thinking: { type: "disabled" }, reasoningEffort: undefined, reasoning_effort: undefined },
         high: { thinking: { type: "enabled" }, reasoningEffort: "low" },
         manual: { thinking: { type: "enabled" }, reasoningEffort: "high" },
       })
@@ -73,8 +74,8 @@ try {
       assert.equal(result.error, null)
       assert.equal(events.length, 2)
       const updated = await model("renamed")
-      assert.deepEqual(Object.keys(updated.variants ?? {}), ["high", "max"])
-      assert.deepEqual(Object.keys((await model("customized")).variants ?? {}), ["high", "max", "manual"])
+      assert.deepEqual(Object.keys(updated.variants ?? {}), ["none", "high", "max"])
+      assert.deepEqual(Object.keys((await model("customized")).variants ?? {}), ["none", "high", "max", "manual"])
       assert.deepEqual((await model("customized")).variants?.high, {
         thinking: { type: "enabled" },
         reasoningEffort: "low",

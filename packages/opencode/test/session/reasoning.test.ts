@@ -8,7 +8,7 @@ import { SessionID, MessageID } from "../../src/session/schema"
 import { tmpdir } from "../fixture/fixture"
 import { serve } from "../lib/server"
 
-test.each(["low", "high", "max", undefined])("sends DeepSeek V4.1 Flash effort %s", async (effort) => {
+test.each(["none", "low", "high", "max", undefined])("sends DeepSeek V4.1 Flash effort %s", async (effort) => {
   const requests: Record<string, unknown>[] = []
   const server = await serve({
     port: 0,
@@ -38,6 +38,7 @@ test.each(["low", "high", "max", undefined])("sends DeepSeek V4.1 Flash effort %
             models: {
               "deepseek-flash": {
                 reasoning: true,
+                options: effort === "none" ? { reasoningEffort: "high" } : {},
                 reasoning_options: [{ type: "toggle" }, { type: "effort", values: ["low", "high", "max"] }],
               },
             },
@@ -50,7 +51,7 @@ test.each(["low", "high", "max", undefined])("sends DeepSeek V4.1 Flash effort %
       directory: tmp.path,
       fn: async () => {
         const model = await Provider.getModel(ProviderID.make("deepseek"), ModelID.make("deepseek-flash"))
-        expect(Object.keys(model.variants ?? {})).toEqual(["low", "high", "max"])
+        expect(Object.keys(model.variants ?? {})).toEqual(["none", "low", "high", "max"])
 
         const session = SessionID.make("session-deepseek-effort")
         const agent = {
@@ -81,9 +82,9 @@ test.each(["low", "high", "max", undefined])("sends DeepSeek V4.1 Flash effort %
         expect(await stream.text).toBe("Hello")
         expect(requests).toHaveLength(1)
         expect(requests[0].model).toBe("deepseek-flash")
-        expect(requests[0].reasoning_effort).toBe(effort)
+        expect(requests[0].reasoning_effort).toBe(effort === "none" ? undefined : effort)
         expect(requests[0].reasoningEffort).toBeUndefined()
-        expect(requests[0].thinking).toEqual(effort ? { type: "enabled" } : undefined)
+        expect(requests[0].thinking).toEqual(effort ? { type: effort === "none" ? "disabled" : "enabled" } : undefined)
       },
     })
   } finally {

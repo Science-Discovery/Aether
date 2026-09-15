@@ -1071,6 +1071,7 @@ export namespace ProviderTransform {
     if (!model.capabilities.reasoning || options.length === 0) return {}
     const budget = options.find((option) => option.type === "budget_tokens")
     const range = bounds(model, budget)
+    const toggle = options.some((option) => option.type === "toggle") ? switcher(model) : undefined
     const effort = options.find((option) => option.type === "effort")
     if (effort) {
       if (effort.values.length === 0) return {}
@@ -1079,10 +1080,12 @@ export namespace ProviderTransform {
         settings: intensity(model, value ?? "none", range),
       }))
       if (result.every((item) => item.settings === undefined)) return
-      return Object.fromEntries(result.flatMap((item) => (item.settings ? [[item.id, item.settings]] : [])))
+      return {
+        ...(toggle?.none ? { none: toggle.none } : {}),
+        ...Object.fromEntries(result.flatMap((item) => (item.settings ? [[item.id, item.settings]] : []))),
+      }
     }
 
-    const toggle = options.some((option) => option.type === "toggle") ? switcher(model) : undefined
     if (!budget) return toggle
     if (range.max < range.min) return toggle ?? {}
     const result = {
@@ -1174,9 +1177,7 @@ export namespace ProviderTransform {
         return { reasoningEffort: effort, reasoningSummary: "auto", include: ["reasoning.encrypted_content"] }
       case "@ai-sdk/openai-compatible":
         if (model.providerID === "deepseek")
-          return effort === "none"
-            ? { thinking: { type: "disabled" } }
-            : { thinking: { type: "enabled" }, reasoningEffort: effort }
+          return effort === "none" ? switcher(model)?.none : { thinking: { type: "enabled" }, reasoningEffort: effort }
         if (glm52(model) && ["alibaba", "alibaba-cn"].includes(model.providerID))
           return variants(model)[effort] ?? { enable_thinking: true, reasoningEffort: effort }
         return { reasoningEffort: effort }
@@ -1198,20 +1199,37 @@ export namespace ProviderTransform {
   function switcher(model: Provider.Model): Record<string, Record<string, unknown>> | undefined {
     switch (model.api.npm) {
       case "@openrouter/ai-sdk-provider":
-        return { none: { reasoning: { enabled: false } }, high: { reasoning: { enabled: true } } }
+        return {
+          none: { reasoning: { enabled: false, effort: undefined, max_tokens: undefined } },
+          high: { reasoning: { enabled: true } },
+        }
       case "@ai-sdk/cohere":
-        return { none: { thinking: { type: "disabled" } }, high: { thinking: { type: "enabled" } } }
+        return {
+          none: { thinking: { type: "disabled", tokenBudget: undefined } },
+          high: { thinking: { type: "enabled" } },
+        }
       case "@ai-sdk/google":
       case "@ai-sdk/google-vertex":
         return {
-          none: { thinkingConfig: { includeThoughts: false, thinkingBudget: 0 } },
+          none: { thinkingConfig: { includeThoughts: false, thinkingBudget: 0, thinkingLevel: undefined } },
           high: { thinkingConfig: { includeThoughts: true, thinkingBudget: -1 } },
         }
       case "@ai-sdk/openai-compatible":
         if (["deepseek", "moonshotai", "moonshotai-cn", "zai", "zhipuai"].includes(model.providerID))
-          return { none: { thinking: { type: "disabled" } }, high: { thinking: { type: "enabled" } } }
+          return {
+            none: { thinking: { type: "disabled" }, reasoningEffort: undefined, reasoning_effort: undefined },
+            high: { thinking: { type: "enabled" } },
+          }
         if (["alibaba", "alibaba-cn", "siliconflow", "siliconflow-cn"].includes(model.providerID))
-          return { none: { enable_thinking: false }, high: { enable_thinking: true } }
+          return {
+            none: {
+              enable_thinking: false,
+              thinking_budget: undefined,
+              reasoningEffort: undefined,
+              reasoning_effort: undefined,
+            },
+            high: { enable_thinking: true },
+          }
     }
   }
 

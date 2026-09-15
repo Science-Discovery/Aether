@@ -3,6 +3,7 @@ import type { Provider } from "../../src/provider/provider"
 import { ModelID, ProviderID } from "../../src/provider/schema"
 import { ProviderTransform } from "../../src/provider/transform"
 import { ModelsDev } from "../../src/provider/models"
+import { mergeDeep } from "remeda"
 
 function model(npm: string, provider = "custom", id = "future-model"): Provider.Model {
   return {
@@ -56,6 +57,7 @@ describe("catalogue reasoning adapters", () => {
         { type: "effort", values: ["low", "max"] },
       ]),
     ).toEqual({
+      none: { thinking: { type: "disabled" }, reasoningEffort: undefined, reasoning_effort: undefined },
       low: { thinking: { type: "enabled" }, reasoningEffort: "low" },
       max: { thinking: { type: "enabled" }, reasoningEffort: "max" },
     })
@@ -66,7 +68,59 @@ describe("catalogue reasoning adapters", () => {
       ProviderTransform.reasoning(model("@ai-sdk/openai-compatible", "deepseek"), [
         { type: "effort", values: [null, "high"] },
       ])?.none,
-    ).toEqual({ thinking: { type: "disabled" } })
+    ).toEqual({ thinking: { type: "disabled" }, reasoningEffort: undefined, reasoning_effort: undefined })
+  })
+
+  test("combines the off switch with effort without inventing another effort", () => {
+    const result = ProviderTransform.reasoning(model("@ai-sdk/openai-compatible", "deepseek"), [
+      { type: "toggle" },
+      { type: "effort", values: ["low", "max"] },
+    ])
+    expect(Object.keys(result!)).toEqual(["none", "low", "max"])
+    expect(
+      Object.keys(
+        ProviderTransform.reasoning(model("@ai-sdk/openai-compatible", "deepseek"), [
+          { type: "toggle" },
+          { type: "effort", values: [null, "low"] },
+        ])!,
+      ),
+    ).toEqual(["none", "low"])
+    expect(
+      ProviderTransform.reasoning(model("@ai-sdk/anthropic"), [{ type: "toggle" }, { type: "effort", values: ["low"] }])
+        ?.none,
+    ).toBeUndefined()
+  })
+
+  test("clears Google default effort when the catalog enables a toggle", () => {
+    const target = model("@ai-sdk/google", "google", "gemini-3-future")
+    const variant = ProviderTransform.reasoning(target, [{ type: "toggle" }])!.none
+    expect(mergeDeep(ProviderTransform.options({ model: target, sessionID: "test" }), variant)).toEqual({
+      thinkingConfig: { includeThoughts: false, thinkingLevel: undefined, thinkingBudget: 0 },
+    })
+  })
+
+  test.each([
+    [
+      "@openrouter/ai-sdk-provider",
+      "openrouter",
+      { reasoning: { effort: "high", max_tokens: 2048 } },
+      { reasoning: { enabled: false, effort: undefined, max_tokens: undefined } },
+    ],
+    [
+      "@ai-sdk/cohere",
+      "cohere",
+      { thinking: { type: "enabled", tokenBudget: 2048 } },
+      { thinking: { type: "disabled", tokenBudget: undefined } },
+    ],
+    [
+      "@ai-sdk/openai-compatible",
+      "alibaba-cn",
+      { enable_thinking: true, thinking_budget: 2048, reasoningEffort: "high" },
+      { enable_thinking: false, thinking_budget: undefined, reasoningEffort: undefined, reasoning_effort: undefined },
+    ],
+  ] as const)("clears defaults when disabling thinking through %s", (npm, provider, defaults, expected) => {
+    const result = ProviderTransform.reasoning(model(npm, provider), [{ type: "toggle" }])!
+    expect<Record<string, unknown>>(mergeDeep(defaults, result.none)).toEqual(expected)
   })
 
   test("distinguishes missing metadata, explicit empty controls and unsupported SDKs", () => {
@@ -172,7 +226,7 @@ describe("catalogue reasoning adapters", () => {
     expect(
       ProviderTransform.reasoning(model("@ai-sdk/cohere"), [{ type: "toggle" }, { type: "budget_tokens", max: 4096 }]),
     ).toEqual({
-      none: { thinking: { type: "disabled" } },
+      none: { thinking: { type: "disabled", tokenBudget: undefined } },
       high: { thinking: { type: "enabled", tokenBudget: 2048 } },
       max: { thinking: { type: "enabled", tokenBudget: 4096 } },
     })
