@@ -615,6 +615,20 @@ export namespace ProviderTransform {
       opus || ["opus-4-6", "opus-4.6", "4-6-opus", "4.6-opus", "sonnet-4-6", "sonnet-4.6"].some((v) => api.includes(v))
     const adaptiveEfforts = opus ? ["low", "medium", "high", "xhigh", "max"] : ["low", "medium", "high", "max"]
     if (
+      ["glm-5.3", "glm-5-3", "glm-5p3"].some((v) => api.includes(v)) &&
+      ["alibaba", "alibaba-cn"].includes(model.providerID) &&
+      model.api.npm === "@ai-sdk/openai-compatible"
+    ) {
+      // GLM-5.3 always thinks and rejects disable switches; the documented
+      // reasoning_effort ladder is low / high / max (default max), unlike the
+      // full effort ladder GLM-5.2 exposes on the same hosts.
+      return {
+        low: { reasoningEffort: "low" },
+        high: { reasoningEffort: "high" },
+        max: { reasoningEffort: "max" },
+      }
+    }
+    if (
       glm52(model) &&
       ["alibaba", "alibaba-cn"].includes(model.providerID) &&
       model.api.npm === "@ai-sdk/openai-compatible"
