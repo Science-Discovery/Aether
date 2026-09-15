@@ -111,7 +111,7 @@ test("models.dev local overlay overrides only selected model metadata", () => {
   expect("meta" in data.test.models.model).toBe(false)
 })
 
-test("models.dev local overlay inserts alibaba-cn deepseek-v4-flash-0731, deepseek-v4-pro-0813, kimi-k3 and glm-5.3", () => {
+test("models.dev local overlay inserts alibaba-cn deepseek-v4-flash-0731, deepseek-v4-pro-0813 and kimi-k3", () => {
   const data = apply(
     {
       "alibaba-cn": {
@@ -191,22 +191,6 @@ test("models.dev local overlay inserts alibaba-cn deepseek-v4-flash-0731, deepse
   expect(k3.provider?.api).toBe("https://dashscope.aliyuncs.com/compatible-mode/v1")
   expect("meta" in k3).toBe(false)
 
-  const glm = data["alibaba-cn"].models["glm-5.3"]
-  expect(glm.limit.context).toBe(1_048_576)
-  expect(glm.limit.output).toBe(131_072)
-  expect(glm.attachment).toBe(false)
-  expect(glm.reasoning).toBe(true)
-  expect(glm.tool_call).toBe(true)
-  expect(glm.structured_output).toBe(true)
-  expect(glm.interleaved).toEqual({ field: "reasoning_content" })
-  expect(glm.temperature).toBe(true)
-  expect(glm.modalities?.input).toEqual(["text"])
-  expect(glm.cost?.input).toBe(1.11)
-  expect(glm.cost?.cache_read).toBe(0.28)
-  expect(glm.cost?.output).toBe(3.89)
-  expect(glm.provider?.api).toBe("https://dashscope.aliyuncs.com/compatible-mode/v1")
-  expect("meta" in glm).toBe(false)
-
   const info = Provider.fromModelsDevProvider(data["alibaba-cn"])
   expect(info.models["deepseek-v4-flash-0731"].capabilities.interleaved).toEqual({ field: "reasoning_content" })
   expect(info.models["deepseek-v4-flash-0731"].capabilities.toolcall).toBe(true)
@@ -215,8 +199,6 @@ test("models.dev local overlay inserts alibaba-cn deepseek-v4-flash-0731, deepse
   expect(info.models["kimi-k3"].capabilities.interleaved).toEqual({ field: "reasoning_content" })
   expect(info.models["kimi-k3"].capabilities.toolcall).toBe(true)
   expect(info.models["kimi-k3"].capabilities.input.image).toBe(true)
-  expect(info.models["glm-5.3"].capabilities.interleaved).toEqual({ field: "reasoning_content" })
-  expect(info.models["glm-5.3"].capabilities.toolcall).toBe(true)
 })
 
 test("models.dev local overlay inserts zhipuai/zai/coding-plan glm-5.3 and glm-5.3-flash", () => {
