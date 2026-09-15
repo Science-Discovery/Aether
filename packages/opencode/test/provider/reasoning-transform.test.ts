@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test"
 import type { Provider } from "../../src/provider/provider"
 import { ModelID, ProviderID } from "../../src/provider/schema"
 import { ProviderTransform } from "../../src/provider/transform"
+import { ModelsDev } from "../../src/provider/models"
 
 function model(npm: string, provider = "custom", id = "future-model"): Provider.Model {
   return {
@@ -28,6 +29,16 @@ function model(npm: string, provider = "custom", id = "future-model"): Provider.
 }
 
 describe("catalogue reasoning adapters", () => {
+  test("accepts new catalog effort names and lets the SDK adapter decide support", () => {
+    const options = ModelsDev.Model.shape.reasoning_options.parse([{ type: "effort", values: ["ultra", "future"] }])
+    expect(Object.keys(ProviderTransform.reasoning(model("@ai-sdk/openai"), options) ?? {})).toEqual([
+      "ultra",
+      "future",
+    ])
+    expect(ProviderTransform.reasoning(model("@ai-sdk/anthropic"), options)).toEqual({})
+    expect(ModelsDev.Model.shape.reasoning_options.safeParse([{ type: "effort", values: [""] }]).success).toBe(false)
+  })
+
   test.each([
     ["@ai-sdk/openai-compatible", { reasoningEffort: "high" }],
     ["@openrouter/ai-sdk-provider", { reasoning: { effort: "high" } }],

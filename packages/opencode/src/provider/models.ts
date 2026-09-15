@@ -57,9 +57,8 @@ export namespace ModelsDev {
     z
       .object({
         type: z.literal("effort"),
-        values: z.array(
-          z.union([z.null(), z.enum(["none", "minimal", "low", "medium", "high", "xhigh", "max", "default"])]),
-        ),
+        // Effort names are catalog data; each SDK adapter validates its supported values.
+        values: z.array(z.string().min(1).nullable()),
       })
       .strict(),
     z
