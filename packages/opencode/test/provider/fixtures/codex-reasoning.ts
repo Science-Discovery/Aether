@@ -103,8 +103,9 @@ try {
       assert.equal(updated.name, "Subscription updated")
       assert.deepEqual(updated.limit, { context: 256000, input: 120000, output: 8192 })
       assert.equal(updated.capabilities.input.image, false)
-      assert.equal(updated.options.reasoningEffort, "ultra")
-      assert.deepEqual(Object.keys(updated.variants ?? {}), ["high", "ultra", "future"])
+      assert.equal(updated.options.reasoningEffort, undefined)
+      assert.deepEqual(Object.keys(updated.variants ?? {}), ["high", "max", "future"])
+      assert.ok(CodexModels.catalog()["gpt-5"].supported_reasoning_levels?.some((level) => level.effort === "ultra"))
       assert.deepEqual((await model("alias")).variants, updated.variants)
       const configured = await model("configured")
       assert.equal(configured.name, "User name")
@@ -116,6 +117,7 @@ try {
       assert.deepEqual((await model("empty")).variants, {})
       assert.equal(await stream(updated), "Hello")
       assert.equal(await stream(await model("alias"), "future"), "Hello")
+      assert.equal(await stream(updated, "ultra"), "Hello")
 
       const unchanged = events.length
       assert.equal((await CodexModels.refresh({ force: true })).changed, false)
@@ -128,8 +130,9 @@ try {
       assert.equal(added.limit.context, 256000)
       assert.equal(added.limit.output, 0)
       assert.equal(added.capabilities.input.text, true)
-      assert.deepEqual(Object.keys(added.variants ?? {}), ["high", "ultra", "future"])
-      assert.equal(await stream(added, "ultra"), "Hello")
+      assert.deepEqual(Object.keys(added.variants ?? {}), ["high", "max", "future"])
+      assert.equal(added.options.reasoningEffort, "max")
+      assert.equal(await stream(added), "Hello")
 
       await fetch(`${origin}/next`)
       assert.equal((await CodexModels.refresh({ force: true })).changed, true)
@@ -138,16 +141,18 @@ try {
       assert.equal(final[ProviderID.openai].models[ModelID.make("gpt-subscription-removed")], undefined)
       assert.equal(final[ProviderID.openai].models[ModelID.make("gpt-subscription-hidden")], undefined)
       assert.equal(final[ProviderID.openai].models[ModelID.make("gpt-api-only")], undefined)
-      assert.deepEqual(Object.keys((await model("alias")).variants ?? {}), ["ultra", "future"])
+      assert.deepEqual(Object.keys((await model("alias")).variants ?? {}), ["max", "future"])
 
-      // An absent or retired subscription default must not resurrect GPT-5's
-      // built-in medium default after the subscription removes that effort.
-      for (const stage of [4, 5]) {
+      // Absent, retired and client-only defaults must not restore GPT-5's built-in medium effort.
+      for (const stage of [4, 5, 6]) {
         assert.equal((await (await fetch(`${origin}/next`)).json()).stage, stage)
         assert.equal((await CodexModels.refresh({ force: true })).changed, true)
         const current = await model("gpt-5")
         assert.equal(current.options.reasoningEffort, undefined)
-        assert.deepEqual(Object.keys(current.variants ?? {}), ["ultra", "future"])
+        assert.deepEqual(
+          Object.keys(current.variants ?? {}),
+          stage === 6 ? ["low", "medium", "high"] : ["max", "future"],
+        )
         assert.equal((await model("configured")).options.reasoningEffort, "low")
         assert.equal(await stream(current), "Hello")
       }

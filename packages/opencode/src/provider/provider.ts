@@ -1235,7 +1235,15 @@ export namespace Provider {
 
       if (auth) {
         const options = await plugin.auth.loader(() => Auth.get(providerID) as any, database[plugin.auth.provider])
-        if (providerID === ProviderID.openai && auth.type === "oauth") subscription = CodexModels.catalog()
+        if (providerID === ProviderID.openai && auth.type === "oauth") {
+          // Ultra configures Codex's agent orchestration; it is not a Responses reasoning effort.
+          subscription = mapValues(CodexModels.catalog(), (metadata) => ({
+            ...metadata,
+            supported_reasoning_levels: metadata.supported_reasoning_levels?.filter(
+              (level) => level.effort !== "ultra",
+            ),
+          }))
+        }
         const opts = options ?? {}
         const patch: Partial<Info> = providers[providerID] ? { options: opts } : { source: "custom", options: opts }
         mergeProvider(providerID, patch)
@@ -1325,6 +1333,7 @@ export namespace Provider {
                 ...model.options,
                 reasoningEffort:
                   model.capabilities.reasoning &&
+                  metadata.default_reasoning_level !== "ultra" &&
                   (levels === undefined || levels.some((level) => level.effort === metadata.default_reasoning_level))
                     ? metadata.default_reasoning_level
                     : undefined,

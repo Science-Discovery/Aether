@@ -32,14 +32,16 @@ test("subscription metadata refresh reaches provider models and Responses reques
           display_name: state.stage ? "Subscription updated" : "Subscription initial",
           context_window: state.stage ? 256000 : 96000,
           input_modalities: state.stage ? ["text"] : ["text", "image"],
-          default_reasoning_level:
-            state.stage === 4 ? "medium" : state.stage === 5 ? undefined : state.stage ? "ultra" : "high",
-          supported_reasoning_levels: (state.stage === 0
-            ? ["low", "high"]
-            : state.stage < 3
-              ? ["high", "ultra", "future"]
-              : ["ultra", "future"]
-          ).map((effort) => ({ effort })),
+          default_reasoning_level: ["high", "ultra", "max", "ultra", "medium", undefined, "ultra"][state.stage],
+          supported_reasoning_levels:
+            state.stage === 6
+              ? undefined
+              : (state.stage === 0
+                  ? ["low", "high"]
+                  : state.stage < 3
+                    ? ["high", "max", "ultra", "future"]
+                    : ["max", "ultra", "future"]
+                ).map((effort) => ({ effort })),
         })
         return Response.json({
           models: [
@@ -88,6 +90,9 @@ test("subscription metadata refresh reaches provider models and Responses reques
         authorization: req.headers.get("authorization"),
         account: req.headers.get("chatgpt-account-id"),
       })
+      if ((body.reasoning as { effort?: string } | undefined)?.effort === "ultra") {
+        return Response.json({ error: { message: "ultra is not a Responses effort" } }, { status: 400 })
+      }
       return reply("responses", body.model)
     },
   })
@@ -127,16 +132,20 @@ test("subscription metadata refresh reaches provider models and Responses reques
     expect(state.catalogs.every((item) => item.account === "subscription-account")).toBe(true)
     expect(state.catalogs.every((item) => item.version === "0.154.0")).toBe(true)
     expect(state.requests.map((item) => (item.body.reasoning as { effort?: string } | undefined)?.effort)).toEqual([
-      "ultra",
+      undefined,
       "future",
-      "ultra",
+      undefined,
+      "max",
+      undefined,
       undefined,
       undefined,
     ])
     expect(state.requests.map((item) => item.body.model)).toEqual([
       "gpt-5",
       "gpt-5",
+      "gpt-5",
       "gpt-subscription-only",
+      "gpt-5",
       "gpt-5",
       "gpt-5",
     ])
