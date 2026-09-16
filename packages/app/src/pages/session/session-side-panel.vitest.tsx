@@ -38,8 +38,8 @@ vi.mock("@opencode-ai/ui/tabs", () => {
 })
 
 vi.mock("@opencode-ai/ui/icon-button", () => ({
-  IconButton: (props: { children?: unknown; onClick?: () => void }) => (
-    <button type="button" onClick={props.onClick}>
+  IconButton: (props: { children?: unknown; onClick?: () => void; "aria-label"?: string }) => (
+    <button type="button" onClick={props.onClick} aria-label={props["aria-label"]}>
       {props.children}
     </button>
   ),
