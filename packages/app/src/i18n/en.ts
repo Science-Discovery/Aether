@@ -799,6 +799,7 @@ export const dict = {
   "error.childStore.persistedProjectIconCreateFailed": "Failed to create persisted project icon",
   "error.childStore.storeCreateFailed": "Failed to create store",
   "directory.error.invalidUrl": "Invalid directory in URL.",
+  "directory.retry": "Retry",
 
   "error.chain.unknown": "Unknown error",
   "error.server.invalidConfiguration": "Invalid configuration",
