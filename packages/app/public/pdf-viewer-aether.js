@@ -83,6 +83,47 @@
     document.getElementById(ERROR_OVERLAY_ID)?.remove()
   }
 
+  const TOOLBAR_PREFS_KEY = "aether-pdf-toolbar-prefs"
+  let toolbarPrefs = { auto: false }
+  let toolbarPrefsBound = false
+
+  function readToolbarPrefs() {
+    try {
+      const raw = JSON.parse(localStorage.getItem(TOOLBAR_PREFS_KEY) || "{}")
+      return { auto: raw?.auto === true }
+    } catch (_) {
+      return { auto: false }
+    }
+  }
+
+  function applyToolbarPrefs() {
+    document.body.dataset.toolbarAuto = toolbarPrefs.auto ? "on" : "off"
+    const autoButton = document.getElementById("aetherToolbarAuto")
+    if (autoButton) {
+      autoButton.classList.toggle("toggled", toolbarPrefs.auto)
+      autoButton.setAttribute("aria-pressed", String(toolbarPrefs.auto))
+      autoButton.title = toolbarPrefs.auto ? "Toolbar: auto-hide (show on hover)" : "Toolbar: always visible"
+    }
+  }
+
+  function setToolbarPrefs(next) {
+    toolbarPrefs = { ...toolbarPrefs, ...next }
+    try {
+      localStorage.setItem(TOOLBAR_PREFS_KEY, JSON.stringify(toolbarPrefs))
+    } catch (_) {}
+    applyToolbarPrefs()
+  }
+
+  function bindToolbarPrefsSync() {
+    if (toolbarPrefsBound || typeof window === "undefined") return
+    toolbarPrefsBound = true
+    window.addEventListener("storage", function (event) {
+      if (event.key !== TOOLBAR_PREFS_KEY) return
+      toolbarPrefs = readToolbarPrefs()
+      applyToolbarPrefs()
+    })
+  }
+
   const OC2_THEME = {
     light:
       '--font-family-sans:"Inter", "Inter Fallback";' +
@@ -1556,6 +1597,13 @@
       })
     }
 
+    const toolbarAuto = document.getElementById("aetherToolbarAuto")
+    if (toolbarAuto) {
+      toolbarAuto.addEventListener("click", function () {
+        setToolbarPrefs({ auto: !toolbarPrefs.auto })
+      })
+    }
+
     const readingSettings = document.getElementById("aetherReadingSettings")
     if (readingSettings) {
       readingSettings.addEventListener("click", function () {
@@ -1781,6 +1829,9 @@
     "load",
     function () {
       applyTheme()
+      bindToolbarPrefsSync()
+      toolbarPrefs = readToolbarPrefs()
+      applyToolbarPrefs()
       PDFViewerApplicationOptions.set("sidebarViewOnLoad", 0)
       PDFViewerApplicationOptions.set("viewOnLoad", 1)
       PDFViewerApplicationOptions.set("workerSrc", WORKER_SRC)

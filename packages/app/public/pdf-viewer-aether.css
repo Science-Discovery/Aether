@@ -89,7 +89,11 @@ body.aether-pdf-viewer {
   --progressBar-indeterminate-blend-color: var(--surface-interactive-base, rgba(0, 96, 223, 1));
   --toolbar-icon-bg-color: var(--text-base, rgba(0, 0, 0, 1));
   --toolbar-icon-hover-bg-color: var(--text-strong, rgba(12, 12, 13, 1));
-  --sidebar-narrow-bg-color: color-mix(in srgb, var(--surface-raised-stronger-non-alpha, rgba(255, 255, 255, 1)) 88%, transparent);
+  --sidebar-narrow-bg-color: color-mix(
+    in srgb,
+    var(--surface-raised-stronger-non-alpha, rgba(255, 255, 255, 1)) 88%,
+    transparent
+  );
   --sidebar-toolbar-bg-color: var(--surface-raised-base, rgba(240, 240, 242, 1));
   --toolbar-bg-color: var(--surface-raised-stronger-non-alpha, rgba(255, 255, 255, 1));
   --toolbar-border-color: var(--border-base, rgba(0, 0, 0, 0.162));
@@ -279,7 +283,9 @@ body.aether-pdf-viewer[data-view-theme="eye"] #viewerContainer {
 body.aether-pdf-viewer[data-view-theme="eye"] .pdfViewer .page,
 body.aether-pdf-viewer[data-view-theme="eye"] .pdfViewer .dummyPage {
   background: #c3d1bf;
-  box-shadow: 0 0 0 1px rgba(173, 191, 180, 0.18), 0 4px 14px rgba(18, 28, 23, 0.12);
+  box-shadow:
+    0 0 0 1px rgba(173, 191, 180, 0.18),
+    0 4px 14px rgba(18, 28, 23, 0.12);
 }
 
 body.aether-pdf-viewer[data-view-theme="eye"] .pdfViewer .page canvas {
@@ -406,12 +412,7 @@ body.aether-pdf-viewer .annotationLayer .popup {
   box-shadow: var(--shadow-lg-border-base);
   color: var(--text-strong);
   font: inherit;
-  font-family:
-    var(--font-family-sans, sans-serif),
-    "Microsoft YaHei",
-    "PingFang SC",
-    "Noto Sans CJK SC",
-    sans-serif;
+  font-family: var(--font-family-sans, sans-serif), "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", sans-serif;
   line-height: 1.45;
 }
 
@@ -563,4 +564,65 @@ body.aether-pdf-viewer #aetherCaptureBox {
 body.aether-pdf-viewer.capture-mode-active #viewerContainer,
 body.aether-pdf-viewer.capture-mode-active .textLayer {
   user-select: none !important;
+}
+
+/* Toolbar auto-hide preference (persisted in localStorage). */
+
+body.aether-pdf-viewer[data-toolbar-auto="on"] .toolbar {
+  transform: translateY(-100%);
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    transform 0.18s ease,
+    opacity 0.18s ease;
+}
+
+/* Hover strip that stays on-screen while the toolbar is hidden. */
+body.aether-pdf-viewer[data-toolbar-auto="on"] .toolbar::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 100%;
+  height: 16px;
+  pointer-events: auto;
+}
+
+body.aether-pdf-viewer[data-toolbar-auto="on"] .toolbar:hover,
+body.aether-pdf-viewer[data-toolbar-auto="on"] .toolbar:focus-within {
+  transform: none;
+  opacity: 1;
+  pointer-events: auto;
+}
+
+body.aether-pdf-viewer[data-toolbar-auto="on"]:has(.doorHanger:not(.hidden)) .toolbar {
+  transform: none;
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* Auto-hide reclaims the toolbar slot so the document fills the full height;
+   the revealed toolbar floats above the content instead of pushing it down. */
+body.aether-pdf-viewer[data-toolbar-auto="on"] #viewerContainer {
+  top: 0;
+  bottom: 0;
+}
+
+/* Icon-only toolbar button: toolbar mode (taiji). */
+
+body.aether-pdf-viewer #aetherToolbarAuto > span {
+  display: none;
+}
+
+body.aether-pdf-viewer #aetherToolbarAuto::before {
+  background-color: transparent;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='8' cy='8' r='7' fill='%23fff' stroke='%23000' stroke-width='1.4'/%3E%3Cpath d='M8 1a7 7 0 0 1 0 14 3.5 3.5 0 0 1 0-7 3.5 3.5 0 0 0 0-7z' fill='%23000'/%3E%3Ccircle cx='8' cy='4.5' r='1.1'/%3E%3Ccircle cx='8' cy='11.5' r='1.1' fill='%23fff'/%3E%3C/svg%3E");
+  background-size: 16px 16px;
+  background-repeat: no-repeat;
+  opacity: 1;
+}
+
+/* Auto-hide state is reflected in the taiji colors (inverted when active). */
+body.aether-pdf-viewer #aetherToolbarAuto.toggled::before {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='8' cy='8' r='7' fill='%23000' stroke='%23fff' stroke-width='1.4'/%3E%3Cpath d='M8 1a7 7 0 0 1 0 14 3.5 3.5 0 0 1 0-7 3.5 3.5 0 0 0 0-7z' fill='%23fff'/%3E%3Ccircle cx='8' cy='4.5' r='1.1' fill='%23fff'/%3E%3Ccircle cx='8' cy='11.5' r='1.1' fill='%23000'/%3E%3C/svg%3E");
 }
