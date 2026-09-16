@@ -358,7 +358,6 @@ export default function Layout(props: ParentProps) {
   const navigateWithSidebarReset = (href: string) => {
     clearSidebarHoverState()
     navigate(href)
-    layout.mobileSidebar.hide()
   }
 
   function cycleTheme(direction = 1) {
@@ -1960,11 +1959,7 @@ export default function Layout(props: ParentProps) {
       actions: [
         {
           label: language.t("command.session.new"),
-          onClick: () => {
-            const href = `/${base64Encode(directory)}/session`
-            navigate(href)
-            layout.mobileSidebar.hide()
-          },
+          onClick: () => navigate(`/${base64Encode(directory)}/session`),
         },
         {
           label: language.t("common.dismiss"),
@@ -2552,8 +2547,8 @@ export default function Layout(props: ParentProps) {
       dialog.show(() => <DialogResetWorkspace root={root} directory={directory} />),
     showDeleteWorkspaceDialog: (root, directory, branch) =>
       dialog.show(() => <DialogDeleteWorkspace root={root} directory={directory} branch={branch} />),
-    setScrollContainerRef: (el, mobile) => {
-      if (!mobile) scrollContainerRef = el
+    setScrollContainerRef: (el) => {
+      scrollContainerRef = el
     },
   }
 
@@ -2591,15 +2586,11 @@ export default function Layout(props: ParentProps) {
     setHoverSession,
   }
 
-  const SidebarPanel = (panelProps: {
-    project: Accessor<LocalProject | undefined>
-    mobile?: boolean
-    merged?: boolean
-  }) => {
+  const SidebarPanel = (panelProps: { project: Accessor<LocalProject | undefined>; merged?: boolean }) => {
     const project = panelProps.project
-    const merged = createMemo(() => panelProps.mobile || (panelProps.merged ?? layout.sidebar.opened()))
-    const hover = createMemo(() => !panelProps.mobile && panelProps.merged === false && !layout.sidebar.opened())
-    const popover = createMemo(() => !!panelProps.mobile || panelProps.merged === false || layout.sidebar.opened())
+    const merged = createMemo(() => panelProps.merged ?? layout.sidebar.opened())
+    const hover = createMemo(() => panelProps.merged === false && !layout.sidebar.opened())
+    const popover = createMemo(() => panelProps.merged === false || layout.sidebar.opened())
     const empty = createMemo(() => !params.dir && layout.projects.list().length === 0)
     const projectName = createMemo(() => {
       const item = project()
@@ -2647,11 +2638,9 @@ export default function Layout(props: ParentProps) {
           "border-l border-t border-border-weaker-base": merged(),
           "bg-background-base": merged() || hover(),
           "bg-background-stronger": !merged() && !hover(),
-          "flex-1 min-w-0": panelProps.mobile,
-          "max-w-full overflow-hidden": panelProps.mobile,
         }}
         style={{
-          width: panelProps.mobile ? undefined : `${panel()}px`,
+          width: `${panel()}px`,
         }}
       >
         <Show
@@ -2719,9 +2708,9 @@ export default function Layout(props: ParentProps) {
                       data-project={slug()}
                       class="shrink-0 size-6 rounded-md transition-opacity data-[expanded]:bg-surface-base-active"
                       classList={{
-                        "opacity-100": panelProps.mobile || merged(),
+                        "opacity-100": merged(),
                         "opacity-0 group-hover/project:opacity-100 group-focus-within/project:opacity-100 data-[expanded]:opacity-100":
-                          !panelProps.mobile && !merged(),
+                          !merged(),
                       }}
                       aria-label={language.t("common.moreOptions")}
                     />
@@ -2809,12 +2798,7 @@ export default function Layout(props: ParentProps) {
                         </Button>
                       </div>
                       <div class="flex-1 min-h-0">
-                        <LocalWorkspace
-                          ctx={workspaceSidebarCtx}
-                          project={item()}
-                          sortNow={sortNow}
-                          mobile={panelProps.mobile}
-                        />
+                        <LocalWorkspace ctx={workspaceSidebarCtx} project={item()} sortNow={sortNow} />
                       </div>
                     </>
                   }
@@ -2831,7 +2815,7 @@ export default function Layout(props: ParentProps) {
                         <ConstrainDragXAxis />
                         <div
                           ref={(el) => {
-                            if (!panelProps.mobile) scrollContainerRef = el
+                            scrollContainerRef = el
                           }}
                           class="size-full py-2 overflow-y-auto no-scrollbar [overflow-anchor:none]"
                         >
@@ -2844,7 +2828,6 @@ export default function Layout(props: ParentProps) {
                                     directory={directory}
                                     project={item()}
                                     sortNow={sortNow}
-                                    mobile={panelProps.mobile}
                                   />
                                 </div>
                               )}
@@ -2914,15 +2897,12 @@ export default function Layout(props: ParentProps) {
 
   const projects = () => layout.projects.list()
   const projectOverlay = () => <ProjectDragOverlay projects={projects} activeProject={() => store.activeProject} />
-  const sidebarContent = (mobile?: boolean) => (
+  const sidebarContent = () => (
     <SidebarContent
-      mobile={mobile}
       opened={() => layout.sidebar.opened()}
       aimMove={aim.move}
       projects={projects}
-      renderProject={(project) => (
-        <SortableProject ctx={projectSidebarCtx} project={project} sortNow={sortNow} mobile={mobile} />
-      )}
+      renderProject={(project) => <SortableProject ctx={projectSidebarCtx} project={project} sortNow={sortNow} />}
       handleDragStart={handleDragStart}
       handleDragEnd={handleDragEnd}
       handleDragOver={handleDragOver}
@@ -2935,9 +2915,7 @@ export default function Layout(props: ParentProps) {
       onOpenSettings={openSettings}
       helpLabel={() => language.t("sidebar.help")}
       onOpenHelp={() => platform.openLink("https://aether.aiphys.cn/")}
-      renderPanel={() =>
-        mobile ? <SidebarPanel project={currentProject} mobile /> : <SidebarPanel project={currentProject} merged />
-      }
+      renderPanel={() => <SidebarPanel project={currentProject} merged />}
     />
   )
 
@@ -2950,11 +2928,7 @@ export default function Layout(props: ParentProps) {
             <nav
               aria-label={language.t("sidebar.nav.projectsAndSessions")}
               data-component="sidebar-nav-desktop"
-              classList={{
-                "hidden xl:block": true,
-                "absolute inset-y-0 left-0": true,
-                "z-10": true,
-              }}
+              class="absolute inset-y-0 left-0 z-10"
               style={{ width: `${side()}px` }}
               ref={(el) => {
                 setState("nav", el)
@@ -2974,7 +2948,7 @@ export default function Layout(props: ParentProps) {
 
             <Show when={layout.sidebar.opened()}>
               <div
-                class="hidden xl:block absolute inset-y-0 z-30 w-0 overflow-visible"
+                class="absolute inset-y-0 z-30 w-0 overflow-visible"
                 style={{ left: `${side()}px` }}
                 onPointerDown={() => setState("sizing", true)}
               >
@@ -2994,39 +2968,14 @@ export default function Layout(props: ParentProps) {
             </Show>
 
             <div
-              class="hidden xl:block pointer-events-none absolute top-0 right-0 z-0 border-t border-border-weaker-base"
+              class="pointer-events-none absolute top-0 right-0 z-0 border-t border-border-weaker-base"
               style={{ left: "calc(4rem + 12px)" }}
             />
-
-            <div class="xl:hidden">
-              <div
-                classList={{
-                  "fixed inset-x-0 top-10 bottom-0 z-40 transition-opacity duration-200": true,
-                  "opacity-100 pointer-events-auto": layout.mobileSidebar.opened(),
-                  "opacity-0 pointer-events-none": !layout.mobileSidebar.opened(),
-                }}
-                onClick={(e) => {
-                  if (e.target === e.currentTarget) layout.mobileSidebar.hide()
-                }}
-              />
-              <nav
-                aria-label={language.t("sidebar.nav.projectsAndSessions")}
-                data-component="sidebar-nav-mobile"
-                classList={{
-                  "@container fixed top-10 bottom-0 left-0 z-50 w-full max-w-[400px] overflow-hidden border-r border-border-weaker-base bg-background-base transition-transform duration-200 ease-out": true,
-                  "translate-x-0": layout.mobileSidebar.opened(),
-                  "-translate-x-full": !layout.mobileSidebar.opened(),
-                }}
-                onClick={(e) => e.stopPropagation()}
-              >
-                {sidebarContent(true)}
-              </nav>
-            </div>
 
             <div
               classList={{
                 "absolute inset-0": true,
-                "xl:inset-y-0 xl:right-0 xl:left-[var(--main-left)]": true,
+                "inset-y-0 right-0 left-[var(--main-left)]": true,
                 "z-20": true,
                 "transition-[left] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[left] motion-reduce:transition-none":
                   !state.sizing,
@@ -3037,7 +2986,7 @@ export default function Layout(props: ParentProps) {
             >
               <main
                 classList={{
-                  "size-full overflow-x-hidden flex flex-col items-start contain-strict border-t border-border-weak-base bg-background-base xl:border-l xl:rounded-tl-[12px]": true,
+                  "size-full overflow-x-hidden flex flex-col items-start contain-strict border-t border-border-weak-base bg-background-base border-l rounded-tl-[12px]": true,
                 }}
               >
                 <Show when={!autoselecting()} fallback={<div class="size-full" />}>
@@ -3048,7 +2997,7 @@ export default function Layout(props: ParentProps) {
 
             <div
               classList={{
-                "hidden xl:flex absolute inset-y-0 left-16 z-30": true,
+                "flex absolute inset-y-0 left-16 z-30": true,
                 "opacity-100 translate-x-0 pointer-events-auto": state.peeked && !layout.sidebar.opened(),
                 "opacity-0 -translate-x-2 pointer-events-none": !state.peeked || layout.sidebar.opened(),
                 "transition-[opacity,transform] motion-reduce:transition-none": true,
@@ -3072,7 +3021,7 @@ export default function Layout(props: ParentProps) {
 
             <div
               classList={{
-                "hidden xl:block pointer-events-none absolute inset-y-0 right-0 z-25 overflow-hidden": true,
+                "pointer-events-none absolute inset-y-0 right-0 z-25 overflow-hidden": true,
                 "opacity-100 translate-x-0": state.peeked && !layout.sidebar.opened(),
                 "opacity-0 -translate-x-2": !state.peeked || layout.sidebar.opened(),
                 "transition-[opacity,transform] motion-reduce:transition-none": true,

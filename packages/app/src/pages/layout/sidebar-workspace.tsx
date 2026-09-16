@@ -161,7 +161,7 @@ export type WorkspaceSidebarContext = {
   setConversationTreeLastFocus: (rootSessionID: string, sessionID: string) => void
   showResetWorkspaceDialog: (root: string, directory: string) => void
   showDeleteWorkspaceDialog: (root: string, directory: string, branch?: string) => void
-  setScrollContainerRef: (el: HTMLDivElement | undefined, mobile?: boolean) => void
+  setScrollContainerRef: (el: HTMLDivElement | undefined) => void
 }
 
 export const WorkspaceDragOverlay = (props: {
@@ -634,7 +634,6 @@ const sortByUpdatedDesc = (a: Session, b: Session) => (b.time?.updated ?? 0) - (
 const SessionTreeNodes = (props: {
   slug: Accessor<string>
   currentSessionID: Accessor<string | undefined>
-  mobile?: boolean
   ctx: WorkspaceSidebarContext
   rootSessions: Accessor<Session[]>
   allSessions: Accessor<Session[]>
@@ -766,7 +765,6 @@ const SessionTreeNodes = (props: {
             list={props.allSessions()}
             navList={props.ctx.navList}
             slug={props.slug()}
-            mobile={props.mobile}
             children={props.children()}
             sidebarHovering={props.ctx.sidebarHovering}
             setHoverSession={props.ctx.setHoverSession}
@@ -813,7 +811,6 @@ const ArchivedSessionList = (props: {
   directory: string
   slug: Accessor<string>
   ctx: WorkspaceSidebarContext
-  mobile?: boolean
   language: ReturnType<typeof useLanguage>
 }): JSX.Element => {
   const globalSDK = useGlobalSDK()
@@ -942,7 +939,6 @@ const ArchivedSessionList = (props: {
           <SessionTreeNodes
             slug={props.slug}
             currentSessionID={() => params.id}
-            mobile={props.mobile}
             ctx={archivedTreeCtx}
             rootSessions={rootSessions}
             allSessions={sessions}
@@ -963,7 +959,6 @@ const ArchivedSessionList = (props: {
 const WorkspaceSessionList = (props: {
   slug: Accessor<string>
   currentSessionID: Accessor<string | undefined>
-  mobile?: boolean
   ctx: WorkspaceSidebarContext
   showNew: Accessor<boolean>
   loading: Accessor<boolean>
@@ -1038,7 +1033,6 @@ const WorkspaceSessionList = (props: {
           <div class="flex items-center gap-1 pl-2 pr-3">
             <NewSessionItem
               slug={props.slug()}
-              mobile={props.mobile}
               clearHoverProjectSoon={props.ctx.clearHoverProjectSoon}
               setHoverSession={props.ctx.setHoverSession}
             />
@@ -1064,7 +1058,6 @@ const WorkspaceSessionList = (props: {
                   list={props.rootSessions()}
                   navList={props.ctx.navList}
                   slug={props.slug()}
-                  mobile={props.mobile}
                   children={props.children()}
                   sidebarHovering={props.ctx.sidebarHovering}
                   setHoverSession={props.ctx.setHoverSession}
@@ -1084,7 +1077,6 @@ const WorkspaceSessionList = (props: {
           <SessionTreeNodes
             slug={props.slug}
             currentSessionID={props.currentSessionID}
-            mobile={props.mobile}
             ctx={props.ctx}
             rootSessions={props.rootSessions}
             allSessions={props.allSessions}
@@ -1116,7 +1108,6 @@ export const SortableWorkspace = (props: {
   directory: string
   project: LocalProject
   sortNow: Accessor<number>
-  mobile?: boolean
 }): JSX.Element => {
   const params = useParams()
   const globalSync = useGlobalSync()
@@ -1279,7 +1270,6 @@ export const SortableWorkspace = (props: {
           <WorkspaceSessionList
             slug={slug}
             currentSessionID={() => params.id}
-            mobile={props.mobile}
             ctx={props.ctx}
             showNew={showNew}
             loading={loading}
@@ -1300,13 +1290,7 @@ export const SortableWorkspace = (props: {
             directory={props.directory}
             createSession={props.ctx.createSession}
           />
-          <ArchivedSessionList
-            directory={props.directory}
-            slug={slug}
-            ctx={props.ctx}
-            mobile={props.mobile}
-            language={language}
-          />
+          <ArchivedSessionList directory={props.directory} slug={slug} ctx={props.ctx} language={language} />
         </Collapsible.Content>
       </Collapsible>
     </div>
@@ -1317,7 +1301,6 @@ export const LocalWorkspace = (props: {
   ctx: WorkspaceSidebarContext
   project: LocalProject
   sortNow: Accessor<number>
-  mobile?: boolean
 }): JSX.Element => {
   const params = useParams()
   const globalSync = useGlobalSync()
@@ -1344,13 +1327,12 @@ export const LocalWorkspace = (props: {
 
   return (
     <div
-      ref={(el) => props.ctx.setScrollContainerRef(el, props.mobile)}
+      ref={(el) => props.ctx.setScrollContainerRef(el)}
       class="size-full flex flex-col py-2 overflow-y-auto no-scrollbar [overflow-anchor:none]"
     >
       <WorkspaceSessionList
         slug={slug}
         currentSessionID={() => params.id}
-        mobile={props.mobile}
         ctx={props.ctx}
         showNew={() => false}
         loading={loading}
@@ -1371,13 +1353,7 @@ export const LocalWorkspace = (props: {
         directory={props.project.worktree}
         createSession={props.ctx.createSession}
       />
-      <ArchivedSessionList
-        directory={props.project.worktree}
-        slug={slug}
-        ctx={props.ctx}
-        mobile={props.mobile}
-        language={language}
-      />
+      <ArchivedSessionList directory={props.project.worktree} slug={slug} ctx={props.ctx} language={language} />
     </div>
   )
 }

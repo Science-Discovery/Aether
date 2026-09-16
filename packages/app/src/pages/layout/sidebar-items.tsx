@@ -99,7 +99,6 @@ export type SessionItemProps = {
   list: Session[]
   navList?: Accessor<Session[]>
   slug: string
-  mobile?: boolean
   dense?: boolean
   children: Map<string, string[]>
   sidebarHovering: Accessor<boolean>
@@ -162,7 +161,6 @@ const SessionRow = (props: {
   session: Session
   targetSession: Session
   slug: string
-  mobile?: boolean
   dense?: boolean
   tint: Accessor<string | undefined>
   isWorking: Accessor<boolean>
@@ -187,7 +185,7 @@ const SessionRow = (props: {
 }): JSX.Element => (
   <A
     href={sessionHref(props.slug, props.targetSession)}
-    class={`flex items-center justify-between gap-3 min-w-0 text-left w-full focus:outline-none transition-[padding] ${props.mobile ? "pr-14" : ""} group-hover/session:pr-14 group-focus-within/session:pr-14 group-active/session:pr-14 ${props.dense ? "py-0.5" : "py-1"}`}
+    class={`flex items-center justify-between gap-3 min-w-0 text-left w-full focus:outline-none transition-[padding] group-hover/session:pr-14 group-focus-within/session:pr-14 group-active/session:pr-14 ${props.dense ? "py-0.5" : "py-1"}`}
     onPointerDown={props.warmPress}
     onPointerEnter={props.warmHover}
     onPointerLeave={props.cancelHoverPrefetch}
@@ -400,7 +398,6 @@ export const SessionItem = (props: SessionItemProps): JSX.Element => {
       session={props.session}
       targetSession={props.targetSession ?? props.session}
       slug={props.slug}
-      mobile={props.mobile}
       dense={props.dense}
       tint={tint}
       isWorking={isWorking}
@@ -501,13 +498,7 @@ export const SessionItem = (props: SessionItemProps): JSX.Element => {
 
           <Show when={!renaming() && !props.selectMode?.()}>
             <div
-              class={`absolute ${props.dense ? "top-0.5 right-0.5" : "top-1 right-1"} flex items-center gap-0.5 transition-opacity`}
-              classList={{
-                "opacity-100 pointer-events-auto": !!props.mobile,
-                "opacity-0 pointer-events-none": !props.mobile,
-                "group-hover/session:opacity-100 group-hover/session:pointer-events-auto": true,
-                "group-focus-within/session:opacity-100 group-focus-within/session:pointer-events-auto": true,
-              }}
+              class={`absolute ${props.dense ? "top-0.5 right-0.5" : "top-1 right-1"} flex items-center gap-0.5 transition-opacity opacity-0 pointer-events-none group-hover/session:opacity-100 group-hover/session:pointer-events-auto group-focus-within/session:opacity-100 group-focus-within/session:pointer-events-auto`}
             >
               <Show when={props.deleteSession}>
                 <Tooltip value={language.t("common.delete")} placement="top">
@@ -649,7 +640,6 @@ export const SessionItem = (props: SessionItemProps): JSX.Element => {
 
 export const NewSessionItem = (props: {
   slug: string
-  mobile?: boolean
   dense?: boolean
   clearHoverProjectSoon: () => void
   setHoverSession: (id: string | undefined) => void
