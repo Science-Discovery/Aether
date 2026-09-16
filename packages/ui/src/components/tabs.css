@@ -665,3 +665,14 @@
     }
   }
 }
+
+/* Review-panel tab bar (the side panel opts in via data-tabbar-dock):
+   slimmed height with proportionally reduced trigger padding. */
+[data-component="tabs"][data-tabbar-dock] [data-slot="tabs-list"] {
+  height: 34px;
+
+  [data-slot="tabs-trigger"] {
+    padding-top: 7px;
+    padding-bottom: 7px;
+  }
+}
