@@ -53,7 +53,7 @@ export function Titlebar() {
   const windows = createMemo(() => platform.platform === "desktop" && platform.os === "windows")
   const web = createMemo(() => platform.platform === "web")
   const zoom = () => platform.webviewZoom?.() ?? 1
-  const minHeight = () => (mac() ? `${40 / zoom()}px` : undefined)
+  const minHeight = () => (mac() ? `${28 / zoom()}px` : undefined)
 
   const [history, setHistory] = createStore({
     stack: [] as string[],
@@ -166,7 +166,7 @@ export function Titlebar() {
 
   return (
     <header
-      class="h-10 shrink-0 bg-background-base relative grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center"
+      class="h-7 shrink-0 bg-background-base relative grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center"
       style={{ "min-height": minHeight() }}
       data-tauri-drag-region
       onMouseDown={drag}

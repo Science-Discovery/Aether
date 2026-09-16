@@ -378,7 +378,7 @@ export function FileTabContent(props: { tab: string }) {
   // file type (stat compare + forced reload / preview URL bump on change).
   createEffect(
     on(path, (p) => {
-      if (p) void file.refresh(p)
+      if (p) void file.refresh(p, { immediate: true, mount: true })
     }),
   )
   const meta = createMemo(() => state()?.metadata)

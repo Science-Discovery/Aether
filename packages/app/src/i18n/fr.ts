@@ -532,6 +532,7 @@ export const dict = {
   "session.tab.gitGraph.addTagMessageDescription": "?",
   "session.tab.gitGraph.copiedHash": "?",
   "session.tab.gitGraph.copiedMessage": "?",
+  "session.tab.toggleDock": "Changer la position de la barre d'onglets",
   "session.panel.reviewAndFiles": "Revue et fichiers",
   "session.review.filesChanged": "{{count}} fichiers modifiés",
   "session.review.change.one": "Modification",

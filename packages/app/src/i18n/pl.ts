@@ -519,6 +519,7 @@ export const dict = {
   "session.tab.gitGraph.addTagMessageDescription": "?",
   "session.tab.gitGraph.copiedHash": "?",
   "session.tab.gitGraph.copiedMessage": "?",
+  "session.tab.toggleDock": "Przełącz pozycję paska kart",
   "session.panel.reviewAndFiles": "Przegląd i pliki",
   "session.review.filesChanged": "Zmieniono {{count}} plików",
   "session.review.change.one": "Zmiana",

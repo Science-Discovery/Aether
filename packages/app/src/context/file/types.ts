@@ -35,6 +35,8 @@ export type FileState = {
   error?: string
   /** `${mtime}:${size}` fingerprint from the last stat; used to detect external changes */
   sig?: string
+  /** Observed-but-not-yet-applied fingerprint; used to wait out non-atomic writes */
+  nextSig?: string
   metadata?: FileMetadata
   content?: FileContent
 }
