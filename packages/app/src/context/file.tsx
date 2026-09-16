@@ -394,8 +394,17 @@ export const { use: useFile, provider: FileProvider } = createSimpleContext({
      * when it changed externally. Type-agnostic: text files get a forced content
      * reload; binary previews (pdf/image) get a version bump which changes the
      * raw preview URL and forces the viewer to re-fetch.
+     *
+     * Poll-triggered refreshes wait until the fingerprint is stable across two
+     * consecutive polls (writers like LaTeX update a PDF over many writes, and
+     * fetching mid-write yields a broken document). `immediate` skips the wait.
+     *
+     * `mount` marks a tab (re)open: the freshly mounted viewer already fetched
+     * current bytes, so for binary previews we only re-seed the fingerprint
+     * instead of forcing an identical second load. A fetch that raced a write
+     * is recovered by the viewer's load-error retry instead.
      */
-    const refresh = (input: string) => {
+    const refresh = (input: string, options?: { immediate?: boolean; mount?: boolean }) => {
       const file = path.normalize(input)
       if (!file) return Promise.resolve()
       const directory = scope()
@@ -408,13 +417,51 @@ export const { use: useFile, provider: FileProvider } = createSimpleContext({
           if (scope() !== directory || !x.data) return
           const sig = `${x.data.mtime}:${x.data.size}`
           const prev = store.file[file]?.sig
-          if (prev === sig) return
+          if (prev === sig) {
+            if (store.file[file]?.nextSig !== undefined) setStore("file", file, "nextSig", undefined)
+            return
+          }
+          if (!options?.immediate && !options?.mount && prev !== undefined && store.file[file]?.nextSig !== sig) {
+            setStore("file", file, "nextSig", sig)
+            return
+          }
+          const binaryMount = options?.mount && preview(file) !== "text"
+          if (prev === undefined || binaryMount) {
+            batch(() => {
+              setStore("file", file, "sig", sig)
+              setStore("file", file, "metadata", x.data)
+            })
+            return
+          }
           batch(() => {
             setStore("file", file, "sig", sig)
+            setStore("file", file, "nextSig", undefined)
             setStore("file", file, "metadata", x.data)
             setStore("file", file, "version", (value) => (value ?? 0) + 1)
           })
-          if (prev !== undefined && preview(file) === "text") void load(file, { force: true })
+          if (preview(file) === "text") void load(file, { force: true })
+        })
+        .catch(() => undefined)
+    }
+
+    /**
+     * Stat a file and record its fingerprint without bumping the version or
+     * reloading anything. Used to keep `sig` truthful after another path
+     * already refreshed the UI (e.g. the tool-write watcher), so the poller
+     * won't treat the same change as new.
+     */
+    const seed = (input: string) => {
+      const file = path.normalize(input)
+      if (!file) return Promise.resolve()
+      const directory = scope()
+      return sdk.client.file
+        .metadata({ path: file })
+        .then((x) => {
+          if (scope() !== directory || !x.data) return
+          batch(() => {
+            setStore("file", file, "sig", `${x.data.mtime}:${x.data.size}`)
+            setStore("file", file, "metadata", x.data)
+          })
         })
         .catch(() => undefined)
     }
@@ -451,6 +498,7 @@ export const { use: useFile, provider: FileProvider } = createSimpleContext({
         const file = raw ? path.normalize(raw) : ""
         if (file && !file.startsWith(".git/") && kind !== "unlink" && store.file[file]) {
           setStore("file", file, "version", (value) => (value ?? 0) + 1)
+          void seed(file)
         }
       }
       invalidateFromWatcher(e.details, {
