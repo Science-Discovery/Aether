@@ -469,7 +469,7 @@ export function SessionSidePanel(props: {
       dockDrag.moved = true
       // Keep receiving events outside the bar, but only once a real drag is
       // underway so plain clicks keep reaching the tabs.
-      ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
+      ;(e.currentTarget as HTMLElement)?.setPointerCapture?.(e.pointerId)
     }
   }
 

@@ -286,6 +286,7 @@ function mount(tab: "changes" | "all", focus: ReturnType<typeof vi.fn>) {
 
 beforeEach(() => {
   document.body.innerHTML = ""
+  localStorage.clear()
   state.opened = []
   state.active = []
   state.loaded = []
@@ -346,12 +347,56 @@ describe("session side panel changes tree wiring", () => {
 
     await Promise.resolve()
 
-    const btn = [...host.querySelectorAll("button")].find((item) =>
-      item.textContent?.includes("filePanel.collapseAll"),
-    )
+    const btn = [...host.querySelectorAll("button")].find((item) => item.textContent?.includes("filePanel.collapseAll"))
     btn?.dispatchEvent(new MouseEvent("click", { bubbles: true }))
 
     expect(state.collapsed).toBe(1)
+
+    off()
+  })
+})
+
+describe("session side panel tab bar docking", () => {
+  const bar = (host: HTMLElement) => host.querySelector<HTMLElement>("[data-tabbar-dock]")
+  const pointer = (el: EventTarget, type: string, clientY: number) =>
+    el.dispatchEvent(new PointerEvent(type, { bubbles: true, button: 0, pointerId: 1, clientY }))
+
+  test("toggle button flips the dock position", async () => {
+    const { host, off } = mount("changes", vi.fn())
+    await Promise.resolve()
+
+    expect(bar(host)?.dataset.tabbarDock).toBe("top")
+
+    const toggle = [...host.querySelectorAll("button")].find(
+      (item) => item.getAttribute("aria-label") === "session.tab.toggleDock",
+    )
+    expect(toggle).toBeDefined()
+
+    toggle?.dispatchEvent(new MouseEvent("click", { bubbles: true }))
+    expect(bar(host)?.dataset.tabbarDock).toBe("bottom")
+
+    toggle?.dispatchEvent(new MouseEvent("click", { bubbles: true }))
+    expect(bar(host)?.dataset.tabbarDock).toBe("top")
+
+    off()
+  })
+
+  test("dragging the bar to the lower half docks it to the bottom and back", async () => {
+    const { host, off } = mount("changes", vi.fn())
+    await Promise.resolve()
+
+    const barEl = bar(host) as HTMLElement
+    expect(barEl.dataset.tabbarDock).toBe("top")
+
+    pointer(barEl, "pointerdown", 20)
+    pointer(barEl, "pointermove", 80)
+    pointer(barEl, "pointerup", 700)
+    expect(bar(host)?.dataset.tabbarDock).toBe("bottom")
+
+    pointer(bar(host) as EventTarget, "pointerdown", 700)
+    pointer(bar(host) as EventTarget, "pointermove", 400)
+    pointer(bar(host) as EventTarget, "pointerup", 20)
+    expect(bar(host)?.dataset.tabbarDock).toBe("top")
 
     off()
   })
