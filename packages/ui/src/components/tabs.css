@@ -644,3 +644,24 @@
 [data-component="tabs-drag-preview"] > * {
   position: relative;
 }
+
+/* Tab bar docked below the content: flip the separator borders so the bar
+   reads as a bottom dock instead of a top bar. */
+[data-component="tabs"][data-tabbar-dock="bottom"] [data-slot="tabs-list"] {
+  border-bottom: none;
+  border-top: 1px solid var(--border-weak-base);
+
+  &::after {
+    border-bottom: none;
+    border-top: 1px solid var(--border-weak-base);
+  }
+
+  [data-slot="tabs-trigger-wrapper"] {
+    border-bottom: none;
+    border-top: 1px solid var(--border-weak-base);
+
+    &:has([data-selected]) {
+      border-top-color: transparent;
+    }
+  }
+}

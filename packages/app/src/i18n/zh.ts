@@ -897,6 +897,7 @@ export const dict = {
   "session.tab.gitGraph.addTagMessageDescription": "消息只能附加到附注标签",
   "session.tab.gitGraph.copiedHash": "哈希已复制到剪贴板",
   "session.tab.gitGraph.copiedMessage": "提交信息已复制到剪贴板",
+  "session.tab.toggleDock": "切换标签栏上下位置",
   "session.panel.reviewAndFiles": "审查和文件",
   "session.review.filesChanged": "{{count}} 个文件变更",
   "session.review.change.one": "更改",

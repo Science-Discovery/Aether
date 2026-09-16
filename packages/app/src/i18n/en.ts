@@ -938,6 +938,7 @@ export const dict = {
   "session.tab.gitGraph.addTagMessageDescription": "A message can only be added to an annotated tag",
   "session.tab.gitGraph.copiedHash": "Hash copied to clipboard",
   "session.tab.gitGraph.copiedMessage": "Message copied to clipboard",
+  "session.tab.toggleDock": "Toggle tab bar position",
   "session.panel.reviewAndFiles": "Review and files",
   "session.review.filesChanged": "{{count}} Files Changed",
   "session.review.change.one": "Change",

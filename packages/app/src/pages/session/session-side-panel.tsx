@@ -44,6 +44,7 @@ import { createOpenSessionFileTab, createSessionTabs, getTabReorderIndex, type S
 import { setSessionHandoff } from "@/pages/session/handoff"
 import { useSessionLayout } from "@/pages/session/session-layout"
 import { all, panel, tab } from "@/pages/session/session-side-panel-state"
+import { Persist, persisted } from "@/utils/persist"
 import { save } from "./download"
 import { fromDir, fromDrop, fromList, isExternal, send } from "./upload"
 import type { FileNode } from "@opencode-ai/sdk/v2"
@@ -443,6 +444,42 @@ export function SessionSidePanel(props: {
   const [store, setStore] = createStore({
     activeDraggable: undefined as string | undefined,
   })
+
+  // Review-panel tab bar docking: drag the bar into the lower half of the
+  // window to pin it below the content, drag it back up (or drop it in the
+  // upper half) to restore the default. Persisted as a plain UI preference.
+  const [tabbarDock, setTabbarDock] = persisted(
+    Persist.global("review-tabbar-dock.v1"),
+    createStore<{ pos: "top" | "bottom" }>({ pos: "top" }),
+  )
+  let dockDrag: { startY: number; moved: boolean } | undefined
+  let suppressClickUntil = 0
+
+  const onTabbarPointerDown = (e: PointerEvent) => {
+    if (e.button !== 0) return
+    const target = e.target as HTMLElement
+    // File tabs own their drag gesture (reordering); never hijack it.
+    if (target.closest("[data-dnd-sortable]")) return
+    dockDrag = { startY: e.clientY, moved: false }
+  }
+
+  const onTabbarPointerMove = (e: PointerEvent) => {
+    if (!dockDrag) return
+    if (!dockDrag.moved && Math.abs(e.clientY - dockDrag.startY) > 12) {
+      dockDrag.moved = true
+      // Keep receiving events outside the bar, but only once a real drag is
+      // underway so plain clicks keep reaching the tabs.
+      ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
+    }
+  }
+
+  const onTabbarPointerUp = (e: PointerEvent) => {
+    const drag = dockDrag
+    dockDrag = undefined
+    if (!drag?.moved) return
+    suppressClickUntil = Date.now() + 350
+    setTabbarDock("pos", e.clientY >= window.innerHeight / 2 ? "bottom" : "top")
+  }
   let box: HTMLDivElement | undefined
 
   // Multi-select state for file tree (Cmd/Ctrl click) — 使用共享状态
@@ -876,8 +913,30 @@ export function SessionSidePanel(props: {
               >
                 <DragDropSensors />
                 <ConstrainDragYAxis />
-                <Tabs value={activeTab()} onChange={openTab}>
-                  <div class="sticky top-0 shrink-0 flex">
+                <Tabs value={activeTab()} onChange={openTab} data-tabbar-dock={tabbarDock.pos}>
+                  <div
+                    class="sticky shrink-0 flex cursor-grab active:cursor-grabbing"
+                    classList={{
+                      "top-0": tabbarDock.pos === "top",
+                      "bottom-0 order-last": tabbarDock.pos === "bottom",
+                    }}
+                    data-tabbar-dock={tabbarDock.pos}
+                    onPointerDown={onTabbarPointerDown}
+                    onPointerMove={onTabbarPointerMove}
+                    onPointerUp={onTabbarPointerUp}
+                    onPointerCancel={() => (dockDrag = undefined)}
+                    ref={(el: HTMLDivElement) => {
+                      // A real drag must not also activate the tab under the pointer.
+                      const suppress = (e: MouseEvent) => {
+                        if (Date.now() < suppressClickUntil) {
+                          e.stopPropagation()
+                          e.preventDefault()
+                        }
+                      }
+                      el.addEventListener("click", suppress, true)
+                      onCleanup(() => el.removeEventListener("click", suppress, true))
+                    }}
+                  >
                     <Tabs.List
                       ref={(el: HTMLDivElement) => {
                         const stop = createFileTabListSync({ el, contextOpen })
@@ -967,6 +1026,15 @@ export function SessionSidePanel(props: {
                             aria-label={language.t("command.file.open")}
                           />
                         </TooltipKeybind>
+                        <Tooltip value={language.t("session.tab.toggleDock")}>
+                          <IconButton
+                            icon="arrow-up"
+                            variant="ghost"
+                            classList={{ "rotate-180": tabbarDock.pos === "top" }}
+                            onClick={() => setTabbarDock("pos", tabbarDock.pos === "top" ? "bottom" : "top")}
+                            aria-label={language.t("session.tab.toggleDock")}
+                          />
+                        </Tooltip>
                       </div>
                     </Tabs.List>
                   </div>
