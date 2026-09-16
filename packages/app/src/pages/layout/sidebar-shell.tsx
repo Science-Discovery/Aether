@@ -20,7 +20,6 @@ import { showToast } from "@opencode-ai/ui/toast"
 import { status as mobileStatus, type MobilePlatform } from "@/context/mobile"
 
 export const SidebarContent = (props: {
-  mobile?: boolean
   opened: Accessor<boolean>
   aimMove: (event: MouseEvent) => void
   projects: Accessor<LocalProject[]>
@@ -40,8 +39,6 @@ export const SidebarContent = (props: {
   onOpenHelp: () => void
   renderPanel: () => JSX.Element
 }): JSX.Element => {
-  const expanded = createMemo(() => !!props.mobile || props.opened())
-  const placement = () => (props.mobile ? "bottom" : "right")
   const auth = useAuth()
   const dialog = useDialog()
   const language = useLanguage()
@@ -95,7 +92,7 @@ export const SidebarContent = (props: {
   createEffect(() => {
     const el = panel
     if (!el) return
-    if (expanded()) {
+    if (props.opened()) {
       el.removeAttribute("inert")
       return
     }
@@ -123,11 +120,11 @@ export const SidebarContent = (props: {
                 <For each={props.projects()}>{(project) => props.renderProject(project)}</For>
               </SortableProvider>
               <Tooltip
-                placement={placement()}
+                placement="right"
                 value={
                   <div class="flex items-center gap-2">
                     <span>{props.openProjectLabel}</span>
-                    <Show when={!props.mobile && !!props.openProjectKeybind()}>
+                    <Show when={!!props.openProjectKeybind()}>
                       <span class="text-icon-base text-12-medium">{props.openProjectKeybind()}</span>
                     </Show>
                   </div>
@@ -149,7 +146,7 @@ export const SidebarContent = (props: {
           <Show
             when={auth.isAuthenticated && auth.account}
             fallback={
-              <Tooltip placement={placement()} value={language.t("auth.login.submit")}>
+              <Tooltip placement="right" value={language.t("auth.login.submit")}>
                 <IconButton
                   icon="user"
                   variant="ghost"
@@ -162,7 +159,7 @@ export const SidebarContent = (props: {
           >
             {(account) => (
               <DropdownMenu>
-                <Tooltip placement={placement()} value={account().name || account().email}>
+                <Tooltip placement="right" value={account().name || account().email}>
                   <DropdownMenu.Trigger
                     as={IconButton}
                     icon="user"
@@ -186,7 +183,7 @@ export const SidebarContent = (props: {
             )}
           </Show>
           <DropdownMenu placement="right" gutter={8}>
-            <Tooltip placement={placement()} value={language.t("knowledgeBase.mobileConnection")}>
+            <Tooltip placement="right" value={language.t("knowledgeBase.mobileConnection")}>
               <DropdownMenu.Trigger
                 as={IconButton}
                 icon="phone"
@@ -250,7 +247,7 @@ export const SidebarContent = (props: {
               </DropdownMenu.Content>
             </DropdownMenu.Portal>
           </DropdownMenu>
-          <TooltipKeybind placement={placement()} title={props.settingsLabel()} keybind={props.settingsKeybind() ?? ""}>
+          <TooltipKeybind placement="right" title={props.settingsLabel()} keybind={props.settingsKeybind() ?? ""}>
             <IconButton
               icon="settings-gear"
               variant="ghost"
@@ -259,7 +256,7 @@ export const SidebarContent = (props: {
               aria-label={props.settingsLabel()}
             />
           </TooltipKeybind>
-          <Tooltip placement={placement()} value={props.helpLabel()}>
+          <Tooltip placement="right" value={props.helpLabel()}>
             <IconButton
               icon="help"
               variant="ghost"
@@ -275,8 +272,11 @@ export const SidebarContent = (props: {
         ref={(el) => {
           panel = el
         }}
-        classList={{ "flex-1 flex h-full min-h-0 min-w-0 overflow-hidden": true, "pointer-events-none": !expanded() }}
-        aria-hidden={!expanded()}
+        classList={{
+          "flex-1 flex h-full min-h-0 min-w-0 overflow-hidden": true,
+          "pointer-events-none": !props.opened(),
+        }}
+        aria-hidden={!props.opened()}
       >
         {props.renderPanel()}
       </div>

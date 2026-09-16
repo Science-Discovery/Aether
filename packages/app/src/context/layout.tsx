@@ -258,9 +258,6 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
         session: {
           width: DEFAULT_SESSION_WIDTH,
         },
-        mobileSidebar: {
-          opened: false,
-        },
         sessionTabs: {} as Record<string, SessionTabs>,
         sessionView: {} as Record<string, SessionView>,
         handoff: {
@@ -630,18 +627,6 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
             return
           }
           setStore("session", "width", width)
-        },
-      },
-      mobileSidebar: {
-        opened: createMemo(() => store.mobileSidebar?.opened ?? false),
-        show() {
-          setStore("mobileSidebar", "opened", true)
-        },
-        hide() {
-          setStore("mobileSidebar", "opened", false)
-        },
-        toggle() {
-          setStore("mobileSidebar", "opened", (x) => !x)
         },
       },
       pendingMessage: {

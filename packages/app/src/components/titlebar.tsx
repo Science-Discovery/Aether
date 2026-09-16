@@ -1,7 +1,6 @@
 import { createEffect, createMemo, onCleanup, Show, untrack } from "solid-js"
 import { createStore } from "solid-js/store"
 import { useLocation, useNavigate, useParams } from "@solidjs/router"
-import { IconButton } from "@opencode-ai/ui/icon-button"
 import { Icon } from "@opencode-ai/ui/icon"
 import { Button } from "@opencode-ai/ui/button"
 import { Tooltip, TooltipKeybind } from "@opencode-ai/ui/tooltip"
@@ -180,32 +179,10 @@ export function Titlebar() {
       >
         <Show when={mac()}>
           <div class="h-full shrink-0" style={{ width: `${72 / zoom()}px` }} />
-          <div class="xl:hidden w-10 shrink-0 flex items-center justify-center">
-            <IconButton
-              icon="menu"
-              variant="ghost"
-              class="titlebar-icon rounded-md"
-              onClick={layout.mobileSidebar.toggle}
-              aria-label={language.t("sidebar.menu.toggle")}
-              aria-expanded={layout.mobileSidebar.opened()}
-            />
-          </div>
-        </Show>
-        <Show when={!mac()}>
-          <div class="xl:hidden w-[48px] shrink-0 flex items-center justify-center">
-            <IconButton
-              icon="menu"
-              variant="ghost"
-              class="titlebar-icon rounded-md"
-              onClick={layout.mobileSidebar.toggle}
-              aria-label={language.t("sidebar.menu.toggle")}
-              aria-expanded={layout.mobileSidebar.opened()}
-            />
-          </div>
         </Show>
         <div class="flex items-center gap-1 shrink-0">
           <TooltipKeybind
-            class={web() ? "hidden xl:flex shrink-0 ml-14" : "hidden xl:flex shrink-0 ml-2"}
+            class={web() ? "flex shrink-0 ml-14" : "flex shrink-0 ml-2"}
             placement="bottom"
             title={language.t("command.sidebar.toggle")}
             keybind={command.keybind("sidebar.toggle")}
@@ -220,7 +197,7 @@ export function Titlebar() {
               <Icon size="small" name={layout.sidebar.opened() ? "sidebar-active" : "sidebar"} />
             </Button>
           </TooltipKeybind>
-          <div class="hidden xl:flex items-center shrink-0">
+          <div class="flex items-center shrink-0">
             <Show when={params.dir}>
               <div
                 class="flex items-center shrink-0 w-8 mr-1"
