@@ -36,6 +36,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  globalThis.fetch = originalFetch
   setStatus("wechat", "idle")
   setStatus("feishu", "idle")
   setStatus("qq", "idle")
