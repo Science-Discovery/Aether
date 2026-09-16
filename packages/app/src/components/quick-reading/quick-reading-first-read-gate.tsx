@@ -46,14 +46,16 @@ async function describe(response: Response) {
   return { contentType, snippet }
 }
 
-function build(input: { prompt: string; start: number; end: number }) {
+function build(input: { prompt: string; path: string; start: number; end: number }) {
   return [
     input.prompt,
     "",
     "You are performing the PDF pre-read for the user.",
     `The attached PDF contains pages ${input.start}-${input.end} from the user's current document.`,
-    "Only use the attached PDF in this message as your source.",
-    "Do not call tools. Do not search the workspace. Do not look for the original PDF file.",
+    `Source PDF: ${JSON.stringify(input.path)}.`,
+    "Read the attached excerpt. If its contents are unavailable, use available tools to read the selected pages from the source path before reporting an access limitation.",
+    "If the content cannot be accessed, explain the access limitation. Do not claim to have read content you have not accessed.",
+    "Base your summary on the content you actually read within this page range.",
     "Please read this excerpt first and summarize its main content, overall structure, and core viewpoints.",
     "Prepare to answer the user's follow-up questions based on your understanding of this excerpt.",
   ].join("\n")
@@ -171,7 +173,15 @@ const Gate: Component<{
         attachments: [{ filename: `${name}-pages-${from}-${to}.pdf`, mime: "application/pdf", dataUrl: url }],
         extraTextParts: [
           { text: text(language.locale(), "timeline", { start: from, end: to }), ignored: true },
-          { text: build({ prompt: quick.store.snapshot.settings.firstReadPrompt, start: from, end: to }), synthetic: true },
+          {
+            text: build({
+              prompt: quick.store.snapshot.settings.firstReadPrompt,
+              path: props.pdfPath,
+              start: from,
+              end: to,
+            }),
+            synthetic: true,
+          },
         ],
         context: [],
         agent: agent.name,

@@ -1562,6 +1562,44 @@ describe("ProviderTransform.message - surrogate sanitization", () => {
   })
 })
 
+describe("ProviderTransform.message - PDF input capabilities", () => {
+  const msgs: ModelMessage[] = [
+    {
+      role: "user",
+      content: [
+        { type: "text", text: "Summarize /workspace/paper.pdf" },
+        {
+          type: "file",
+          mediaType: "application/pdf",
+          filename: "paper.pdf",
+          data: "data:application/pdf;base64,JVBERi0xLjc=",
+        },
+      ],
+    },
+  ]
+
+  test("replaces unsupported PDF payloads with guidance to extract accessible content", () => {
+    const result = ProviderTransform.message(msgs, glm("test"), {})
+    const part = result[0].content[1]
+
+    expect(result).toHaveLength(1)
+    expect(result[0].content).toHaveLength(2)
+    expect(result[0].content[0]).toEqual({ type: "text", text: "Summarize /workspace/paper.pdf" })
+    if (typeof part !== "object" || part.type !== "text") throw new Error("Expected PDF fallback text")
+    expect(part.text).toContain('"paper.pdf"')
+    expect(part.text).toContain("Use available tools")
+    expect(JSON.stringify(result)).not.toContain("data:application/pdf")
+    expect(JSON.stringify(result)).not.toContain("Inform the user")
+  })
+
+  test("preserves the original PDF payload when PDF input is supported", () => {
+    const model = glm("test")
+    model.capabilities.input.pdf = true
+
+    expect(ProviderTransform.message(msgs, model, {})).toEqual(msgs)
+  })
+})
+
 describe("ProviderTransform.message - empty image handling", () => {
   const mockModel = {
     id: "anthropic/claude-3-5-sonnet",
