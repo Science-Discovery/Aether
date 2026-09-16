@@ -152,6 +152,7 @@ import { createMobileRoutes } from "@/mobile/route"
 import { FeishuManager } from "@/mobile/feishu"
 import { QQManager } from "@/mobile/qq"
 import { WeChatManager } from "@/mobile/wechat"
+import { MobileSupervisor } from "@/mobile/supervisor"
 import { ReadingModeRoutes } from "./routes/reading-mode"
 import { DatabaseRoutes } from "./routes/database"
 import { CronRoutes } from "./routes/cron"
@@ -385,7 +386,7 @@ export namespace Server {
         const isLifecycle = lifecyclePaths.some(
           (p) => c.req.path === p || c.req.path.startsWith(p + "/") || c.req.path.startsWith(p + "?"),
         )
-        const create = noDirectory ? false : (isBrowse || isLifecycle) ? Instance.has(directory) : true
+        const create = noDirectory ? false : isBrowse || isLifecycle ? Instance.has(directory) : true
 
         return WorkspaceContext.provide({
           workspaceID: rawWorkspaceID ? WorkspaceID.make(rawWorkspaceID) : undefined,
@@ -1039,12 +1040,15 @@ export namespace Server {
             FeishuManager.stop(),
             QQManager.stop(),
             WeChatManager.stop(),
+            MobileSupervisor.stop(),
           ].map((p) => p.catch(() => {})),
         )
           .then(() => server.stop(true).catch(() => {}))
           .then(() => process.exit(0))
       })
     }
+
+    MobileSupervisor.start()
 
     return server
   }

@@ -95,9 +95,6 @@ type SessionEntry = {
   fork: boolean
 }
 
-const projectSnapshot: ProjectEntry[] = []
-const sessionSnapshots = new Map<string, SessionEntry[]>()
-
 export interface MobileAdapter {
   platform: Platform
 
@@ -138,6 +135,8 @@ export abstract class MobileManagerBase {
   protected _busUnsubs: (() => void)[] = []
   protected _manualStop = false
   protected _starting = false
+  protected _projectSnapshot: ProjectEntry[] = []
+  protected _sessionSnapshots = new Map<string, SessionEntry[]>()
 
   abstract platformDir(): string
   abstract platformName(): string
@@ -237,6 +236,28 @@ export abstract class MobileManagerBase {
     return existsSync(next) || !existsSync(prev) ? next : prev
   }
 
+  // ── Desired state (enabled.json) ────────────────────────────────────────────
+
+  async desired(): Promise<boolean> {
+    try {
+      const data = await readFile(this.file("enabled.json"), "utf-8")
+      return JSON.parse(data)?.enabled === true
+    } catch {}
+    return false
+  }
+
+  async setDesired(value: boolean): Promise<void> {
+    await mkdir(this.dir(), { recursive: true })
+    await writeFile(this.file("enabled.json"), JSON.stringify({ enabled: value, updatedAt: Date.now() }))
+  }
+
+  async hasCredentials(): Promise<boolean> {
+    try {
+      return !!(await this.adapter.loadConfig())
+    } catch {}
+    return false
+  }
+
   // ── Path helpers ────────────────────────────────────────────────────────────
 
   protected normDir(d: string): string {
@@ -327,7 +348,7 @@ export abstract class MobileManagerBase {
     const allProjects = this.getProjects()
     const visibleProjects = allProjects.filter((p) => !(this.projectDir(p) in this._hiddenDirs))
     if (visibleProjects.length === 0) {
-      this._initialDir = Instance.directory
+      this._initialDir = Instance.maybe?.directory ?? ""
       this._initialSessionId = ""
     } else {
       this._initialDir = this.projectDir(visibleProjects[0])
@@ -1405,9 +1426,9 @@ export abstract class MobileManagerBase {
 
     const needRefresh = !arg || arg === "list"
     if (needRefresh) {
-      projectSnapshot.length = 0
-      projectSnapshot.push(...this.getProjects())
-      for (const entry of projectSnapshot) {
+      this._projectSnapshot.length = 0
+      this._projectSnapshot.push(...this.getProjects())
+      for (const entry of this._projectSnapshot) {
         if (!entry.sandbox) continue
         try {
           const latest = await this.provide(this.projectDir({ item: entry.item, activity: entry.activity }), () => [
@@ -1416,13 +1437,13 @@ export abstract class MobileManagerBase {
           if (latest.length > 0) entry.activity = latest[0].time.updated
         } catch {}
       }
-      projectSnapshot.sort((a, b) => b.activity - a.activity)
+      this._projectSnapshot.sort((a, b) => b.activity - a.activity)
     }
-    if (!projectSnapshot.length && arg) {
-      projectSnapshot.length = 0
-      projectSnapshot.push(...this.getProjects())
+    if (!this._projectSnapshot.length && arg) {
+      this._projectSnapshot.length = 0
+      this._projectSnapshot.push(...this.getProjects())
     }
-    if (!projectSnapshot.length) {
+    if (!this._projectSnapshot.length) {
       await this.replyCmd(targetId, scope, "❌ 无法获取项目列表，请检查 Aether 是否正常运行。")
       return
     }
@@ -1432,11 +1453,11 @@ export abstract class MobileManagerBase {
     if (arg.startsWith("hide ")) {
       const delArg = arg.slice(5).trim()
       const idx = parseInt(delArg, 10) - 1
-      if (isNaN(idx) || idx < 0 || idx >= projectSnapshot.length) {
-        await this.replyCmd(targetId, scope, `❌ 用法：/project hide n（n 为 1~${projectSnapshot.length}）`)
+      if (isNaN(idx) || idx < 0 || idx >= this._projectSnapshot.length) {
+        await this.replyCmd(targetId, scope, `❌ 用法：/project hide n（n 为 1~${this._projectSnapshot.length}）`)
         return
       }
-      const target = projectSnapshot[idx]
+      const target = this._projectSnapshot[idx]
       const directory = this.projectDir(target)
       this._hiddenDirs[directory] = Date.now()
       await this.saveHiddenDirs()
@@ -1447,8 +1468,8 @@ export abstract class MobileManagerBase {
 
     if (arg === "list") {
       const lines = ["📂 项目列表：", ""]
-      for (let i = 0; i < projectSnapshot.length; i++) {
-        const entry = projectSnapshot[i]
+      for (let i = 0; i < this._projectSnapshot.length; i++) {
+        const entry = this._projectSnapshot[i]
         const directory = this.projectDir(entry)
         const tag = directory === currentDir ? " ◀" : ""
         const mark = directory in this._hiddenDirs ? " [已隐藏]" : ""
@@ -1461,17 +1482,17 @@ export abstract class MobileManagerBase {
 
     if (arg) {
       const idx = parseInt(arg, 10) - 1
-      if (isNaN(idx) || idx < 0 || idx >= projectSnapshot.length) {
-        await this.replyCmd(targetId, scope, `❌ 请输入 1~${projectSnapshot.length} 之间的编号。`)
+      if (isNaN(idx) || idx < 0 || idx >= this._projectSnapshot.length) {
+        await this.replyCmd(targetId, scope, `❌ 请输入 1~${this._projectSnapshot.length} 之间的编号。`)
         return
       }
-      const chosen = projectSnapshot[idx]
+      const chosen = this._projectSnapshot[idx]
       const newDir = this.projectDir(chosen)
       await this.switchToProject(targetId, scope, newDir)
       return
     }
 
-    const visibleProjects = projectSnapshot.filter((p) => !(this.projectDir(p) in this._hiddenDirs))
+    const visibleProjects = this._projectSnapshot.filter((p) => !(this.projectDir(p) in this._hiddenDirs))
     if (visibleProjects.length === 0) {
       const hint =
         Object.keys(this._hiddenDirs).length > 0 ? `（有 ${Object.keys(this._hiddenDirs).length} 个项目已隐藏）` : ""
@@ -1481,8 +1502,8 @@ export abstract class MobileManagerBase {
 
     const lines = ["📂 项目列表：", ""]
     let count = 0
-    for (let i = 0; i < projectSnapshot.length && count < 10; i++) {
-      const entry = projectSnapshot[i]
+    for (let i = 0; i < this._projectSnapshot.length && count < 10; i++) {
+      const entry = this._projectSnapshot[i]
       const directory = this.projectDir(entry)
       if (directory in this._hiddenDirs) continue
       const tag = directory === currentDir ? " ◀" : ""
@@ -1665,22 +1686,22 @@ export abstract class MobileManagerBase {
     const needRefresh = !arg || arg === "list"
     if (needRefresh) {
       await this.provide(effectiveDir, async () => {
-        sessionSnapshots.set(
+        this._sessionSnapshots.set(
           dirKey,
           this.buildSessionEntries([...Session.list({ directory: effectiveDir, limit: 30 })]),
         )
       })
     }
-    if (!sessionSnapshots.has(dirKey) && arg) {
+    if (!this._sessionSnapshots.has(dirKey) && arg) {
       await this.provide(effectiveDir, async () => {
-        sessionSnapshots.set(
+        this._sessionSnapshots.set(
           dirKey,
           this.buildSessionEntries([...Session.list({ directory: effectiveDir, limit: 30 })]),
         )
       })
     }
 
-    const items = sessionSnapshots.get(dirKey) ?? []
+    const items = this._sessionSnapshots.get(dirKey) ?? []
     const currentId = this.sessionMap[scope]
 
     if (arg === "list") {
@@ -1924,6 +1945,7 @@ export abstract class MobileManagerBase {
   // ── Bus subscription for question/permission ──────────────────────────────
 
   protected subscribeBusEvents(): void {
+    this.unsubscribeBusEvents()
     const onQuestion = (event: { directory?: string; payload: any }) => {
       if (event.payload?.type !== "question.asked") return
       const q = event.payload.properties as Question.Request

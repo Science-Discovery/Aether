@@ -200,8 +200,9 @@ export async function getUpdates(
     const expired = errcode === -14 || ret === -14
     if (expired) return { messages: [], cursor: newCursor, expired: true }
     return { messages: msgs, cursor: newCursor, expired: false }
-  } catch (err: any) {
-    if (err?.name === "AbortError" || err?.message?.includes("timeout")) {
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    if ((err instanceof Error && err.name === "AbortError") || message.includes("timeout")) {
       return { messages: [], cursor, expired: false }
     }
     throw err

@@ -181,7 +181,7 @@ class FeishuManagerImpl extends MobileManagerBase {
     model?: ModelRef,
   ): Promise<{ success: boolean; message?: string; code?: string; status?: string; appId?: string }> {
     if (this.wsClient || this._starting || ["starting", "connected", "reconnecting"].includes(this._status)) {
-      return { success: false, message: "Feishu bridge is already running" }
+      return { success: true, status: this._status, appId: this.session?.appId }
     }
 
     const cfg = config || (await this.feishuAdapter.loadConfig())

@@ -9271,6 +9271,7 @@ export type WechatStatusResponses = {
    */
   200: {
     status: "idle" | "starting" | "qrcode" | "connected" | "reconnecting" | "error"
+    enabled: boolean
     qrcode: string | null
     user: {
       id: string
@@ -9325,28 +9326,6 @@ export type WechatSessionClearResponses = {
 }
 
 export type WechatSessionClearResponse = WechatSessionClearResponses[keyof WechatSessionClearResponses]
-
-export type WechatPingData = {
-  body?: never
-  path?: never
-  query?: {
-    directory?: string
-    workspace?: string
-  }
-  url: "/mobile/wechat/ping"
-}
-
-export type WechatPingResponses = {
-  /**
-   * Ping result
-   */
-  200: {
-    ok: boolean
-    stolen: boolean
-  }
-}
-
-export type WechatPingResponse = WechatPingResponses[keyof WechatPingResponses]
 
 export type FeishuStartData = {
   body?: never
@@ -9431,6 +9410,7 @@ export type FeishuStatusResponses = {
    */
   200: {
     status: "idle" | "starting" | "qrcode" | "connected" | "reconnecting" | "error"
+    enabled: boolean
     appId: string | null
     hasConfig: boolean
     error: {
@@ -9479,28 +9459,6 @@ export type FeishuSessionClearResponses = {
 }
 
 export type FeishuSessionClearResponse = FeishuSessionClearResponses[keyof FeishuSessionClearResponses]
-
-export type WechatPing2Data = {
-  body?: never
-  path?: never
-  query?: {
-    directory?: string
-    workspace?: string
-  }
-  url: "/mobile/feishu/ping"
-}
-
-export type WechatPing2Responses = {
-  /**
-   * Ping result
-   */
-  200: {
-    ok: boolean
-    stolen: boolean
-  }
-}
-
-export type WechatPing2Response = WechatPing2Responses[keyof WechatPing2Responses]
 
 export type QqStartData = {
   body?: never
@@ -9585,6 +9543,7 @@ export type QqStatusResponses = {
    */
   200: {
     status: "idle" | "starting" | "qrcode" | "connected" | "reconnecting" | "error"
+    enabled: boolean
     appId: string | null
     hasConfig: boolean
     error: {
@@ -9633,28 +9592,6 @@ export type QqSessionClearResponses = {
 }
 
 export type QqSessionClearResponse = QqSessionClearResponses[keyof QqSessionClearResponses]
-
-export type WechatPing3Data = {
-  body?: never
-  path?: never
-  query?: {
-    directory?: string
-    workspace?: string
-  }
-  url: "/mobile/qq/ping"
-}
-
-export type WechatPing3Responses = {
-  /**
-   * Ping result
-   */
-  200: {
-    ok: boolean
-    stolen: boolean
-  }
-}
-
-export type WechatPing3Response = WechatPing3Responses[keyof WechatPing3Responses]
 
 export type ReadingModeSessionCreateData = {
   body?: never

@@ -16,6 +16,7 @@ import {
   qrcode,
   locked,
   hasConfig,
+  enabled,
   appId,
   startBridge,
   stopBridge,
@@ -25,8 +26,6 @@ import {
   retryBridge,
   rescanBridge,
   setStatus,
-  autoConnect,
-  setAutoConnect,
   type MobilePlatform,
   type MobileStatus,
 } from "@/context/mobile"
@@ -125,21 +124,6 @@ export const DialogMobile: Component<Props> = (props) => {
                   强制接管
                 </Button>
               </div>
-            </div>
-          </Match>
-
-          <Match when={status(p()) === "stolen"}>
-            <div class="flex flex-col items-center gap-4">
-              <Icon name="warning" size="large" class="size-16 text-icon-warning" />
-              <div class="flex flex-col items-center gap-1">
-                <p class="text-16-medium text-text-strong">连接已被接管</p>
-                <p class="text-14-regular text-text-weak text-center">
-                  {platformName(props.platform)}连接已被其他客户端或服务接管
-                </p>
-              </div>
-              <Button variant="primary" onClick={doStart}>
-                重新连接
-              </Button>
             </div>
           </Match>
 
@@ -428,8 +412,8 @@ export const DialogMobile: Component<Props> = (props) => {
                   {p() === "wechat" ? "重新扫码" : "重新配置"}
                 </Button>
               </div>
-              <SwitchToggle checked={autoConnect(p())} onChange={(v) => setAutoConnect(p(), v)}>
-                启动时自动连接
+              <SwitchToggle checked={enabled(p())} onChange={(v) => (v ? void startBridge(p()) : void stopBridge(p()))}>
+                保持连接（关闭页面不断开，重启后自动恢复）
               </SwitchToggle>
             </div>
           </Match>

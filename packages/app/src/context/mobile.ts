@@ -1,17 +1,8 @@
-import { createSignal } from "solid-js"
+import { createStore } from "solid-js/store"
 
 export type MobilePlatform = "feishu" | "qq" | "wechat"
 
-export type MobileStatus =
-  | "idle"
-  | "loading"
-  | "config"
-  | "qrcode"
-  | "connected"
-  | "reconnecting"
-  | "error"
-  | "locked"
-  | "stolen"
+export type MobileStatus = "idle" | "loading" | "config" | "qrcode" | "connected" | "reconnecting" | "error"
 
 interface PlatformState {
   status: MobileStatus
@@ -21,69 +12,47 @@ interface PlatformState {
   qrcode: string | null
   locked: boolean
   hasConfig: boolean
+  enabled: boolean
   appId: string | null
 }
 
-const defaults: PlatformState = {
-  status: "idle",
-  error: null,
-  user: null,
-  loadingMsg: "",
-  qrcode: null,
-  locked: false,
-  hasConfig: false,
-  appId: null,
-}
-
-const [state, setState] = createSignal<Record<MobilePlatform, PlatformState>>({
-  feishu: { ...defaults, loadingMsg: "正在连接飞书..." },
-  qq: { ...defaults, loadingMsg: "正在连接QQ..." },
-  wechat: { ...defaults, loadingMsg: "正在启动微信桥接..." },
-})
-
-const pState = (p: MobilePlatform) => state()[p]
-
-export const status = (p: MobilePlatform) => pState(p).status
-export const error = (p: MobilePlatform) => pState(p).error
-export const user = (p: MobilePlatform) => pState(p).user
-export const loadingMsg = (p: MobilePlatform) => pState(p).loadingMsg
-export const qrcode = (p: MobilePlatform) => pState(p).qrcode
-export const locked = (p: MobilePlatform) => pState(p).locked
-export const hasConfig = (p: MobilePlatform) => pState(p).hasConfig
-export const appId = (p: MobilePlatform) => pState(p).appId
-
-export function setStatus(p: MobilePlatform, s: MobileStatus) {
-  setState((prev) => ({ ...prev, [p]: { ...prev[p], status: s } }))
-}
-
-const patch = (p: MobilePlatform, u: Partial<PlatformState>) => {
-  setState((prev) => ({ ...prev, [p]: { ...prev[p], ...u } }))
-}
-
-const updateStatus = (p: MobilePlatform, s: MobileStatus) => {
-  const msg = p === "feishu" ? "正在连接飞书..." : p === "qq" ? "正在连接QQ..." : "正在启动微信桥接..."
-  patch(p, { status: s, loadingMsg: s !== "loading" ? msg : prev(p).loadingMsg })
-}
-
-function prev(p: MobilePlatform) {
-  return state()[p]
-}
-
-interface MobileEvent {
-  type: string
-  properties: {
-    status?: MobileStatus | "starting"
-    message?: string
-    appId?: string
-    image?: string
-    user?: { id: string; name: string }
-    code?: string
+function defaults(loadingMsg: string): PlatformState {
+  return {
+    status: "idle",
+    error: null,
+    user: null,
+    loadingMsg,
+    qrcode: null,
+    locked: false,
+    hasConfig: false,
+    enabled: false,
+    appId: null,
   }
 }
 
+const [state, setState] = createStore<Record<MobilePlatform, PlatformState>>({
+  feishu: defaults("正在连接飞书..."),
+  qq: defaults("正在连接QQ..."),
+  wechat: defaults("正在启动微信桥接..."),
+})
+
+export const status = (p: MobilePlatform) => state[p].status
+export const error = (p: MobilePlatform) => state[p].error
+export const user = (p: MobilePlatform) => state[p].user
+export const loadingMsg = (p: MobilePlatform) => state[p].loadingMsg
+export const qrcode = (p: MobilePlatform) => state[p].qrcode
+export const locked = (p: MobilePlatform) => state[p].locked
+export const hasConfig = (p: MobilePlatform) => state[p].hasConfig
+export const enabled = (p: MobilePlatform) => state[p].enabled
+export const appId = (p: MobilePlatform) => state[p].appId
+
+export function setStatus(p: MobilePlatform, s: MobileStatus) {
+  setState(p, "status", s)
+}
+
+const patch = (p: MobilePlatform, u: Partial<PlatformState>) => setState(p, u)
+
 let clientId: string | null = null
-let pingInterval: ReturnType<typeof setInterval> | undefined
-let pingFails = 0
 
 type Resolver = () => { url: string; headers: HeadersInit }
 let resolve: Resolver | null = null
@@ -100,17 +69,17 @@ const api = () => {
 type Emitter = {
   listen: (cb: (e: { name: string; details: { type: string; properties: any } }) => void) => () => void
 }
-let emitter: Emitter | null = null
+
+let bound = false
 
 export function bindEmitter(e: Emitter) {
-  if (emitter) return
-  emitter = e
-  emitter.listen((ev) => {
+  if (bound) return
+  bound = true
+  e.listen((ev) => {
     const type = ev.details.type as string
-    const props = ev.details.properties
     for (const p of ["wechat", "feishu", "qq"] as const) {
       if (type.startsWith(`${p}.`)) {
-        handleMobileEvent(p, type, props)
+        handleMobileEvent(p, type, ev.details.properties)
         return
       }
     }
@@ -121,14 +90,13 @@ function handleMobileEvent(p: MobilePlatform, type: string, props: any) {
   if (type.endsWith(".qrcode") && props.image) {
     patch(p, { qrcode: props.image, status: "qrcode" })
   } else if (type.endsWith(".connected")) {
-    const u: Partial<PlatformState> = { status: "connected", error: null }
+    const u: Partial<PlatformState> = { status: "connected", error: null, enabled: true }
     if (props.appId) u.appId = props.appId
     if (props.user) u.user = props.user
     patch(p, u)
-    setAutoConnect(p, true)
   } else if (type.endsWith(".reconnecting")) {
-    updateStatus(p, "reconnecting")
     patch(p, {
+      status: "reconnecting",
       loadingMsg:
         p === "feishu"
           ? "飞书连接中断，正在自动重连..."
@@ -143,47 +111,13 @@ function handleMobileEvent(p: MobilePlatform, type: string, props: any) {
     })
   } else if (type.endsWith(".status") && props.status) {
     const s = props.status === "starting" ? "loading" : (props.status as MobileStatus)
-    const cur = prev(p).status
-    if (
-      s === "idle" &&
-      (cur === "loading" || cur === "reconnecting" || cur === "qrcode" || cur === "connected" || cur === "config")
-    )
-      return
+    if (s === "idle" && state[p].status !== "idle" && state[p].status !== "error") return
     const u: Partial<PlatformState> = { status: s }
     if (props.message) u.loadingMsg = props.message
     if (props.appId) u.appId = props.appId
     if (props.user) u.user = props.user
     patch(p, u)
   }
-}
-
-function startPing(p: MobilePlatform) {
-  return
-}
-
-function stopPing() {
-  if (pingInterval !== undefined) {
-    clearInterval(pingInterval)
-    pingInterval = undefined
-  }
-}
-
-const STORAGE_KEY = (p: MobilePlatform) => `opencode:mobile:autoConnect:${p}`
-
-const [autoConnectState, setAutoConnectState] = createSignal<Record<MobilePlatform, boolean>>({
-  feishu: localStorage.getItem(STORAGE_KEY("feishu")) === "true",
-  qq: localStorage.getItem(STORAGE_KEY("qq")) === "true",
-  wechat: localStorage.getItem(STORAGE_KEY("wechat")) === "true",
-})
-
-export function autoConnect(p: MobilePlatform) {
-  return autoConnectState()[p]
-}
-
-export function setAutoConnect(p: MobilePlatform, v: boolean) {
-  if (v) localStorage.setItem(STORAGE_KEY(p), "true")
-  else localStorage.removeItem(STORAGE_KEY(p))
-  setAutoConnectState((prev) => ({ ...prev, [p]: v }))
 }
 
 export async function fetchStatus(p: MobilePlatform) {
@@ -193,32 +127,28 @@ export async function fetchStatus(p: MobilePlatform) {
     const response = await fetch(`${url}${prefix}/status`, { headers })
     const data = await response.json()
     if (p === "wechat" && data.locked && data.status !== "idle" && data.lockHolder !== clientId) {
-      patch("wechat", { locked: true, user: data.user || prev("wechat").user })
+      patch("wechat", { locked: true, user: data.user || state.wechat.user })
       return
     }
     if (p === "wechat") patch("wechat", { locked: false, hasConfig: data.hasConfig })
     if (p === "feishu") patch("feishu", { hasConfig: data.hasConfig })
     if (p === "qq") patch("qq", { hasConfig: data.hasConfig })
+    const base: Partial<PlatformState> = { enabled: data.enabled === true }
     if (data.status === "connected") {
-      const u: Partial<PlatformState> = { status: "connected" }
+      const u: Partial<PlatformState> = { ...base, status: "connected" }
       if (data.appId) u.appId = data.appId
       if (data.user) u.user = data.user
       patch(p, u)
-      setAutoConnect(p, true)
-      startPing(p)
     } else if (data.status === "qrcode" && data.qrcode) {
-      patch(p, { qrcode: data.qrcode, status: "qrcode" })
-      startPing(p)
+      patch(p, { ...base, qrcode: data.qrcode, status: "qrcode" })
     } else if (data.status === "reconnecting") {
-      patch(p, { status: "reconnecting" })
+      patch(p, { ...base, status: "reconnecting" })
     } else if (data.error) {
-      patch(p, { error: data.error, status: "error" })
-    } else if (p === "feishu" && data.hasConfig) {
-      patch("feishu", { status: "idle" })
-    } else if (p === "qq" && data.hasConfig) {
-      patch("qq", { status: "idle" })
-    } else if (p === "wechat" && data.hasConfig && data.status === "idle") {
-      patch("wechat", { status: "idle", user: data.user })
+      patch(p, { ...base, error: data.error, status: "error" })
+    } else if (data.status === "idle" && data.hasConfig) {
+      patch(p, { ...base, status: "idle", user: data.user })
+    } else {
+      patch(p, base)
     }
   } catch {}
 }
@@ -268,11 +198,11 @@ export async function startBridge(
 
     if (!data.success) {
       if (data.code === "locked") {
-        patch("wechat", { locked: true, status: "idle" })
+        patch(p, { locked: true, status: "idle" })
         return
       }
       if (data.code === "config_missing") {
-        patch(p === "feishu" ? "feishu" : p === "qq" ? "qq" : "feishu", { status: "config" })
+        patch(p, { status: "config" })
         return
       }
       patch(p, {
@@ -285,21 +215,18 @@ export async function startBridge(
     if (p === "wechat") clientId = data.clientId || clientId
 
     if (data.status === "connected" && data.user) {
-      patch(p, { user: data.user, status: "connected" })
-      setAutoConnect(p, true)
-      startPing(p)
+      patch(p, { user: data.user, status: "connected", enabled: true })
       return
     }
 
-    startPing(p)
+    patch(p, { enabled: true })
+    void fetchStatus(p)
   } catch (err) {
     patch(p, { error: { code: "network_error", message: String(err) }, status: "error" })
   }
 }
 
 export async function stopBridge(p: MobilePlatform) {
-  setAutoConnect(p, false)
-  if (p === "wechat") stopPing()
   try {
     const { url, headers } = api()
     const prefix = `/mobile/${p}`
@@ -312,43 +239,28 @@ export async function stopBridge(p: MobilePlatform) {
     })
   } catch {}
   if (p === "wechat") clientId = null
-  patch(p, { status: "idle", qrcode: null })
+  patch(p, { status: "idle", qrcode: null, enabled: false })
 }
 
 export async function logout(p: MobilePlatform) {
-  if (p === "wechat") stopPing()
   const { url, headers } = api()
   const prefix = `/mobile/${p}`
   const stopBody: any = {}
   if (p === "wechat" && clientId) stopBody.clientId = clientId
-  await fetch(`${url}${prefix}/stop`, {
-    method: "POST",
-    headers: { ...headers, "Content-Type": "application/json" },
-    body: JSON.stringify(stopBody),
-  })
-  await fetch(`${url}${prefix}/session`, { method: "DELETE", headers })
+  try {
+    await fetch(`${url}${prefix}/stop`, {
+      method: "POST",
+      headers: { ...headers, "Content-Type": "application/json" },
+      body: JSON.stringify(stopBody),
+    })
+    await fetch(`${url}${prefix}/session`, { method: "DELETE", headers })
+  } catch {}
   if (p === "wechat") clientId = null
-  patch(p, { user: null, appId: null, hasConfig: false, status: "idle", qrcode: null })
+  patch(p, { user: null, appId: null, hasConfig: false, status: "idle", qrcode: null, enabled: false })
 }
 
 export async function retryBridge(p: MobilePlatform) {
-  if (p === "wechat") return startBridge(p)
-  if (p === "qq") return startBridge(p)
-  patch(p, { status: "reconnecting", loadingMsg: "正在重新连接飞书...", error: null })
-  patch(p, { status: "reconnecting", loadingMsg: "正在重新连接微信...", error: null })
-  try {
-    const { url, headers } = api()
-    const res = await fetch(`${url}/mobile/wechat/retry`, {
-      method: "POST",
-      headers: { ...headers, "Content-Type": "application/json" },
-    })
-    const data = await res.json()
-    if (!data.success) {
-      patch("wechat", { error: { code: "retry_failed", message: data.message || "重连失败" }, status: "error" })
-    }
-  } catch (err) {
-    patch("wechat", { error: { code: "network_error", message: String(err) }, status: "error" })
-  }
+  return startBridge(p)
 }
 
 export async function rescanBridge(p: MobilePlatform) {
@@ -362,21 +274,5 @@ export async function forceTakeover(p: MobilePlatform, modelStr?: string) {
 }
 
 export function initMobile(p: MobilePlatform) {
-  if (p === "wechat") {
-    window.addEventListener("pagehide", () => {
-      if (!clientId) return
-      try {
-        const { url } = api()
-        navigator.sendBeacon(
-          `${url}/mobile/wechat/stop`,
-          new Blob([JSON.stringify({ clientId })], { type: "application/json" }),
-        )
-      } catch {}
-    })
-  }
-  fetchStatus(p).then(() => {
-    if (autoConnect(p) && hasConfig(p) && status(p) === "idle") {
-      startBridge(p)
-    }
-  })
+  void fetchStatus(p)
 }

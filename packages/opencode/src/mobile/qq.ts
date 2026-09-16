@@ -71,7 +71,7 @@ class QQAdapter implements MobileAdapter {
 
   async replyText(messageId: string, text: string): Promise<void> {
     if (!this._accessToken || !this._appId) return
-    const chatId = this.manager._currentChatId
+    const chatId = this.manager.chatFor(messageId)
     const info = chatId ? this.manager._chatInfos[chatId] : undefined
     if (!info) {
       console.error("[qq] replyText: no chat info", chatId)
@@ -112,7 +112,7 @@ class QQAdapter implements MobileAdapter {
 
   async replyFile(messageId: string, filePath: string): Promise<void> {
     if (!this._appId) return
-    const chatId = this.manager._currentChatId
+    const chatId = this.manager.chatFor(messageId)
     const info = chatId ? this.manager._chatInfos[chatId] : undefined
     if (!info) return
 
@@ -202,6 +202,7 @@ class QQManagerImpl extends MobileManagerBase {
   public _qqSession: QQSession | null = null
   public _chatInfos: Record<string, ChatInfo> = {}
   public _currentChatId: string = ""
+  public _msgChats: Map<string, string> = new Map()
   private _heartbeat: ReturnType<typeof setInterval> | null = null
   private _heartbeatInterval: number = 30000
   private _sessionId: string = ""
@@ -238,7 +239,7 @@ class QQManagerImpl extends MobileManagerBase {
     model?: ModelRef,
   ): Promise<{ success: boolean; message?: string; code?: string; status?: string; appId?: string }> {
     if (this.ws || this._starting || ["starting", "connected", "reconnecting"].includes(this._status)) {
-      return { success: false, message: "QQ bridge is already running" }
+      return { success: true, status: this._status, appId: this.session?.appId }
     }
 
     const cfg = config || (await this.qqAdapter.loadConfig())
@@ -436,9 +437,8 @@ class QQManagerImpl extends MobileManagerBase {
 
     if (!this.enqueueMessage(chatId, messageId)) return
 
-    this._currentChatId = chatId
-    const rootId = messageId
-    void this.handleMessage(chatId, messageId, text, rootId)
+    this.trackChat(messageId, chatId)
+    void this.handleMessage(chatId, messageId, text, messageId)
   }
 
   private handleGroupMessage(data: any): void {
@@ -457,9 +457,20 @@ class QQManagerImpl extends MobileManagerBase {
 
     if (!this.enqueueMessage(chatId, messageId)) return
 
+    this.trackChat(messageId, chatId)
+    void this.handleMessage(chatId, messageId, text, messageId)
+  }
+
+  trackChat(messageId: string, chatId: string): void {
     this._currentChatId = chatId
-    const rootId = messageId
-    void this.handleMessage(chatId, messageId, text, rootId)
+    this._msgChats.set(messageId, chatId)
+    if (this._msgChats.size <= 500) return
+    const oldest = this._msgChats.keys().toArray().slice(0, 300)
+    for (const key of oldest) this._msgChats.delete(key)
+  }
+
+  chatFor(messageId: string): string {
+    return this._msgChats.get(messageId) ?? this._currentChatId
   }
 
   private startWsHeartbeat(): void {
@@ -530,6 +541,8 @@ class QQManagerImpl extends MobileManagerBase {
     this._pendingConfirmCreate = {}
     this._activePrompt.clear()
     this._chatInfos = {}
+    this._msgChats.clear()
+    this._currentChatId = ""
     if (!reset) return
     this.deactivateAllScopes()
     this._connectedModel = null

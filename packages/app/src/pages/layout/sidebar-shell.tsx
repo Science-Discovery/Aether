@@ -58,7 +58,7 @@ export const SidebarContent = (props: {
       q === "reconnecting" ||
       f === "loading" ||
       f === "reconnecting"
-    const anyError = w === "error" || w === "stolen" || q === "error" || f === "error"
+    const anyError = w === "error" || q === "error" || f === "error"
     return { anyConnected, anyLoading, anyError }
   })
   let panel: HTMLDivElement | undefined
@@ -213,7 +213,7 @@ export const SidebarContent = (props: {
                           mobileStatus("wechat") === "loading" ||
                           mobileStatus("wechat") === "qrcode" ||
                           mobileStatus("wechat") === "reconnecting",
-                        "text-red-500": mobileStatus("wechat") === "error" || mobileStatus("wechat") === "stolen",
+                        "text-red-500": mobileStatus("wechat") === "error",
                       }}
                     />
                     <DropdownMenu.ItemLabel>{language.t("knowledgeBase.wechatConnection")}</DropdownMenu.ItemLabel>
