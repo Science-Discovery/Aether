@@ -48,7 +48,7 @@ export function SortableTab(props: { tab: string; onTabClose: (tab: string) => v
     const list = el.closest('[data-slot="tabs-list"]') as HTMLElement | null
     if (!list) return
     const elRect = el.getBoundingClientRect()
-    const stickyRight = list.querySelector('.sticky.right-0') as HTMLElement | null
+    const stickyRight = list.querySelector(".sticky.right-0") as HTMLElement | null
     const rightBound = stickyRight ? stickyRight.getBoundingClientRect().left : list.getBoundingClientRect().right
     setClipped(elRect.right > rightBound + 2)
   }
@@ -57,6 +57,7 @@ export function SortableTab(props: { tab: string; onTabClose: (tab: string) => v
     <div
       ref={wrapperRef}
       use:sortable
+      data-dnd-sortable="true"
       class="h-full flex items-center"
       classList={{ "opacity-0": sortable.isActiveDraggable }}
       onMouseEnter={checkClipped}

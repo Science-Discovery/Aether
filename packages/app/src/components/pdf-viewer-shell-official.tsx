@@ -109,6 +109,7 @@ type ViewerMessage =
   | { channel: "aether-pdf-viewer"; type: "pagechange"; page: number }
   | { channel: "aether-pdf-viewer"; type: "locationchange"; location: string }
   | { channel: "aether-pdf-viewer"; type: "documentinfo"; totalPages: number }
+  | { channel: "aether-pdf-viewer"; type: "loaderror"; message?: string }
   | { channel: "aether-pdf-viewer"; type: "pdf2md" }
   | { channel: "aether-pdf-viewer"; type: "openreadingmode" }
   | { channel: "aether-pdf-viewer"; type: "exitquickreading" }
@@ -149,10 +150,21 @@ export const PdfViewerShell: Component<PdfViewerShellProps> = (props) => {
   let saving = Promise.resolve()
   const [viewTheme, setViewTheme] = createSignal(props.viewTheme ?? sharedViewTheme)
   const [annotations, setAnnotations] = createSignal<PdfAnnotationFile>()
+  // Bumped to force a viewer reload through its src dedupe after a failed load
+  // (e.g. a fetch that raced a non-atomic write). One retry per src change.
+  const [reloadKey, setReloadKey] = createSignal(0)
+  let retriedFor: string | undefined
+  let retryTimer: ReturnType<typeof setTimeout> | undefined
 
   const viewerSrc = createMemo(() => (isFileProtocol() ? "./pdf-viewer.html" : href("/pdf-viewer.html")))
+  const finalSrc = createMemo(() => {
+    const key = reloadKey()
+    if (!key) return props.src
+    const join = props.src.includes("?") ? "&" : "?"
+    return `${props.src}${join}r=${key}`
+  })
   const config = createMemo(() => ({
-    src: props.src,
+    src: finalSrc(),
     authHeader: props.authHeader,
     mode: props.mode,
     viewTheme: props.viewTheme ?? viewTheme(),
@@ -209,7 +221,9 @@ export const PdfViewerShell: Component<PdfViewerShellProps> = (props) => {
             title: "PDF annotations paused",
             description: "The PDF changed after these annotations were created.",
           })
-          if (!window.confirm("This PDF changed and its saved annotations may be misplaced. Reset the annotation draft?")) {
+          if (
+            !window.confirm("This PDF changed and its saved annotations may be misplaced. Reset the annotation draft?")
+          ) {
             return
           }
           const next = { ...result.data, annotations: [] }
@@ -247,9 +261,7 @@ export const PdfViewerShell: Component<PdfViewerShellProps> = (props) => {
     if (!path || !data) return
     const next = { ...data, annotations: items }
     setAnnotations(next)
-    window.dispatchEvent(
-      new CustomEvent("aether:pdf-annotations", { detail: { channel, path, data: next } }),
-    )
+    window.dispatchEvent(new CustomEvent("aether:pdf-annotations", { detail: { channel, path, data: next } }))
     saving = saving
       .then(async () => {
         const res = await fetch(url("file/pdf-annotations"), {
@@ -289,7 +301,12 @@ export const PdfViewerShell: Component<PdfViewerShellProps> = (props) => {
     }
     const head = res.headers.get("Content-Disposition")
     const match = head?.match(/filename\*\s*=\s*UTF-8''([^;]+)/i)
-    const name = match?.[1] ? decodeURIComponent(match[1]) : `${path.split(/[\\/]/).pop()?.replace(/\.pdf$/i, "")}-annotated.pdf`
+    const name = match?.[1]
+      ? decodeURIComponent(match[1])
+      : `${path
+          .split(/[\\/]/)
+          .pop()
+          ?.replace(/\.pdf$/i, "")}-annotated.pdf`
     const blob = await res.blob()
     if (platform.saveFileDialog) {
       await platform.saveFileDialog({ name, data: await blob.arrayBuffer() })
@@ -396,6 +413,18 @@ export const PdfViewerShell: Component<PdfViewerShellProps> = (props) => {
       return
     }
 
+    if (event.data.type === "loaderror") {
+      // The viewer keeps its DOM alive now, so a single delayed retry through
+      // the src dedupe is enough to recover from a mid-write fetch. Bounded:
+      // only one retry per src, so a genuinely broken file won't loop.
+      const src = props.src
+      if (retriedFor !== src) {
+        retriedFor = src
+        retryTimer = setTimeout(() => setReloadKey((key) => key + 1), 5000)
+      }
+      return
+    }
+
     if (event.data.type === "pagechange") {
       lastReportedPage = event.data.page
       props.onPageChange?.(event.data.page)
@@ -480,7 +509,10 @@ export const PdfViewerShell: Component<PdfViewerShellProps> = (props) => {
   }
 
   window.addEventListener("message", onMessage)
-  onCleanup(() => window.removeEventListener("message", onMessage))
+  onCleanup(() => {
+    window.removeEventListener("message", onMessage)
+    if (retryTimer) clearTimeout(retryTimer)
+  })
 
   return (
     <div class={`pdf-viewer-shell ${props.class ?? ""}`}>

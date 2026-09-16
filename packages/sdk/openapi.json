@@ -17379,6 +17379,9 @@
                         "error"
                       ]
                     },
+                    "enabled": {
+                      "type": "boolean"
+                    },
                     "qrcode": {
                       "anyOf": [
                         {
@@ -17459,6 +17462,7 @@
                   },
                   "required": [
                     "status",
+                    "enabled",
                     "qrcode",
                     "user",
                     "locked",
@@ -17563,59 +17567,6 @@
           {
             "lang": "js",
             "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.wechat.session.clear({\n  ...\n})"
-          }
-        ]
-      }
-    },
-    "/mobile/wechat/ping": {
-      "post": {
-        "operationId": "wechat.ping",
-        "parameters": [
-          {
-            "in": "query",
-            "name": "directory",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "in": "query",
-            "name": "workspace",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "summary": "Ping WeChat lease",
-        "description": "Renew the WeChat lock lease or detect if stolen by another client",
-        "responses": {
-          "200": {
-            "description": "Ping result",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "ok": {
-                      "type": "boolean"
-                    },
-                    "stolen": {
-                      "type": "boolean"
-                    }
-                  },
-                  "required": [
-                    "ok",
-                    "stolen"
-                  ]
-                }
-              }
-            }
-          }
-        },
-        "x-codeSamples": [
-          {
-            "lang": "js",
-            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.wechat.ping({\n  ...\n})"
           }
         ]
       }
@@ -17819,6 +17770,9 @@
                         "error"
                       ]
                     },
+                    "enabled": {
+                      "type": "boolean"
+                    },
                     "appId": {
                       "anyOf": [
                         {
@@ -17857,6 +17811,7 @@
                   },
                   "required": [
                     "status",
+                    "enabled",
                     "appId",
                     "hasConfig",
                     "error"
@@ -17958,59 +17913,6 @@
           {
             "lang": "js",
             "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.feishu.session.clear({\n  ...\n})"
-          }
-        ]
-      }
-    },
-    "/mobile/feishu/ping": {
-      "post": {
-        "operationId": "wechat.ping",
-        "parameters": [
-          {
-            "in": "query",
-            "name": "directory",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "in": "query",
-            "name": "workspace",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "summary": "Ping WeChat lease",
-        "description": "Renew the WeChat lock lease or detect if stolen by another client",
-        "responses": {
-          "200": {
-            "description": "Ping result",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "ok": {
-                      "type": "boolean"
-                    },
-                    "stolen": {
-                      "type": "boolean"
-                    }
-                  },
-                  "required": [
-                    "ok",
-                    "stolen"
-                  ]
-                }
-              }
-            }
-          }
-        },
-        "x-codeSamples": [
-          {
-            "lang": "js",
-            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.wechat.ping({\n  ...\n})"
           }
         ]
       }
@@ -18214,6 +18116,9 @@
                         "error"
                       ]
                     },
+                    "enabled": {
+                      "type": "boolean"
+                    },
                     "appId": {
                       "anyOf": [
                         {
@@ -18252,6 +18157,7 @@
                   },
                   "required": [
                     "status",
+                    "enabled",
                     "appId",
                     "hasConfig",
                     "error"
@@ -18353,59 +18259,6 @@
           {
             "lang": "js",
             "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.qq.session.clear({\n  ...\n})"
-          }
-        ]
-      }
-    },
-    "/mobile/qq/ping": {
-      "post": {
-        "operationId": "wechat.ping",
-        "parameters": [
-          {
-            "in": "query",
-            "name": "directory",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "in": "query",
-            "name": "workspace",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "summary": "Ping WeChat lease",
-        "description": "Renew the WeChat lock lease or detect if stolen by another client",
-        "responses": {
-          "200": {
-            "description": "Ping result",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "ok": {
-                      "type": "boolean"
-                    },
-                    "stolen": {
-                      "type": "boolean"
-                    }
-                  },
-                  "required": [
-                    "ok",
-                    "stolen"
-                  ]
-                }
-              }
-            }
-          }
-        },
-        "x-codeSamples": [
-          {
-            "lang": "js",
-            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.wechat.ping({\n  ...\n})"
           }
         ]
       }
@@ -20140,6 +19993,23 @@
           "properties"
         ]
       },
+      "Event.provider.updated": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "provider.updated"
+          },
+          "properties": {
+            "type": "object",
+            "properties": {}
+          }
+        },
+        "required": [
+          "type",
+          "properties"
+        ]
+      },
       "Event.db.recovery.started": {
         "type": "object",
         "properties": {
@@ -21037,6 +20907,30 @@
             "required": [
               "dir",
               "reason"
+            ]
+          }
+        },
+        "required": [
+          "type",
+          "properties"
+        ]
+      },
+      "Event.file.watcher.notfound": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "file.watcher.notfound"
+          },
+          "properties": {
+            "type": "object",
+            "properties": {
+              "dir": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "dir"
             ]
           }
         },
@@ -23804,6 +23698,9 @@
             "$ref": "#/components/schemas/Event.provider.models.updated"
           },
           {
+            "$ref": "#/components/schemas/Event.provider.updated"
+          },
+          {
             "$ref": "#/components/schemas/Event.db.recovery.started"
           },
           {
@@ -23868,6 +23765,9 @@
           },
           {
             "$ref": "#/components/schemas/Event.file.watcher.limited"
+          },
+          {
+            "$ref": "#/components/schemas/Event.file.watcher.notfound"
           },
           {
             "$ref": "#/components/schemas/Event.file.edited"
@@ -27996,6 +27896,9 @@
             "minimum": 0,
             "maximum": 9007199254740991
           },
+          "mtime": {
+            "type": "number"
+          },
           "mimeType": {
             "type": "string"
           },
@@ -28021,6 +27924,7 @@
           "name",
           "kind",
           "size",
+          "mtime",
           "mimeType",
           "previewKind",
           "inline",

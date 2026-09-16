@@ -1001,7 +1001,26 @@ export namespace Project {
   }
 
   export function directories(): string[] {
-    return [...new Set(recentList().map((item) => item.directory))]
+    // Recent projects are a display feed that hides sandbox and internal directories.
+    // Use registration records, and ignore projects that have been removed.
+    const rows = Database.use((db) => [
+      ...db
+        .select({ directory: ProjectRecentTable.directory, project_id: ProjectRecentTable.project_id })
+        .from(ProjectRecentTable)
+        .all(),
+      ...db
+        .select({ directory: GlobalProjectMapTable.directory, project_id: GlobalProjectMapTable.project_id })
+        .from(GlobalProjectMapTable)
+        .all(),
+    ])
+    const active = new Set([...new Set(rows.flatMap((row) => (row.project_id ? [row.project_id] : [])))].filter(get))
+    return [
+      ...new Set(
+        rows
+          .filter((row) => row.directory && (!row.project_id || active.has(row.project_id)))
+          .map((row) => norm(row.directory)),
+      ),
+    ]
   }
 
   export function get(id: ProjectID): Info | undefined {

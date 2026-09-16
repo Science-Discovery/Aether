@@ -169,6 +169,8 @@ Aether 支持通过飞书进行对话，体验与微信连接一致：
 | macOS | `~/Library/Application Support/opencode/feishu/config.json` |
 | Linux | `~/.local/share/opencode/feishu/config.json` |
 
+同目录下的 `enabled.json` 记录连接的期望开关状态：只有点击「连接」/「断开连接」会改变它，关闭页面、断网或重启 Aether 都不会，服务端看门狗会按该状态自动恢复连接。详见 [移动端桥接生命周期](mobile-bridge-lifecycle.md)。
+
 ## 与微信连接的对比
 
 | 项目 | 微信 | 飞书 |
@@ -178,7 +180,8 @@ Aether 支持通过飞书进行对话，体验与微信连接一致：
 | 需要公网 | 否 | 否 |
 | 首次配置 | 扫码即可 | 需先在飞书平台创建应用 |
 | 后续使用 | 点击连接 | 点击连接 |
-| 实现语言 | Python 子进程 | TypeScript（内置） |
+| 实现语言 | TypeScript（内置） | TypeScript（内置） |
+| 断线自愈 | 轮询自动重试；token 过期需重新扫码 | WebSocket 指数退避自动重连 |
 | 模型传递 | 环境变量 | 连接时前端传入 |
 
 ## 架构说明
@@ -254,4 +257,4 @@ packages/app/src/
 
 ### 断线重连
 
-当前版本断线后需要手动重新点击「连接飞书」。自动重连功能将在后续版本实现。
+连接断开后自动重连（指数退避），服务重启后也会按保存的开关状态自动恢复，无需手动操作。仅在 token/凭证失效时需要重新扫码或重新配置。详见 [移动端桥接生命周期](mobile-bridge-lifecycle.md)。

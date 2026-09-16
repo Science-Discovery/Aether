@@ -768,6 +768,7 @@ export const dict = {
   "error.globalSync.connectFailed": "无法连接到服务器。是否有服务器正在 `{{url}}` 运行？",
 
   "directory.error.invalidUrl": "URL 中的目录无效。",
+  "directory.retry": "重试",
 
   "error.chain.unknown": "未知错误",
   "error.chain.causedBy": "原因：",
@@ -896,6 +897,7 @@ export const dict = {
   "session.tab.gitGraph.addTagMessageDescription": "消息只能附加到附注标签",
   "session.tab.gitGraph.copiedHash": "哈希已复制到剪贴板",
   "session.tab.gitGraph.copiedMessage": "提交信息已复制到剪贴板",
+  "session.tab.toggleDock": "切换标签栏上下位置",
   "session.panel.reviewAndFiles": "审查和文件",
   "session.review.filesChanged": "{{count}} 个文件变更",
   "session.review.change.one": "更改",

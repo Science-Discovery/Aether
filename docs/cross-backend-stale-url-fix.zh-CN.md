@@ -116,7 +116,7 @@ reload / 深链 / 改持久化 active 或默认后端后刷新等路径也会绕
 - 校验必须无副作用：不要调用带目标 directory 的 `sdk.path.get()`、`project.current()`、`session.list()` 等接口，因为它们会 bootstrap 旧目录，正是要阻止的副作用。
 - 守卫必须使用**无 directory 作用域的 fresh global SDK** 查询当前后端。推荐使用语义明确的已注册目录集合接口（如 `project.directories()`，或等价的 project worktree + sandbox + recent directory 聚合接口）判断 `resolved` 是否属于当前后端已知目录；不要混用语义较窄的 `project.list()` 作为唯一依据。该 client 的请求不得携带目标 `resolved` directory，也不得触发 scoped bootstrap。
 - 实现时要确认 SDK transport 的 directory 来源：scoped SDK 会把 directory 写入请求上下文（当前为 `x-opencode-directory` header），因此守卫阶段不能复用 `SDKProvider directory={() => resolved}` 产生的 client。守卫只能使用当前 server 的 global client；只有校验通过或存在本次用户打开意图时，才创建 scoped SDK。
-- 不能直接信任 `globalSync.project/recent` 的持久化缓存；该缓存当前不按 `server.key` 隔离，启动初期可能仍是旧后端数据。缓存可用于占位展示，但守卫判定必须等待当前后端 fresh 查询结果；若 fresh 结果未返回，不得创建 scoped SDK。
+- 不能直接信任 `globalSync.project/recent` 的持久化缓存；该缓存当前不按 `server.key` 隔离，启动初期可能仍是旧后端数据。缓存可用于占位展示；首次进入目录或切换服务器时，守卫必须等待当前后端 fresh 查询结果（本次用户打开 intent 除外）。同一页面内仅改变已校验目录的等价写法时，可以复用内存中的通过结果；持久化缓存不参与放行。没有已通过的校验或显式 intent 时，不得创建 scoped SDK。
 - 在校验结果为 loading / unknown / failed 时，只能显示 loading / fallback UI，不能渲染任何会读取 project、recent、session 或 path 的子组件，避免被污染的 recent / project 缓存提前触发 scoped SDK 或 bootstrap。
 - 判定为无用户意图的旧 URL 后 → `navigate("/", { replace: true })` + toast（如"该项目属于另一后端，已回到首页"），不进入 `SDKProvider` / `SyncProvider`。
 - 用户主动打开新目录是例外路径：例如通过"打开目录"对话框、显式命令或受控 action 进入时，可以允许 scoped SDK 创建并由当前后端 bootstrap。该意图必须由本次交互产生的显式 intent 标记证明，例如一次性 `openIntent` token、router state 或受控 action 参数；该标记应绑定 `server.key + directory`，使用后立即消费。普通 URL 参数、recent 缓存、持久化路由状态、reload / 深链都不能被视为用户意图。
@@ -130,7 +130,7 @@ reload / 深链 / 改持久化 active 或默认后端后刷新等路径也会绕
 
 - **会话优雅降级**：这是完整修复的必要防线，不是展示优化。降级逻辑应放在 `sync/session` 数据层或统一异步错误处理层，而不是分散在页面组件里。它需要覆盖 `get`、`sync`、`todo`、`diff`、`messages`、`history` 等所有会话相关异步链路；任一链路遇到 "project not registered"、"session not found"、跨后端目录错误或等价 404 / 作用域错误时，应统一 toast 并导航到项目首页或 `/`，保持全局事件流、顶部按钮和侧栏可用。
 - **同路径跨后端**：如果两个后端都已注册同一个绝对路径，`DirectoryLayout` 只能确认 directory 属于当前后端，不能确认 URL 中的 session id 属于当前后端；这种情况必须依赖会话降级避免中间区域空白。
-- **判定优先级**：`DirectoryLayout` 守卫的放行依据优先级为：本次用户打开 intent > 当前后端 fresh global 查询命中 > 拦截并回 `/`。持久化缓存永远不能作为放行依据。
+- **判定优先级**：`DirectoryLayout` 守卫的放行依据优先级为：本次用户打开 intent > 当前页面内同一服务器、同一目录已通过的校验 > 当前后端 fresh global 查询命中。后端明确返回未知目录时拦截并回 `/`；查询失败时保留原路由，显示请求错误并允许重试，校验通过前不创建 scoped SDK。持久化缓存永远不能作为放行依据。Windows 路径等价、重试和工作区目录完整性的后续修复见 [Windows 目录导航修复](./windows-directory-navigation-fix.zh-CN.md)。
 - **缓存命名空间**：`globalSync.project` / `globalSync.recent` 的持久化 key 应按 `server.key` 命名空间化，避免首页和 recent 展示被其他后端污染。该项改善展示一致性，但不能替代 `DirectoryLayout` 的 fresh 守卫，也不能替代会话降级。
 - **服务端边界**：服务端 `db.ts:543-545` 的 not-registered 抛错和 bootstrap EACCES 是旧前端指针触发后的被动结果。前端守卫修复后，不需要通过补建幽灵项目库解决；服务端可以继续拒绝未注册 project。守卫实现应通过请求检查确认 fresh global 查询不携带 `x-opencode-directory`。
 
@@ -140,7 +140,7 @@ reload / 深链 / 改持久化 active 或默认后端后刷新等路径也会绕
 2. **同步改造用户打开目录 intent**：所有允许 bootstrap 新目录的入口必须写入一次性 intent，避免守卫误拦合法新目录，同时确保刷新和深链不会继承该权限。
 3. **补 4.3 会话异步降级**：在 `sync/session` 数据层或统一错误处理层覆盖 get / sync / todo / diff / messages / history 等失败路径，避免同路径不同后端或旧 session 导致中间区域空白和交互不可用。
 4. **再做 4.1（统一 server active 切换）**：所有后端切换路径先重置到中立根路径，再变更 active；底层 active mutation 不对组件直接暴露，`add` / `remove` 不隐式激活，消除在线切换时的指针回放。
-5. **最后做缓存命名空间化**：隔离 `globalSync.project/recent` 展示状态，避免跨后端污染首页和 recent 状态；守卫仍只信当前后端 fresh 查询结果，不用缓存作为放行依据。
+5. **最后做缓存命名空间化**：隔离 `globalSync.project/recent` 展示状态，避免跨后端污染首页和 recent 状态；缓存隔离不能替代目录校验，持久化缓存不用作放行依据。
 
 上述防线合并后，在线切换、reload、深链、缓存污染和异步会话失败都有独立防护。
 

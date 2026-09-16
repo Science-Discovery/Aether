@@ -799,6 +799,7 @@ export const dict = {
   "error.childStore.persistedProjectIconCreateFailed": "Failed to create persisted project icon",
   "error.childStore.storeCreateFailed": "Failed to create store",
   "directory.error.invalidUrl": "Invalid directory in URL.",
+  "directory.retry": "Retry",
 
   "error.chain.unknown": "Unknown error",
   "error.server.invalidConfiguration": "Invalid configuration",
@@ -937,6 +938,7 @@ export const dict = {
   "session.tab.gitGraph.addTagMessageDescription": "A message can only be added to an annotated tag",
   "session.tab.gitGraph.copiedHash": "Hash copied to clipboard",
   "session.tab.gitGraph.copiedMessage": "Message copied to clipboard",
+  "session.tab.toggleDock": "Toggle tab bar position",
   "session.panel.reviewAndFiles": "Review and files",
   "session.review.filesChanged": "{{count}} Files Changed",
   "session.review.change.one": "Change",

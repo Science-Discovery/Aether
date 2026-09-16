@@ -88,15 +88,14 @@ class WeChatAdapter implements MobileAdapter {
 class WeChatManagerImpl extends MobileManagerBase {
   private _qrcode: string | null = null
   private _wcSession: WeChatSession | null = null
-  private _lockHolder: string | null = null
   private _ilinkToken: string = ""
   private _ilinkBaseUrl: string = ILINK_BASE_URL
   private _ilinkCdnBaseUrl: string = ILINK_CDN_BASE_URL
   private _contextTokens: Record<string, string> = {}
   private _cursor: string = ""
   private _pollRunning: boolean = false
+  private _pollGen = 0
   private _seenIds: Set<string> = new Set()
-  private _qrUuid: string = ""
   private _loginAbort: AbortController | null = null
   private _tokenKnownExpired: boolean = false
 
@@ -175,36 +174,17 @@ class WeChatManagerImpl extends MobileManagerBase {
     }
   }
 
-  async ping(clientId: string): Promise<{ ok: boolean; stolen: boolean }> {
-    try {
-      if (!existsSync(wcFile("lock.json"))) return { ok: false, stolen: false }
-      const raw = readFileSync(wcFile("lock.json"), "utf-8")
-      const lock = JSON.parse(raw) as { clientId: string; pid: number; updatedAt?: number }
-      if (lock.pid === process.pid) {
-        await writeFile(wcFile("lock.json"), JSON.stringify({ clientId, pid: process.pid, updatedAt: Date.now() }))
-        return { ok: true, stolen: false }
-      }
-      try {
-        process.kill(lock.pid, 0)
-      } catch {
-        return { ok: false, stolen: false }
-      }
-      if (lock.updatedAt && Date.now() - lock.updatedAt > 30_000) {
-        await writeFile(wcFile("lock.json"), JSON.stringify({ clientId, pid: process.pid, updatedAt: Date.now() }))
-        return { ok: true, stolen: false }
-      }
-      return { ok: false, stolen: true }
-    } catch {
-      return { ok: false, stolen: false }
-    }
-  }
-
   // ── Start: pure TS login + poll ────────────────────────────────────────────
+
+  override async hasCredentials(): Promise<boolean> {
+    return !!(await this.loadILinkState())
+  }
 
   async start(
     model?: string,
     auto = false,
     rescan = false,
+    lock?: { clientId: string; force?: boolean },
   ): Promise<{
     success: boolean
     message?: string
@@ -220,39 +200,53 @@ class WeChatManagerImpl extends MobileManagerBase {
       return { success: true, status: this._status }
     }
 
-    this._error = null
-
-    this.sessionMap = await this.loadSessionMap()
-    this._hiddenDirs = await this.loadHiddenDirs()
-    this._showHeader = await this.loadHeaderState()
-
-    const savedSession = await this.adapter.loadSession()
-    if (!rescan && savedSession?.connected && savedSession.user) {
-      const state = await this.loadILinkState()
-      if (state?.token) {
-        this._ilinkToken = state.token
-        this._ilinkBaseUrl = state.baseUrl || ILINK_BASE_URL
-        this._cursor = state.cursor || ""
-        this._wcSession = savedSession
-
-        this.status = "connected"
-        Bus.publish(this.busEvents.Connected, { user: savedSession.user })
-        this._pollRunning = true
-        this._initialized = false
-        await this.initSessions()
-        void this.pollLoop()
-        this.subscribeBusEvents()
-        this._modelList = []
-        void this.buildModelList().then((list) => {
-          this._modelList = list
-        })
-        return { success: true, status: "connected", user: savedSession.user }
-      }
+    if (this._starting) {
+      return { success: true, status: this._status }
     }
 
-    this.status = "starting"
-    void this.loginAndPoll()
-    return { success: true }
+    this._starting = true
+    try {
+      const lockId = lock?.clientId || crypto.randomUUID()
+      if (lock?.force) await this.forceLock(lockId)
+      else if (!(await this.tryLock(lockId))) {
+        return { success: false, code: "locked", message: "微信已被其他客户端连接" }
+      }
+
+      try {
+        this._error = null
+
+        this.sessionMap = await this.loadSessionMap()
+        this._hiddenDirs = await this.loadHiddenDirs()
+        this._showHeader = await this.loadHeaderState()
+
+        if (!rescan) {
+          const savedSession = await this.adapter.loadSession()
+          if (savedSession?.connected && savedSession.user) {
+            try {
+              if (await this.resumeFromSaved()) {
+                return { success: true, status: "connected", user: this._wcSession?.user }
+              }
+            } catch (err) {
+              const message = err instanceof Error ? err.message : String(err)
+              console.error("[wechat] resume failed:", err)
+              this._error = { code: "resume_failed", message }
+              this.status = "error"
+              Bus.publish(this.busEvents.Error, this._error)
+              return { success: false, message }
+            }
+          }
+        }
+
+        this.status = "starting"
+        void this.loginAndPoll()
+        return { success: true }
+      } catch (err) {
+        await this.unlock(lockId).catch(() => {})
+        throw err
+      }
+    } finally {
+      this._starting = false
+    }
   }
 
   async retry(): Promise<{ success: boolean; message?: string; status?: string; user?: { id: string; name: string } }> {
@@ -281,32 +275,14 @@ class WeChatManagerImpl extends MobileManagerBase {
     this.status = "reconnecting"
     Bus.publish(this.busEvents.Reconnecting, { attempt: 1, delay: 0 })
 
-    if (!this._ilinkToken) {
-      this._ilinkToken = ""
-      void this.loginAndPoll()
-      return
-    }
-
-    const state = await this.loadILinkState()
-    if (state?.token) {
-      this._ilinkToken = state.token
-      this._ilinkBaseUrl = state.baseUrl || ILINK_BASE_URL
-      this._cursor = state.cursor || ""
-      const session = await this.adapter.loadSession()
-      const user = session?.user || this._wcSession?.user || { id: "wechat-user", name: "微信用户" }
-      this._wcSession = { connected: true, user, createdAt: Date.now() }
-      Bus.publish(this.busEvents.Connected, { user })
-      await this.saveWcSession()
-      this.status = "connected"
-      this._pollRunning = true
-      this._initialized = false
-      await this.initSessions()
-      void this.pollLoop()
-      this.subscribeBusEvents()
-      this._modelList = []
-      void this.buildModelList().then((list) => {
-        this._modelList = list
-      })
+    try {
+      if (await this.resumeFromSaved()) return
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      console.error("[wechat] resume failed:", err)
+      this._error = { code: "resume_failed", message }
+      this.status = "error"
+      Bus.publish(this.busEvents.Error, this._error)
       return
     }
 
@@ -314,54 +290,88 @@ class WeChatManagerImpl extends MobileManagerBase {
     void this.loginAndPoll()
   }
 
-  private async loginAndPoll(): Promise<void> {
-    try {
-      this._loginAbort = new AbortController()
+  private async finishConnect(user: { id: string; name: string }): Promise<void> {
+    this._wcSession = { connected: true, user, createdAt: Date.now() }
+    await this.saveWcSession()
+    await this.saveILinkState()
+    this._initialized = false
+    await this.initSessions()
+    this.status = "connected"
+    Bus.publish(this.busEvents.Connected, { user })
+    this._pollRunning = true
+    const gen = ++this._pollGen
+    void this.pollLoop(gen)
+    this.subscribeBusEvents()
+    this._modelList = []
+    void this.buildModelList().then((list) => {
+      this._modelList = list
+    })
+  }
 
+  private async resumeFromSaved(): Promise<boolean> {
+    const state = await this.loadILinkState()
+    if (!state?.token) return false
+    this._ilinkToken = state.token
+    this._ilinkBaseUrl = state.baseUrl || ILINK_BASE_URL
+    this._cursor = state.cursor || ""
+    const session = await this.adapter.loadSession()
+    const user = session?.user || this._wcSession?.user || { id: "wechat-user", name: "微信用户" }
+    await this.finishConnect(user)
+    return true
+  }
+
+  private async loginAndPoll(): Promise<void> {
+    const abort = new AbortController()
+    this._loginAbort = abort
+    let token: string
+    try {
       await mkdir(wcDir(), { recursive: true })
 
       this.status = "qrcode"
       console.log("[wechat] requesting QR code from", this._ilinkBaseUrl)
       const qrInfo = await ilink.requestQRCode(this._ilinkBaseUrl)
-      this._qrUuid = qrInfo.uuid
 
       const qrDataUrl = await QRCode.toDataURL(qrInfo.qr_url, { width: 256, margin: 2, errorCorrectionLevel: "M" })
       this._qrcode = qrDataUrl
       Bus.publish(this.busEvents.QRCode, { image: qrDataUrl })
 
-      const token = await this.waitForLogin(qrInfo.uuid)
+      token = await this.waitForLogin(qrInfo.uuid, abort.signal)
+      if (abort.signal.aborted) return
       this._ilinkToken = token
       this._loginAbort = null
-
-      this.status = "connected"
-      const user = { id: "wechat-user", name: "微信用户" }
-      this._wcSession = { connected: true, user, createdAt: Date.now() }
-      Bus.publish(this.busEvents.Connected, { user })
-      await this.saveWcSession()
-      await this.saveILinkState()
-
-      this._pollRunning = true
-      this._initialized = false
-      await this.initSessions()
-      void this.pollLoop()
-      this.subscribeBusEvents()
-      this._modelList = []
-      void this.buildModelList().then((list) => {
-        this._modelList = list
-      })
+      this._tokenKnownExpired = false
     } catch (err) {
+      if (abort.signal.aborted) {
+        console.log("[wechat] login aborted")
+        return
+      }
       const message = err instanceof Error ? err.message : String(err)
       console.error("[wechat] loginAndPoll failed:", err)
+      this._loginAbort = null
       this._error = { code: "login_failed", message }
+      this.status = "error"
+      Bus.publish(this.busEvents.Error, this._error)
+      try {
+        await rm(wcFile("ilink_state.json"), { force: true })
+      } catch {}
+      return
+    }
+
+    try {
+      await this.finishConnect({ id: "wechat-user", name: "微信用户" })
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      console.error("[wechat] connect after login failed:", err)
+      this._error = { code: "resume_failed", message }
       this.status = "error"
       Bus.publish(this.busEvents.Error, this._error)
     }
   }
 
-  private async waitForLogin(uuid: string): Promise<string> {
+  private async waitForLogin(uuid: string, signal: AbortSignal): Promise<string> {
     const start = Date.now()
     while (Date.now() - start < 120_000) {
-      if (this._loginAbort?.signal.aborted) throw new Error("Login cancelled")
+      if (signal.aborted) throw new Error("Login cancelled")
       await new Promise((r) => setTimeout(r, 2000))
       const result: LoginStatusResult = await ilink.checkLoginStatus(this._ilinkBaseUrl, uuid)
       if (result.status === "confirmed" && result.token) {
@@ -376,23 +386,38 @@ class WeChatManagerImpl extends MobileManagerBase {
 
   // ── Poll loop ──────────────────────────────────────────────────────────────
 
-  private async pollLoop(): Promise<void> {
+  private async touchLock(): Promise<void> {
+    try {
+      if (!existsSync(wcFile("lock.json"))) return
+      const raw = readFileSync(wcFile("lock.json"), "utf-8")
+      const lock = JSON.parse(raw) as { clientId: string; pid: number; updatedAt?: number }
+      if (lock.pid !== process.pid) return
+      await writeFile(wcFile("lock.json"), JSON.stringify({ ...lock, updatedAt: Date.now() }))
+    } catch {}
+  }
+
+  private async expire(reason: string): Promise<void> {
+    console.warn(`[wechat] session invalidated (${reason}), reconnecting...`)
+    this._pollRunning = false
+    this._tokenKnownExpired = true
+    this._ilinkToken = ""
+    this._cursor = ""
+    try {
+      await rm(wcFile("ilink_state.json"), { force: true })
+    } catch {}
+    this.status = "reconnecting"
+    Bus.publish(this.busEvents.Reconnecting, { attempt: 1, delay: 0 })
+    void this.reconnect()
+  }
+
+  private async pollLoop(gen: number): Promise<void> {
     let failures = 0
-    while (this._pollRunning) {
+    while (this._pollRunning && this._pollGen === gen) {
       try {
         const result = await ilink.getUpdates(this._ilinkBaseUrl, this._ilinkToken, this._cursor)
+        if (this._pollGen !== gen) return
         if (result.expired) {
-          console.warn("[wechat] session expired during poll, reconnecting...")
-          this._pollRunning = false
-          this._tokenKnownExpired = true
-          this._ilinkToken = ""
-          this._cursor = ""
-          try {
-            await rm(wcFile("ilink_state.json"), { force: true })
-          } catch {}
-          this.status = "reconnecting"
-          Bus.publish(this.busEvents.Reconnecting, { attempt: 1, delay: 0 })
-          void this.reconnect()
+          await this.expire("errcode -14")
           return
         }
 
@@ -401,6 +426,7 @@ class WeChatManagerImpl extends MobileManagerBase {
         }
 
         failures = 0
+        await this.touchLock()
 
         for (const raw of result.messages) {
           const parsed = ilink.parseMessage(raw)
@@ -434,10 +460,15 @@ class WeChatManagerImpl extends MobileManagerBase {
         }
 
         if (this._cursor) await this.saveILinkState()
-      } catch (err: any) {
-        if (!this._pollRunning) return
+      } catch (err) {
+        if (!this._pollRunning || this._pollGen !== gen) return
+        const message = err instanceof Error ? err.message : String(err)
+        if (message.startsWith("ilink 401") || message.startsWith("ilink 403")) {
+          await this.expire(message)
+          return
+        }
         failures++
-        console.error(`[wechat] poll error (${failures}/3):`, err?.message || err)
+        console.error(`[wechat] poll error (${failures}/3):`, message)
         if (failures >= 3) {
           failures = 0
           await new Promise((r) => setTimeout(r, 30000))
