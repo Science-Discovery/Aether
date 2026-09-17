@@ -752,7 +752,8 @@ export function FileTabContent(props: { tab: string }) {
   }
 
   const submitAsk = () => {
-    const text = ask.text
+    const raw = ask.text
+    const text = raw.length > 4000 ? `${raw.slice(0, 4000)}\n...[truncated]` : raw
     const startLine = ask.startLine
     const endLine = ask.endLine
     const p = path()

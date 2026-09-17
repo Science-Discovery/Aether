@@ -88,12 +88,16 @@ function fillReadingQuestionPrompt(
     selectedContent: string
     userQuestion: string
     contextPages: string
+    selectedPages?: string
+    contextRange?: string
   },
 ) {
   return template
     .replaceAll("{selected_content}", input.selectedContent)
     .replaceAll("{user_question}", input.userQuestion)
     .replaceAll("{context_pages}", input.contextPages)
+    .replaceAll("{selected_pages}", input.selectedPages ?? "")
+    .replaceAll("{context_range}", input.contextRange ?? "")
 }
 
 function describeReadingSelection(input: {
@@ -136,7 +140,10 @@ function fillFileQuotePrompt(input: { location: string; selectedContent: string;
     "[User question]",
     input.userQuestion,
     "",
-    "Answer the user's question based on the selected content. You may read the file for more context if needed.",
+    "Answer the user's question based on the selected content.",
+    "The quote is taken as displayed; if the file is viewed in a rendered form (e.g. Markdown preview), it may differ from the raw source - read the file for exact content.",
+    "If the selected content is incomplete or ambiguous, say so clearly.",
+    "When answering, cite the file and line numbers.",
   ].join("\n")
 }
 
@@ -1105,14 +1112,18 @@ export function createPromptSubmit(input: PromptSubmitInput) {
             {
               text: fillReadingQuestionPrompt(sessionMeta.settings.questionPrompt, {
                 selectedContent: describeReadingSelection({
-                  startPage:
-                    readingQuestion.kind === "text-question" ? readingQuestion.startPage : readingQuestion.page,
-                  endPage: readingQuestion.kind === "text-question" ? readingQuestion.endPage : readingQuestion.page,
+                  startPage: contextInput.startPage,
+                  endPage: contextInput.endPage,
                   kind: readingQuestion.kind,
                   text: readingQuestion.kind === "text-question" ? readingQuestion.text : undefined,
                 }),
                 userQuestion: typedQuestion,
                 contextPages: pageText.combinedText,
+                selectedPages: formatReadingPageRange({
+                  startPage: contextInput.startPage,
+                  endPage: contextInput.endPage,
+                }),
+                contextRange: formatReadingPageRange(resolveReadingContextRange(contextInput)),
               }),
               synthetic: true,
             },
