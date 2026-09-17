@@ -1,5 +1,6 @@
 import { For, Match, Show, Switch, createEffect, createMemo, createSignal, onCleanup, type JSX } from "solid-js"
 import { createStore } from "solid-js/store"
+import { Portal } from "solid-js/web"
 import { createMediaQuery } from "@solid-primitives/media"
 import { Tabs } from "@opencode-ai/ui/tabs"
 import { IconButton } from "@opencode-ai/ui/icon-button"
@@ -19,7 +20,6 @@ import { useDialog } from "@opencode-ai/ui/context/dialog"
 
 import FileTree from "@/components/file-tree"
 import { SessionContextUsage } from "@/components/session-context-usage"
-import { DialogSelectFile } from "@/components/dialog-select-file"
 import { DialogPdfToMarkdown } from "@/components/dialog-pdf-to-markdown"
 import { DialogBatchPdfConvert } from "@/components/dialog-batch-pdf-convert"
 import { SessionContextTab, SortableTab, FileVisual } from "@/components/session"
@@ -43,8 +43,8 @@ import { FileTabContent } from "@/pages/session/file-tabs"
 import { createOpenSessionFileTab, createSessionTabs, getTabReorderIndex, type Sizing } from "@/pages/session/helpers"
 import { setSessionHandoff } from "@/pages/session/handoff"
 import { useSessionLayout } from "@/pages/session/session-layout"
-import { all, panel, tab } from "@/pages/session/session-side-panel-state"
-import { Persist, persisted } from "@/utils/persist"
+import { SessionSearchFiles } from "@/components/session/session-header"
+import { panel, tab } from "@/pages/session/session-side-panel-state"
 import { save } from "./download"
 import { fromDir, fromDrop, fromList, isExternal, send } from "./upload"
 import type { FileNode } from "@opencode-ai/sdk/v2"
@@ -427,6 +427,15 @@ export function SessionSidePanel(props: {
   const activeTab = tabState.activeTab
   const activeFileTab = tabState.activeFileTab
 
+  const titlebar = createMemo(() => document.getElementById("opencode-titlebar-tabs"))
+
+  // The tab bar lives in the titlebar, outside the panel, so activating any
+  // tab from there must also reveal the panel that hosts the tab contents.
+  const activate = (value: string) => {
+    openReviewPanel()
+    openTab(value)
+  }
+
   const fileTreeTab = () => layout.fileTree.tab()
 
   const setFileTreeTabValue = (value: string) => {
@@ -435,51 +444,10 @@ export function SessionSidePanel(props: {
     layout.fileTree.setTab(next)
   }
 
-  const showAllFiles = () => {
-    const next = all({ current: fileTreeTab() })
-    if (next === fileTreeTab()) return
-    layout.fileTree.setTab(next)
-  }
-
   const [store, setStore] = createStore({
     activeDraggable: undefined as string | undefined,
   })
 
-  // Review-panel tab bar docking: drag the bar into the lower half of the
-  // window to pin it below the content, drag it back up (or drop it in the
-  // upper half) to restore the default. Persisted as a plain UI preference.
-  const [tabbarDock, setTabbarDock] = persisted(
-    Persist.global("review-tabbar-dock.v1"),
-    createStore<{ pos: "top" | "bottom" }>({ pos: "top" }),
-  )
-  let dockDrag: { startY: number; moved: boolean } | undefined
-  let suppressClickUntil = 0
-
-  const onTabbarPointerDown = (e: PointerEvent) => {
-    if (e.button !== 0) return
-    const target = e.target as HTMLElement
-    // File tabs own their drag gesture (reordering); never hijack it.
-    if (target.closest("[data-dnd-sortable]")) return
-    dockDrag = { startY: e.clientY, moved: false }
-  }
-
-  const onTabbarPointerMove = (e: PointerEvent) => {
-    if (!dockDrag) return
-    if (!dockDrag.moved && Math.abs(e.clientY - dockDrag.startY) > 12) {
-      dockDrag.moved = true
-      // Keep receiving events outside the bar, but only once a real drag is
-      // underway so plain clicks keep reaching the tabs.
-      ;(e.currentTarget as HTMLElement)?.setPointerCapture?.(e.pointerId)
-    }
-  }
-
-  const onTabbarPointerUp = (e: PointerEvent) => {
-    const drag = dockDrag
-    dockDrag = undefined
-    if (!drag?.moved) return
-    suppressClickUntil = Date.now() + 350
-    setTabbarDock("pos", e.clientY >= window.innerHeight / 2 ? "bottom" : "top")
-  }
   let box: HTMLDivElement | undefined
 
   // Multi-select state for file tree (Cmd/Ctrl click) — 使用共享状态
@@ -875,8 +843,123 @@ export function SessionSidePanel(props: {
     })
   })
 
+  const tabbar = (
+    <Show when={titlebar()}>
+      {(mount) => (
+        <Portal mount={mount()}>
+          <DragDropProvider
+            onDragStart={handleDragStart}
+            onDragEnd={handleDragEnd}
+            onDragOver={handleDragOver}
+            collisionDetector={closestCenter}
+          >
+            <DragDropSensors />
+            <ConstrainDragYAxis />
+            <Tabs
+              value={activeTab()}
+              onChange={activate}
+              data-scope="review-tabbar"
+              class="h-7 min-w-0"
+              style={{ width: "fit-content", "max-width": "100%" }}
+            >
+              <Tabs.List
+                ref={(el: HTMLDivElement) => {
+                  const stop = createFileTabListSync({ el, contextOpen })
+                  onCleanup(stop)
+                }}
+              >
+                <Show when={reviewTab() && props.canReview()}>
+                  <Tabs.Trigger value="review">
+                    <div class="flex items-center gap-1.5">
+                      <div>{language.t("session.tab.review")}</div>
+                      <Show when={props.hasReview()}>
+                        <div>{props.reviewCount()}</div>
+                      </Show>
+                    </div>
+                  </Tabs.Trigger>
+                </Show>
+                <Show when={contextOpen()}>
+                  <Tabs.Trigger
+                    value="context"
+                    closeButton={
+                      <TooltipKeybind
+                        title={language.t("common.closeTab")}
+                        keybind={command.keybind("tab.close")}
+                        placement="bottom"
+                        gutter={10}
+                      >
+                        <IconButton
+                          icon="close-small"
+                          variant="ghost"
+                          class="h-5 w-5"
+                          onClick={() => tabs().close("context")}
+                          aria-label={language.t("common.closeTab")}
+                        />
+                      </TooltipKeybind>
+                    }
+                    hideCloseButton
+                    onMiddleClick={() => tabs().close("context")}
+                  >
+                    <div class="flex items-center gap-2">
+                      <SessionContextUsage variant="indicator" />
+                      <div>{language.t("session.tab.context")}</div>
+                    </div>
+                  </Tabs.Trigger>
+                </Show>
+                <Show when={gitGraphOpen()}>
+                  <Tabs.Trigger
+                    value="git-graph"
+                    closeButton={
+                      <TooltipKeybind
+                        title={language.t("common.closeTab")}
+                        keybind={command.keybind("tab.close")}
+                        placement="bottom"
+                        gutter={10}
+                      >
+                        <IconButton
+                          icon="close-small"
+                          variant="ghost"
+                          class="h-5 w-5"
+                          onClick={() => tabs().close("git-graph")}
+                          aria-label={language.t("common.closeTab")}
+                        />
+                      </TooltipKeybind>
+                    }
+                    hideCloseButton
+                    onMiddleClick={() => tabs().close("git-graph")}
+                  >
+                    <div>{language.t("session.tab.gitGraph")}</div>
+                  </Tabs.Trigger>
+                </Show>
+                <SortableProvider ids={openedTabs()}>
+                  <For each={openedTabs()}>{(tab) => <SortableTab tab={tab} onTabClose={tabs().close} />}</For>
+                </SortableProvider>
+                <div class="bg-background-base h-full shrink-0 sticky right-0 z-10 flex items-center justify-center px-1">
+                  <SessionSearchFiles />
+                </div>
+              </Tabs.List>
+            </Tabs>
+            <DragOverlay>
+              <Show when={store.activeDraggable} keyed>
+                {(tab) => {
+                  const path = file.pathFromTab(tab)
+                  return (
+                    <div data-component="tabs-drag-preview" style={{ "--tabs-bar-height": "28px" }}>
+                      <Show when={path}>{(p) => <FileVisual active path={p()} />}</Show>
+                    </div>
+                  )
+                }}
+              </Show>
+            </DragOverlay>
+          </DragDropProvider>
+        </Portal>
+      )}
+    </Show>
+  )
+
   return (
     <Show when={isDesktop()}>
+      {tabbar}
       <aside
         id="review-panel"
         aria-label={language.t("session.panel.reviewAndFiles")}
@@ -905,194 +988,48 @@ export function SessionSidePanel(props: {
             style={{ "min-width": reviewOpen() ? "107px" : undefined }}
           >
             <div class="size-full min-w-0 h-full bg-background-base">
-              <DragDropProvider
-                onDragStart={handleDragStart}
-                onDragEnd={handleDragEnd}
-                onDragOver={handleDragOver}
-                collisionDetector={closestCenter}
-              >
-                <DragDropSensors />
-                <ConstrainDragYAxis />
-                <Tabs value={activeTab()} onChange={openTab} data-tabbar-dock={tabbarDock.pos}>
-                  <div
-                    class="sticky shrink-0 flex cursor-grab active:cursor-grabbing"
-                    classList={{
-                      "top-0": tabbarDock.pos === "top",
-                      "bottom-0 order-last": tabbarDock.pos === "bottom",
-                    }}
-                    data-tabbar-dock={tabbarDock.pos}
-                    onPointerDown={onTabbarPointerDown}
-                    onPointerMove={onTabbarPointerMove}
-                    onPointerUp={onTabbarPointerUp}
-                    onPointerCancel={() => (dockDrag = undefined)}
-                    ref={(el: HTMLDivElement) => {
-                      // A real drag must not also activate the tab under the pointer.
-                      const suppress = (e: MouseEvent) => {
-                        if (Date.now() < suppressClickUntil) {
-                          e.stopPropagation()
-                          e.preventDefault()
-                        }
-                      }
-                      el.addEventListener("click", suppress, true)
-                      onCleanup(() => el.removeEventListener("click", suppress, true))
-                    }}
-                  >
-                    <Tabs.List
-                      ref={(el: HTMLDivElement) => {
-                        const stop = createFileTabListSync({ el, contextOpen })
-                        onCleanup(stop)
-                      }}
-                    >
-                      <Show when={reviewTab() && props.canReview()}>
-                        <Tabs.Trigger value="review">
-                          <div class="flex items-center gap-1.5">
-                            <div>{language.t("session.tab.review")}</div>
-                            <Show when={props.hasReview()}>
-                              <div>{props.reviewCount()}</div>
-                            </Show>
-                          </div>
-                        </Tabs.Trigger>
-                      </Show>
-                      <Show when={contextOpen()}>
-                        <Tabs.Trigger
-                          value="context"
-                          closeButton={
-                            <TooltipKeybind
-                              title={language.t("common.closeTab")}
-                              keybind={command.keybind("tab.close")}
-                              placement="bottom"
-                              gutter={10}
-                            >
-                              <IconButton
-                                icon="close-small"
-                                variant="ghost"
-                                class="h-5 w-5"
-                                onClick={() => tabs().close("context")}
-                                aria-label={language.t("common.closeTab")}
-                              />
-                            </TooltipKeybind>
-                          }
-                          hideCloseButton
-                          onMiddleClick={() => tabs().close("context")}
-                        >
-                          <div class="flex items-center gap-2">
-                            <SessionContextUsage variant="indicator" />
-                            <div>{language.t("session.tab.context")}</div>
-                          </div>
-                        </Tabs.Trigger>
-                      </Show>
-                      <Show when={gitGraphOpen()}>
-                        <Tabs.Trigger
-                          value="git-graph"
-                          closeButton={
-                            <TooltipKeybind
-                              title={language.t("common.closeTab")}
-                              keybind={command.keybind("tab.close")}
-                              placement="bottom"
-                              gutter={10}
-                            >
-                              <IconButton
-                                icon="close-small"
-                                variant="ghost"
-                                class="h-5 w-5"
-                                onClick={() => tabs().close("git-graph")}
-                                aria-label={language.t("common.closeTab")}
-                              />
-                            </TooltipKeybind>
-                          }
-                          hideCloseButton
-                          onMiddleClick={() => tabs().close("git-graph")}
-                        >
-                          <div>{language.t("session.tab.gitGraph")}</div>
-                        </Tabs.Trigger>
-                      </Show>
-                      <SortableProvider ids={openedTabs()}>
-                        <For each={openedTabs()}>{(tab) => <SortableTab tab={tab} onTabClose={tabs().close} />}</For>
-                      </SortableProvider>
-                      <div class="bg-background-stronger h-full shrink-0 sticky right-0 z-10 flex items-center justify-center pr-3">
-                        <TooltipKeybind
-                          title={language.t("command.file.open")}
-                          keybind={command.keybind("file.open")}
-                          class="flex items-center"
-                        >
-                          <IconButton
-                            icon="plus-small"
-                            variant="ghost"
-                            iconSize="large"
-                            class="!rounded-md"
-                            onClick={() =>
-                              dialog.show(() => <DialogSelectFile mode="files" onOpenFile={showAllFiles} />)
-                            }
-                            aria-label={language.t("command.file.open")}
-                          />
-                        </TooltipKeybind>
-                        <Tooltip value={language.t("session.tab.toggleDock")}>
-                          <IconButton
-                            icon="arrow-up"
-                            variant="ghost"
-                            classList={{ "rotate-180": tabbarDock.pos === "top" }}
-                            onClick={() => setTabbarDock("pos", tabbarDock.pos === "top" ? "bottom" : "top")}
-                            aria-label={language.t("session.tab.toggleDock")}
-                          />
-                        </Tooltip>
-                      </div>
-                    </Tabs.List>
-                  </div>
+              <Tabs value={activeTab()} onChange={openTab}>
+                <Show when={reviewTab() && props.canReview()}>
+                  <Tabs.Content value="review" class="flex flex-col h-full overflow-hidden contain-strict">
+                    <Show when={activeTab() === "review"}>{props.reviewPanel()}</Show>
+                  </Tabs.Content>
+                </Show>
 
-                  <Show when={reviewTab() && props.canReview()}>
-                    <Tabs.Content value="review" class="flex flex-col h-full overflow-hidden contain-strict">
-                      <Show when={activeTab() === "review"}>{props.reviewPanel()}</Show>
-                    </Tabs.Content>
-                  </Show>
-
-                  <Tabs.Content value="empty" class="flex flex-col h-full overflow-hidden contain-strict">
-                    <Show when={activeTab() === "empty"}>
-                      <div class="relative pt-2 flex-1 min-h-0 overflow-hidden">
-                        <div class="h-full px-6 pb-42 -mt-4 flex flex-col items-center justify-center text-center gap-6">
-                          <Mark class="w-14 opacity-10" />
-                          <div class="text-14-regular text-text-weak max-w-56">
-                            {language.t("session.files.selectToOpen")}
-                          </div>
+                <Tabs.Content value="empty" class="flex flex-col h-full overflow-hidden contain-strict">
+                  <Show when={activeTab() === "empty"}>
+                    <div class="relative pt-2 flex-1 min-h-0 overflow-hidden">
+                      <div class="h-full px-6 pb-42 -mt-4 flex flex-col items-center justify-center text-center gap-6">
+                        <Mark class="w-14 opacity-10" />
+                        <div class="text-14-regular text-text-weak max-w-56">
+                          {language.t("session.files.selectToOpen")}
                         </div>
+                      </div>
+                    </div>
+                  </Show>
+                </Tabs.Content>
+
+                <Show when={contextOpen()}>
+                  <Tabs.Content value="context" class="flex flex-col h-full overflow-hidden contain-strict">
+                    <Show when={activeTab() === "context"}>
+                      <div class="relative pt-2 flex-1 min-h-0 overflow-hidden">
+                        <SessionContextTab />
                       </div>
                     </Show>
                   </Tabs.Content>
+                </Show>
 
-                  <Show when={contextOpen()}>
-                    <Tabs.Content value="context" class="flex flex-col h-full overflow-hidden contain-strict">
-                      <Show when={activeTab() === "context"}>
-                        <div class="relative pt-2 flex-1 min-h-0 overflow-hidden">
-                          <SessionContextTab />
-                        </div>
-                      </Show>
-                    </Tabs.Content>
-                  </Show>
+                <Show when={gitGraphOpen()}>
+                  <Tabs.Content value="git-graph" class="flex flex-col h-full overflow-hidden contain-strict">
+                    <Show when={activeTab() === "git-graph"}>
+                      <GitGraphTab />
+                    </Show>
+                  </Tabs.Content>
+                </Show>
 
-                  <Show when={gitGraphOpen()}>
-                    <Tabs.Content value="git-graph" class="flex flex-col h-full overflow-hidden contain-strict">
-                      <Show when={activeTab() === "git-graph"}>
-                        <GitGraphTab />
-                      </Show>
-                    </Tabs.Content>
-                  </Show>
-
-                  <Show when={activeFileTab()} keyed>
-                    {(tab) => <FileTabContent tab={tab} />}
-                  </Show>
-                </Tabs>
-                <DragOverlay>
-                  <Show when={store.activeDraggable} keyed>
-                    {(tab) => {
-                      const path = file.pathFromTab(tab)
-                      return (
-                        <div data-component="tabs-drag-preview">
-                          <Show when={path}>{(p) => <FileVisual active path={p()} />}</Show>
-                        </div>
-                      )
-                    }}
-                  </Show>
-                </DragOverlay>
-              </DragDropProvider>
+                <Show when={activeFileTab()} keyed>
+                  {(tab) => <FileTabContent tab={tab} />}
+                </Show>
+              </Tabs>
             </div>
           </div>
 

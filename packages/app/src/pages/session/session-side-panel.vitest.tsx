@@ -17,25 +17,45 @@ vi.mock("@solid-primitives/media", () => ({
   createMediaQuery: () => () => true,
 }))
 
-vi.mock("@opencode-ai/ui/tabs", () => {
-  const Tabs = (props: { children?: unknown }) => props.children
-  Tabs.List = (props: { children?: unknown }) => <div>{props.children}</div>
-  Tabs.Trigger = (props: { children?: unknown; value: string; onClick?: () => void }) => (
-    <button
-      type="button"
-      data-trigger={props.value}
-      onClick={() => {
-        state.treeTab = props.value === "all" ? "all" : props.value === "changes" ? "changes" : state.treeTab
-        props.onClick?.()
-      }}
-    >
-      {props.children}
-    </button>
+vi.mock("@opencode-ai/ui/tabs", async () => {
+  const { createContext, useContext } = await import("solid-js")
+  const ChangeContext = createContext<(value: string) => void>()
+  const Tabs = (props: { children?: unknown; onChange?: (value: string) => void }) => (
+    <ChangeContext.Provider value={(value: string) => props.onChange?.(value)}>{props.children}</ChangeContext.Provider>
   )
+  Tabs.List = (props: { children?: unknown }) => <div>{props.children}</div>
+  Tabs.Trigger = (props: { children?: unknown; value: string; onClick?: () => void }) => {
+    const change = useContext(ChangeContext)
+    return (
+      <button
+        type="button"
+        data-trigger={props.value}
+        onClick={() => {
+          state.treeTab = props.value === "all" ? "all" : props.value === "changes" ? "changes" : state.treeTab
+          props.onClick?.()
+          change?.(props.value)
+        }}
+      >
+        {props.children}
+      </button>
+    )
+  }
   Tabs.Content = (props: { children?: unknown; value: string }) =>
     props.value === state.treeTab || props.value === "review" || props.value === "empty" ? props.children : null
   return { Tabs }
 })
+
+vi.mock("@opencode-ai/ui/button", () => ({
+  Button: (props: { children?: unknown; onClick?: () => void; type?: string }) => (
+    <button type={props.type ?? "button"} onClick={props.onClick}>
+      {props.children}
+    </button>
+  ),
+}))
+
+vi.mock("@opencode-ai/ui/keybind", () => ({
+  Keybind: (props: { children?: unknown }) => <kbd>{props.children}</kbd>,
+}))
 
 vi.mock("@opencode-ai/ui/icon-button", () => ({
   IconButton: (props: { children?: unknown; onClick?: () => void; "aria-label"?: string }) => (
@@ -156,6 +176,9 @@ vi.mock("@/context/language", () => ({
 
 vi.mock("@/context/layout", () => ({
   useLayout: () => ({
+    projects: {
+      list: () => [],
+    },
     fileTree: {
       opened: () => true,
       width: () => 320,
@@ -258,6 +281,11 @@ function mount(tab: "changes" | "all", focus: ReturnType<typeof vi.fn>) {
   state.treeTab = tab
   const host = document.createElement("div")
   document.body.append(host)
+  // The review tab bar portals into the titlebar mount; provide it so the
+  // bar renders and its triggers are testable.
+  const bar = document.createElement("div")
+  bar.id = "opencode-titlebar-tabs"
+  document.body.append(bar)
   const off = render(
     () => (
       <SessionSidePanel
@@ -356,47 +384,22 @@ describe("session side panel changes tree wiring", () => {
   })
 })
 
-describe("session side panel tab bar docking", () => {
-  const bar = (host: HTMLElement) => host.querySelector<HTMLElement>("[data-tabbar-dock]")
-  const pointer = (el: EventTarget, type: string, clientY: number) =>
-    el.dispatchEvent(new PointerEvent(type, { bubbles: true, button: 0, pointerId: 1, clientY }))
-
-  test("toggle button flips the dock position", async () => {
-    const { host, off } = mount("changes", vi.fn())
+describe("session side panel titlebar tab bar", () => {
+  test("clicking a titlebar trigger reveals the review panel", async () => {
+    const focus = vi.fn()
+    const { off } = mount("changes", focus)
     await Promise.resolve()
 
-    expect(bar(host)?.dataset.tabbarDock).toBe("top")
+    const trigger = document.querySelector(
+      "#opencode-titlebar-tabs [data-trigger='review']",
+    ) as HTMLButtonElement | null
+    expect(trigger).not.toBeNull()
 
-    const toggle = [...host.querySelectorAll("button")].find(
-      (item) => item.getAttribute("aria-label") === "session.tab.toggleDock",
-    )
-    expect(toggle).toBeDefined()
-
-    toggle?.dispatchEvent(new MouseEvent("click", { bubbles: true }))
-    expect(bar(host)?.dataset.tabbarDock).toBe("bottom")
-
-    toggle?.dispatchEvent(new MouseEvent("click", { bubbles: true }))
-    expect(bar(host)?.dataset.tabbarDock).toBe("top")
-
-    off()
-  })
-
-  test("dragging the bar to the lower half docks it to the bottom and back", async () => {
-    const { host, off } = mount("changes", vi.fn())
+    trigger?.dispatchEvent(new MouseEvent("click", { bubbles: true }))
     await Promise.resolve()
 
-    const barEl = bar(host) as HTMLElement
-    expect(barEl.dataset.tabbarDock).toBe("top")
-
-    pointer(barEl, "pointerdown", 20)
-    pointer(barEl, "pointermove", 80)
-    pointer(barEl, "pointerup", 700)
-    expect(bar(host)?.dataset.tabbarDock).toBe("bottom")
-
-    pointer(bar(host) as EventTarget, "pointerdown", 700)
-    pointer(bar(host) as EventTarget, "pointermove", 400)
-    pointer(bar(host) as EventTarget, "pointerup", 20)
-    expect(bar(host)?.dataset.tabbarDock).toBe("top")
+    expect(state.reviewOpened).toBe(1)
+    expect(state.opened).toContain("review")
 
     off()
   })

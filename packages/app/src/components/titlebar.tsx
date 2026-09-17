@@ -281,6 +281,7 @@ export function Titlebar() {
         data-tauri-drag-region
         onMouseDown={drag}
       >
+        <div id="opencode-titlebar-tabs" class="flex items-center min-w-0 flex-1 justify-end" />
         <div id="opencode-titlebar-right" class="flex items-center gap-1 shrink-0 justify-end" />
         <Show when={windows()}>
           {!tauriApi() && <div class="w-36 shrink-0" />}

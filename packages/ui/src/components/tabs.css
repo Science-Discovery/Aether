@@ -146,37 +146,30 @@
     }
   }
 
+  /* Review column root: the tab contents live inside the side panel. */
   #review-panel &[data-variant="normal"][data-orientation="horizontal"] {
     background-color: var(--background-stronger);
+  }
+
+  /* Review tab bar: compact pills portaled into the titlebar via data-scope. */
+  &[data-scope="review-tabbar"][data-variant="normal"][data-orientation="horizontal"] {
+    --tabs-bar-height: 28px;
+    background-color: transparent;
 
     [data-slot="tabs-list"] {
       height: var(--tabs-bar-height);
-      padding-left: 12px;
+      padding-left: 2px;
       padding-right: 0;
-      --tabs-review-gap: 16px;
-      --tabs-review-fade: 16px;
-      gap: var(--tabs-review-gap);
-      background-color: var(--background-stronger);
-      border-bottom: 1px solid var(--border-weaker-base);
+      gap: 16px;
+      background-color: transparent;
+      border: none;
 
       &::after {
         display: none;
       }
 
       > .sticky {
-        border-bottom: none;
-        background-color: var(--background-stronger);
-
-        &::before {
-          content: "";
-          position: absolute;
-          top: 0;
-          bottom: 0;
-          left: calc(var(--tabs-review-fade) * -1);
-          width: var(--tabs-review-fade);
-          pointer-events: none;
-          background: linear-gradient(90deg, transparent, var(--background-stronger));
-        }
+        background-color: var(--background-base);
       }
     }
 
@@ -643,36 +636,4 @@
 
 [data-component="tabs-drag-preview"] > * {
   position: relative;
-}
-
-/* Tab bar docked below the content: flip the separator borders so the bar
-   reads as a bottom dock instead of a top bar. */
-[data-component="tabs"][data-tabbar-dock="bottom"] [data-slot="tabs-list"] {
-  border-bottom: none;
-  border-top: 1px solid var(--border-weak-base);
-
-  &::after {
-    border-bottom: none;
-    border-top: 1px solid var(--border-weak-base);
-  }
-
-  [data-slot="tabs-trigger-wrapper"] {
-    border-bottom: none;
-    border-top: 1px solid var(--border-weak-base);
-
-    &:has([data-selected]) {
-      border-top-color: transparent;
-    }
-  }
-}
-
-/* Review-panel tab bar (the side panel opts in via data-tabbar-dock):
-   slimmed height with proportionally reduced trigger padding. */
-[data-component="tabs"][data-tabbar-dock] [data-slot="tabs-list"] {
-  height: 34px;
-
-  [data-slot="tabs-trigger"] {
-    padding-top: 7px;
-    padding-bottom: 7px;
-  }
 }
