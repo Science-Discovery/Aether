@@ -1766,8 +1766,9 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         ],
       },
       // Windows cmd
+      //  - /d /s /c plus an outer quote pair keeps quoted tokens intact
       cmd: {
-        args: ["/c", input.command],
+        args: ["/d", "/s", "/c", `"${input.command}"`],
       },
       // Windows PowerShell
       powershell: {
@@ -1797,6 +1798,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       cwd,
       detached: process.platform !== "win32",
       windowsHide: process.platform === "win32",
+      windowsVerbatimArguments: process.platform === "win32" && shellName === "cmd",
       stdio: ["ignore", "pipe", "pipe"],
       env: {
         ...process.env,
