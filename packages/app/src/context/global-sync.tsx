@@ -197,7 +197,7 @@ function createGlobalSync() {
       )
       return
     }
-    setGlobalStore("session_todo", sessionID, reconcile(todos, { key: "id" }))
+    setGlobalStore("session_todo", sessionID, reconcile(todos))
   }
 
   const paused = () => untrack(() => globalStore.reload) !== undefined
@@ -417,6 +417,7 @@ function createGlobalSync() {
         setStore: child[1],
         vcsCache: cache,
         loadSessions,
+        setSessionTodo,
         translate: language.t,
       })
     })()
@@ -471,6 +472,11 @@ function createGlobalSync() {
     }
 
     if (event.type === "server.instance.disposed" && deleting.has(normalizeDir(directory))) return
+
+    if (event.type === "todo.updated") {
+      const props = event.properties as { sessionID: string; todos: Todo[] }
+      setSessionTodo(props.sessionID, props.todos)
+    }
 
     const existing = children.getChild(directory)
     if (!existing) return

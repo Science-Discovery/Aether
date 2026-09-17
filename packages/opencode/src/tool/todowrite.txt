@@ -152,7 +152,8 @@ The assistant did not use the todo list because this is a single command executi
    - cancelled: Task no longer needed
 
 2. **Task Management**:
-   - Update task status in real-time as you work
+   - Call this tool immediately BEFORE starting each task (mark it in_progress) and immediately AFTER finishing it (mark it completed)
+   - Never complete several steps of work without an intervening todowrite call - the user watches this list to follow progress in real time
    - Mark tasks complete IMMEDIATELY after finishing (don't batch completions)
    - Only have ONE task in_progress at any time
    - Complete current tasks before starting new ones
