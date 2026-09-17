@@ -7,13 +7,32 @@
   const C_MAP_URL = "pdfjs-ref/web/cmaps/"
   const STANDARD_FONT_DATA_URL = "pdfjs-ref/web/standard_fonts/"
   const RANGE_CHUNK_SIZE = 65536
+  const RELOAD_MIN_INTERVAL = 3000
   const DEFAULT_SCALE = {
     full: "auto",
     compact: "page-width",
   }
 
+  if (window.parent !== window && window.PDFViewerApplication && window.PDFViewerApplicationOptions) {
+    window.PDFViewerApplicationOptions.set("externalLinkTarget", 4)
+    const app = window.PDFViewerApplication
+    const initComponents = app._initializeViewerComponents
+    app._initializeViewerComponents = function () {
+      this.isViewerEmbedded = false
+      return initComponents.apply(this, arguments).finally(function () {
+        app.isViewerEmbedded = true
+      })
+    }
+  }
+
   let currentConfig = null
   let currentKey = ""
+  let lastLocation = ""
+  let restoreState = null
+  let docSettled = false
+  let reloadAt = 0
+  let reloadTimer = 0
+  let openChain = Promise.resolve()
   let eventsBound = false
   let suppressSidebarTracking = false
   let sidebarState = {
@@ -1448,6 +1467,40 @@
     }
   }
 
+  function docId(src) {
+    return src.replace(/([?&])(?:v|r)=[^&]*/g, "")
+  }
+
+  function isReload(oldKey, key) {
+    const old = oldKey.split("|")
+    const next = key.split("|")
+    return old[1] === next[1] && old[2] === next[2] && docId(old[0]) === docId(next[0])
+  }
+
+  function captureState() {
+    const app = window.PDFViewerApplication
+    if (!app?.pdfViewer || !app.pdfDocument) return null
+    return {
+      scale: app.pdfViewer.currentScaleValue,
+      scrollMode: app.pdfViewer.scrollMode,
+      spreadMode: app.pdfViewer.spreadMode,
+      rotation: app.pdfViewer.pagesRotation,
+      tool: app.pdfCursorTools?.activeTool,
+      location: lastLocation,
+      page: app.pdfViewer.currentPageNumber,
+    }
+  }
+
+  function applySettings(state) {
+    const app = window.PDFViewerApplication
+    if (!app?.pdfViewer) return
+    app.pdfCursorTools?.switchTool?.(state.tool || 0)
+    app.pdfViewer.scrollMode = state.scrollMode
+    app.pdfViewer.spreadMode = state.spreadMode
+    if (state.rotation) app.pdfViewer.pagesRotation = state.rotation
+    if (state.scale) app.pdfViewer.currentScaleValue = state.scale
+  }
+
   function applyDocumentDefaults(config) {
     const app = window.PDFViewerApplication
     if (!app?.pdfViewer) return
@@ -1467,6 +1520,22 @@
     applyPosition(config)
   }
 
+  function syncHistoryButtons() {
+    const back = document.getElementById("aetherHistoryBack")
+    const forward = document.getElementById("aetherHistoryForward")
+    if (!back || !forward) return
+    const pdfHistory = window.PDFViewerApplication?.pdfHistory
+    const state = window.history.state
+    const valid = !!(
+      pdfHistory &&
+      state &&
+      state.fingerprint === pdfHistory._fingerprint &&
+      Number.isInteger(state.uid)
+    )
+    back.disabled = !(valid && state.uid > 0)
+    forward.disabled = !(valid && state.uid < pdfHistory._maxUid)
+  }
+
   function bindEvents() {
     if (eventsBound) return
     eventsBound = true
@@ -1484,20 +1553,36 @@
     })
 
     eventBus.on("updateviewarea", function (evt) {
-      if (Date.now() < suppressBroadcastUntil) return
+      syncHistoryButtons()
       const location = evt?.location?.pdfOpenParams
-      if (typeof location !== "string" || !location) return
-      post("locationchange", { location: location.startsWith("#") ? location.slice(1) : location })
+      if (typeof location === "string" && location) {
+        lastLocation = location.startsWith("#") ? location.slice(1) : location
+      }
+      if (Date.now() < suppressBroadcastUntil) return
+      if (lastLocation) post("locationchange", { location: lastLocation })
+    })
+
+    eventBus.on("pagesinit", function () {
+      if (!restoreState) return
+      applySettings(restoreState)
+      applyPosition(restoreState)
     })
 
     eventBus.on("pagesloaded", function (evt) {
+      syncHistoryButtons()
       const totalPages = Number(evt?.pagesCount || window.PDFViewerApplication?.pdfDocument?.numPages || 0)
       if (!Number.isFinite(totalPages) || totalPages <= 0) return
       post("documentinfo", { totalPages })
       if (currentConfig) {
         requestAnimationFrame(function () {
           if (!currentConfig) return
-          applyPosition(currentConfig)
+          if (restoreState) {
+            applySettings(restoreState)
+            applyPosition(restoreState)
+          } else {
+            applyPosition(currentConfig)
+          }
+          docSettled = true
           renderAnnotations()
         })
       }
@@ -1603,6 +1688,24 @@
         setToolbarPrefs({ auto: !toolbarPrefs.auto })
       })
     }
+
+    const historyBack = document.getElementById("aetherHistoryBack")
+    if (historyBack) {
+      historyBack.addEventListener("click", function () {
+        window.PDFViewerApplication?.pdfHistory?.back()
+        requestAnimationFrame(syncHistoryButtons)
+      })
+    }
+
+    const historyForward = document.getElementById("aetherHistoryForward")
+    if (historyForward) {
+      historyForward.addEventListener("click", function () {
+        window.PDFViewerApplication?.pdfHistory?.forward()
+        requestAnimationFrame(syncHistoryButtons)
+      })
+    }
+
+    syncHistoryButtons()
 
     const readingSettings = document.getElementById("aetherReadingSettings")
     if (readingSettings) {
@@ -1717,7 +1820,8 @@
     const app = window.PDFViewerApplication
     if (!config.src) return
 
-    if (currentKey === [config.src, config.authHeader || "", config.mode].join("|")) {
+    const key = [config.src, config.authHeader || "", config.mode].join("|")
+    if (currentKey === key) {
       applyChrome(config)
       if (app.pdfViewer) {
         app.pdfViewer.scrollMode = mapScrollMode(config.scrollMode)
@@ -1726,7 +1830,14 @@
       return
     }
 
-    currentKey = [config.src, config.authHeader || "", config.mode].join("|")
+    const reload = !!currentKey && isReload(currentKey, key)
+    if (!reload) {
+      restoreState = null
+    } else if (docSettled) {
+      restoreState = captureState() || restoreState
+    }
+    docSettled = false
+    currentKey = key
     hideViewerError()
     sidebarState = {
       initialized: false,
@@ -1743,7 +1854,11 @@
 
     app.eventBus.on("documentloaded", function onDocumentLoaded() {
       app.eventBus.off("documentloaded", onDocumentLoaded)
-      applyDocumentDefaults(config)
+      if (restoreState) {
+        applySettings(restoreState)
+      } else {
+        applyDocumentDefaults(config)
+      }
       scheduleToolbarOverflowSync()
     })
 
@@ -1767,19 +1882,36 @@
   async function applyConfig(nextConfig) {
     currentConfig = sanitizeConfig(nextConfig)
     applyChrome(currentConfig)
-    try {
-      await openDocument(currentConfig)
-    } catch (error) {
-      console.error("[aether-pdf-viewer] failed to open document", {
-        config: currentConfig,
-        error,
-      })
-      showViewerError(error)
-      post("loaderror", {
-        message: error instanceof Error ? error.message : String(error || "Unknown PDF viewer error"),
-      })
-      throw error
+    const key = [currentConfig.src, currentConfig.authHeader || "", currentConfig.mode].join("|")
+    if (currentKey && currentKey !== key && isReload(currentKey, key)) {
+      const wait = RELOAD_MIN_INTERVAL - (Date.now() - reloadAt)
+      if (wait > 0) {
+        if (!reloadTimer) {
+          const from = currentKey
+          reloadTimer = setTimeout(function () {
+            reloadTimer = 0
+            if (currentKey === from) void applyConfig(currentConfig)
+          }, wait)
+        }
+        return
+      }
     }
+    reloadAt = Date.now()
+    openChain = openChain
+      .then(function () {
+        return openDocument(currentConfig)
+      })
+      .catch(function (error) {
+        console.error("[aether-pdf-viewer] failed to open document", {
+          config: currentConfig,
+          error,
+        })
+        showViewerError(error)
+        post("loaderror", {
+          message: error instanceof Error ? error.message : String(error || "Unknown PDF viewer error"),
+        })
+      })
+    await openChain
   }
 
   window.addEventListener(
@@ -1799,7 +1931,12 @@
         currentConfig = { ...(currentConfig || sanitizeConfig({})), page: Math.round(page) }
         if (window.PDFViewerApplication?.pdfDocument) {
           suppressBroadcastUntil = Date.now() + 500
-          window.PDFViewerApplication.page = Math.round(page)
+          const app = window.PDFViewerApplication
+          if (app.page >= 1) {
+            app.pdfHistory?.pushCurrentPosition()
+            app.pdfHistory?.pushPage(app.page)
+          }
+          app.page = Math.round(page)
         }
         return
       }
