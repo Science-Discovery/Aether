@@ -250,7 +250,7 @@ export const { use: useFile, provider: FileProvider } = createSimpleContext({
     })
 
     const [treeExpandStore, setTreeExpandStore] = persisted(
-      Persist.global("file-tree-expanded.v2"),
+      Persist.serverGlobal("file-tree-expanded.v2"),
       createStore<Record<string, string[]>>({}),
     )
     const tree = createFileTreeStore({

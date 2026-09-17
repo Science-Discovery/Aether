@@ -7,14 +7,16 @@ import { Tabs } from "@opencode-ai/ui/tabs"
 import { useMutation } from "@tanstack/solid-query"
 import { showToast } from "@opencode-ai/ui/toast"
 import { type Accessor, createEffect, createMemo, createSignal, For, type JSXElement, onCleanup, Show } from "solid-js"
+import { useNavigate } from "@solidjs/router"
 import { createStore, reconcile } from "solid-js/store"
 import { ServerHealthIndicator, ServerRow } from "@/components/server/server-row"
 import { useLanguage } from "@/context/language"
 import { usePlatform } from "@/context/platform"
 import { useSDK } from "@/context/sdk"
-import { normalizeServerUrl, ServerConnection, useServer } from "@/context/server"
+import { normalizeServerUrl, ServerConnection, serverName, useServer } from "@/context/server"
 import { useSync } from "@/context/sync"
 import { useCheckServerHealth, type ServerHealth } from "@/utils/server-health"
+import { switchServer } from "@/utils/server-switch"
 
 const pollMs = 10_000
 
@@ -161,6 +163,23 @@ export function StatusPopover() {
   const platform = usePlatform()
   const dialog = useDialog()
   const language = useLanguage()
+  const navigate = useNavigate()
+
+  const activate = (conn: ServerConnection.Any) => {
+    const key = ServerConnection.key(conn)
+    if (key === server.key) return
+    switchServer({
+      leave: () => navigate("/"),
+      activate: () => {
+        server.activate(key)
+        showToast({
+          variant: "success",
+          title: "已切换后端服务器",
+          description: `当前使用 ${serverName(conn)}`,
+        })
+      },
+    })
+  }
 
   const [shown, setShown] = createSignal(false)
   let dialogRun = 0
@@ -274,7 +293,7 @@ export function StatusPopover() {
                         aria-disabled={isBlocked()}
                         onClick={() => {
                           if (isBlocked()) return
-                          server.activate(key)
+                          activate(s)
                         }}
                       >
                         <ServerHealthIndicator health={health[key]} />

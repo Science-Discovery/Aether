@@ -2,6 +2,7 @@ import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test"
 import { createStore } from "solid-js/store"
 
 type PersistTestingType = typeof import("./persist").PersistTesting
+type PersistType = typeof import("./persist").Persist
 
 class MemoryStorage implements Storage {
   private values = new Map<string, string>()
@@ -47,6 +48,8 @@ const storage = new MemoryStorage()
 
 let persistTesting: PersistTestingType
 let persisted: typeof import("./persist").persisted
+let persist: PersistType
+let setPersistScope: typeof import("./persist").setPersistScope
 
 beforeAll(async () => {
   mock.module("@/context/platform", () => ({
@@ -56,9 +59,12 @@ beforeAll(async () => {
   const mod = await import("./persist")
   persistTesting = mod.PersistTesting
   persisted = mod.persisted
+  persist = mod.Persist
+  setPersistScope = mod.setPersistScope
 })
 
 beforeEach(() => {
+  setPersistScope(undefined)
   storage.clear()
   storage.events.length = 0
   storage.calls.get = 0
@@ -142,5 +148,56 @@ describe("persist localStorage resilience", () => {
     expect(result).toStartWith("opencode.workspace.")
     expect(result.endsWith(".dat")).toBeTrue()
     expect(/[:\\/]/.test(result)).toBeFalse()
+  })
+})
+
+describe("server scope", () => {
+  test("unscoped targets keep their original keys", () => {
+    setPersistScope(undefined)
+
+    expect(persist.serverGlobal("layout.page").key).toBe("layout.page")
+    expect(persist.workspace("/repo", "terminal").storage).toBe(persistTesting.workspaceStorage("/repo"))
+    expect(persist.session("/repo", "ses_1", "terminal").storage).toBe(persistTesting.workspaceStorage("/repo"))
+  })
+
+  test("scoped global keys gain a server suffix", () => {
+    setPersistScope("abc")
+
+    expect(persist.serverGlobal("layout.page").key).toBe("layout.page\nserver:abc")
+    expect(persist.global("layout.page").key).toBe("layout.page")
+  })
+
+  test("scoped workspace and session storage are isolated per server", () => {
+    setPersistScope("abc")
+
+    const scoped = persistTesting.workspaceStorage("/repo\nserver:abc")
+    expect(persist.workspace("/repo", "terminal").storage).toBe(scoped)
+    expect(persist.session("/repo", "ses_1", "terminal").storage).toBe(scoped)
+    expect(scoped).not.toBe(persistTesting.workspaceStorage("/repo"))
+  })
+
+  test("scoped stores skip legacy migration", () => {
+    setPersistScope("abc")
+
+    expect(persist.serverGlobal("permission", ["permission.v3"]).legacy).toBeUndefined()
+    expect(persist.workspace("/repo", "terminal", ["/repo/terminal.v1"]).legacy).toBeUndefined()
+    expect(persist.session("/repo", "ses_1", "comments", ["/repo/comments.v1"]).legacy).toBeUndefined()
+  })
+
+  test("unscoped stores keep legacy keys", () => {
+    expect(persist.serverGlobal("permission", ["permission.v3"]).legacy).toEqual(["permission.v3"])
+    expect(persist.workspace("/repo", "terminal", ["/repo/terminal.v1"]).legacy).toEqual(["/repo/terminal.v1"])
+  })
+
+  test("persisted reads and writes through the scoped key", () => {
+    setPersistScope("abc")
+    const [store, setStore] = createStore({ value: 0 })
+    const [state, setState] = persisted(persist.serverGlobal("scope-roundtrip"), [store, setStore])
+
+    setState("value", 7)
+
+    expect(state.value).toBe(7)
+    expect(storage.getItem("opencode.global.dat:scope-roundtrip\nserver:abc")).toBe('{"value":7}')
+    expect(storage.getItem("opencode.global.dat:scope-roundtrip")).toBeNull()
   })
 })

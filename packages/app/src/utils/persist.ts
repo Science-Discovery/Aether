@@ -12,6 +12,24 @@ type PersistedWithReady<T> = [
   Accessor<boolean> & { promise: undefined | Promise<any> },
 ]
 
+// Persisted state written while a non-local server is active is namespaced by the server
+// hash, so local and remote workspaces never share storage. Local keeps the original keys.
+let serverScope: string | undefined
+
+export function setPersistScope(scope: string | undefined) {
+  serverScope = scope
+}
+
+function scopedKey(key: string) {
+  return serverScope ? `${key}\nserver:${serverScope}` : key
+}
+
+function scopedLegacy(legacy?: string[]) {
+  // Scoped stores start fresh: legacy keys predate server scoping and may have been
+  // written by any backend, so only unscoped (local) stores migrate them.
+  return serverScope ? undefined : legacy
+}
+
 type PersistTarget = {
   storage?: string
   key: string
@@ -350,11 +368,14 @@ export const Persist = {
   global(key: string, legacy?: string[]): PersistTarget {
     return { storage: GLOBAL_STORAGE, key, legacy }
   },
+  serverGlobal(key: string, legacy?: string[]): PersistTarget {
+    return { storage: GLOBAL_STORAGE, key: scopedKey(key), legacy: scopedLegacy(legacy) }
+  },
   workspace(dir: string, key: string, legacy?: string[]): PersistTarget {
-    return { storage: workspaceStorage(dir), key: `workspace:${key}`, legacy }
+    return { storage: workspaceStorage(scopedKey(dir)), key: `workspace:${key}`, legacy: scopedLegacy(legacy) }
   },
   session(dir: string, session: string, key: string, legacy?: string[]): PersistTarget {
-    return { storage: workspaceStorage(dir), key: `session:${session}:${key}`, legacy }
+    return { storage: workspaceStorage(scopedKey(dir)), key: `session:${session}:${key}`, legacy: scopedLegacy(legacy) }
   },
   scoped(dir: string, session: string | undefined, key: string, legacy?: string[]): PersistTarget {
     if (session) return Persist.session(dir, session, key, legacy)
