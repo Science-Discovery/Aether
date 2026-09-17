@@ -13,6 +13,7 @@ import { Filesystem } from "@/util/filesystem"
 import { fileURLToPath } from "url"
 import { Flag } from "@/flag/flag.ts"
 import { Shell } from "@/shell/shell"
+import { ShellOutput } from "@/shell/output"
 import { cleanupNul } from "@/shell/guard"
 
 import { BashArity } from "@/permission/arity"
@@ -59,6 +60,7 @@ export const BashTool = Tool.define("bash", async () => {
 
   return {
     description: DESCRIPTION.replaceAll("${directory}", Instance.directory)
+      .replaceAll("${shell}", shell)
       .replaceAll("${maxLines}", String(Truncate.MAX_LINES))
       .replaceAll("${maxBytes}", String(Truncate.MAX_BYTES)),
     parameters: z.object({
@@ -165,6 +167,7 @@ export const BashTool = Tool.define("bash", async () => {
         { cwd, sessionID: ctx.sessionID, callID: ctx.callID },
         { env: {} },
       )
+      const encoding = await ShellOutput.encoding()
       const proc = spawn(params.command, {
         shell,
         cwd,
@@ -187,8 +190,9 @@ export const BashTool = Tool.define("bash", async () => {
         },
       })
 
-      const append = (chunk: Buffer) => {
-        output += chunk.toString()
+      const append = (text: string) => {
+        if (!text) return
+        output += text
         ctx.metadata({
           metadata: {
             // truncate the metadata to avoid GIANT blobs of data (has nothing to do w/ what agent can access)
@@ -198,18 +202,22 @@ export const BashTool = Tool.define("bash", async () => {
         })
       }
 
-      proc.stdout?.on("data", append)
-      proc.stderr?.on("data", append)
+      for (const stream of [proc.stdout, proc.stderr]) {
+        const decoder = ShellOutput.decoder(encoding)
+        stream?.on("data", (chunk: Buffer) => append(decoder.write(chunk)))
+        stream?.on("end", () => append(decoder.end()))
+        stream?.on("close", () => append(decoder.end()))
+      }
 
       let timedOut = false
       let aborted = false
       let exited = false
 
-      const kill = () => Shell.killTree(proc, { exited: () => exited })
-
-      if (ctx.abort.aborted) {
-        aborted = true
-        await kill()
+      const kill = async () => {
+        await Shell.killTree(proc, { exited: () => exited })
+        // A background descendant may still hold these pipes after the shell exits.
+        proc.stdout?.destroy()
+        proc.stderr?.destroy()
       }
 
       const abortHandler = () => {
@@ -232,6 +240,11 @@ export const BashTool = Tool.define("bash", async () => {
 
         proc.once("exit", () => {
           exited = true
+        })
+
+        // The process can exit before its output streams have drained.
+        proc.once("close", () => {
+          exited = true
           cleanup()
           resolve()
         })
@@ -241,6 +254,8 @@ export const BashTool = Tool.define("bash", async () => {
           cleanup()
           reject(error)
         })
+
+        if (ctx.abort.aborted) abortHandler()
       })
 
       const resultMetadata: string[] = []
