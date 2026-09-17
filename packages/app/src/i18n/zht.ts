@@ -606,7 +606,6 @@ export const dict = {
   "session.tab.gitGraph.addTagMessageDescription": "?",
   "session.tab.gitGraph.copiedHash": "?",
   "session.tab.gitGraph.copiedMessage": "?",
-  "session.tab.toggleDock": "切換標籤欄上下位置",
   "session.panel.reviewAndFiles": "審查與檔案",
   "session.review.filesChanged": "{{count}} 個檔案變更",
   "session.review.change.one": "變更",

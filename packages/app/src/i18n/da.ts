@@ -569,7 +569,6 @@ export const dict = {
   "session.tab.gitGraph.addTagMessageDescription": "?",
   "session.tab.gitGraph.copiedHash": "?",
   "session.tab.gitGraph.copiedMessage": "?",
-  "session.tab.toggleDock": "Skift placering af fanelinje",
   "session.panel.reviewAndFiles": "Gennemgang og filer",
   "session.review.filesChanged": "{{count}} Filer ændret",
   "session.review.change.one": "Ændring",

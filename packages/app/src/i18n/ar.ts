@@ -516,7 +516,6 @@ export const dict = {
   "session.tab.gitGraph.addTagMessageDescription": "?",
   "session.tab.gitGraph.copiedHash": "?",
   "session.tab.gitGraph.copiedMessage": "?",
-  "session.tab.toggleDock": "تبديل موضع شريط التبويبات",
   "session.panel.reviewAndFiles": "المراجعة والملفات",
   "session.review.filesChanged": "تم تغيير {{count}} ملفات",
   "session.review.change.one": "تغيير",

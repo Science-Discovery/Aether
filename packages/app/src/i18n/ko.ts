@@ -527,7 +527,6 @@ export const dict = {
   "session.tab.gitGraph.addTagMessageDescription": "?",
   "session.tab.gitGraph.copiedHash": "?",
   "session.tab.gitGraph.copiedMessage": "?",
-  "session.tab.toggleDock": "탭 바 위치 전환",
   "session.panel.reviewAndFiles": "검토 및 파일",
   "session.review.filesChanged": "{{count}}개 파일 변경됨",
   "session.review.change.one": "변경",

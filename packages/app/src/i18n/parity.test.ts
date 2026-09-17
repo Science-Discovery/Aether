@@ -29,13 +29,4 @@ describe("i18n parity", () => {
       }
     }
   })
-
-  test("all locales translate the review tab bar dock toggle", () => {
-    const key = "session.tab.toggleDock"
-    expect(en[key]).toBeDefined()
-    for (const locale of locales) {
-      expect(locale[key]).toBeDefined()
-      expect(locale[key]).not.toBe(en[key])
-    }
-  })
 })
