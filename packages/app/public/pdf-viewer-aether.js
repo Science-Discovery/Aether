@@ -26,6 +26,8 @@
 
   let currentConfig = null
   let currentKey = ""
+  let lastLocation = ""
+  let restoreState = null
   let eventsBound = false
   let suppressSidebarTracking = false
   let sidebarState = {
@@ -1460,6 +1462,40 @@
     }
   }
 
+  function docId(src) {
+    return src.replace(/([?&])(?:v|r)=[^&]*/g, "")
+  }
+
+  function isReload(oldKey, key) {
+    const old = oldKey.split("|")
+    const next = key.split("|")
+    return old[1] === next[1] && old[2] === next[2] && docId(old[0]) === docId(next[0])
+  }
+
+  function captureState() {
+    const app = window.PDFViewerApplication
+    if (!app?.pdfViewer || !app.pdfDocument) return null
+    return {
+      scale: app.pdfViewer.currentScaleValue,
+      scrollMode: app.pdfViewer.scrollMode,
+      spreadMode: app.pdfViewer.spreadMode,
+      rotation: app.pdfViewer.pagesRotation,
+      tool: app.pdfCursorTools?.activeTool,
+      location: lastLocation,
+      page: app.pdfViewer.currentPageNumber,
+    }
+  }
+
+  function applySettings(state) {
+    const app = window.PDFViewerApplication
+    if (!app?.pdfViewer) return
+    app.pdfCursorTools?.switchTool?.(state.tool || 0)
+    app.pdfViewer.scrollMode = state.scrollMode
+    app.pdfViewer.spreadMode = state.spreadMode
+    if (state.rotation) app.pdfViewer.pagesRotation = state.rotation
+    if (state.scale) app.pdfViewer.currentScaleValue = state.scale
+  }
+
   function applyDocumentDefaults(config) {
     const app = window.PDFViewerApplication
     if (!app?.pdfViewer) return
@@ -1513,10 +1549,12 @@
 
     eventBus.on("updateviewarea", function (evt) {
       syncHistoryButtons()
-      if (Date.now() < suppressBroadcastUntil) return
       const location = evt?.location?.pdfOpenParams
-      if (typeof location !== "string" || !location) return
-      post("locationchange", { location: location.startsWith("#") ? location.slice(1) : location })
+      if (typeof location === "string" && location) {
+        lastLocation = location.startsWith("#") ? location.slice(1) : location
+      }
+      if (Date.now() < suppressBroadcastUntil) return
+      if (lastLocation) post("locationchange", { location: lastLocation })
     })
 
     eventBus.on("pagesloaded", function (evt) {
@@ -1527,7 +1565,12 @@
       if (currentConfig) {
         requestAnimationFrame(function () {
           if (!currentConfig) return
-          applyPosition(currentConfig)
+          if (restoreState) {
+            applySettings(restoreState)
+            applyPosition(restoreState)
+          } else {
+            applyPosition(currentConfig)
+          }
           renderAnnotations()
         })
       }
@@ -1765,7 +1808,8 @@
     const app = window.PDFViewerApplication
     if (!config.src) return
 
-    if (currentKey === [config.src, config.authHeader || "", config.mode].join("|")) {
+    const key = [config.src, config.authHeader || "", config.mode].join("|")
+    if (currentKey === key) {
       applyChrome(config)
       if (app.pdfViewer) {
         app.pdfViewer.scrollMode = mapScrollMode(config.scrollMode)
@@ -1774,7 +1818,8 @@
       return
     }
 
-    currentKey = [config.src, config.authHeader || "", config.mode].join("|")
+    restoreState = currentKey && isReload(currentKey, key) ? captureState() : null
+    currentKey = key
     hideViewerError()
     sidebarState = {
       initialized: false,
@@ -1791,7 +1836,11 @@
 
     app.eventBus.on("documentloaded", function onDocumentLoaded() {
       app.eventBus.off("documentloaded", onDocumentLoaded)
-      applyDocumentDefaults(config)
+      if (restoreState) {
+        applySettings(restoreState)
+      } else {
+        applyDocumentDefaults(config)
+      }
       scheduleToolbarOverflowSync()
     })
 
