@@ -7,6 +7,7 @@
   const C_MAP_URL = "pdfjs-ref/web/cmaps/"
   const STANDARD_FONT_DATA_URL = "pdfjs-ref/web/standard_fonts/"
   const RANGE_CHUNK_SIZE = 65536
+  const RELOAD_MIN_INTERVAL = 3000
   const DEFAULT_SCALE = {
     full: "auto",
     compact: "page-width",
@@ -28,6 +29,10 @@
   let currentKey = ""
   let lastLocation = ""
   let restoreState = null
+  let docSettled = false
+  let reloadAt = 0
+  let reloadTimer = 0
+  let openChain = Promise.resolve()
   let eventsBound = false
   let suppressSidebarTracking = false
   let sidebarState = {
@@ -1557,6 +1562,12 @@
       if (lastLocation) post("locationchange", { location: lastLocation })
     })
 
+    eventBus.on("pagesinit", function () {
+      if (!restoreState) return
+      applySettings(restoreState)
+      applyPosition(restoreState)
+    })
+
     eventBus.on("pagesloaded", function (evt) {
       syncHistoryButtons()
       const totalPages = Number(evt?.pagesCount || window.PDFViewerApplication?.pdfDocument?.numPages || 0)
@@ -1571,6 +1582,7 @@
           } else {
             applyPosition(currentConfig)
           }
+          docSettled = true
           renderAnnotations()
         })
       }
@@ -1818,7 +1830,12 @@
       return
     }
 
-    restoreState = currentKey && isReload(currentKey, key) ? captureState() : null
+    restoreState = null
+    if (currentKey && isReload(currentKey, key)) {
+      const captured = docSettled ? captureState() : null
+      restoreState = captured || restoreState
+    }
+    docSettled = false
     currentKey = key
     hideViewerError()
     sidebarState = {
@@ -1864,19 +1881,35 @@
   async function applyConfig(nextConfig) {
     currentConfig = sanitizeConfig(nextConfig)
     applyChrome(currentConfig)
-    try {
-      await openDocument(currentConfig)
-    } catch (error) {
-      console.error("[aether-pdf-viewer] failed to open document", {
-        config: currentConfig,
-        error,
-      })
-      showViewerError(error)
-      post("loaderror", {
-        message: error instanceof Error ? error.message : String(error || "Unknown PDF viewer error"),
-      })
-      throw error
+    const key = [currentConfig.src, currentConfig.authHeader || "", currentConfig.mode].join("|")
+    if (currentKey && currentKey !== key && isReload(currentKey, key)) {
+      const wait = RELOAD_MIN_INTERVAL - (Date.now() - reloadAt)
+      if (wait > 0) {
+        if (!reloadTimer) {
+          reloadTimer = setTimeout(function () {
+            reloadTimer = 0
+            void applyConfig(currentConfig)
+          }, wait)
+        }
+        return
+      }
     }
+    reloadAt = Date.now()
+    openChain = openChain
+      .then(function () {
+        return openDocument(currentConfig)
+      })
+      .catch(function (error) {
+        console.error("[aether-pdf-viewer] failed to open document", {
+          config: currentConfig,
+          error,
+        })
+        showViewerError(error)
+        post("loaderror", {
+          message: error instanceof Error ? error.message : String(error || "Unknown PDF viewer error"),
+        })
+      })
+    await openChain
   }
 
   window.addEventListener(
