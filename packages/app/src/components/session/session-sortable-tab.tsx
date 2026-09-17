@@ -92,7 +92,7 @@ export function SortableTab(props: { tab: string; onTabClose: (tab: string) => v
           <div
             class="absolute right-0 top-0 bottom-0 flex items-center z-10"
             style={{
-              background: "linear-gradient(to right, transparent, var(--background-stronger) 40%)",
+              background: "linear-gradient(to right, transparent, var(--background-base) 40%)",
               "padding-left": "16px",
               "padding-right": "2px",
             }}

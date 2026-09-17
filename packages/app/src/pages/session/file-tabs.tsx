@@ -1205,8 +1205,15 @@ export function FileTabContent(props: { tab: string }) {
   }
 
   return (
-    <Tabs.Content value={props.tab} class="mt-3 relative flex h-full min-h-0 flex-col overflow-hidden contain-strict">
-      <Show when={state()?.loaded}>
+    <Tabs.Content
+      value={props.tab}
+      classList={{
+        "relative flex h-full min-h-0 flex-col overflow-hidden contain-strict": true,
+        // PDFs fill the tab flush; the gap reads as a stray empty bar above them.
+        "mt-3": !isPDF(),
+      }}
+    >
+      <Show when={state()?.loaded && (isTextFile() || isPython())}>
         <div class="px-3 pb-1 shrink-0">
           <Show when={isStale() && isTextFile()}>
             <div class="mb-2 flex items-center justify-between gap-3 rounded-md border border-yellow-500/25 bg-yellow-500/10 px-3 py-2">
