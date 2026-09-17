@@ -1830,10 +1830,11 @@
       return
     }
 
-    restoreState = null
-    if (currentKey && isReload(currentKey, key)) {
-      const captured = docSettled ? captureState() : null
-      restoreState = captured || restoreState
+    const reload = !!currentKey && isReload(currentKey, key)
+    if (!reload) {
+      restoreState = null
+    } else if (docSettled) {
+      restoreState = captureState() || restoreState
     }
     docSettled = false
     currentKey = key
@@ -1886,9 +1887,10 @@
       const wait = RELOAD_MIN_INTERVAL - (Date.now() - reloadAt)
       if (wait > 0) {
         if (!reloadTimer) {
+          const from = currentKey
           reloadTimer = setTimeout(function () {
             reloadTimer = 0
-            void applyConfig(currentConfig)
+            if (currentKey === from) void applyConfig(currentConfig)
           }, wait)
         }
         return
