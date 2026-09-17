@@ -8,7 +8,7 @@ import { getDirectory, getFilename } from "@opencode-ai/util/path"
 import { createEffect, createMemo, createSignal, For, on, ParentProps, Show } from "solid-js"
 import { createStore } from "solid-js/store"
 import { Dynamic } from "solid-js/web"
-import { AssistantParts, Message, MessageDivider, PART_MAPPING, type UserActions } from "./message-part"
+import { AssistantParts, Message, MessageDivider, type UserActions } from "./message-part"
 import { Card } from "./card"
 import { Accordion } from "./accordion"
 import { StickyAccordionHeader } from "./sticky-accordion-header"
@@ -98,19 +98,18 @@ function picked() {
 
 const hidden = new Set(["todowrite"])
 
-function partState(part: PartType, showReasoningSummaries: boolean) {
+function streaming(time: { end?: number } | undefined) {
+  return !!time && time.end === undefined
+}
+
+function livePart(part: PartType, showReasoningSummaries: boolean) {
   if (part.type === "tool") {
-    if (hidden.has(part.tool)) return
-    if (part.tool === "question" && (part.state.status === "pending" || part.state.status === "running")) return
-    return "visible" as const
+    if (hidden.has(part.tool)) return false
+    return part.state.status === "pending" || part.state.status === "running"
   }
-  if (part.type === "text") return part.text?.trim() ? ("visible" as const) : undefined
-  if (part.type === "reasoning") {
-    if (showReasoningSummaries && part.text?.trim()) return "visible" as const
-    return
-  }
-  if (PART_MAPPING[part.type]) return "visible" as const
-  return
+  if (part.type === "text") return !!part.text?.trim() && streaming(part.time)
+  if (part.type === "reasoning") return showReasoningSummaries && !!part.text?.trim() && streaming(part.time)
+  return false
 }
 
 function clean(value: string) {
@@ -355,32 +354,25 @@ export function SessionTurn(
     return end - start
   })
   const assistantDerived = createMemo(() => {
-    let visible = 0
-    let tail: "text" | "other" | undefined
     let reason: string | undefined
+    let inFlight = false
     const show = showReasoningSummaries()
     for (const message of assistantMessages()) {
       for (const part of list(data.store.part?.[message.id], emptyParts)) {
-        if (partState(part, show) === "visible") {
-          visible++
-          tail = part.type === "text" ? "text" : "other"
-        }
         if (part.type === "reasoning" && part.text) {
           const h = heading(part.text)
           if (h) reason = h
         }
+        inFlight ||= livePart(part, show)
       }
     }
-    return { visible, tail, reason }
+    return { reason, inFlight }
   })
-  const assistantVisible = createMemo(() => assistantDerived().visible)
-  const assistantTailVisible = createMemo(() => assistantDerived().tail)
   const reasoningHeading = createMemo(() => assistantDerived().reason)
   const showThinking = createMemo(() => {
     if (!working() || !!error()) return false
     if (status().type === "retry") return false
-    if (showReasoningSummaries()) return assistantVisible() === 0
-    return true
+    return !assistantDerived().inFlight
   })
   const assistantCollapsed = createMemo(() => props.assistantCollapsed ?? false)
   const canCollapseAssistant = createMemo(() => assistantMessages().length > 0 && !working())
