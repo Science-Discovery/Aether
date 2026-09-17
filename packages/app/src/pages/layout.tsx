@@ -722,9 +722,13 @@ export default function Layout(props: ParentProps) {
     if (state.scrollSessionKey === sessionKey) return
     const element = scrollContainerRef.querySelector(`[data-session-id="${sessionId}"]`)
     if (!element) return
+    const headerOffset = scrollContainerRef.querySelector(`[data-component="workspace-item"]`) ? 76 : 0
+    if (headerOffset) {
+      ;(element as HTMLElement).style.scrollMarginTop = `${headerOffset}px`
+    }
     const containerRect = scrollContainerRef.getBoundingClientRect()
     const elementRect = element.getBoundingClientRect()
-    if (elementRect.top >= containerRect.top && elementRect.bottom <= containerRect.bottom) {
+    if (elementRect.top >= containerRect.top + headerOffset && elementRect.bottom <= containerRect.bottom) {
       setState("scrollSessionKey", sessionKey)
       return
     }
@@ -2817,12 +2821,12 @@ export default function Layout(props: ParentProps) {
                           ref={(el) => {
                             scrollContainerRef = el
                           }}
-                          class="size-full py-2 overflow-y-auto no-scrollbar [overflow-anchor:none]"
+                          class="size-full pb-2 overflow-y-auto no-scrollbar [overflow-anchor:none]"
                         >
                           <SortableProvider ids={workspaces()}>
                             <For each={workspaces()}>
                               {(directory) => (
-                                <div class="mb-4">
+                                <div class="mb-4 first:mt-2">
                                   <SortableWorkspace
                                     ctx={workspaceSidebarCtx}
                                     directory={directory}

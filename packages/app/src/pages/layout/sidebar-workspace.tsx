@@ -960,7 +960,6 @@ const WorkspaceSessionList = (props: {
   slug: Accessor<string>
   currentSessionID: Accessor<string | undefined>
   ctx: WorkspaceSidebarContext
-  showNew: Accessor<boolean>
   loading: Accessor<boolean>
   rootSessions: Accessor<Session[]>
   allSessions: Accessor<Session[]>
@@ -976,18 +975,18 @@ const WorkspaceSessionList = (props: {
   onBatchArchive: () => Promise<void>
   onBatchDelete: () => void
   onCancelSelect: () => void
-  directory: string
-  createSession: (directory: string) => Promise<void>
+  pinned?: boolean
 }) => {
   const selectedCount = createMemo(() => props.selectedIds().size)
   const allSelected = createMemo(
     () => props.rootSessions().length > 0 && props.selectedIds().size === props.rootSessions().length,
   )
+  const pinned = () => (props.pinned ? "sticky top-10 z-30 bg-background-base" : "")
 
   return (
     <div class="flex flex-col gap-1">
       <Show when={props.selectMode()}>
-        <div class="flex items-center gap-1 pl-2 pr-1 py-0.5">
+        <div class={`flex items-center gap-1 pl-2 pr-1 py-0.5 ${pinned()}`}>
           <Button
             variant="ghost"
             size="small"
@@ -1029,22 +1028,6 @@ const WorkspaceSessionList = (props: {
         </div>
       </Show>
       <nav class="flex flex-col gap-1">
-        <Show when={props.showNew() && !props.selectMode()}>
-          <div class="flex items-center gap-1 pl-2 pr-3">
-            <NewSessionItem
-              slug={props.slug()}
-              clearHoverProjectSoon={props.ctx.clearHoverProjectSoon}
-              setHoverSession={props.ctx.setHoverSession}
-            />
-            <div class="flex-1" />
-            <RunScriptButton
-              directory={props.directory}
-              slug={props.slug}
-              sessions={props.rootSessions}
-              createSession={props.createSession}
-            />
-          </div>
-        </Show>
         <Show when={props.loading()}>
           <SessionSkeleton />
         </Show>
@@ -1207,9 +1190,9 @@ export const SortableWorkspace = (props: {
       }}
     >
       <Collapsible variant="ghost" open={open()} class="shrink-0" onOpenChange={openWrapper}>
-        <div class="py-1">
+        <div class="pb-1 sticky top-0 z-30 bg-background-base">
           <div
-            class="group/workspace relative"
+            class="py-1 group/workspace relative"
             data-component="workspace-item"
             data-workspace={base64Encode(props.directory)}
           >
@@ -1264,6 +1247,22 @@ export const SortableWorkspace = (props: {
               />
             </div>
           </div>
+          <Show when={open() && showNew() && !selectMode()}>
+            <div class="flex items-center gap-1 pl-2 pr-3">
+              <NewSessionItem
+                slug={slug()}
+                clearHoverProjectSoon={props.ctx.clearHoverProjectSoon}
+                setHoverSession={props.ctx.setHoverSession}
+              />
+              <div class="flex-1" />
+              <RunScriptButton
+                directory={props.directory}
+                slug={slug}
+                sessions={sessions}
+                createSession={props.ctx.createSession}
+              />
+            </div>
+          </Show>
         </div>
 
         <Collapsible.Content>
@@ -1271,7 +1270,6 @@ export const SortableWorkspace = (props: {
             slug={slug}
             currentSessionID={() => params.id}
             ctx={props.ctx}
-            showNew={showNew}
             loading={loading}
             rootSessions={sessions}
             allSessions={() => workspaceStore.session}
@@ -1287,8 +1285,7 @@ export const SortableWorkspace = (props: {
             onBatchArchive={batchArchive}
             onBatchDelete={batchDelete}
             onCancelSelect={cancelSelect}
-            directory={props.directory}
-            createSession={props.ctx.createSession}
+            pinned
           />
           <ArchivedSessionList directory={props.directory} slug={slug} ctx={props.ctx} language={language} />
         </Collapsible.Content>
@@ -1334,7 +1331,6 @@ export const LocalWorkspace = (props: {
         slug={slug}
         currentSessionID={() => params.id}
         ctx={props.ctx}
-        showNew={() => false}
         loading={loading}
         rootSessions={sessions}
         allSessions={() => workspace().store.session}
@@ -1350,8 +1346,6 @@ export const LocalWorkspace = (props: {
         onBatchArchive={batchArchive}
         onBatchDelete={batchDelete}
         onCancelSelect={cancelSelect}
-        directory={props.project.worktree}
-        createSession={props.ctx.createSession}
       />
       <ArchivedSessionList directory={props.project.worktree} slug={slug} ctx={props.ctx} language={language} />
     </div>
