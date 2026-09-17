@@ -396,10 +396,10 @@ describe("memory service", () => {
 
     let releaseDecision!: () => void
     let decisionStarted!: () => void
-    const started = new Promise<void>(resolve => {
+    const started = new Promise<void>((resolve) => {
       decisionStarted = resolve
     })
-    const release = new Promise<void>(resolve => {
+    const release = new Promise<void>((resolve) => {
       releaseDecision = resolve
     })
     const deleting = Memory.forget({
@@ -468,7 +468,7 @@ describe("memory service", () => {
 
   test("chat.message hook schedules quick reflection without blocking the chat pipeline", async () => {
     let release!: () => void
-    const blocker = new Promise<[]>(resolve => {
+    const blocker = new Promise<[]>((resolve) => {
       release = () => resolve([])
     })
     Memory.setReflectorForTest(async () => blocker)
@@ -480,7 +480,7 @@ describe("memory service", () => {
     )
     const raced = await Promise.race([
       done.then(() => "returned"),
-      new Promise(resolve => setTimeout(() => resolve("blocked"), 25)),
+      new Promise((resolve) => setTimeout(() => resolve("blocked"), 25)),
     ])
 
     release()
@@ -560,7 +560,9 @@ describe("memory service", () => {
     const controller = new AbortController()
     const second = Memory.reflect({ mode: "daily", reason: "queued-abort-test", signal: controller.signal })
     controller.abort()
-    await expect(Promise.race([second, new Promise((resolve) => setTimeout(() => resolve("timeout"), 30))])).rejects.toThrow()
+    await expect(
+      Promise.race([second, new Promise((resolve) => setTimeout(() => resolve("timeout"), 30))]),
+    ).rejects.toThrow()
 
     releaseFirst()
     await first
@@ -1032,7 +1034,8 @@ describe("memory service", () => {
     releaseImport()
     let finished = await Memory.status()
     for (let index = 0; index < 20; index++) {
-      if ((finished.initialization as { status?: string }).status !== "running") break
+      const status = (finished.initialization as { status?: string }).status
+      if (status === "succeeded" || status === "failed" || status === "cancelled") break
       await new Promise((resolve) => setTimeout(resolve, 50))
       finished = await Memory.status()
     }
@@ -1077,8 +1080,7 @@ describe("memory service", () => {
         messages: [
           {
             role: "user" as const,
-            text:
-              "I work on multi-loop Feynman integral reduction and often compare symbolic workflows across Mathematica, Kira, and custom TypeScript agents. The durable part is my research context, not a one-shot command.",
+            text: "I work on multi-loop Feynman integral reduction and often compare symbolic workflows across Mathematica, Kira, and custom TypeScript agents. The durable part is my research context, not a one-shot command.",
             createdAt: 1,
           },
         ],
