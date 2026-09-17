@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import type { Todo } from "@opencode-ai/sdk/v2/client"
-import { createOpencodeClient } from "@opencode-ai/sdk/v2/client"
+import type { OpencodeClient, Todo } from "@opencode-ai/sdk/v2/client"
 import { createServer, type RequestListener } from "node:http"
 import { createStore } from "solid-js/store"
 import { bootstrapDirectory } from "./bootstrap"
@@ -44,6 +43,27 @@ async function startServer() {
   }
 }
 
+// Built by hand instead of createOpencodeClient: other test files mock.module
+// the sdk entrypoint and bun leaks that mock across files, which would swap
+// this client for a stub without the lazy service getters.
+function sdkFor(url: string) {
+  const get = async (path: string) => {
+    const res = await Bun.fetch(new URL(path, url))
+    return { data: await res.json() }
+  }
+  return {
+    project: { current: () => get("/project/current") },
+    path: { get: () => get("/path") },
+    session: {
+      status: () => get("/session/status"),
+      todo: (input: { sessionID: string }) => get(`/session/${input.sessionID}/todo`),
+    },
+    vcs: { get: () => get("/vcs") },
+    permission: { list: () => get("/permission") },
+    question: { list: () => get("/question") },
+  } as unknown as OpencodeClient
+}
+
 const baseState = (input: Partial<State> = {}) =>
   ({
     status: "loading",
@@ -84,11 +104,7 @@ describe("bootstrapDirectory todo refresh", () => {
 
       await bootstrapDirectory({
         directory: "/tmp/project",
-        sdk: createOpencodeClient({
-          baseUrl: http.url,
-          throwOnError: true,
-          fetch: ((input, init) => Bun.fetch(input, init)) as typeof fetch,
-        }),
+        sdk: sdkFor(http.url),
         store,
         setStore,
         vcsCache,
@@ -118,10 +134,7 @@ describe("bootstrapDirectory todo refresh", () => {
       const [store, setStore] = createStore(baseState())
       await bootstrapDirectory({
         directory: "/tmp/project",
-        sdk: createOpencodeClient({
-          baseUrl: http.url,
-          fetch: ((input, init) => Bun.fetch(input, init)) as typeof fetch,
-        }),
+        sdk: sdkFor(http.url),
         store,
         setStore,
         vcsCache: { setStore: () => {} } as unknown as VcsCache,
