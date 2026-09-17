@@ -26,13 +26,12 @@ import { Persist, persisted } from "@/utils/persist"
 import type { AppClient } from "@/utils/server"
 import type { InitError } from "../pages/error"
 import { useGlobalSDK } from "./global-sdk"
-import { useServer } from "./server"
 import { bootstrapDirectory, bootstrapGlobal } from "./global-sync/bootstrap"
 import { createChildStoreManager } from "./global-sync/child-store"
 import { applyDirectoryEvent, applyGlobalEvent, cleanupDroppedSessionCaches } from "./global-sync/event-reducer"
 import { createRefreshQueue } from "./global-sync/queue"
 import { createProviderRefresh } from "./global-sync/provider-refresh"
-import { clearSessionPrefetchDirectory } from "./global-sync/session-prefetch"
+import { clearSessionPrefetchDirectory, resetSessionPrefetch } from "./global-sync/session-prefetch"
 import {
   estimateRootSessionTotal,
   loadDescendantsForRoots,
@@ -61,7 +60,6 @@ type GlobalStore = {
 
 function createGlobalSync() {
   const globalSDK = useGlobalSDK()
-  const server = useServer()
   const language = useLanguage()
   const owner = getOwner()
   if (!owner) throw new Error("GlobalSync must be created within owner")
@@ -73,11 +71,11 @@ function createGlobalSync() {
   const deleting = new Set<string>()
 
   const [projectCache, setProjectCache, projectInit] = persisted(
-    Persist.global(`globalSync.project.${server.key}`),
+    Persist.serverGlobal("globalSync.project"),
     createStore({ value: [] as Project[] }),
   )
   const [recentCache, setRecentCache, recentInit] = persisted(
-    Persist.global(`globalSync.recent.${server.key}`),
+    Persist.serverGlobal("globalSync.recent"),
     createStore({ value: [] as ProjectRecent[] }),
   )
 
@@ -101,6 +99,7 @@ function createGlobalSync() {
 
   onCleanup(() => {
     active = false
+    resetSessionPrefetch()
   })
 
   const cacheProjects = () => {

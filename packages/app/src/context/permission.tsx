@@ -61,7 +61,7 @@ export const { use: usePermission, provider: PermissionProvider } = createSimple
 
     const [store, setStore, _, ready] = persisted(
       {
-        ...Persist.global("permission", ["permission.v3"]),
+        ...Persist.serverGlobal("permission", ["permission.v3"]),
         migrate(value) {
           if (!value || typeof value !== "object" || Array.isArray(value)) return value
 

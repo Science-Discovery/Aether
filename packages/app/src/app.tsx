@@ -13,6 +13,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/solid-query"
 import { type Duration, Effect } from "effect"
 import {
   type Component,
+  createEffect,
   createMemo,
   createResource,
   createSignal,
@@ -274,13 +275,21 @@ function ConnectionError(props: { onRetry?: () => void; onServerSelected?: (key:
   )
 }
 
-function ServerKey(props: ParentProps) {
+// Re-creates its children whenever the active server changes, so every in-memory
+// provider below this point is scoped to one backend. Persisted state is scoped
+// separately via setPersistScope.
+function ServerKey(props: { children: () => JSX.Element }) {
   const server = useServer()
-  return (
-    <Show when={server.key} keyed>
-      {props.children}
-    </Show>
-  )
+  return <For each={[server.key]}>{() => props.children()}</For>
+}
+
+function ServerTracker(props: { onChange?: (conn: ServerConnection.Any | undefined) => void }) {
+  const server = useServer()
+  createEffect(() => {
+    props.onChange?.(server.current)
+  })
+  onCleanup(() => props.onChange?.(undefined))
+  return null
 }
 
 export function AppInterface(props: {
@@ -290,6 +299,7 @@ export function AppInterface(props: {
   router?: Component<BaseRouterProps>
   disableHealthCheck?: boolean
   basePath?: string
+  onServerChange?: (conn: ServerConnection.Any | undefined) => void
 }) {
   const routerBase = props.basePath && props.basePath !== "/" ? props.basePath : undefined
   const reset = () => {
@@ -298,24 +308,27 @@ export function AppInterface(props: {
   }
   return (
     <ServerProvider defaultServer={props.defaultServer} servers={props.servers} reset={reset}>
+      <ServerTracker onChange={props.onServerChange} />
       <ConnectionGate disableHealthCheck={props.disableHealthCheck}>
         <ServerKey>
-          <GlobalSDKProvider>
-            <GlobalSyncProvider>
-              <Dynamic
-                component={props.router ?? Router}
-                base={routerBase}
-                root={(routerProps) => <RouterRoot appChildren={props.children}>{routerProps.children}</RouterRoot>}
-              >
-                <Route path="/" component={HomeRoute} />
-                <Route path="/:dir" component={DirectoryLayout}>
-                  <Route path="/" component={SessionIndexRoute} />
-                  <Route path="/session/:id?" component={SessionRoute} />
-                  <Route path="/session/:id/reading" component={ReadingSessionRoute} />
-                </Route>
-              </Dynamic>
-            </GlobalSyncProvider>
-          </GlobalSDKProvider>
+          {() => (
+            <GlobalSDKProvider>
+              <GlobalSyncProvider>
+                <Dynamic
+                  component={props.router ?? Router}
+                  base={routerBase}
+                  root={(routerProps) => <RouterRoot appChildren={props.children}>{routerProps.children}</RouterRoot>}
+                >
+                  <Route path="/" component={HomeRoute} />
+                  <Route path="/:dir" component={DirectoryLayout}>
+                    <Route path="/" component={SessionIndexRoute} />
+                    <Route path="/session/:id?" component={SessionRoute} />
+                    <Route path="/session/:id/reading" component={ReadingSessionRoute} />
+                  </Route>
+                </Dynamic>
+              </GlobalSyncProvider>
+            </GlobalSDKProvider>
+          )}
         </ServerKey>
       </ConnectionGate>
     </ServerProvider>

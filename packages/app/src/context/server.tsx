@@ -1,17 +1,15 @@
 import { createSimpleContext } from "@opencode-ai/ui/context"
 import { type Accessor, batch, createEffect, createMemo, onCleanup } from "solid-js"
 import { createStore } from "solid-js/store"
-import { Persist, persisted } from "@/utils/persist"
+import { Persist, persisted, setPersistScope } from "@/utils/persist"
 import { checkServerHealth, useCheckServerHealth } from "@/utils/server-health"
+import { serverHash } from "@/utils/server-scope"
 import { usePlatform } from "@/context/platform"
 
 type StoredProject = { worktree: string; expanded: boolean }
 type StoredServer = string | ServerConnection.HttpBase | ServerConnection.Http
 const HEALTH_POLL_INTERVAL_MS = 10_000
 const HEALTH_CHECK_TIMEOUT_MS = 8_000
-
-let _pingPaused = false
-export const pingPaused = () => _pingPaused
 
 export function normalizeServerUrl(input: string) {
   const trimmed = input.trim()
@@ -112,27 +110,18 @@ export const { use: useServer, provider: ServerProvider } = createSimpleContext(
       }),
     )
 
-    const url = (x: StoredServer) => (typeof x === "string" ? x : "type" in x ? x.http.url : x.url)
+    const normalize = (value: StoredServer): ServerConnection.Any => {
+      if (typeof value === "string") return { type: "http", http: { url: value } }
+      if (!("type" in value)) return { type: "http", http: value }
+      return value
+    }
+
+    const keyOf = (value: StoredServer) => ServerConnection.key(normalize(value))
 
     const allServers = createMemo((): Array<ServerConnection.Any> => {
-      const servers = [
-        ...(props.servers ?? []),
-        ...store.list.map((value) =>
-          typeof value === "string"
-            ? {
-                type: "http" as const,
-                http: { url: value },
-              }
-            : value,
-        ),
-      ]
+      const servers = [...(props.servers ?? []), ...store.list.map(normalize)]
 
-      const deduped = new Map(
-        servers.map((value) => {
-          const conn: ServerConnection.Any = "type" in value ? value : { type: "http", http: value }
-          return [ServerConnection.key(conn), conn]
-        }),
-      )
+      const deduped = new Map(servers.map((value) => [ServerConnection.key(value), value]))
 
       return [...deduped.values()]
     })
@@ -157,12 +146,10 @@ export const { use: useServer, provider: ServerProvider } = createSimpleContext(
           .then((result) => {
             if (!alive) return
             setState("healthy", result.healthy)
-            _pingPaused = !result.healthy
           })
           .catch(() => {
             if (!alive) return
             setState("healthy", false)
-            _pingPaused = true
           })
           .finally(() => {
             clearTimeout(timeout)
@@ -181,31 +168,38 @@ export const { use: useServer, provider: ServerProvider } = createSimpleContext(
     function activate(input: ServerConnection.Key) {
       if (state.active === input) return
       props.reset?.()
+      setPersistScope(serverHash(input))
       setState("active", input)
     }
 
-    function add(input: ServerConnection.Http) {
+    function upsert(input: ServerConnection.Http, options?: { active?: boolean }) {
       const url_ = normalizeServerUrl(input.http.url)
       if (!url_) return
       const conn = { ...input, http: { ...input.http, url: url_ } }
       return batch(() => {
-        const existing = store.list.findIndex((x) => url(x) === url_)
+        const key = ServerConnection.key(conn)
+        const existing = store.list.findIndex((x) => keyOf(x) === key)
         if (existing !== -1) {
           setStore("list", existing, conn)
         } else {
           setStore("list", store.list.length, conn)
         }
+        if (options?.active) activate(key)
         return conn
       })
     }
 
+    function add(input: ServerConnection.Http) {
+      return upsert(input)
+    }
+
     function remove(key: ServerConnection.Key) {
-      const list = store.list.filter((x) => url(x) !== key)
+      const list = store.list.filter((x) => keyOf(x) !== key)
       const next = list[0]
       batch(() => {
         setStore("list", list)
       })
-      if (state.active === key) return next ? ServerConnection.Key.make(url(next)) : props.defaultServer
+      if (state.active === key) return next ? keyOf(next) : props.defaultServer
     }
 
     const isReady = createMemo(() => ready() && !!state.active)
@@ -230,6 +224,10 @@ export const { use: useServer, provider: ServerProvider } = createSimpleContext(
       return (c?.type === "sidecar" && c.variant === "base") || (c?.type === "http" && isLocalHost(c.http.url))
     })
 
+    // Must run before child providers create their persisted stores.
+    const initial = current()
+    if (initial) setPersistScope(serverHash(ServerConnection.key(initial)))
+
     return {
       ready: isReady,
       healthy,
@@ -248,6 +246,7 @@ export const { use: useServer, provider: ServerProvider } = createSimpleContext(
       },
       activate,
       add,
+      upsert,
       remove,
       projects: {
         list: projectsList,

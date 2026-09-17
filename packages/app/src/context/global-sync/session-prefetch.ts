@@ -98,3 +98,13 @@ export function clearSessionPrefetchDirectory(directory: string) {
     inflight.delete(id)
   }
 }
+
+// Called when the app tree for a server is disposed, so prefetched messages from one
+// backend can never be seeded into another backend's sessions.
+export function resetSessionPrefetch() {
+  for (const id of [...rev.keys()]) {
+    rev.set(id, version(id) + 1)
+  }
+  cache.clear()
+  inflight.clear()
+}

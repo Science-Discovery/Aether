@@ -307,12 +307,10 @@ function createWorkspaceTerminalSession(sdk: ReturnType<typeof useSDK>, dir: str
     async run(command: string, args: string[], title: string) {
       setRunning(true)
       try {
-        const result = await sdk.client.pty
-          .create({ command, args, title })
-          .catch((error: unknown) => {
-            console.error("Failed to run command in terminal", error)
-            return undefined
-          })
+        const result = await sdk.client.pty.create({ command, args, title }).catch((error: unknown) => {
+          console.error("Failed to run command in terminal", error)
+          return undefined
+        })
         const data = result?.data
         const id = data?.id
         if (!id || !data) return undefined

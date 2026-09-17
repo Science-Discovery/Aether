@@ -9,12 +9,14 @@ import { TextField } from "@opencode-ai/ui/text-field"
 import { useMutation } from "@tanstack/solid-query"
 import { showToast } from "@opencode-ai/ui/toast"
 import { createEffect, createMemo, createResource, onCleanup, Show } from "solid-js"
+import { useNavigate } from "@solidjs/router"
 import { createStore, reconcile } from "solid-js/store"
 import { ServerHealthIndicator, ServerRow } from "@/components/server/server-row"
 import { useLanguage } from "@/context/language"
 import { usePlatform } from "@/context/platform"
-import { normalizeServerUrl, ServerConnection, useServer } from "@/context/server"
+import { normalizeServerUrl, ServerConnection, serverName, useServer } from "@/context/server"
 import { type ServerHealth, useCheckServerHealth } from "@/utils/server-health"
+import { switchServer } from "@/utils/server-switch"
 
 const DEFAULT_USERNAME = "opencode"
 
@@ -172,6 +174,7 @@ function ServerForm(props: ServerFormProps) {
 
 export function DialogSelectServer() {
   const dialog = useDialog()
+  const navigate = useNavigate()
   const server = useServer()
   const platform = usePlatform()
   const language = useLanguage()
@@ -298,8 +301,12 @@ export function DialogSelectServer() {
     if (!newConn) return
     const nextActive = active === ServerConnection.key(original) ? ServerConnection.key(newConn) : active
     const fallback = server.remove(ServerConnection.key(original))
-    if (nextActive) server.activate(nextActive)
-    else if (fallback) server.activate(fallback)
+    const target = nextActive ?? fallback
+    if (!target || target === server.key) return
+    switchServer({
+      leave: () => navigate("/"),
+      activate: () => server.activate(target),
+    })
   }
 
   const items = createMemo(() => {
@@ -348,15 +355,26 @@ export function DialogSelectServer() {
     onCleanup(() => clearInterval(interval))
   })
 
-  async function select(conn: ServerConnection.Any, persist?: boolean) {
-    if (!persist && store.status[ServerConnection.key(conn)]?.healthy === false) return
+  function select(conn: ServerConnection.Any, persist?: boolean) {
+    const key = ServerConnection.key(conn)
+    if (!persist && key === server.key) return
+    if (!persist && store.status[key]?.healthy === false) return
     dialog.close()
-    if (persist && conn.type === "http") {
-      const added = server.add(conn)
-      if (added) server.activate(ServerConnection.key(added))
-      return
-    }
-    server.activate(ServerConnection.key(conn))
+    switchServer({
+      leave: () => navigate("/"),
+      activate: () => {
+        if (persist && conn.type === "http") {
+          server.upsert(conn, { active: true })
+        } else {
+          server.activate(key)
+        }
+        showToast({
+          variant: "success",
+          title: "已切换后端服务器",
+          description: `当前使用 ${serverName(conn)}`,
+        })
+      },
+    })
   }
 
   const handleAddChange = (value: string) => {
@@ -495,7 +513,12 @@ export function DialogSelectServer() {
 
   async function handleRemove(url: ServerConnection.Key) {
     const fallback = server.remove(url)
-    if (fallback) server.activate(fallback)
+    if (fallback && fallback !== server.key) {
+      switchServer({
+        leave: () => navigate("/"),
+        activate: () => server.activate(fallback),
+      })
+    }
     if ((await platform.getDefaultServer?.()) === url) {
       platform.setDefaultServer?.(null)
     }
