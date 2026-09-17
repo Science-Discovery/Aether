@@ -5,6 +5,7 @@ import { Button } from "@opencode-ai/ui/button"
 import type { FileSearchHandle } from "@opencode-ai/ui/file"
 import { useFileComponent } from "@opencode-ai/ui/context/file"
 import { cloneSelectedLineRange, previewSelectedLines } from "@opencode-ai/ui/pierre/selection-bridge"
+import { findFileLineNumber } from "@opencode-ai/ui/pierre/file-selection"
 import { createLineCommentController } from "@opencode-ai/ui/line-comment-annotations"
 import { checksum, sampledChecksum } from "@opencode-ai/util/encode"
 import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
@@ -24,6 +25,7 @@ import {
 import { useSDK } from "@/context/sdk"
 import { selectionFromLines, useFile, type FileSelection, type SelectedLineRange } from "@/context/file"
 import { useComments } from "@/context/comments"
+import { useMaybeFileQuote } from "@/context/file-quote"
 import { useGlobalSync } from "@/context/global-sync"
 import { useLanguage } from "@/context/language"
 import { useLocal } from "@/context/local"
@@ -620,6 +622,192 @@ export function FileTabContent(props: { tab: string }) {
 
   const [isRunning, setIsRunning] = createSignal(false)
 
+  const fileQuote = useMaybeFileQuote()
+
+  let tabRoot: HTMLDivElement | undefined
+  const [ask, setAsk] = createStore({
+    open: false,
+    top: 0,
+    left: 0,
+    text: "",
+    startLine: undefined as number | undefined,
+    endLine: undefined as number | undefined,
+  })
+
+  const clearAsk = () =>
+    setAsk({
+      open: false,
+      text: "",
+      startLine: undefined,
+      endLine: undefined,
+    })
+
+  const insideContent = (node: Node | null, container: Element) => {
+    if (!node) return false
+    const owner = node.getRootNode()
+    if (owner instanceof ShadowRoot) return container.contains(owner.host)
+    return container.contains(node)
+  }
+
+  const readSelection = (container: Element) => {
+    const documentSel = window.getSelection()
+    if (documentSel && documentSel.rangeCount > 0 && !documentSel.isCollapsed) {
+      const anchor = documentSel.anchorNode
+      const focus = documentSel.focusNode
+      if (insideContent(anchor, container) && insideContent(focus, container)) {
+        return {
+          text: documentSel.toString(),
+          anchor,
+          focus,
+          range: documentSel.getRangeAt(0),
+        }
+      }
+    }
+
+    // The code viewer keeps its text selection inside a shadow root; the
+    // document selection only exposes a collapsed range clamped to the host.
+    const host = container.querySelector("diffs-container")
+    const root = host instanceof HTMLElement ? host.shadowRoot : undefined
+    const shadowSel =
+      (root as unknown as { getSelection?: () => Selection | null } | undefined)?.getSelection?.() ?? undefined
+    if (!root || !shadowSel || shadowSel.rangeCount === 0 || shadowSel.isCollapsed) return
+
+    const composed = (
+      shadowSel as unknown as {
+        getComposedRanges?: (options?: { shadowRoots?: ShadowRoot[] }) => StaticRange[]
+      }
+    ).getComposedRanges?.({ shadowRoots: [root] })?.[0]
+
+    // Composed-range boundaries resolve to the actual shadow nodes, which the
+    // raw selection accessors may clamp to the host; prefer whichever is rooted.
+    const boundary = (
+      composedNode: Node | undefined,
+      composedOffset: number | undefined,
+      selNode: Node | null,
+      selOffset: number,
+    ) => {
+      if (composedNode && root.contains(composedNode))
+        return { node: composedNode, offset: composedOffset ?? selOffset }
+      if (selNode && root.contains(selNode)) return { node: selNode, offset: selOffset }
+      return
+    }
+    const start = boundary(
+      composed?.startContainer,
+      composed?.startOffset,
+      shadowSel.anchorNode,
+      shadowSel.anchorOffset,
+    )
+    const end = boundary(composed?.endContainer, composed?.endOffset, shadowSel.focusNode, shadowSel.focusOffset)
+    if (!start || !end) return
+
+    let range: Range | undefined
+    try {
+      const direct = new Range()
+      direct.setStart(start.node, start.offset)
+      direct.setEnd(end.node, end.offset)
+      range = direct
+    } catch {
+      range = undefined
+    }
+
+    return {
+      text: shadowSel.toString(),
+      anchor: start.node,
+      focus: end.node,
+      range,
+    }
+  }
+
+  const resolveAsk = () => {
+    const root = tabRoot
+    const container = root?.querySelector("[data-file-content]")
+    if (!params.id || isEditing() || !(root instanceof HTMLElement) || !(container instanceof Element))
+      return clearAsk()
+    const rootRect = root.getBoundingClientRect()
+    if (rootRect.width <= 0 || rootRect.height <= 0) return clearAsk()
+
+    const view = readSelection(container)
+    const text = view?.text.trim()
+    if (!view || !text) return clearAsk()
+
+    const rect = view.range?.getBoundingClientRect()
+    if (!rect || !Number.isFinite(rect.top) || !Number.isFinite(rect.left)) return clearAsk()
+
+    const startLine = findFileLineNumber(view.anchor)
+    const endLine = findFileLineNumber(view.focus)
+    const lines = startLine !== undefined && endLine !== undefined
+    const width = 52
+    const height = 34
+    setAsk({
+      open: true,
+      text,
+      startLine: lines ? Math.min(startLine, endLine) : undefined,
+      endLine: lines ? Math.max(startLine, endLine) : undefined,
+      top: Math.max(8, rect.top - rootRect.top - height - 8),
+      left: Math.min(
+        Math.max(8, rect.left + rect.width / 2 - rootRect.left - width / 2),
+        Math.max(8, rootRect.width - width - 8),
+      ),
+    })
+  }
+
+  const submitAsk = () => {
+    const raw = ask.text
+    const text = raw.length > 4000 ? `${raw.slice(0, 4000)}\n...[truncated]` : raw
+    const startLine = ask.startLine
+    const endLine = ask.endLine
+    const p = path()
+    const sessionID = params.id
+    clearAsk()
+    window.getSelection()?.removeAllRanges()
+    if (!text || !p || !sessionID) return
+    fileQuote?.setQuestion({
+      sessionID,
+      path: p,
+      ...(startLine !== undefined ? { startLine, endLine } : {}),
+      text,
+      summary: summarizeReadingQuoteText(text),
+      createdAt: Date.now(),
+    })
+    focusPromptInput()
+  }
+
+  createEffect(() => {
+    if (typeof window === "undefined") return
+
+    const change = () => {
+      if (!ask.open) return
+      const container = tabRoot?.querySelector("[data-file-content]")
+      if (!(container instanceof Element) || !readSelection(container)) clearAsk()
+    }
+    const up = (event: PointerEvent) => {
+      if (event.button !== 0) return
+      queueMicrotask(resolveAsk)
+    }
+    const down = (event: PointerEvent) => {
+      if (event.target instanceof Element && event.target.closest('[data-component="file-quote-ask-button"]')) return
+      clearAsk()
+    }
+    const dismiss = () => clearAsk()
+
+    document.addEventListener("selectionchange", change)
+    document.addEventListener("pointerup", up)
+    document.addEventListener("pointerdown", down)
+    window.addEventListener("resize", dismiss)
+    window.addEventListener("scroll", dismiss, true)
+    onCleanup(() => {
+      document.removeEventListener("selectionchange", change)
+      document.removeEventListener("pointerup", up)
+      document.removeEventListener("pointerdown", down)
+      window.removeEventListener("resize", dismiss)
+      window.removeEventListener("scroll", dismiss, true)
+    })
+  })
+
+  createEffect(() => {
+    if (isEditing() || !view().reviewPanel.opened()) clearAsk()
+  })
+
   const runPython = async () => {
     const p = path()
     if (!p) return
@@ -810,6 +998,7 @@ export function FileTabContent(props: { tab: string }) {
         setNeedsConfirm(false)
         setWordWrapSignal(false)
         commentsUi.note.reset()
+        clearAsk()
       },
       { defer: true },
     ),
@@ -1206,6 +1395,7 @@ export function FileTabContent(props: { tab: string }) {
 
   return (
     <Tabs.Content
+      ref={(el: HTMLDivElement) => (tabRoot = el)}
       value={props.tab}
       classList={{
         "relative flex h-full min-h-0 flex-col overflow-hidden contain-strict": true,
@@ -1346,6 +1536,24 @@ export function FileTabContent(props: { tab: string }) {
             switchScrollRatio = ratio
           }}
         />
+      </Show>
+      <Show when={ask.open}>
+        <button
+          type="button"
+          data-component="file-quote-ask-button"
+          class="absolute z-50 rounded-full border border-border-weak-base bg-background-stronger px-3 py-1.5 text-12-medium text-text-strong shadow-lg transition hover:bg-background-base"
+          style={{
+            top: `${ask.top}px`,
+            left: `${ask.left}px`,
+          }}
+          onPointerDown={(event) => {
+            event.preventDefault()
+            event.stopPropagation()
+          }}
+          onClick={submitAsk}
+        >
+          Ask
+        </button>
       </Show>
     </Tabs.Content>
   )

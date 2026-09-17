@@ -20,6 +20,14 @@ export type ReadingQuote = {
   imageDataUrl?: string
 }
 
+export type FileQuote = {
+  path: string
+  startLine?: number
+  endLine?: number
+  summary: string
+  fullText: string
+}
+
 function selection(selection: unknown) {
   if (!selection || typeof selection !== "object") return undefined
   const startLine = Number((selection as FileSelection).startLine)
@@ -55,9 +63,7 @@ export function summarizeReadingQuoteText(text: string, maxLength = 180) {
 }
 
 export function formatReadingPageRange(input: { startPage: number; endPage?: number }) {
-  return input.endPage && input.endPage > input.startPage
-    ? `${input.startPage}-${input.endPage}`
-    : `${input.startPage}`
+  return input.endPage && input.endPage > input.startPage ? `${input.startPage}-${input.endPage}` : `${input.startPage}`
 }
 
 export function createReadingQuoteMetadata(input: ReadingQuote) {
@@ -74,6 +80,46 @@ export function createReadingQuoteMetadata(input: ReadingQuote) {
       imageDataUrl: input.imageDataUrl,
     },
   }
+}
+
+export function createFileQuoteMetadata(input: FileQuote) {
+  return {
+    opencodeFileQuote: {
+      path: input.path,
+      startLine: input.startLine,
+      endLine: input.endLine,
+      summary: input.summary,
+      fullText: input.fullText,
+    },
+  }
+}
+
+export function readFileQuoteMetadata(value: unknown) {
+  if (!value || typeof value !== "object") return
+  const meta = (value as { opencodeFileQuote?: unknown }).opencodeFileQuote
+  if (!meta || typeof meta !== "object") return
+
+  const path = (meta as { path?: unknown }).path
+  const rawStart = (meta as { startLine?: unknown }).startLine
+  const rawEnd = (meta as { endLine?: unknown }).endLine
+  const summary = (meta as { summary?: unknown }).summary
+  const fullText = (meta as { fullText?: unknown }).fullText
+
+  if (typeof path !== "string" || !path) return
+  if (typeof summary !== "string" || typeof fullText !== "string") return
+
+  const startLine =
+    typeof rawStart === "number" && Number.isFinite(rawStart) && rawStart >= 1 ? Math.round(rawStart) : undefined
+  const endLine =
+    typeof rawEnd === "number" && Number.isFinite(rawEnd) && rawEnd >= (startLine ?? 1) ? Math.round(rawEnd) : undefined
+
+  return {
+    path,
+    startLine,
+    endLine,
+    summary,
+    fullText,
+  } satisfies FileQuote
 }
 
 export function readReadingQuoteMetadata(value: unknown) {

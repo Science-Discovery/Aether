@@ -38,9 +38,11 @@ import { messageAgentColor } from "@/utils/agent"
 import {
   formatReadingPageRange,
   parseCommentNote,
+  readFileQuoteMetadata,
   readCommentMetadata,
   readReadingQuoteMetadata,
   summarizeReadingQuoteText,
+  type FileQuote,
   type ReadingQuote,
 } from "@/utils/comment-note"
 import { readConversationQuoteMetadata, type ConversationQuote } from "@/utils/conversation-quote-metadata"
@@ -65,6 +67,7 @@ type MessageComment = {
 
 type MessageReadingQuote = ReadingQuote
 type MessageConversationQuote = ConversationQuote
+type MessageFileQuote = FileQuote
 
 const emptyMessages: MessageType[] = []
 const idle = { type: "idle" as const }
@@ -107,6 +110,13 @@ const messageConversationQuotes = (parts: Part[]): MessageConversationQuote[] =>
     return next ? [next] : []
   })
 
+const messageFileQuotes = (parts: Part[]): MessageFileQuote[] =>
+  parts.flatMap((part) => {
+    if (part.type !== "text" || !(part as TextPart).synthetic) return []
+    const next = readFileQuoteMetadata(part.metadata)
+    return next ? [next] : []
+  })
+
 function DialogReadingQuoteTextContent(props: { quote: MessageReadingQuote }) {
   return (
     <Dialog title="PDF Quote" class="w-[min(720px,calc(100vw-32px))] max-w-[calc(100vw-32px)]">
@@ -145,6 +155,30 @@ function DialogConversationQuotesContent(props: { quotes: MessageConversationQuo
               </div>
             )}
           </Index>
+        </div>
+      </div>
+    </Dialog>
+  )
+}
+
+function DialogFileQuoteTextContent(props: { quote: MessageFileQuote }) {
+  const lines =
+    props.quote.startLine !== undefined
+      ? props.quote.endLine !== undefined && props.quote.endLine !== props.quote.startLine
+        ? `:${props.quote.startLine}-${props.quote.endLine}`
+        : `:${props.quote.startLine}`
+      : ""
+  return (
+    <Dialog title="File Quote" class="w-[min(720px,calc(100vw-32px))] max-w-[calc(100vw-32px)]">
+      <div class="flex max-h-[70vh] min-w-0 w-full max-w-full flex-col gap-3 overflow-hidden p-4">
+        <div class="min-w-0 break-words text-14-medium text-text-strong">
+          {`${getFilename(props.quote.path)}${lines} - Ask`}
+        </div>
+        <div class="text-12-regular text-text-weak">{"Quoted content used for Ask"}</div>
+        <div class="min-w-0 w-full max-w-full overflow-auto rounded-md border border-border-weak-base bg-background-stronger px-3 py-3">
+          <div class="min-w-0 w-full max-w-full whitespace-pre-wrap break-words text-13-regular text-text-strong [overflow-wrap:anywhere]">
+            {props.quote.fullText || props.quote.summary}
+          </div>
         </div>
       </div>
     </Dialog>
@@ -1587,9 +1621,22 @@ export function MessageTimeline(props: {
                         ),
                     },
                   )
+                  const fileQuotes = createMemo(() => messageFileQuotes(sync.data.part[messageID] ?? []), [], {
+                    equals: (a, b) =>
+                      a.length === b.length &&
+                      a.every(
+                        (quote, i) =>
+                          quote.path === b[i].path &&
+                          quote.startLine === b[i].startLine &&
+                          quote.endLine === b[i].endLine &&
+                          quote.summary === b[i].summary &&
+                          quote.fullText === b[i].fullText,
+                      ),
+                  })
                   const commentCount = createMemo(() => comments().length)
                   const readingQuoteCount = createMemo(() => readingQuotes().length)
                   const conversationQuoteCount = createMemo(() => conversationQuotes().length)
+                  const fileQuoteCount = createMemo(() => fileQuotes().length)
                   return (
                     <div
                       id={props.anchor(messageID)}
@@ -1604,7 +1651,14 @@ export function MessageTimeline(props: {
                         "contain-intrinsic-size": isAssistantCollapsed(messageID) ? "auto 20px" : "auto 500px",
                       }}
                     >
-                      <Show when={commentCount() > 0 || readingQuoteCount() > 0 || conversationQuoteCount() > 0}>
+                      <Show
+                        when={
+                          commentCount() > 0 ||
+                          readingQuoteCount() > 0 ||
+                          conversationQuoteCount() > 0 ||
+                          fileQuoteCount() > 0
+                        }
+                      >
                         <div class="w-full px-4 md:px-5 pb-2">
                           <div class="ml-auto max-w-[82%] min-w-0 overflow-x-auto no-scrollbar overscroll-x-contain">
                             <div class="flex w-max min-w-full justify-end gap-2">
@@ -1663,6 +1717,43 @@ export function MessageTimeline(props: {
                                           <div class="pt-1 text-11-medium text-text-weak">
                                             {`p.${formatReadingPageRange(q())} · ${q().action === "ask" ? "Ask" : "Translate"}`}
                                           </div>
+                                          <div class="pt-1 text-12-regular text-text-strong whitespace-pre-wrap break-words line-clamp-3">
+                                            {q().summary}
+                                          </div>
+                                        </button>
+                                      )}
+                                    </Show>
+                                  )
+                                }}
+                              </Index>
+                              <Index each={fileQuotes()}>
+                                {(quoteAccessor: () => MessageFileQuote) => {
+                                  const quote = createMemo(() => quoteAccessor())
+                                  return (
+                                    <Show when={quote()}>
+                                      {(q) => (
+                                        <button
+                                          type="button"
+                                          class="w-[260px] max-w-full shrink-0 rounded-[6px] border border-border-weak-base bg-background-stronger px-2.5 py-2 text-left transition hover:bg-background-base"
+                                          onClick={() => {
+                                            dialog.show(() => <DialogFileQuoteTextContent quote={q()} />)
+                                          }}
+                                        >
+                                          <div class="flex items-center gap-1.5 min-w-0 text-11-medium text-text-strong">
+                                            <FileIcon
+                                              node={{ path: q().path, type: "file" }}
+                                              class="size-3.5 shrink-0"
+                                            />
+                                            <span class="truncate">{getFilename(q().path)}</span>
+                                            <Show when={q().startLine !== undefined}>
+                                              <span class="shrink-0 text-text-weak">
+                                                {q().endLine !== undefined && q().endLine !== q().startLine
+                                                  ? `:${q().startLine}-${q().endLine}`
+                                                  : `:${q().startLine}`}
+                                              </span>
+                                            </Show>
+                                          </div>
+                                          <div class="pt-1 text-11-medium text-text-weak">Ask</div>
                                           <div class="pt-1 text-12-regular text-text-strong whitespace-pre-wrap break-words line-clamp-3">
                                             {q().summary}
                                           </div>
