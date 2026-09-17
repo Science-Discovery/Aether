@@ -4,6 +4,7 @@ import { createEffect, on, Component, Show, For, onCleanup, createMemo, createSi
 import { createStore } from "solid-js/store"
 import { useLocal } from "@/context/local"
 import { useMaybeConversationQuote } from "@/context/conversation-quote"
+import { useMaybeFileQuote } from "@/context/file-quote"
 import { selectionFromLines, type SelectedLineRange, useFile } from "@/context/file"
 import { useMaybeQuickReadingMode } from "@/context/quick-reading-mode"
 import { useMaybeReadingMode } from "@/context/reading-mode"
@@ -120,6 +121,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
   const sync = useSync()
   const local = useLocal()
   const quote = useMaybeConversationQuote()
+  const fileQuote = useMaybeFileQuote()
   const quickReadingMode = useMaybeQuickReadingMode()
   const readingMode = useMaybeReadingMode()
   const files = useFile()
@@ -1206,6 +1208,8 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     openTabPaths: recent,
     conversationQuoteQuestions: () => quote?.store.pendingQuestions ?? [],
     onConversationQuoteClear: (id) => quote?.clearPendingQuestions(id),
+    fileQuoteQuestion: () => fileQuote?.store.question ?? null,
+    onFileQuoteClear: () => fileQuote?.setQuestion(null),
     quickReadingQuestion: () => quickReadingMode?.store.pendingQuestion ?? null,
     quickReadingSettings: () => quickReadingMode?.store.snapshot.settings,
     onQuickReadingQuestionClear: () => quickReadingMode?.setPendingQuestion(null),

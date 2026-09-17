@@ -21,7 +21,12 @@ import { Identifier } from "@/utils/id"
 import { Worktree as WorktreeState } from "@/utils/worktree"
 import { buildRequestParts, type DataAttachment } from "./build-request-parts"
 import { setCursorPosition } from "./editor-dom"
-import { createReadingQuoteMetadata, formatReadingPageRange, summarizeReadingQuoteText } from "@/utils/comment-note"
+import {
+  createFileQuoteMetadata,
+  createReadingQuoteMetadata,
+  formatReadingPageRange,
+  summarizeReadingQuoteText,
+} from "@/utils/comment-note"
 import { createConversationQuoteMetadata } from "@/utils/conversation-quote-metadata"
 import { formatServerError } from "@/utils/server-errors"
 
@@ -113,6 +118,25 @@ function fillConversationQuotePrompt(input: { selectedContent: string[]; userQue
     input.userQuestion,
     "",
     "Answer the user's question based on the quoted assistant content. If the quoted content is incomplete or ambiguous, say so clearly.",
+  ].join("\n")
+}
+
+function fileQuoteLocation(path: string, startLine?: number, endLine?: number) {
+  if (startLine === undefined) return path
+  return endLine !== undefined && endLine !== startLine ? `${path}:${startLine}-${endLine}` : `${path}:${startLine}`
+}
+
+function fillFileQuotePrompt(input: { location: string; selectedContent: string; userQuestion: string }) {
+  return [
+    "The user selected content from a file in their project and wants to ask a follow-up question about it.",
+    "",
+    `[Selected content from ${input.location}]`,
+    input.selectedContent,
+    "",
+    "[User question]",
+    input.userQuestion,
+    "",
+    "Answer the user's question based on the selected content. You may read the file for more context if needed.",
   ].join("\n")
 }
 
@@ -291,6 +315,8 @@ type PromptSubmitInput = {
   openTabPaths?: Accessor<string[]>
   conversationQuoteQuestions?: Accessor<QuoteQuestion[]>
   onConversationQuoteClear?: (sessionID?: string) => void
+  fileQuoteQuestion?: Accessor<FileQuoteQuestion>
+  onFileQuoteClear?: () => void
   quickReadingQuestion?: Accessor<QuickQuestion>
   quickReadingSettings?: Accessor<QuestionSettings | undefined>
   onQuickReadingQuestionClear?: () => void
@@ -306,6 +332,15 @@ type QuoteQuestion = {
   text: string
   summary: string
 }
+
+type FileQuoteQuestion = {
+  sessionID: string
+  path: string
+  startLine?: number
+  endLine?: number
+  text: string
+  summary: string
+} | null
 
 type QuestionSettings = {
   questionPrompt: string
@@ -626,6 +661,8 @@ export function createPromptSubmit(input: PromptSubmitInput) {
     const quickReadingPendingQuestion = input.quickReadingQuestion?.() ?? null
     const quickReadingQuestion =
       quickReadingPendingQuestion?.sessionID === params.id ? quickReadingPendingQuestion : null
+    const fileQuotePendingQuestion = input.fileQuoteQuestion?.() ?? null
+    const fileQuoteQuestion = fileQuotePendingQuestion?.sessionID === params.id ? fileQuotePendingQuestion : null
     const draft: FollowupDraft = {
       sessionID: session.id,
       sessionDirectory,
@@ -788,15 +825,62 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       return true
     }
 
+    const knowledgeBase =
+      knowledge.enabled() && knowledge.activeKnowledgeBases().length > 0
+        ? {
+            paths: knowledge.activeKnowledgeBases().map((kb) => kb.path),
+            apiKey: knowledge.activeKnowledgeBases()[0]!.apiKey,
+            baseURL: knowledge.activeKnowledgeBases()[0]!.baseURL,
+          }
+        : undefined
+
+    const rejectQuestion = () => {
+      restoreCommentItems(commentItems)
+      restoreInput()
+      showToast({
+        title: language.t("prompt.toast.promptSendFailed.title"),
+        description: language.t("prompt.toast.promptSendFailed.description"),
+      })
+    }
+
+    const sendQuestionDraft = (draft: FollowupDraft, onSent: () => void) => {
+      void sendFollowupDraft({
+        client,
+        sync,
+        globalSync,
+        draft,
+        messageID,
+        optimisticBusy: sessionDirectory === projectDirectory,
+        before: waitForWorktree,
+        knowledgeBase,
+      })
+        .then((ok) => {
+          if (ok) {
+            onSent()
+            return
+          }
+          restoreCommentItems(commentItems)
+          restoreInput()
+        })
+        .catch((err) => {
+          pending.delete(session.id)
+          if (sessionDirectory === projectDirectory) {
+            sync.set("session_status", session.id, { type: "idle" })
+          }
+          showToast({
+            title: language.t("prompt.toast.promptSendFailed.title"),
+            description: errorMessage(err),
+          })
+          removeOptimisticMessage()
+          restoreCommentItems(commentItems)
+          restoreInput()
+        })
+    }
+
     if (mode === "normal" && quoteQuestions.length > 0) {
       const typed = text.trim()
       if (!typed) {
-        restoreCommentItems(commentItems)
-        restoreInput()
-        showToast({
-          title: language.t("prompt.toast.promptSendFailed.title"),
-          description: language.t("prompt.toast.promptSendFailed.description"),
-        })
+        rejectQuestion()
         return
       }
 
@@ -837,44 +921,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
         ],
       }
 
-      void sendFollowupDraft({
-        client,
-        sync,
-        globalSync,
-        draft: requestDraft,
-        messageID,
-        optimisticBusy: sessionDirectory === projectDirectory,
-        before: waitForWorktree,
-        knowledgeBase:
-          knowledge.enabled() && knowledge.activeKnowledgeBases().length > 0
-            ? {
-                paths: knowledge.activeKnowledgeBases().map((kb) => kb.path),
-                apiKey: knowledge.activeKnowledgeBases()[0]!.apiKey,
-                baseURL: knowledge.activeKnowledgeBases()[0]!.baseURL,
-              }
-            : undefined,
-      })
-        .then((ok) => {
-          if (ok) {
-            input.onConversationQuoteClear?.(params.id)
-            return
-          }
-          restoreCommentItems(commentItems)
-          restoreInput()
-        })
-        .catch((err) => {
-          pending.delete(session.id)
-          if (sessionDirectory === projectDirectory) {
-            sync.set("session_status", session.id, { type: "idle" })
-          }
-          showToast({
-            title: language.t("prompt.toast.promptSendFailed.title"),
-            description: errorMessage(err),
-          })
-          removeOptimisticMessage()
-          restoreCommentItems(commentItems)
-          restoreInput()
-        })
+      sendQuestionDraft(requestDraft, () => input.onConversationQuoteClear?.(params.id))
       return
     }
 
@@ -882,12 +929,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       const typedQuestion = text.trim()
       const settings = input.quickReadingSettings?.()
       if (!typedQuestion || !settings) {
-        restoreCommentItems(commentItems)
-        restoreInput()
-        showToast({
-          title: language.t("prompt.toast.promptSendFailed.title"),
-          description: language.t("prompt.toast.promptSendFailed.description"),
-        })
+        rejectQuestion()
         return
       }
 
@@ -948,44 +990,59 @@ export function createPromptSubmit(input: PromptSubmitInput) {
         ],
       }
 
-      void sendFollowupDraft({
-        client,
-        sync,
-        globalSync,
-        draft: requestDraft,
-        messageID,
-        optimisticBusy: sessionDirectory === projectDirectory,
-        before: waitForWorktree,
-        knowledgeBase:
-          knowledge.enabled() && knowledge.activeKnowledgeBases().length > 0
-            ? {
-                paths: knowledge.activeKnowledgeBases().map((kb) => kb.path),
-                apiKey: knowledge.activeKnowledgeBases()[0]!.apiKey,
-                baseURL: knowledge.activeKnowledgeBases()[0]!.baseURL,
-              }
-            : undefined,
-      })
-        .then((ok) => {
-          if (ok) {
-            input.onQuickReadingQuestionClear?.()
-            return
-          }
-          restoreCommentItems(commentItems)
-          restoreInput()
-        })
-        .catch((err) => {
-          pending.delete(session.id)
-          if (sessionDirectory === projectDirectory) {
-            sync.set("session_status", session.id, { type: "idle" })
-          }
-          showToast({
-            title: language.t("prompt.toast.promptSendFailed.title"),
-            description: errorMessage(err),
-          })
-          removeOptimisticMessage()
-          restoreCommentItems(commentItems)
-          restoreInput()
-        })
+      sendQuestionDraft(requestDraft, () => input.onQuickReadingQuestionClear?.())
+      return
+    }
+
+    if (mode === "normal" && fileQuoteQuestion) {
+      const typedQuestion = text.trim()
+      if (!typedQuestion) {
+        rejectQuestion()
+        return
+      }
+
+      const requestDraft: FollowupDraft = {
+        sessionID: session.id,
+        sessionDirectory,
+        prompt: [DEFAULT_PROMPT[0]!, ...images],
+        context,
+        agent,
+        model,
+        variant,
+        selectedPaths: openPaths.length > 0 ? openPaths : undefined,
+        extraTextParts: [
+          {
+            text: typedQuestion,
+            ignored: true,
+          },
+          {
+            text: fillFileQuotePrompt({
+              location: fileQuoteLocation(
+                fileQuoteQuestion.path,
+                fileQuoteQuestion.startLine,
+                fileQuoteQuestion.endLine,
+              ),
+              selectedContent: fileQuoteQuestion.text,
+              userQuestion: typedQuestion,
+            }),
+            synthetic: true,
+          },
+          {
+            text: "",
+            synthetic: true,
+            ignored: true,
+            metadata: createFileQuoteMetadata({
+              path: fileQuoteQuestion.path,
+              startLine: fileQuoteQuestion.startLine,
+              endLine: fileQuoteQuestion.endLine,
+              summary: fileQuoteQuestion.summary,
+              fullText: fileQuoteQuestion.text,
+            }),
+          },
+        ],
+      }
+
+      sendQuestionDraft(requestDraft, () => input.onFileQuoteClear?.())
       return
     }
 
@@ -993,12 +1050,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       const typedQuestion = text.trim()
       const sessionMeta = sync.session.get(session.id)?.readingMode ?? input.readingSessionMeta?.()
       if (!typedQuestion || !sessionMeta) {
-        restoreCommentItems(commentItems)
-        restoreInput()
-        showToast({
-          title: language.t("prompt.toast.promptSendFailed.title"),
-          description: language.t("prompt.toast.promptSendFailed.description"),
-        })
+        rejectQuestion()
         return
       }
 
@@ -1095,44 +1147,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
         return
       }
 
-      void sendFollowupDraft({
-        client,
-        sync,
-        globalSync,
-        draft: requestDraft,
-        messageID,
-        optimisticBusy: sessionDirectory === projectDirectory,
-        before: waitForWorktree,
-        knowledgeBase:
-          knowledge.enabled() && knowledge.activeKnowledgeBases().length > 0
-            ? {
-                paths: knowledge.activeKnowledgeBases().map((kb) => kb.path),
-                apiKey: knowledge.activeKnowledgeBases()[0]!.apiKey,
-                baseURL: knowledge.activeKnowledgeBases()[0]!.baseURL,
-              }
-            : undefined,
-      })
-        .then((ok) => {
-          if (ok) {
-            input.onReadingQuestionClear?.()
-            return
-          }
-          restoreCommentItems(commentItems)
-          restoreInput()
-        })
-        .catch((err) => {
-          pending.delete(session.id)
-          if (sessionDirectory === projectDirectory) {
-            sync.set("session_status", session.id, { type: "idle" })
-          }
-          showToast({
-            title: language.t("prompt.toast.promptSendFailed.title"),
-            description: errorMessage(err),
-          })
-          removeOptimisticMessage()
-          restoreCommentItems(commentItems)
-          restoreInput()
-        })
+      sendQuestionDraft(requestDraft, () => input.onReadingQuestionClear?.())
       return
     }
 
@@ -1144,14 +1159,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       messageID,
       optimisticBusy: sessionDirectory === projectDirectory,
       before: waitForWorktree,
-      knowledgeBase:
-        knowledge.enabled() && knowledge.activeKnowledgeBases().length > 0
-          ? {
-              paths: knowledge.activeKnowledgeBases().map((kb) => kb.path),
-              apiKey: knowledge.activeKnowledgeBases()[0]!.apiKey,
-              baseURL: knowledge.activeKnowledgeBases()[0]!.baseURL,
-            }
-          : undefined,
+      knowledgeBase,
     }).catch((err) => {
       pending.delete(session.id)
       if (sessionDirectory === projectDirectory) {

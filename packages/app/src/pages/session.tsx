@@ -39,6 +39,7 @@ import { useLanguage } from "@/context/language"
 import { useLayout } from "@/context/layout"
 import { usePrompt } from "@/context/prompt"
 import { ConversationQuoteProvider } from "@/context/conversation-quote"
+import { FileQuoteProvider } from "@/context/file-quote"
 import { useSDK } from "@/context/sdk"
 import { useSettings } from "@/context/settings"
 import { useSync } from "@/context/sync"
@@ -2691,9 +2692,11 @@ function SessionPageContent(props: SessionPageProps = {}) {
 export default function Page(props: SessionPageProps = {}) {
   return (
     <ConversationQuoteProvider>
-      <QuickReadingModeProvider>
-        <SessionPageContent {...props} />
-      </QuickReadingModeProvider>
+      <FileQuoteProvider>
+        <QuickReadingModeProvider>
+          <SessionPageContent {...props} />
+        </QuickReadingModeProvider>
+      </FileQuoteProvider>
     </ConversationQuoteProvider>
   )
 }

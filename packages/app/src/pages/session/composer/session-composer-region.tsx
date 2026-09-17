@@ -1,9 +1,11 @@
 import { Index, Show, createEffect, createMemo, onCleanup } from "solid-js"
 import { createStore } from "solid-js/store"
 import { useSpring } from "@opencode-ai/ui/motion-spring"
+import { getFilename } from "@opencode-ai/util/path"
 import { PromptInput } from "@/components/prompt-input"
 import { type FollowupDraft } from "@/components/prompt-input/submit"
 import { useMaybeConversationQuote } from "@/context/conversation-quote"
+import { useMaybeFileQuote } from "@/context/file-quote"
 import { useLanguage } from "@/context/language"
 import { useMaybeQuickReadingMode } from "@/context/quick-reading-mode"
 import { useMaybeReadingMode } from "@/context/reading-mode"
@@ -49,6 +51,7 @@ export function SessionComposerRegion(props: {
   const prompt = usePrompt()
   const language = useLanguage()
   const quote = useMaybeConversationQuote()
+  const fileQuote = useMaybeFileQuote()
   const readingMode = useMaybeReadingMode()
   const quickReadingMode = useMaybeQuickReadingMode()
   const route = useSessionKey()
@@ -60,6 +63,10 @@ export function SessionComposerRegion(props: {
     const quickPending = quickReadingMode?.store.pendingQuestion
     if (quickPending?.sessionID === route.params.id) return quickPending
     return readingMode?.store.pendingQuestion ?? null
+  })
+  const fileQuoteQuestion = createMemo(() => {
+    const pending = fileQuote?.store.question
+    return pending?.sessionID === route.params.id ? pending : null
   })
 
   const handoffPrompt = createMemo(() => getSessionHandoff(route.sessionKey())?.prompt)
@@ -318,6 +325,30 @@ export function SessionComposerRegion(props: {
                           }
                           readingMode?.setPendingQuestion(null)
                         }}
+                        aria-label={language.t("common.clear")}
+                      >
+                        x
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </Show>
+              <Show when={fileQuoteQuestion()} keyed>
+                {(question) => (
+                  <div class="mb-2 rounded-lg border border-border-weak-base bg-surface-base px-3 py-2 shadow-xs">
+                    <div class="flex items-start justify-between gap-3">
+                      <div class="min-w-0 flex-1">
+                        <div class="text-11-medium uppercase tracking-wide text-text-weak">
+                          {`${getFilename(question.path)}${question.startLine !== undefined ? ` · L${question.startLine}${question.endLine !== undefined && question.endLine !== question.startLine ? `-L${question.endLine}` : ""}` : ""} · File Quote`}
+                        </div>
+                        <div class="mt-1 line-clamp-3 whitespace-pre-wrap break-words text-13-regular text-text-strong">
+                          {question.text}
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        class="shrink-0 rounded-md px-1 py-0.5 text-12-medium text-text-weak transition hover:bg-surface-hover hover:text-text-strong"
+                        onClick={() => fileQuote?.setQuestion(null)}
                         aria-label={language.t("common.clear")}
                       >
                         x

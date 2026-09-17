@@ -1,5 +1,6 @@
 import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test"
 import type { Prompt } from "@/context/prompt"
+import { readFileQuoteMetadata } from "@/utils/comment-note"
 
 let createPromptSubmit: typeof import("./submit").createPromptSubmit
 
@@ -20,6 +21,7 @@ const storedSessions: Record<string, Array<{ id: string; title?: string }>> = {}
 const promoted: Array<{ directory: string; sessionID: string }> = []
 const sentShell: string[] = []
 const syncedDirectories: string[] = []
+const prompted: Array<Record<string, unknown>> = []
 
 let params: { id?: string } = {}
 let selected = "/repo/worktree-a"
@@ -45,7 +47,10 @@ const clientFor = (directory: string) => {
         return { data: undefined }
       },
       prompt: async () => ({ data: undefined }),
-      promptAsync: async () => ({ data: undefined }),
+      promptAsync: async (input: Record<string, unknown>) => {
+        prompted.push(input)
+        return { data: undefined }
+      },
       command: async () => ({ data: undefined }),
       abort: async () => ({ data: undefined }),
     },
@@ -235,6 +240,7 @@ beforeEach(() => {
   params = {}
   sentShell.length = 0
   syncedDirectories.length = 0
+  prompted.length = 0
   selected = "/repo/worktree-a"
   variant = undefined
   for (const key of Object.keys(storedSessions)) delete storedSessions[key]
@@ -366,5 +372,109 @@ describe("prompt submit worktree selection", () => {
 
     expect(storedSessions["/repo/worktree-a"]).toEqual([{ id: "session-1", title: "New session 1" }])
     expect(optimisticSeeded).toEqual([true])
+  })
+
+  test("builds a file quote ask prompt and clears the pending quote", async () => {
+    params = { id: "session-1" }
+    let question: {
+      sessionID: string
+      path: string
+      startLine?: number
+      endLine?: number
+      text: string
+      summary: string
+    } | null = {
+      sessionID: "session-1",
+      path: "src/agent.ts",
+      startLine: 3,
+      endLine: 9,
+      text: "const x = 1",
+      summary: "const x = 1",
+    }
+
+    const submit = createPromptSubmit({
+      info: () => ({ id: "session-1" }),
+      imageAttachments: () => [],
+      commentCount: () => 0,
+      autoAccept: () => false,
+      mode: () => "normal",
+      working: () => false,
+      editor: () => undefined,
+      queueScroll: () => undefined,
+      promptLength: (value) => value.reduce((sum, part) => sum + ("content" in part ? part.content.length : 0), 0),
+      addToHistory: () => undefined,
+      resetHistoryNavigation: () => undefined,
+      setMode: () => undefined,
+      setPopover: () => undefined,
+      onSubmit: () => undefined,
+      fileQuoteQuestion: () => question,
+      onFileQuoteClear: () => (question = null),
+    })
+
+    const event = { preventDefault: () => undefined } as unknown as Event
+
+    await submit.handleSubmit(event)
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(prompted).toHaveLength(1)
+    const parts = prompted[0].parts as Array<{
+      type: string
+      text?: string
+      synthetic?: boolean
+      ignored?: boolean
+      metadata?: Record<string, unknown>
+    }>
+    expect(parts[0]).toMatchObject({ type: "text", text: "ls", ignored: true })
+    expect(parts[1]?.synthetic).toBe(true)
+    expect(parts[1]?.text).toContain("[Selected content from src/agent.ts:3-9]")
+    expect(parts[1]?.text).toContain("[User question]")
+    expect(parts[1]?.text).toContain("ls")
+    expect(parts[1]?.text).toContain("const x = 1")
+    expect(parts[2]?.ignored).toBe(true)
+    expect(readFileQuoteMetadata(parts[2]?.metadata)).toEqual({
+      path: "src/agent.ts",
+      startLine: 3,
+      endLine: 9,
+      summary: "const x = 1",
+      fullText: "const x = 1",
+    })
+    expect(question).toBeNull()
+  })
+
+  test("ignores file quotes from other sessions", async () => {
+    params = { id: "session-1" }
+
+    const submit = createPromptSubmit({
+      info: () => ({ id: "session-1" }),
+      imageAttachments: () => [],
+      commentCount: () => 0,
+      autoAccept: () => false,
+      mode: () => "normal",
+      working: () => false,
+      editor: () => undefined,
+      queueScroll: () => undefined,
+      promptLength: (value) => value.reduce((sum, part) => sum + ("content" in part ? part.content.length : 0), 0),
+      addToHistory: () => undefined,
+      resetHistoryNavigation: () => undefined,
+      setMode: () => undefined,
+      setPopover: () => undefined,
+      onSubmit: () => undefined,
+      fileQuoteQuestion: () => ({
+        sessionID: "session-2",
+        path: "src/other.ts",
+        text: "other",
+        summary: "other",
+      }),
+    })
+
+    const event = { preventDefault: () => undefined } as unknown as Event
+
+    await submit.handleSubmit(event)
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(prompted).toHaveLength(1)
+    const parts = prompted[0].parts as Array<{ type: string; text?: string; synthetic?: boolean }>
+    expect(parts).toHaveLength(1)
+    expect(parts[0]).toMatchObject({ type: "text", text: "ls" })
   })
 })
