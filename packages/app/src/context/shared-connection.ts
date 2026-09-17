@@ -104,8 +104,10 @@ export function connectShared(opts: Opts): Conn {
             yield q.shift()!
             continue
           }
+          resetTimer()
           await new Promise<void>((r) => (wake = r))
           wake = undefined
+          if (q.length === 0) return
         }
       } finally {
         if (timer) clearTimeout(timer)

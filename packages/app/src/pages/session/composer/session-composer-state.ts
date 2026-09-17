@@ -133,6 +133,23 @@ export function createSessionComposerState(options?: { closeMs?: number | (() =>
     return busy() || blocked()
   })
 
+  // The todo feed is event-driven, so a turn that starts before the event
+  // stream (or a cached empty list) leaves nothing to heal from. While the
+  // turn is live and the local list is still empty, revalidate once.
+  createEffect(
+    on(
+      () => [live(), params.id] as const,
+      ([active, id]) => {
+        if (!active || !id) return
+        const timer = window.setTimeout(() => {
+          if (!live() || todos().length > 0 || params.id !== id) return
+          void sync.session.todo(id, { force: true }).catch(() => undefined)
+        }, 800)
+        onCleanup(() => window.clearTimeout(timer))
+      },
+    ),
+  )
+
   const [store, setStore] = createStore({
     responding: undefined as string | undefined,
     dock: todos().length > 0 && live(),

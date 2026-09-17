@@ -155,6 +155,7 @@ export async function bootstrapDirectory(input: {
   setStore: SetStoreFunction<State>
   vcsCache: VcsCache
   loadSessions: (directory: string) => Promise<void> | void
+  setSessionTodo?: (sessionID: string, todos: Todo[] | undefined) => void
   translate: (key: string, vars?: Record<string, string | number>) => string
   global: {
     config: Config
@@ -241,6 +242,25 @@ export async function bootstrapDirectory(input: {
           })
         }),
       ),
+    () =>
+      (async () => {
+        const ids = Object.keys(input.store.todo)
+        if (ids.length === 0) return
+        const settled = await Promise.allSettled(
+          ids.map((sessionID) => input.sdk.session.todo({ sessionID }).then((x) => [sessionID, x.data ?? []] as const)),
+        )
+        batch(() => {
+          for (const item of settled) {
+            if (item.status === "rejected") {
+              console.error("Failed to refresh session todo", item.reason)
+              continue
+            }
+            const [sessionID, todos] = item.value
+            input.setStore("todo", sessionID, reconcile(todos))
+            input.setSessionTodo?.(sessionID, todos)
+          }
+        })
+      })(),
   ]
 
   const slow = [() => Promise.resolve(input.loadSessions(input.directory))]
