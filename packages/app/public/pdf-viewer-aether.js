@@ -12,6 +12,18 @@
     compact: "page-width",
   }
 
+  if (window.parent !== window && window.PDFViewerApplication && window.PDFViewerApplicationOptions) {
+    window.PDFViewerApplicationOptions.set("externalLinkTarget", 4)
+    const app = window.PDFViewerApplication
+    const initComponents = app._initializeViewerComponents
+    app._initializeViewerComponents = function () {
+      this.isViewerEmbedded = false
+      return initComponents.apply(this, arguments).finally(function () {
+        app.isViewerEmbedded = true
+      })
+    }
+  }
+
   let currentConfig = null
   let currentKey = ""
   let eventsBound = false
@@ -1467,6 +1479,22 @@
     applyPosition(config)
   }
 
+  function syncHistoryButtons() {
+    const back = document.getElementById("aetherHistoryBack")
+    const forward = document.getElementById("aetherHistoryForward")
+    if (!back || !forward) return
+    const pdfHistory = window.PDFViewerApplication?.pdfHistory
+    const state = window.history.state
+    const valid = !!(
+      pdfHistory &&
+      state &&
+      state.fingerprint === pdfHistory._fingerprint &&
+      Number.isInteger(state.uid)
+    )
+    back.disabled = !(valid && state.uid > 0)
+    forward.disabled = !(valid && state.uid < pdfHistory._maxUid)
+  }
+
   function bindEvents() {
     if (eventsBound) return
     eventsBound = true
@@ -1484,6 +1512,7 @@
     })
 
     eventBus.on("updateviewarea", function (evt) {
+      syncHistoryButtons()
       if (Date.now() < suppressBroadcastUntil) return
       const location = evt?.location?.pdfOpenParams
       if (typeof location !== "string" || !location) return
@@ -1491,6 +1520,7 @@
     })
 
     eventBus.on("pagesloaded", function (evt) {
+      syncHistoryButtons()
       const totalPages = Number(evt?.pagesCount || window.PDFViewerApplication?.pdfDocument?.numPages || 0)
       if (!Number.isFinite(totalPages) || totalPages <= 0) return
       post("documentinfo", { totalPages })
@@ -1603,6 +1633,24 @@
         setToolbarPrefs({ auto: !toolbarPrefs.auto })
       })
     }
+
+    const historyBack = document.getElementById("aetherHistoryBack")
+    if (historyBack) {
+      historyBack.addEventListener("click", function () {
+        window.PDFViewerApplication?.pdfHistory?.back()
+        requestAnimationFrame(syncHistoryButtons)
+      })
+    }
+
+    const historyForward = document.getElementById("aetherHistoryForward")
+    if (historyForward) {
+      historyForward.addEventListener("click", function () {
+        window.PDFViewerApplication?.pdfHistory?.forward()
+        requestAnimationFrame(syncHistoryButtons)
+      })
+    }
+
+    syncHistoryButtons()
 
     const readingSettings = document.getElementById("aetherReadingSettings")
     if (readingSettings) {
@@ -1799,7 +1847,12 @@
         currentConfig = { ...(currentConfig || sanitizeConfig({})), page: Math.round(page) }
         if (window.PDFViewerApplication?.pdfDocument) {
           suppressBroadcastUntil = Date.now() + 500
-          window.PDFViewerApplication.page = Math.round(page)
+          const app = window.PDFViewerApplication
+          if (app.page >= 1) {
+            app.pdfHistory?.pushCurrentPosition()
+            app.pdfHistory?.pushPage(app.page)
+          }
+          app.page = Math.round(page)
         }
         return
       }
