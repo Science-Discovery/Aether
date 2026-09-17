@@ -20,6 +20,7 @@ import { SessionRetry } from "./session-retry"
 import { TextReveal } from "./text-reveal"
 import { createAutoScroll } from "../hooks"
 import { useI18n } from "../context/i18n"
+import { livePart } from "../utils/session-live"
 
 function record(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value)
@@ -94,22 +95,6 @@ function picked() {
   const sel = window.getSelection?.()
   if (!sel) return false
   return sel.type === "Range" && sel.toString().trim().length > 0
-}
-
-const hidden = new Set(["todowrite"])
-
-function streaming(time: { end?: number } | undefined) {
-  return !!time && time.end === undefined
-}
-
-function livePart(part: PartType, showReasoningSummaries: boolean) {
-  if (part.type === "tool") {
-    if (hidden.has(part.tool)) return false
-    return part.state.status === "pending" || part.state.status === "running"
-  }
-  if (part.type === "text") return !!part.text?.trim() && streaming(part.time)
-  if (part.type === "reasoning") return showReasoningSummaries && !!part.text?.trim() && streaming(part.time)
-  return false
 }
 
 function clean(value: string) {
