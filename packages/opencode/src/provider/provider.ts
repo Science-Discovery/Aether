@@ -984,7 +984,10 @@ export namespace Provider {
       variants: {},
     }
 
-    m.variants = mapValues(ProviderTransform.variants(m), (v) => v)
+    m.variants = mapValues(
+      ProviderTransform.reasoning(m, model.reasoning_options) ?? ProviderTransform.variants(m),
+      (v) => v,
+    )
 
     return m
   }
@@ -1005,6 +1008,31 @@ export namespace Provider {
     const config = await Config.get()
     const modelsDev = await ModelsDev.get()
     const database = mapValues(modelsDev, fromModelsDevProvider)
+    let subscription: Record<string, CodexModels.Metadata> | undefined
+
+    function variants(model: Model) {
+      const cfg = config.provider?.[model.providerID]?.models?.[model.id]
+      const source = modelsDev[model.providerID]?.models[model.api.id]
+      const levels =
+        model.providerID === ProviderID.openai ? subscription?.[model.api.id]?.supported_reasoning_levels : undefined
+      return (
+        ProviderTransform.reasoning(
+          model,
+          cfg?.reasoning_options ??
+            (levels === undefined
+              ? source?.reasoning_options
+              : [{ type: "effort", values: levels.map((level) => level.effort) }]),
+          {
+            ...(providers[model.providerID]?.options ?? config.provider?.[model.providerID]?.options),
+            ...model.options,
+            // Without a registered loader, Azure's sdk.languageModel() selects Chat.
+            ...(model.api.npm === "@ai-sdk/azure" && !modelLoaders[model.providerID]
+              ? { useCompletionUrls: true }
+              : {}),
+          },
+        ) ?? ProviderTransform.variants(model)
+      )
+    }
 
     const disabled = new Set(config.disabled_providers ?? [])
     const enabled = config.enabled_providers ? new Set(config.enabled_providers) : null
@@ -1150,6 +1178,7 @@ export namespace Provider {
           options: mergeDeep(existingModel?.options ?? {}, model.options ?? {}),
           limit: {
             context: model.limit?.context ?? existingModel?.limit?.context ?? 0,
+            input: model.limit?.input ?? existingModel?.limit?.input,
             output: model.limit?.output ?? existingModel?.limit?.output ?? 0,
           },
           headers: mergeDeep(existingModel?.headers ?? {}, model.headers ?? {}),
@@ -1158,7 +1187,7 @@ export namespace Provider {
           modalities: model.modalities ?? existingModel?.modalities,
           variants: {},
         }
-        const merged = mergeDeep(ProviderTransform.variants(parsedModel), model.variants ?? {})
+        const merged = mergeDeep(variants(parsedModel), model.variants ?? {})
         parsedModel.variants = mapValues(
           pickBy(merged, (v) => !v.disabled),
           (v) => omit(v, ["disabled"]),
@@ -1206,6 +1235,15 @@ export namespace Provider {
 
       if (auth) {
         const options = await plugin.auth.loader(() => Auth.get(providerID) as any, database[plugin.auth.provider])
+        if (providerID === ProviderID.openai && auth.type === "oauth") {
+          // Ultra configures Codex's agent orchestration; it is not a Responses reasoning effort.
+          subscription = mapValues(CodexModels.catalog(), (metadata) => ({
+            ...metadata,
+            supported_reasoning_levels: metadata.supported_reasoning_levels?.filter(
+              (level) => level.effort !== "ultra",
+            ),
+          }))
+        }
         const opts = options ?? {}
         const patch: Partial<Info> = providers[providerID] ? { options: opts } : { source: "custom", options: opts }
         mergeProvider(providerID, patch)
@@ -1258,6 +1296,52 @@ export namespace Provider {
 
       for (const [modelID, model] of Object.entries(provider.models)) {
         model.api.id = model.api.id ?? model.id ?? modelID
+        const cfg = configProvider?.models?.[modelID]
+        const metadata = providerID === ProviderID.openai ? subscription?.[model.api.id] : undefined
+        if (metadata) {
+          model.name = cfg?.name ?? (cfg?.id && cfg.id !== modelID ? modelID : (metadata.display_name ?? model.name))
+          const context = cfg?.limit?.context ?? metadata.context_window ?? model.limit.context
+          model.limit = {
+            context,
+            input: cfg?.limit?.input ?? Math.min(model.limit.input ?? context, context),
+            output: cfg?.limit?.output ?? model.limit.output,
+          }
+          const modalities = cfg?.modalities?.input ?? metadata.input_modalities
+          if (modalities) {
+            model.capabilities.input = {
+              text: modalities.includes("text"),
+              audio: modalities.includes("audio"),
+              image: modalities.includes("image"),
+              video: modalities.includes("video"),
+              pdf: modalities.includes("pdf"),
+            }
+            model.capabilities.attachment =
+              cfg?.attachment ??
+              Object.entries(model.capabilities.input).some(([id, enabled]) => id !== "text" && enabled)
+            model.modalities = {
+              input: (["text", "audio", "image", "video", "pdf"] as const).filter((id) => modalities.includes(id)),
+              output: model.modalities?.output ?? ["text"],
+            }
+          }
+          if (metadata.supported_reasoning_levels !== undefined) {
+            model.capabilities.reasoning = cfg?.reasoning ?? metadata.supported_reasoning_levels.length > 0
+          }
+          const levels = metadata.supported_reasoning_levels
+          if (metadata.default_reasoning_level !== undefined || levels !== undefined) {
+            model.options = mergeDeep(
+              {
+                ...model.options,
+                reasoningEffort:
+                  model.capabilities.reasoning &&
+                  metadata.default_reasoning_level !== "ultra" &&
+                  (levels === undefined || levels.some((level) => level.effort === metadata.default_reasoning_level))
+                    ? metadata.default_reasoning_level
+                    : undefined,
+              },
+              cfg?.options ?? {},
+            )
+          }
+        }
         if (
           modelID === "gpt-5-chat-latest" ||
           (providerID === ProviderID.openrouter && modelID === "openai/gpt-5-chat")
@@ -1272,7 +1356,7 @@ export namespace Provider {
           delete provider.models[modelID]
         if (disabledModels.has(`${providerID}/${modelID}`) || disabledModels.has(modelID)) model.disabled = true
 
-        model.variants = mapValues(ProviderTransform.variants(model), (v) => v)
+        model.variants = mapValues(variants(model), (v) => v)
 
         // Filter out disabled variants from config
         const configVariants = configProvider?.models?.[modelID]?.variants

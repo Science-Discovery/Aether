@@ -20,6 +20,15 @@ export namespace CodexModels {
     return `${URL}?client_version=${version}`
   }
 
+  export const Metadata = z.object({
+    display_name: z.string().min(1).optional(),
+    context_window: z.number().int().positive().optional(),
+    input_modalities: z.array(z.string()).optional(),
+    supported_reasoning_levels: z.array(z.object({ effort: z.string().min(1) })).optional(),
+    default_reasoning_level: z.string().min(1).optional(),
+  })
+  export type Metadata = z.infer<typeof Metadata>
+
   const Model = z
     .object({
       slug: z.string().min(1),
@@ -47,7 +56,7 @@ export namespace CodexModels {
   export const Refresh = Status.extend({ changed: z.boolean() })
   export type Refresh = z.infer<typeof Refresh>
 
-  const Cache = z
+  const Legacy = z
     .object({
       version: z.literal(1),
       clientVersion: z.string().regex(/^\d+\.\d+\.\d+$/),
@@ -59,6 +68,7 @@ export namespace CodexModels {
       models: z.array(z.string()).min(1),
     })
     .strict()
+  const Cache = z.union([Legacy, Legacy.extend({ version: z.literal(2), metadata: z.record(z.string(), Metadata) })])
 
   type Request = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
   type Entry = {
@@ -67,6 +77,7 @@ export namespace CodexModels {
     fetcher: Request
     status: Status
     models?: string[]
+    metadata?: Record<string, Metadata>
     version?: string
   }
   type Input = {
@@ -77,6 +88,7 @@ export namespace CodexModels {
   type Download = {
     previous: Status
     models?: string[]
+    metadata?: Record<string, Metadata>
     fetcher: Request
     timeout?: number
     version?: string
@@ -112,8 +124,22 @@ export namespace CodexModels {
   }
 
   function parse(content: string) {
+    return decode(content).models
+  }
+
+  function decode(content: string) {
     const data = Response.parse(JSON.parse(content))
-    return [...new Set(data.models.filter((x) => x.visibility === "list").map((x) => x.slug))].sort()
+    const visible = new Map(
+      data.models.filter((model) => model.visibility === "list").map((model) => [model.slug, model]),
+    )
+    const models = [...visible.keys()].sort()
+    const metadata = Object.fromEntries(
+      models.flatMap((slug) => {
+        const value = Metadata.parse(visible.get(slug))
+        return Object.keys(value).length ? [[slug, value] as const] : []
+      }),
+    )
+    return { models, metadata }
   }
 
   function version(input?: { fetcher?: Request; force?: boolean; timeout?: number; fallback?: string }) {
@@ -153,7 +179,7 @@ export namespace CodexModels {
     const file = filepath(entry.key)
     const tmp = `${file}.${process.pid}.${Date.now()}.tmp`
     await Filesystem.writeJson(tmp, {
-      version: 1,
+      version: entry.metadata ? 2 : 1,
       clientVersion: entry.version ?? baseline,
       checkedAt: entry.status.checkedAt,
       updatedAt: entry.status.updatedAt,
@@ -161,6 +187,7 @@ export namespace CodexModels {
       hash: entry.status.hash,
       error: entry.status.error,
       models: entry.models,
+      ...(entry.metadata && { metadata: entry.metadata }),
     })
     await fs.rename(tmp, file).catch(async (err) => {
       await fs.rm(tmp, { force: true }).catch(() => {})
@@ -193,14 +220,17 @@ export namespace CodexModels {
           error: null,
         },
         models: input.models,
+        metadata: input.metadata ?? {},
         changed: false,
       }
     }
     if (!response.ok) throw new Error(`Failed to fetch Codex models: ${response.status}`)
 
-    const models = parse(await response.text())
-    if (models.length === 0) throw new Error("Codex models returned no visible models")
-    const hash = Hash.fast(models.join("\n"))
+    const data = decode(await response.text())
+    if (data.models.length === 0) throw new Error("Codex models returned no visible models")
+    const hash = Hash.fast(
+      data.models.join("\n") + (Object.keys(data.metadata).length ? `\n${JSON.stringify(data.metadata)}` : ""),
+    )
     const changed = hash !== input.previous.hash
     return {
       status: {
@@ -212,7 +242,8 @@ export namespace CodexModels {
         hash,
         error: null,
       },
-      models,
+      models: data.models,
+      metadata: data.metadata,
       changed,
     }
   }
@@ -241,6 +272,7 @@ export namespace CodexModels {
           }
         : { ...empty, enabled: true, source: "fallback" },
       models: saved?.models,
+      metadata: saved?.version === 2 ? saved.metadata : undefined,
       version: saved?.clientVersion,
     }
     entries.set(key, entry)
@@ -271,12 +303,15 @@ export namespace CodexModels {
       const result = await download({
         previous: entry.status,
         models: entry.models,
+        metadata: entry.metadata,
         fetcher: entry.fetcher,
         version: current,
-        prior: entry.version,
+        // A v1 cache only contains slugs, so fetch metadata even when the old ETag still matches.
+        prior: entry.metadata ? entry.version : undefined,
       })
       entry.status = result.status
       entry.models = result.models
+      entry.metadata = result.metadata
       entry.version = current
       await write(entry).catch((err) => log.warn("failed to write Codex models cache", { error: err }))
       if (!result.changed || active !== entry.key || !result.status.hash || !result.status.updatedAt) {
@@ -324,7 +359,9 @@ export namespace CodexModels {
     const entry = await pending
     entry.fetcher = input.fetcher
     start()
-    void version({ fallback: entry.version }).then((current) => once(entry, current !== entry.version))
+    void version({ fallback: entry.version }).then((current) =>
+      once(entry, !entry.metadata || current !== entry.version),
+    )
     return select(entry)
   }
 
@@ -338,6 +375,15 @@ export namespace CodexModels {
     if (!enabled) return empty
     const entry = active ? entries.get(active) : undefined
     return entry?.status ?? { ...empty, enabled: true, source: "fallback" }
+  }
+
+  export function catalog(): Record<string, Metadata> {
+    return structuredClone((active ? entries.get(active)?.metadata : undefined) ?? {})
+  }
+
+  export function metadata(slug: string): Metadata | undefined {
+    const data = active ? entries.get(active)?.metadata : undefined
+    return data && Object.hasOwn(data, slug) ? structuredClone(data[slug]) : undefined
   }
 
   export function onUpdated(fn: () => void) {

@@ -70,6 +70,7 @@ import { createWorkingState, type ChildrenSource } from "@/utils/working-state"
 import { childMapByParent } from "@/pages/layout/helpers"
 import { SteerButton } from "@/components/steer-button"
 import { VoiceInputButton, type VoiceInputAPI } from "@/components/voice-input-button"
+import { VariantSelect } from "./prompt-input/variant-select"
 
 interface PromptInputProps {
   class?: string
@@ -1163,7 +1164,6 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     dropZone: () => shellFormRef,
   })
 
-  const variants = createMemo(() => ["default", ...local.model.variant.list()])
   const accepting = createMemo(() => {
     const id = params.id
     if (!id) return permission.isAutoAcceptingDirectory(sdk.directory)
@@ -1703,17 +1703,13 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                       title={language.t("command.model.variant.cycle")}
                       keybind={command.keybind("model.variant.cycle")}
                     >
-                      <Select
-                        size="normal"
-                        options={variants()}
-                        current={local.model.variant.current() ?? "default"}
-                        label={(x) => (x === "default" ? language.t("common.default") : x)}
-                        onSelect={(x) => local.model.variant.set(x === "default" ? undefined : x)}
-                        class="capitalize max-w-[160px] text-text-base"
-                        valueClass="truncate text-13-regular text-text-base"
-                        triggerStyle={control()}
-                        triggerProps={{ "data-action": "prompt-model-variant" }}
-                        variant="ghost"
+                      <VariantSelect
+                        variants={local.model.variant.list()}
+                        current={local.model.variant.current()}
+                        label={language.t("common.default")}
+                        provider={local.model.current()?.provider.name ?? ""}
+                        onSelect={(value) => local.model.variant.set(value)}
+                        style={control()}
                       />
                     </TooltipKeybind>
                   </div>

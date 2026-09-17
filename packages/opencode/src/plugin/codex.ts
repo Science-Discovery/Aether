@@ -4,6 +4,7 @@ import { Installation } from "../installation"
 import { Auth, OAUTH_DUMMY_KEY } from "../auth"
 import os from "os"
 import { ProviderTransform } from "@/provider/transform"
+import type { Provider } from "@/provider/provider"
 import { ModelID, ProviderID } from "@/provider/schema"
 import { setTimeout as sleep } from "node:timers/promises"
 import { CodexModels } from "./codex-models"
@@ -394,7 +395,7 @@ export async function CodexAuthPlugin(input: PluginInput): Promise<Hooks> {
 
         async function credentials() {
           const current = await getAuth()
-          if (current.type !== "oauth") return
+          if (current?.type !== "oauth") return
           const oauth = current as typeof current & { accountId?: string }
           if (current.access && current.expires >= Date.now()) return oauth
 
@@ -415,7 +416,10 @@ export async function CodexAuthPlugin(input: PluginInput): Promise<Hooks> {
           return next
         }
 
-        function authenticated(init: RequestInit | undefined, current: NonNullable<Awaited<ReturnType<typeof credentials>>>) {
+        function authenticated(
+          init: RequestInit | undefined,
+          current: NonNullable<Awaited<ReturnType<typeof credentials>>>,
+        ) {
           const headers = new Headers(init?.headers)
           headers.delete("authorization")
           headers.set("authorization", `Bearer ${current.access}`)
@@ -423,13 +427,19 @@ export async function CodexAuthPlugin(input: PluginInput): Promise<Hooks> {
           return headers
         }
 
+        const claims = parseJwtClaims(auth.access)
+        const account =
+          (auth as typeof auth & { accountId?: string }).accountId ?? (claims && extractAccountIdFromClaims(claims))
+        const identity = account ?? claims?.sub
         const allowed = await CodexModels.activate({
-          identity:
-            (auth as typeof auth & { accountId?: string }).accountId ?? parseJwtClaims(auth.access)?.sub,
+          identity,
           seed: auth.refresh,
           async fetcher(requestInput, init) {
             const current = await credentials()
             if (!current) throw new Error("OpenAI OAuth is no longer active")
+            const claims = parseJwtClaims(current.access)
+            const key = account ? (current.accountId ?? (claims && extractAccountIdFromClaims(claims))) : claims?.sub
+            if (identity && key !== identity) throw new Error("OpenAI subscription account changed")
             return fetch(requestInput, {
               ...init,
               headers: authenticated(init, current),
@@ -448,10 +458,41 @@ export async function CodexAuthPlugin(input: PluginInput): Promise<Hooks> {
           "gpt-5.5",
           "gpt-5.5-pro",
         ])
+        // Subscription-only models can arrive before the public models.dev catalog.
+        for (const [id, metadata] of Object.entries(CodexModels.catalog())) {
+          if (provider.models[id] || !metadata.context_window || !metadata.input_modalities?.includes("text")) continue
+          const model: Provider.Model = {
+            id: ModelID.make(id),
+            providerID: ProviderID.openai,
+            api: { id, url: "https://api.openai.com/v1", npm: "@ai-sdk/openai" },
+            name: metadata.display_name ?? id,
+            capabilities: {
+              temperature: false,
+              reasoning: (metadata.supported_reasoning_levels?.length ?? 0) > 0,
+              attachment: metadata.input_modalities.includes("image"),
+              toolcall: true,
+              input: {
+                text: true,
+                audio: false,
+                image: metadata.input_modalities.includes("image"),
+                video: false,
+                pdf: false,
+              },
+              output: { text: true, audio: false, image: false, video: false, pdf: false },
+              interleaved: false,
+            },
+            cost: { input: 0, output: 0, cache: { read: 0, write: 0 } },
+            limit: { context: metadata.context_window, output: 0 },
+            status: "active",
+            options: {},
+            headers: {},
+            release_date: "",
+            variants: {},
+          }
+          provider.models[id] = model
+        }
         for (const [modelId, model] of Object.entries(provider.models)) {
-          const enabled = allowed
-            ? allowed.has(model.api.id)
-            : modelId.includes("codex") || fallback.has(modelId)
+          const enabled = allowed ? allowed.has(model.api.id) : modelId.includes("codex") || fallback.has(modelId)
           if (!enabled) delete provider.models[modelId]
         }
 

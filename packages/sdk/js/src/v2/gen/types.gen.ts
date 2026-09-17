@@ -1457,7 +1457,7 @@ export type ProviderConfig = {
           }
         | {
             type: "effort"
-            values: Array<null | "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max" | "default">
+            values: Array<string | null>
           }
         | {
             type: "budget_tokens"
@@ -5749,7 +5749,7 @@ export type ProviderListResponses = {
               }
             | {
                 type: "effort"
-                values: Array<null | "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max" | "default">
+                values: Array<string | null>
               }
             | {
                 type: "budget_tokens"

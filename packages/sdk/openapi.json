@@ -7503,20 +7503,11 @@
                                             "items": {
                                               "anyOf": [
                                                 {
-                                                  "type": "null"
+                                                  "type": "string",
+                                                  "minLength": 1
                                                 },
                                                 {
-                                                  "type": "string",
-                                                  "enum": [
-                                                    "none",
-                                                    "minimal",
-                                                    "low",
-                                                    "medium",
-                                                    "high",
-                                                    "xhigh",
-                                                    "max",
-                                                    "default"
-                                                  ]
+                                                  "type": "null"
                                                 }
                                               ]
                                             }
@@ -24891,20 +24882,11 @@
                             "items": {
                               "anyOf": [
                                 {
-                                  "type": "null"
+                                  "type": "string",
+                                  "minLength": 1
                                 },
                                 {
-                                  "type": "string",
-                                  "enum": [
-                                    "none",
-                                    "minimal",
-                                    "low",
-                                    "medium",
-                                    "high",
-                                    "xhigh",
-                                    "max",
-                                    "default"
-                                  ]
+                                  "type": "null"
                                 }
                               ]
                             }
