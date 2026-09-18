@@ -20,7 +20,10 @@ const [pendingTrigger, setPendingTrigger] = createSignal(0)
 export { pendingTrigger, pendingRuns }
 
 // URL slugs can be canonicalized after navigation (directory spelling may differ
-// from the sidebar's), so key pending runs by normalized directory.
+// from the sidebar's), so key pending runs by normalized directory. Lowercasing
+// also merges case variants (Windows spellings); the cost is that two distinct
+// case-sensitive POSIX directories would share one terminal store, which is
+// unlikely in practice.
 export function runKey(slug: string) {
   const dir = decode64(slug)
   return (dir ?? slug)
@@ -327,14 +330,28 @@ function createWorkspaceTerminalSession(sdk: ReturnType<typeof useSDK>, dir: str
         const id = data?.id
         if (!id || !data) return undefined
         batch(() => {
-          // Re-run of the same script replaces its existing tab in place.
-          const index = store.all.findIndex((x) => x.title === title)
-          if (index >= 0) {
-            const previous = store.all[index].id
-            setStore("all", index, { id, title, titleNumber: store.all[index].titleNumber })
+          // Re-run of the same script replaces its existing tab(s) in place.
+          const indexes = store.all.flatMap((x, i) => (x.title === title ? [i] : []))
+          if (indexes.length > 0) {
+            const [keep, ...extra] = indexes
+            const previous = store.all[keep].id
+            setStore("all", keep, { id, title, titleNumber: store.all[keep].titleNumber })
             setStore("active", id)
             if (previous !== id) {
               sdk.client.pty.remove({ ptyID: previous }).catch(() => undefined)
+            }
+            for (const i of extra.reverse()) {
+              const stale = store.all[i]
+              if (!stale) continue
+              setStore(
+                "all",
+                produce((all) => {
+                  all.splice(i, 1)
+                }),
+              )
+              if (stale.id !== id) {
+                sdk.client.pty.remove({ ptyID: stale.id }).catch(() => undefined)
+              }
             }
           } else {
             setStore("all", store.all.length, {
