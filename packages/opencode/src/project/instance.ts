@@ -17,6 +17,7 @@ export interface Shape {
 }
 const context = Context.create<Shape>("instance")
 const cache = new Map<string, Promise<Shape>>()
+const closing = new Set<string>()
 
 const disposal = {
   all: undefined as Promise<void> | undefined,
@@ -79,7 +80,7 @@ export const Instance = {
   }): Promise<R> {
     const directory = Filesystem.resolve(input.directory)
     let existing = cache.get(directory)
-    if (!existing && input.create !== false) {
+    if (!existing && input.create !== false && !closing.has(directory)) {
       Log.Default.info("creating instance", { directory })
       existing = track(
         directory,
@@ -125,6 +126,16 @@ export const Instance = {
   },
   has(directory: string) {
     return cache.has(Filesystem.resolve(directory))
+  },
+  /**
+   * Mark a directory as being torn down so concurrent requests cannot lazily
+   * re-create its instance (e.g. while a worktree is being removed).
+   */
+  beginClose(directory: string) {
+    closing.add(Filesystem.resolve(directory))
+  },
+  endClose(directory: string) {
+    closing.delete(Filesystem.resolve(directory))
   },
   get current() {
     return context.use()

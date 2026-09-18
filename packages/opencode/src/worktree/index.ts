@@ -384,14 +384,38 @@ export namespace Worktree {
       }
 
       function cleanDirectory(target: string) {
-        return Effect.promise(() =>
-          import("fs/promises").then((fsp) =>
-            fsp.rm(target, {
-              recursive: true,
-              force: true,
-              maxRetries: process.platform === "win32" ? 10 : 5,
-              retryDelay: process.platform === "win32" ? 200 : 100,
-            }),
+        return Effect.promise(async () => {
+          const fsp = await import("fs/promises")
+          const retries = process.platform === "win32" ? 10 : 5
+          const delay = process.platform === "win32" ? 200 : 100
+          for (let attempt = 0; ; attempt++) {
+            try {
+              await fsp.rm(target, {
+                recursive: true,
+                force: true,
+                maxRetries: retries,
+                retryDelay: delay,
+              })
+              return
+            } catch (e) {
+              const code = (e as NodeJS.ErrnoException).code
+              if (code === "ENOENT") return
+              // fsp.rm only retries EBUSY/EPERM/ENOTEMPTY; Windows handle
+              // release (fsmonitor daemon, just-disposed watchers) also
+              // surfaces as EACCES, so retry those ourselves.
+              if (attempt >= retries || (code !== "EACCES" && code !== "EBUSY")) throw e
+              await Bun.sleep(delay)
+            }
+          }
+        })
+      }
+
+      function cleanLogged(target: string) {
+        return cleanDirectory(target).pipe(
+          Effect.catchCause((cause) =>
+            Effect.sync(() =>
+              log.error("failed to clean removed worktree directory", { target, cause: String(cause) }),
+            ),
           ),
         )
       }
@@ -413,7 +437,7 @@ export namespace Worktree {
       }
 
       function disposeAndClean(target: string) {
-        return dispose(target).pipe(Effect.flatMap(() => cleanDirectory(target)))
+        return dispose(target).pipe(Effect.flatMap(() => cleanLogged(target)))
       }
 
       function disposeOnly(target: string) {
@@ -424,13 +448,7 @@ export namespace Worktree {
         return git(["worktree", "prune"], { cwd: Instance.worktree })
       }
 
-      const remove = Effect.fn("Worktree.remove")(function* (input: RemoveInput) {
-        if (Instance.project.vcs !== "git") {
-          throw new NotGitError({ message: "Worktrees are only supported for git projects" })
-        }
-
-        const directory = yield* canonical(input.directory)
-
+      const removeInner = Effect.fn("Worktree.remove.inner")(function* (input: RemoveInput, directory: string) {
         const list = yield* git(["worktree", "list", "--porcelain"], { cwd: Instance.worktree })
         const entries = parseWorktreeList(list.text)
         const entry = yield* locateWorktree(entries, directory)
@@ -498,7 +516,7 @@ export namespace Worktree {
           }
         }
 
-        yield* cleanDirectory(directory)
+        yield* cleanLogged(directory)
         yield* pruneWorktree()
 
         if (input.deleteBranch && branchRef) {
@@ -510,6 +528,18 @@ export namespace Worktree {
         }
 
         return { status: "ok" as const }
+      })
+
+      const remove = Effect.fn("Worktree.remove")(function* (input: RemoveInput) {
+        if (Instance.project.vcs !== "git") {
+          throw new NotGitError({ message: "Worktrees are only supported for git projects" })
+        }
+
+        const directory = yield* canonical(input.directory)
+        yield* Effect.sync(() => Instance.beginClose(directory))
+        return yield* removeInner(input, directory).pipe(
+          Effect.ensuring(Effect.sync(() => Instance.endClose(directory))),
+        )
       })
 
       const gitExpect = Effect.fnUntraced(function* (
