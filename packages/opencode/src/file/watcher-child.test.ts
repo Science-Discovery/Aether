@@ -70,7 +70,7 @@ describe("watcher js sidecar", () => {
     await fs.rm(tmp, { recursive: true, force: true })
   })
 
-  test("reports ready and streams file events", async () => {
+  test.skipIf(process.platform !== "win32")("reports ready and streams file events", async () => {
     const child = startChild(tmp)
     await child.ready
 
@@ -88,7 +88,7 @@ describe("watcher js sidecar", () => {
     await stopped
   }, 30_000)
 
-  test("exits when the directory is missing", async () => {
+  test.skipIf(process.platform !== "win32")("exits when the directory is missing", async () => {
     const missing = path.join(tmp, "does-not-exist")
     const child = startChild(missing)
     const code = await Promise.race([

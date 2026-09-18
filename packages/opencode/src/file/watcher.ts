@@ -3,7 +3,7 @@ import { createInterface } from "readline"
 // @ts-ignore
 import { createWrapper } from "@parcel/watcher/wrapper"
 import type ParcelWatcher from "@parcel/watcher"
-import { existsSync } from "fs"
+import { existsSync, statSync } from "fs"
 import { readdir } from "fs/promises"
 import path from "path"
 import z from "zod"
@@ -286,6 +286,13 @@ export namespace FileWatcher {
         const backend = getBackend()
         if (!backend) {
           log.error("watcher backend not supported", { directory: Instance.directory, platform: process.platform })
+          return
+        }
+
+        // Watching a missing directory is both useless and dangerous: stale
+        // UI entries have segfaulted watcher.node this way. Skip cleanly.
+        if (statSync(Instance.directory, { throwIfNoEntry: false }) === undefined) {
+          log.warn("directory missing, skipping watcher", { directory: Instance.directory })
           return
         }
 

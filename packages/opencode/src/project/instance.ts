@@ -50,11 +50,6 @@ function emit(directory: string) {
 
 function boot(input: { directory: string; init?: () => Promise<any>; project?: Project.Info; worktree?: string }) {
   return iife(async () => {
-    // Never create instances for directories that do not exist: stale UI
-    // entries would otherwise subscribe file watchers on missing paths.
-    if (Filesystem.stat(input.directory) === undefined) {
-      throw new Error(`cannot create instance for missing directory: ${input.directory}`)
-    }
     const ctx =
       input.project && input.worktree
         ? {
