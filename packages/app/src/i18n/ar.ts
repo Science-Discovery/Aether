@@ -823,6 +823,8 @@ export const dict = {
   "workspace.type.local": "محلي",
   "workspace.type.sandbox": "صندوق رمل",
   "workspace.create.failed.title": "فشل إنشاء مساحة العمل",
+  "workspace.create.inProgress.title": "جارٍ إنشاء مساحة العمل",
+  "workspace.create.inProgress.description": "يرجى انتظار اكتمال إنشاء مساحة العمل الحالية",
   "workspace.delete.failed.title": "فشل حذف مساحة العمل",
   "workspace.resetting.title": "إعادة تعيين مساحة العمل",
   "workspace.resetting.description": "قد يستغرق هذا دقيقة.",

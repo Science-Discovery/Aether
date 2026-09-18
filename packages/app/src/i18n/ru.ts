@@ -920,6 +920,8 @@ export const dict = {
   "workspace.type.local": "локальное",
   "workspace.type.sandbox": "песочница",
   "workspace.create.failed.title": "Не удалось создать рабочее пространство",
+  "workspace.create.inProgress.title": "Создание рабочей области",
+  "workspace.create.inProgress.description": "Дождитесь завершения создания текущей рабочей области",
   "workspace.delete.failed.title": "Не удалось удалить рабочее пространство",
   "workspace.resetting.title": "Сброс рабочего пространства",
   "workspace.resetting.description": "Это может занять минуту.",

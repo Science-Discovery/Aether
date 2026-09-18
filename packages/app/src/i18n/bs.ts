@@ -910,6 +910,8 @@ export const dict = {
   "workspace.type.local": "lokalno",
   "workspace.type.sandbox": "sandbox",
   "workspace.create.failed.title": "Neuspješno kreiranje radnog prostora",
+  "workspace.create.inProgress.title": "Kreiranje radnog prostora",
+  "workspace.create.inProgress.description": "Pričekajte da se dovrši kreiranje trenutnog radnog prostora",
   "workspace.delete.failed.title": "Neuspješno brisanje radnog prostora",
   "workspace.resetting.title": "Resetovanje radnog prostora",
   "workspace.resetting.description": "Ovo može potrajati minut.",

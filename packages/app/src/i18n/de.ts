@@ -851,6 +851,8 @@ export const dict = {
   "workspace.type.local": "lokal",
   "workspace.type.sandbox": "Sandbox",
   "workspace.create.failed.title": "Arbeitsbereich konnte nicht erstellt werden",
+  "workspace.create.inProgress.title": "Arbeitsbereich wird erstellt",
+  "workspace.create.inProgress.description": "Bitte warten Sie, bis der aktuelle Arbeitsbereich erstellt ist",
   "workspace.delete.failed.title": "Arbeitsbereich konnte nicht gelöscht werden",
   "workspace.resetting.title": "Arbeitsbereich wird zurückgesetzt",
   "workspace.resetting.description": "Dies kann eine Minute dauern.",
