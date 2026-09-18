@@ -494,13 +494,16 @@ export namespace Worktree {
 
         yield* stopFsmonitor(entry!.path)
         yield* disposeOnly(entry!.path)
-        const removed = yield* git(["worktree", "remove", "--force", entry!.path], { cwd: Instance.worktree })
+        let removed = yield* git(["worktree", "remove", "--force", entry!.path], { cwd: Instance.worktree })
         if (removed.code !== 0) {
-          const isStale = /does not exist|不存在|not a valid|验证失败/i.test(removed.stderr || removed.text || "")
-          if (isStale) {
-            return { status: "stale" as const, directory, gitStderr: removed.stderr || removed.text || "" }
-          }
-
+          // Windows: handles released by the disposed instance can linger
+          // briefly, so give git a second chance before deciding anything.
+          yield* Effect.sleep(process.platform === "win32" ? "500 millis" : "100 millis")
+          removed = yield* git(["worktree", "remove", "--force", entry!.path], { cwd: Instance.worktree })
+        }
+        if (removed.code !== 0) {
+          // Trust the worktree list, not stderr text: only report stale when
+          // git still registers the worktree, otherwise treat it as removed.
           const next = yield* git(["worktree", "list", "--porcelain"], { cwd: Instance.worktree })
           if (next.code !== 0) {
             throw new RemoveFailedError({
@@ -510,6 +513,10 @@ export namespace Worktree {
 
           const stale = yield* locateWorktree(parseWorktreeList(next.text), directory)
           if (stale?.path) {
+            const isStale = /does not exist|不存在|not a valid|验证失败/i.test(removed.stderr || removed.text || "")
+            if (isStale) {
+              return { status: "stale" as const, directory, gitStderr: removed.stderr || removed.text || "" }
+            }
             throw new RemoveFailedError({ message: removed.stderr || removed.text || "Failed to remove git worktree" })
           }
         }
