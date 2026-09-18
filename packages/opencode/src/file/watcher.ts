@@ -179,6 +179,85 @@ export namespace FileWatcher {
     readonly sync?: (dirs: string[]) => Promise<void>
   }
 
+  // @parcel/watcher's Windows backend segfaults under rapid
+  // subscribe/unsubscribe churn on the same path (watcher.node node tree),
+  // and every sandbox instance watches the project's shared .git dir. Share
+  // one native subscription per (backend, dir, ignore) and fan events out to
+  // all listeners, serializing every native subscribe/unsubscribe call
+  // process-wide.
+  type SharedWatch = {
+    listeners: Set<ParcelWatcher.SubscribeCallback>
+    fanout: ParcelWatcher.SubscribeCallback
+  }
+  const sharedWatches = new Map<string, SharedWatch>()
+  let nativeChain: Promise<void> = Promise.resolve()
+
+  function native<T>(fn: () => Promise<T>): Promise<T> {
+    const run = nativeChain.then(fn, fn)
+    nativeChain = run.then(
+      () => undefined,
+      () => undefined,
+    )
+    return run
+  }
+
+  function sharedKey(opts: { ignore: string[]; backend?: "windows" | "fs-events" | "inotify" }, dir: string) {
+    return `${opts.backend}\u0000${dir}\u0000${opts.ignore.join("\u0001")}`
+  }
+
+  function sharedUnsubscribe(
+    dir: string,
+    cb: ParcelWatcher.SubscribeCallback,
+    opts: { ignore: string[]; backend?: "windows" | "fs-events" | "inotify" },
+  ): Promise<void> {
+    const key = sharedKey(opts, dir)
+    const entry = sharedWatches.get(key)
+    if (!entry) return Promise.resolve()
+    entry.listeners.delete(cb)
+    if (entry.listeners.size > 0) return Promise.resolve()
+    sharedWatches.delete(key)
+    const w = watcher()
+    if (!w) return Promise.resolve()
+    return native(() =>
+      w.unsubscribe(dir, entry.fanout, { ignore: opts.ignore, backend: opts.backend }).catch(() => undefined),
+    )
+  }
+
+  async function sharedSubscribe(
+    dir: string,
+    cb: ParcelWatcher.SubscribeCallback,
+    opts: { ignore: string[]; backend?: "windows" | "fs-events" | "inotify" },
+  ): Promise<Subscription> {
+    const key = sharedKey(opts, dir)
+    let entry = sharedWatches.get(key)
+    if (!entry) {
+      const fresh: SharedWatch = {
+        listeners: new Set([cb]),
+        fanout: (err, evts) => {
+          for (const listener of [...fresh.listeners]) listener(err, evts)
+        },
+      }
+      entry = fresh
+      sharedWatches.set(key, fresh)
+      const w = watcher()
+      try {
+        if (!w) throw new Error("watcher binding unavailable")
+        await native(() => w.subscribe(dir, fresh.fanout, { ignore: opts.ignore, backend: opts.backend }))
+      } catch (e) {
+        sharedWatches.delete(key)
+        fresh.listeners.delete(cb)
+        throw e
+      }
+    } else {
+      entry.listeners.add(cb)
+    }
+    return {
+      unsubscribe: async () => {
+        await sharedUnsubscribe(dir, cb, opts)
+      },
+    }
+  }
+
   export class Service extends ServiceMap.Service<Service, Interface>()("@opencode/FileWatcher") {}
 
   export const layer = Layer.effect(
@@ -261,8 +340,7 @@ export namespace FileWatcher {
             try {
               if (!useSidecar && w) {
                 input = {
-                  pending: w.subscribe(dir, cb, { ignore: watchIgnore, backend }),
-                  cancel: () => void w.unsubscribe(dir, cb, { ignore: watchIgnore, backend }).catch(() => undefined),
+                  pending: sharedSubscribe(dir, cb, { ignore: watchIgnore, backend }),
                 }
               } else {
                 input = child({ dir, ignore: watchIgnore, filter, backend, cb })
@@ -300,7 +378,7 @@ export namespace FileWatcher {
                 directory: Instance.directory,
                 worktree: Instance.project.worktree,
                 projectID: Instance.project.id,
-                cause: error instanceof Error ? error.stack ?? error.message : error,
+                cause: error instanceof Error ? (error.stack ?? error.message) : error,
               })
               input?.cancel?.()
               input?.pending.then((sub) => sub.unsubscribe()).catch(() => {})
