@@ -17,6 +17,7 @@ import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
 import { NodeFileSystem, NodePath } from "@effect/platform-node"
 import { makeRuntime } from "@/effect/run-service"
 import * as CrossSpawnSpawner from "@/effect/cross-spawn-spawner"
+import { assignToServerJob } from "../util/job-object"
 
 export namespace Worktree {
   const log = Log.create({ service: "worktree" })
@@ -566,6 +567,7 @@ export namespace Worktree {
           const handle = yield* spawner.spawn(
             ChildProcess.make(shell, args, { cwd: directory, extendEnv: true, stdin: "ignore" }),
           )
+          assignToServerJob(handle.pid)
           // Drain stdout, capture stderr for error reporting
           const [, stderr] = yield* Effect.all(
             [Stream.runDrain(handle.stdout), Stream.mkString(Stream.decodeText(handle.stderr))],
