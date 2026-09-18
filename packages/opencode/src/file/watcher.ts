@@ -613,6 +613,7 @@ export namespace FileWatcher {
         done = true
         out.close()
         err.close()
+        abort.abort()
         reject(error)
       }
 

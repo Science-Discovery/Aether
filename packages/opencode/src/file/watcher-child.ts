@@ -1,4 +1,5 @@
 import { createInterface } from "readline"
+import { existsSync } from "fs"
 import path from "path"
 // @ts-ignore
 import { createWrapper } from "@parcel/watcher/wrapper"
@@ -43,6 +44,10 @@ let sub: ParcelWatcher.AsyncSubscription | undefined
 async function start(msg: { root: string; ignore?: string[]; backend?: ParcelWatcher.BackendType }) {
   const watcher = binding()
   const dir = path.resolve(msg.root)
+  // On Windows the native backend neither rejects nor fires events for a
+  // missing directory; fail fast so the parent can fall back instead of
+  // waiting on a subscription that will never report anything.
+  if (!existsSync(dir)) throw new Error(`directory does not exist: ${dir}`)
   sub = await watcher.subscribe(
     dir,
     (_err, events) => {
@@ -71,7 +76,9 @@ lines.on("line", (line) => {
   if (msg.type !== "start" || !msg.root) return
   start(msg as { root: string; ignore?: string[]; backend?: ParcelWatcher.BackendType }).catch((e) => {
     send({ type: "error", stage: "start", error: e instanceof Error ? e.message : String(e), fatal: true })
-    process.exitCode = 1
+    // A fatal start failure must terminate the process: stdin stays open and
+    // would otherwise keep this sidecar alive forever.
+    setTimeout(() => process.exit(1), 100)
   })
 })
 

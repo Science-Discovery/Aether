@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test"
 import { createInterface } from "readline"
-import { spawn } from "child_process"
+import { Readable } from "node:stream"
 import fs from "fs/promises"
 import os from "os"
 import path from "path"
@@ -11,7 +11,7 @@ import path from "path"
 const script = path.join(import.meta.dir, "watcher-child.ts")
 
 function startChild(root: string) {
-  const proc = spawn(process.execPath, [script], { stdio: ["pipe", "pipe", "pipe"] })
+  const proc = Bun.spawn([process.execPath, script], { stdin: "pipe", stdout: "pipe", stderr: "pipe" })
   const lines: Array<Record<string, any>> = []
   const waiter = { notify: () => {} }
   const ready = new Promise<void>((resolve, reject) => {
@@ -21,7 +21,7 @@ function startChild(root: string) {
       resolve()
     }
   })
-  const out = createInterface({ input: proc.stdout!, crlfDelay: Infinity })
+  const out = createInterface({ input: Readable.fromWeb(proc.stdout as any), crlfDelay: Infinity })
   out.on("line", (line) => {
     if (!line.trim()) return
     const msg = JSON.parse(line)
@@ -29,16 +29,16 @@ function startChild(root: string) {
     if (msg.type === "ready") waiter.notify()
   })
   const stderr: string[] = []
-  const errOut = createInterface({ input: proc.stderr!, crlfDelay: Infinity })
+  const errOut = createInterface({ input: Readable.fromWeb(proc.stderr as any), crlfDelay: Infinity })
   errOut.on("line", (line) => stderr.push(line))
-  proc.stdin!.write(JSON.stringify({ v: 1, type: "start", root, ignore: [], mode: "full", dirs: [] }) + "\n")
+  proc.stdin.write(JSON.stringify({ v: 1, type: "start", root, ignore: [], mode: "full", dirs: [] }) + "\n")
   return {
     proc,
     lines,
     ready,
     stderr,
     stop: () => {
-      proc.stdin!.end()
+      proc.stdin.end()
       return proc.exited
     },
     kill: () => proc.kill(),
