@@ -10,23 +10,34 @@ import path from "path"
 
 const script = path.join(import.meta.dir, "watcher-child.ts")
 
-function startChild(root: string) {
+function startChild(root: string, expectReady = true) {
   const proc = Bun.spawn([process.execPath, script], { stdin: "pipe", stdout: "pipe", stderr: "pipe" })
   const lines: Array<Record<string, any>> = []
-  const waiter = { notify: () => {} }
+  // The 30s rejection must only exist when a test actually awaits `ready`:
+  // an unhandled rejection would fail whichever test is running at that
+  // moment, even one in an unrelated file.
+  let notifyReady = () => {}
   const ready = new Promise<void>((resolve, reject) => {
+    if (!expectReady) {
+      resolve()
+      return
+    }
     const timer = setTimeout(() => reject(new Error("sidecar never became ready")), 30_000)
-    waiter.notify = () => {
+    notifyReady = () => {
       clearTimeout(timer)
       resolve()
     }
+    proc.exited.then(
+      () => clearTimeout(timer),
+      () => clearTimeout(timer),
+    )
   })
   const out = createInterface({ input: Readable.fromWeb(proc.stdout as any), crlfDelay: Infinity })
   out.on("line", (line) => {
     if (!line.trim()) return
     const msg = JSON.parse(line)
     lines.push(msg)
-    if (msg.type === "ready") waiter.notify()
+    if (msg.type === "ready") notifyReady()
   })
   const stderr: string[] = []
   const errOut = createInterface({ input: Readable.fromWeb(proc.stderr as any), crlfDelay: Infinity })
@@ -70,32 +81,40 @@ describe("watcher js sidecar", () => {
     await fs.rm(tmp, { recursive: true, force: true })
   })
 
-  test.skipIf(process.platform !== "win32")("reports ready and streams file events", async () => {
-    const child = startChild(tmp)
-    await child.ready
+  test.skipIf(process.platform !== "win32")(
+    "reports ready and streams file events",
+    async () => {
+      const child = startChild(tmp)
+      await child.ready
 
-    await fs.writeFile(path.join(tmp, "hello.txt"), "hi")
-    const create = await until(child.lines, (m) => m.type === "event" && m.event === "add", "create event")
-    expect(create.path).toContain("hello.txt")
+      await fs.writeFile(path.join(tmp, "hello.txt"), "hi")
+      const create = await until(child.lines, (m) => m.type === "event" && m.event === "add", "create event")
+      expect(create.path).toContain("hello.txt")
 
-    await fs.writeFile(path.join(tmp, "hello.txt"), "updated")
-    await until(child.lines, (m) => m.type === "event" && m.event === "change", "change event")
+      await fs.writeFile(path.join(tmp, "hello.txt"), "updated")
+      await until(child.lines, (m) => m.type === "event" && m.event === "change", "change event")
 
-    const stopped = child.stop()
-    await until(child.lines, (m) => m.type === "event" && m.event === "unlink", "unlink event").catch(() => {
-      // the unlink event may race with stdin close; not required
-    })
-    await stopped
-  }, 30_000)
+      const stopped = child.stop()
+      await until(child.lines, (m) => m.type === "event" && m.event === "unlink", "unlink event").catch(() => {
+        // the unlink event may race with stdin close; not required
+      })
+      await stopped
+    },
+    30_000,
+  )
 
-  test.skipIf(process.platform !== "win32")("exits when the directory is missing", async () => {
-    const missing = path.join(tmp, "does-not-exist")
-    const child = startChild(missing)
-    const code = await Promise.race([
-      child.proc.exited,
-      new Promise((_, reject) => setTimeout(() => reject(new Error("sidecar ignored a missing directory")), 20_000)),
-    ])
-    expect(code).not.toBe(0)
-    child.kill()
-  }, 30_000)
+  test.skipIf(process.platform !== "win32")(
+    "exits when the directory is missing",
+    async () => {
+      const missing = path.join(tmp, "does-not-exist")
+      const child = startChild(missing, false)
+      const code = await Promise.race([
+        child.proc.exited,
+        new Promise((_, reject) => setTimeout(() => reject(new Error("sidecar ignored a missing directory")), 20_000)),
+      ])
+      expect(code).not.toBe(0)
+      child.kill()
+    },
+    30_000,
+  )
 })
