@@ -743,11 +743,11 @@ export default function Layout(props: ParentProps) {
     const projects = layout.projects.list()
     const dirKey = workspaceKey(directory)
 
-    const sandbox = projects.find((p) => p.sandboxes?.some((s) => workspaceKey(s) === dirKey))
-    if (sandbox) return sandbox
-
     const direct = projects.find((p) => workspaceKey(p.worktree) === dirKey)
     if (direct) return direct
+
+    const sandbox = projects.find((p) => p.sandboxes?.some((s) => workspaceKey(s) === dirKey))
+    if (sandbox) return sandbox
 
     const [child] = globalSync.child(directory, { bootstrap: false })
     const id = child.project
@@ -842,7 +842,9 @@ export default function Layout(props: ParentProps) {
     const projects = layout.projects.list()
     for (const [directory, expanded] of Object.entries(store.workspaceExpanded)) {
       if (!expanded) continue
-      const project = projects.find((item) => item.worktree === directory || item.sandboxes?.includes(directory))
+      const project =
+        projects.find((item) => item.worktree === directory) ??
+        projects.find((item) => item.sandboxes?.includes(directory))
       if (!project) continue
       if (project.vcs === "git" && layout.sidebar.workspaces(project.worktree)()) continue
       setStore("workspaceExpanded", directory, false)

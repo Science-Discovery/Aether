@@ -323,7 +323,8 @@ export function DialogSelectFile(props: { mode?: DialogSelectFileMode; onOpenFil
   const project = createMemo(() => {
     const directory = projectDirectory()
     if (!directory) return
-    return layout.projects.list().find((p) => p.worktree === directory || p.sandboxes?.includes(directory))
+    const projects = layout.projects.list()
+    return projects.find((p) => p.worktree === directory) ?? projects.find((p) => p.sandboxes?.includes(directory))
   })
   const workspaces = createMemo(() => {
     const directory = projectDirectory()

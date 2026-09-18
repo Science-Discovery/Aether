@@ -144,8 +144,11 @@ function groupBySession<T extends { id: string; sessionID: string }>(input: T[])
   }, {})
 }
 
-function projectID(directory: string, projects: Project[]) {
-  return projects.find((project) => project.worktree === directory || project.sandboxes?.includes(directory))?.id
+export function projectID(directory: string, projects: Project[]) {
+  return (
+    projects.find((project) => project.worktree === directory)?.id ??
+    projects.find((project) => project.sandboxes?.includes(directory))?.id
+  )
 }
 
 export async function bootstrapDirectory(input: {
