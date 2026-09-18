@@ -12,11 +12,12 @@ import { Log } from "../util/log"
 import { BusEvent } from "@/bus/bus-event"
 import { GlobalBus } from "@/bus/global"
 import { Git } from "@/git"
-import { Effect, FileSystem, Layer, Path, Scope, ServiceMap, Stream } from "effect"
+import { Effect, FileSystem, Layer, Path, Scope, Semaphore, ServiceMap, Stream } from "effect"
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
 import { NodeFileSystem, NodePath } from "@effect/platform-node"
 import { makeRuntime } from "@/effect/run-service"
 import * as CrossSpawnSpawner from "@/effect/cross-spawn-spawner"
+import { assignToServerJob } from "../util/job-object"
 
 export namespace Worktree {
   const log = Log.create({ service: "worktree" })
@@ -233,9 +234,12 @@ export namespace Worktree {
 
         const list = yield* git(["worktree", "list", "--porcelain"], { cwd: Instance.worktree })
         const existing = new Set<string>()
+        const registeredDirs = new Set<string>()
         for (const line of list.text.split("\n")) {
           const m = line.match(/^branch\s+refs\/heads\/sandbox-(\d+)$/)
           if (m) existing.add(m[1])
+          const wt = line.match(/^worktree\s+(.+)$/)
+          if (wt) registeredDirs.add(yield* canonical(wt[1]!.trim()))
         }
         for (let n = 1; n <= SANDBOX_MAX; n++) {
           const ns = String(n)
@@ -244,11 +248,21 @@ export namespace Worktree {
           const branch = `sandbox-${ns}`
           const directory = pathSvc.join(root, name)
 
-          if (yield* fsys.exists(directory).pipe(Effect.orDie)) continue
-
           const ref = `refs/heads/${branch}`
           const branchCheck = yield* git(["show-ref", "--verify", "--quiet", ref], { cwd: Instance.worktree })
           if (branchCheck.code === 0) continue
+
+          if (yield* fsys.exists(directory).pipe(Effect.orDie)) {
+            // A directory without registration, branch, or .git checkout is a
+            // leftover husk from a failed cleanup; without reclaiming it the
+            // name would be blocked forever.
+            const registeredDir = yield* canonical(directory)
+            if (registeredDirs.has(registeredDir)) continue
+            if (yield* fsys.exists(pathSvc.join(directory, ".git")).pipe(Effect.orDie)) continue
+            log.info("reclaiming orphan sandbox directory", { name, directory })
+            yield* cleanLogged(directory)
+            if (yield* fsys.exists(directory).pipe(Effect.orDie)) continue
+          }
 
           return Info.parse({ name, branch, directory })
         }
@@ -325,16 +339,26 @@ export namespace Worktree {
 
       const createFromInfo = Effect.fn("Worktree.createFromInfo")(function* (info: Info, startCommand?: string) {
         yield* setup(info)
-        yield* boot(info, startCommand)
+        yield* bootLock.withPermits(1)(boot(info, startCommand))
       })
+
+      // Instance bootstrap races (watcher, pty, sqlite) crashed natively when
+      // two worktrees were created in quick succession, so serialize boots.
+      const bootLock = Semaphore.makeUnsafe(1)
+
+      const enqueueBoot = (info: Info, startCommand?: string) =>
+        bootLock
+          .withPermits(1)(
+            boot(info, startCommand).pipe(
+              Effect.catchCause((cause) => Effect.sync(() => log.error("worktree bootstrap failed", { cause }))),
+            ),
+          )
+          .pipe(Effect.forkIn(scope))
 
       const create = Effect.fn("Worktree.create")(function* (input?: CreateInput) {
         const info = yield* makeWorktreeInfo(input?.name)
         yield* setup(info)
-        yield* boot(info, input?.startCommand).pipe(
-          Effect.catchCause((cause) => Effect.sync(() => log.error("worktree bootstrap failed", { cause }))),
-          Effect.forkIn(scope),
-        )
+        yield* enqueueBoot(info, input?.startCommand)
         return info
       })
 
@@ -384,14 +408,39 @@ export namespace Worktree {
       }
 
       function cleanDirectory(target: string) {
-        return Effect.promise(() =>
-          import("fs/promises").then((fsp) =>
-            fsp.rm(target, {
-              recursive: true,
-              force: true,
-              maxRetries: process.platform === "win32" ? 10 : 5,
-              retryDelay: process.platform === "win32" ? 200 : 100,
-            }),
+        return Effect.promise(async () => {
+          const fsp = await import("fs/promises")
+          const retries = process.platform === "win32" ? 10 : 5
+          const delay = process.platform === "win32" ? 200 : 100
+          for (let attempt = 0; ; attempt++) {
+            try {
+              await fsp.rm(target, {
+                recursive: true,
+                force: true,
+                maxRetries: retries,
+                retryDelay: delay,
+              })
+              return
+            } catch (e) {
+              const code = (e as NodeJS.ErrnoException).code
+              if (code === "ENOENT") return
+              // fsp.rm only retries EBUSY/EPERM/ENOTEMPTY internally; Windows
+              // handle release (fsmonitor daemon, just-disposed watchers) also
+              // surfaces as EACCES, so retry the transient set ourselves.
+              const transient = code === "EACCES" || code === "EBUSY" || code === "EPERM" || code === "ENOTEMPTY"
+              if (attempt >= retries || !transient) throw e
+              await Bun.sleep(delay)
+            }
+          }
+        })
+      }
+
+      function cleanLogged(target: string) {
+        return cleanDirectory(target).pipe(
+          Effect.catchCause((cause) =>
+            Effect.sync(() =>
+              log.error("failed to clean removed worktree directory", { target, cause: String(cause) }),
+            ),
           ),
         )
       }
@@ -413,7 +462,7 @@ export namespace Worktree {
       }
 
       function disposeAndClean(target: string) {
-        return dispose(target).pipe(Effect.flatMap(() => cleanDirectory(target)))
+        return dispose(target).pipe(Effect.flatMap(() => cleanLogged(target)))
       }
 
       function disposeOnly(target: string) {
@@ -424,31 +473,29 @@ export namespace Worktree {
         return git(["worktree", "prune"], { cwd: Instance.worktree })
       }
 
-      const remove = Effect.fn("Worktree.remove")(function* (input: RemoveInput) {
-        if (Instance.project.vcs !== "git") {
-          throw new NotGitError({ message: "Worktrees are only supported for git projects" })
+      const removeBranch = Effect.fnUntraced(function* (name: string, enabled?: boolean) {
+        if (!enabled) return
+        const del = yield* git(["branch", "-D", name], { cwd: Instance.worktree })
+        if (del.code !== 0) {
+          log.error("failed to delete branch after worktree removal", { name, stderr: del.stderr })
         }
+      })
 
-        const directory = yield* canonical(input.directory)
-
+      const removeInner = Effect.fn("Worktree.remove.inner")(function* (input: RemoveInput, directory: string) {
         const list = yield* git(["worktree", "list", "--porcelain"], { cwd: Instance.worktree })
         const entries = parseWorktreeList(list.text)
         const entry = yield* locateWorktree(entries, directory)
         const branchRef = entry?.branch
+        // Branches are created with the worktree's name, so a missing
+        // registration (stale directory) still resolves to the branch.
+        const branchName = branchRef?.replace(/^refs\/heads\//, "") ?? pathSvc.basename(directory)
 
         if (input.force) {
           yield* stopFsmonitor(directory)
           const dirExists = yield* fsys.exists(directory).pipe(Effect.orDie)
           if (dirExists) yield* disposeAndClean(directory)
           yield* pruneWorktree()
-
-          if (input.deleteBranch && branchRef) {
-            const branchName = branchRef.replace(/^refs\/heads\//, "")
-            const del = yield* git(["branch", "-D", branchName], { cwd: Instance.worktree })
-            if (del.code !== 0) {
-              log.error("failed to delete branch after worktree removal", { branchName, stderr: del.stderr })
-            }
-          }
+          yield* removeBranch(branchName, input.deleteBranch)
 
           return { status: "forceOk" as const }
         }
@@ -464,27 +511,23 @@ export namespace Worktree {
             yield* disposeAndClean(directory)
           }
           yield* pruneWorktree()
-
-          if (input.deleteBranch && branchRef) {
-            const branchName = branchRef.replace(/^refs\/heads\//, "")
-            const del = yield* git(["branch", "-D", branchName], { cwd: Instance.worktree })
-            if (del.code !== 0) {
-              log.error("failed to delete branch after worktree removal", { branchName, stderr: del.stderr })
-            }
-          }
+          yield* removeBranch(branchName, input.deleteBranch)
 
           return { status: "ok" as const }
         }
 
         yield* stopFsmonitor(entry!.path)
         yield* disposeOnly(entry!.path)
-        const removed = yield* git(["worktree", "remove", "--force", entry!.path], { cwd: Instance.worktree })
+        let removed = yield* git(["worktree", "remove", "--force", entry!.path], { cwd: Instance.worktree })
         if (removed.code !== 0) {
-          const isStale = /does not exist|不存在|not a valid|验证失败/i.test(removed.stderr || removed.text || "")
-          if (isStale) {
-            return { status: "stale" as const, directory, gitStderr: removed.stderr || removed.text || "" }
-          }
-
+          // Windows: handles released by the disposed instance can linger
+          // briefly, so give git a second chance before deciding anything.
+          yield* Effect.sleep(process.platform === "win32" ? "500 millis" : "100 millis")
+          removed = yield* git(["worktree", "remove", "--force", entry!.path], { cwd: Instance.worktree })
+        }
+        if (removed.code !== 0) {
+          // Trust the worktree list, not stderr text: only report stale when
+          // git still registers the worktree, otherwise treat it as removed.
           const next = yield* git(["worktree", "list", "--porcelain"], { cwd: Instance.worktree })
           if (next.code !== 0) {
             throw new RemoveFailedError({
@@ -494,22 +537,31 @@ export namespace Worktree {
 
           const stale = yield* locateWorktree(parseWorktreeList(next.text), directory)
           if (stale?.path) {
+            const isStale = /does not exist|不存在|not a valid|验证失败/i.test(removed.stderr || removed.text || "")
+            if (isStale) {
+              return { status: "stale" as const, directory, gitStderr: removed.stderr || removed.text || "" }
+            }
             throw new RemoveFailedError({ message: removed.stderr || removed.text || "Failed to remove git worktree" })
           }
         }
 
-        yield* cleanDirectory(directory)
+        yield* cleanLogged(directory)
         yield* pruneWorktree()
-
-        if (input.deleteBranch && branchRef) {
-          const branchName = branchRef.replace(/^refs\/heads\//, "")
-          const del = yield* git(["branch", "-D", branchName], { cwd: Instance.worktree })
-          if (del.code !== 0) {
-            log.error("failed to delete branch after worktree removal", { branchName, stderr: del.stderr })
-          }
-        }
+        yield* removeBranch(branchName, input.deleteBranch)
 
         return { status: "ok" as const }
+      })
+
+      const remove = Effect.fn("Worktree.remove")(function* (input: RemoveInput) {
+        if (Instance.project.vcs !== "git") {
+          throw new NotGitError({ message: "Worktrees are only supported for git projects" })
+        }
+
+        const directory = yield* canonical(input.directory)
+        yield* Effect.sync(() => Instance.beginClose(directory))
+        return yield* removeInner(input, directory).pipe(
+          Effect.ensuring(Effect.sync(() => Instance.endClose(directory))),
+        )
       })
 
       const gitExpect = Effect.fnUntraced(function* (
@@ -528,6 +580,7 @@ export namespace Worktree {
           const handle = yield* spawner.spawn(
             ChildProcess.make(shell, args, { cwd: directory, extendEnv: true, stdin: "ignore" }),
           )
+          assignToServerJob(handle.pid)
           // Drain stdout, capture stderr for error reporting
           const [, stderr] = yield* Effect.all(
             [Stream.runDrain(handle.stdout), Stream.mkString(Stream.decodeText(handle.stderr))],

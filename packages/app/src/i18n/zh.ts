@@ -1403,6 +1403,8 @@ export const dict = {
   "workspace.type.sandbox": "沙箱",
   "workspace.type.sandboxName": "沙箱-{{number}}",
   "workspace.create.failed.title": "创建工作区失败",
+  "workspace.create.inProgress.title": "正在创建工作区",
+  "workspace.create.inProgress.description": "请等待当前工作区创建完成后再试",
   "workspace.delete.failed.title": "删除工作区失败",
   "workspace.resetting.title": "正在重置工作区",
   "workspace.resetting.description": "这可能需要一点时间。",

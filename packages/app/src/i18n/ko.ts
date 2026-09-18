@@ -835,6 +835,8 @@ export const dict = {
   "workspace.type.local": "로컬",
   "workspace.type.sandbox": "샌드박스",
   "workspace.create.failed.title": "작업 공간 생성 실패",
+  "workspace.create.inProgress.title": "워크스페이스 생성 중",
+  "workspace.create.inProgress.description": "현재 워크스페이스 생성이 완료될 때까지 기다려 주세요",
   "workspace.delete.failed.title": "작업 공간 삭제 실패",
   "workspace.resetting.title": "작업 공간 재설정 중",
   "workspace.resetting.description": "잠시 시간이 걸릴 수 있습니다.",

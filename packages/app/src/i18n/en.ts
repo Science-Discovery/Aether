@@ -1541,6 +1541,8 @@ export const dict = {
   "workspace.type.sandbox": "sandbox",
   "workspace.type.sandboxName": "sandbox-{{number}}",
   "workspace.create.failed.title": "Failed to create workspace",
+  "workspace.create.inProgress.title": "Workspace is being created",
+  "workspace.create.inProgress.description": "Please wait for the current workspace to finish creating",
   "workspace.delete.failed.title": "Failed to delete workspace",
   "workspace.resetting.title": "Resetting workspace",
   "workspace.resetting.description": "This may take a minute.",

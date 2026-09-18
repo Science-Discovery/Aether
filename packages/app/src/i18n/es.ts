@@ -924,6 +924,8 @@ export const dict = {
   "workspace.type.local": "local",
   "workspace.type.sandbox": "sandbox",
   "workspace.create.failed.title": "Fallo al crear espacio de trabajo",
+  "workspace.create.inProgress.title": "Creando el espacio de trabajo",
+  "workspace.create.inProgress.description": "Espera a que termine de crearse el espacio de trabajo actual",
   "workspace.delete.failed.title": "Fallo al eliminar espacio de trabajo",
   "workspace.resetting.title": "Restableciendo espacio de trabajo",
   "workspace.resetting.description": "Esto puede tomar un minuto.",

@@ -582,9 +582,34 @@ export namespace Database {
     detach(projectId)
     const p = projectPath(projectId)
     if (!existsSync(p)) return
-    unlinkSync(p)
+    // Windows keeps the file locked while another fiber re-attaches during
+    // deletion; retry transient codes and degrade to a warning — a leftover
+    // database file must not fail workspace removal.
+    const retries = process.platform === "win32" ? 10 : 3
+    const delay = process.platform === "win32" ? 200 : 100
+    for (let attempt = 0; ; attempt++) {
+      try {
+        unlinkSync(p)
+        break
+      } catch (e) {
+        const code = (e as NodeJS.ErrnoException).code
+        if (code === "ENOENT") break
+        const transient = code === "EBUSY" || code === "EPERM" || code === "EACCES"
+        if (attempt >= retries || !transient) {
+          log.warn("failed to delete project database file", { projectId, path: p, error: String(e) })
+          return
+        }
+        Bun.sleepSync(delay)
+      }
+    }
     for (const ext of ["-shm", "-wal"]) {
-      if (existsSync(p + ext)) unlinkSync(p + ext)
+      if (existsSync(p + ext)) {
+        try {
+          unlinkSync(p + ext)
+        } catch {
+          // sidecars of a file we may have failed to delete; harmless
+        }
+      }
     }
     log.info("deleted project database file", { projectId, path: p })
   }

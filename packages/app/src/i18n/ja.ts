@@ -836,6 +836,8 @@ export const dict = {
   "workspace.type.local": "ローカル",
   "workspace.type.sandbox": "サンドボックス",
   "workspace.create.failed.title": "ワークスペースの作成に失敗しました",
+  "workspace.create.inProgress.title": "ワークスペースを作成中です",
+  "workspace.create.inProgress.description": "現在のワークスペースの作成が完了するまでお待ちください",
   "workspace.delete.failed.title": "ワークスペースの削除に失敗しました",
   "workspace.resetting.title": "ワークスペースをリセット中",
   "workspace.resetting.description": "これには少し時間がかかる場合があります。",

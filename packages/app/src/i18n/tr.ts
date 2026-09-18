@@ -927,6 +927,8 @@ export const dict = {
   "workspace.type.local": "yerel",
   "workspace.type.sandbox": "sandbox",
   "workspace.create.failed.title": "Çalışma alanı oluşturulamadı",
+  "workspace.create.inProgress.title": "Çalışma alanı oluşturuluyor",
+  "workspace.create.inProgress.description": "Geçerli çalışma alanının oluşturulması tamamlanana kadar bekleyin",
   "workspace.delete.failed.title": "Çalışma alanı silinemedi",
   "workspace.resetting.title": "Çalışma alanı sıfırlanıyor",
   "workspace.resetting.description": "Bu bir dakika sürebilir.",

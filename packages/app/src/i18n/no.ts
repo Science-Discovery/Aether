@@ -911,6 +911,8 @@ export const dict = {
   "workspace.type.local": "lokal",
   "workspace.type.sandbox": "sandkasse",
   "workspace.create.failed.title": "Kunne ikke opprette arbeidsområde",
+  "workspace.create.inProgress.title": "Oppretter arbeidsområde",
+  "workspace.create.inProgress.description": "Vent til gjeldende arbeidsområde er ferdig opprettet",
   "workspace.delete.failed.title": "Kunne ikke slette arbeidsområde",
   "workspace.resetting.title": "Tilbakestiller arbeidsområde",
   "workspace.resetting.description": "Dette kan ta et minutt.",

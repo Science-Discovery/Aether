@@ -119,6 +119,10 @@ export default function Layout(props: ParentProps) {
 
   const pageReady = createMemo(() => ready())
 
+  // One workspace boot at a time: rapid creates churn the file watcher's
+  // native subscriptions, which has crashed the server on Windows.
+  const [creatingWorkspace, setCreatingWorkspace] = createSignal(false)
+
   let scrollContainerRef: HTMLDivElement | undefined
   let dialogRun = 0
   let dialogDead = false
@@ -2050,6 +2054,7 @@ export default function Layout(props: ParentProps) {
       if (leaveDeletedWorkspace) {
         navigateWithSidebarReset(`/${base64Encode(props.root)}/session`)
       }
+      void globalSync.project.loadSessions(props.root, { force: true })
       if (props.branch) {
         const branch = props.branch
         dialog.show(() => (
@@ -2063,6 +2068,13 @@ export default function Layout(props: ParentProps) {
       } else {
         void deleteWorkspace(props.root, props.directory, leaveDeletedWorkspace)
       }
+    }
+
+    const handleForceDelete = () => {
+      dialog.close()
+      dialog.show(() => (
+        <DialogForceDeleteWorkspace root={props.root} directory={props.directory} gitStderr="" branch={props.branch} />
+      ))
     }
 
     const description = () => {
@@ -2081,6 +2093,11 @@ export default function Layout(props: ParentProps) {
             <Button variant="ghost" size="large" onClick={() => dialog.close()}>
               {language.t("workspace.delete.cancel")}
             </Button>
+            <Show when={data.dirty && data.status === "ready"}>
+              <Button variant="secondary" size="large" onClick={handleForceDelete}>
+                {language.t("workspace.delete.stale.button")}
+              </Button>
+            </Show>
             <Show when={!data.dirty && data.sessionCount > 0}>
               <Button variant="secondary" size="large" onClick={handleMerge}>
                 {language.t("workspace.delete.mergeSessions")}
@@ -2475,47 +2492,63 @@ export default function Layout(props: ParentProps) {
   }
 
   const createWorkspace = async (project: LocalProject) => {
-    clearSidebarHoverState()
-    const created = await globalSDK.client.worktree
-      .create({ directory: project.worktree })
-      .then((x) => x.data)
-      .catch((err) => {
-        showToast({
-          title: language.t("workspace.create.failed.title"),
-          description: formatServerError(err, language.t),
-        })
-        return undefined
+    if (creatingWorkspace()) {
+      showToast({
+        title: language.t("workspace.create.inProgress.title"),
+        description: language.t("workspace.create.inProgress.description"),
       })
-
-    if (!created?.directory) return
-
-    const displayName = created.branch.replace(/^sandbox-(\d+)$/, (_, n) =>
-      language.t("workspace.type.sandboxName", { number: n }),
-    )
-    setWorkspaceName(created.directory, displayName, project.id, created.branch)
-
-    const local = project.worktree
-    const key = workspaceKey(created.directory)
-    const root = workspaceKey(local)
-
-    setBusy(created.directory, true)
-    WorktreeState.pending(created.directory)
-    setStore("workspaceExpanded", key, true)
-    if (key !== created.directory) {
-      setStore("workspaceExpanded", created.directory, true)
+      return
     }
-    setStore("workspaceOrder", project.worktree, (prev) => {
-      const existing = prev ?? []
-      const next = existing.filter((item) => {
-        const id = workspaceKey(item)
-        return id !== root && id !== key
-      })
-      return [...next, created.directory]
-    })
+    setCreatingWorkspace(true)
+    try {
+      clearSidebarHoverState()
+      const created = await globalSDK.client.worktree
+        .create({ directory: project.worktree })
+        .then((x) => x.data)
+        .catch((err) => {
+          showToast({
+            title: language.t("workspace.create.failed.title"),
+            description: formatServerError(err, language.t),
+          })
+          return undefined
+        })
 
-    globalSync.child(created.directory, { bootstrap: false })
-    OpenIntent.mark(server.key, created.directory)
-    navigateWithSidebarReset(`/${base64Encode(created.directory)}/session`)
+      if (!created?.directory) return
+
+      const displayName = created.branch.replace(/^sandbox-(\d+)$/, (_, n) =>
+        language.t("workspace.type.sandboxName", { number: n }),
+      )
+      setWorkspaceName(created.directory, displayName, project.id, created.branch)
+
+      const local = project.worktree
+      const key = workspaceKey(created.directory)
+      const root = workspaceKey(local)
+
+      setBusy(created.directory, true)
+      WorktreeState.pending(created.directory)
+      setStore("workspaceExpanded", key, true)
+      if (key !== created.directory) {
+        setStore("workspaceExpanded", created.directory, true)
+      }
+      setStore("workspaceOrder", project.worktree, (prev) => {
+        const existing = prev ?? []
+        const next = existing.filter((item) => {
+          const id = workspaceKey(item)
+          return id !== root && id !== key
+        })
+        return [...next, created.directory]
+      })
+
+      globalSync.child(created.directory, { bootstrap: false })
+      OpenIntent.mark(server.key, created.directory)
+      navigateWithSidebarReset(`/${base64Encode(created.directory)}/session`)
+
+      // Hold the gate until the boot actually finishes (ready or failed);
+      // the timeout keeps the button alive if the SSE event is lost.
+      await Promise.race([WorktreeState.wait(created.directory), new Promise((resolve) => setTimeout(resolve, 20_000))])
+    } finally {
+      setCreatingWorkspace(false)
+    }
   }
 
   const workspaceSidebarCtx: WorkspaceSidebarContext = {

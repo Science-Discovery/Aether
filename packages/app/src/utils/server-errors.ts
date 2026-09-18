@@ -85,6 +85,12 @@ function isWorktreeErrorLike(error: unknown): error is WorktreeNamedErrorLike {
   return typeof o.name === "string" && o.name in WORKTREE_ERROR_MAP
 }
 
+function isNamedErrorLike(error: unknown): error is WorktreeNamedErrorLike & { data: { message?: string } } {
+  if (typeof error !== "object" || error === null) return false
+  const o = error as Record<string, unknown>
+  return typeof o.name === "string" && typeof o.data === "object" && o.data !== null
+}
+
 const NETWORK_ERROR_MAP: Record<string, string> = {
   "Failed to fetch": "error.network.failedToFetch",
   "NetworkError when attempting to fetch resource": "error.network.failedToFetch",
@@ -116,6 +122,18 @@ export function formatServerError(error: unknown, translate?: Translator, fallba
   if (isConfigInvalidErrorLike(error)) return parseReadableConfigInvalidError(error, translate)
   if (isProviderModelNotFoundErrorLike(error)) return parseReadableProviderModelNotFoundError(error, translate)
   if (isWorktreeErrorLike(error)) return parseWorktreeError(error, translate)
+  if (isNamedErrorLike(error)) {
+    const raw = error.data.message
+    const msg = typeof raw === "string" ? raw.trim() : undefined
+    if (msg)
+      return parseNetworkErrorMessage(
+        msg
+          .split("\n")
+          .map((line) => line.trim())
+          .find(Boolean) || msg,
+        translate,
+      )
+  }
   if (error instanceof Error && error.message) return parseNetworkErrorMessage(error.message, translate)
   if (typeof error === "string" && error) return parseNetworkErrorMessage(error, translate)
   if (fallback) return fallback

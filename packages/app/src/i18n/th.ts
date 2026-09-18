@@ -900,6 +900,8 @@ export const dict = {
   "workspace.type.local": "ในเครื่อง",
   "workspace.type.sandbox": "แซนด์บ็อกซ์",
   "workspace.create.failed.title": "ไม่สามารถสร้างพื้นที่ทำงาน",
+  "workspace.create.inProgress.title": "กำลังสร้างพื้นที่ทำงาน",
+  "workspace.create.inProgress.description": "โปรดรอจนกว่าการสร้างพื้นที่ทำงานปัจจุบันเสร็จสิ้น",
   "workspace.delete.failed.title": "ไม่สามารถลบพื้นที่ทำงาน",
   "workspace.resetting.title": "กำลังรีเซ็ตพื้นที่ทำงาน",
   "workspace.resetting.description": "อาจใช้เวลาประมาณหนึ่งนาที",
