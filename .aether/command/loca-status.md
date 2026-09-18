@@ -1,5 +1,5 @@
 ---
-description: 查看 LOCA 工作和审核状态
+description: 查看 LOCA 工作与里程碑审核状态
 agent: loca
 ---
 

@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "aether-loca-workflow",
+      "name": "aether-loca3-workflow",
       "dependencies": {
         "zod": "4.1.8",
       },

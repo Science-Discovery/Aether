@@ -1,60 +1,45 @@
 import { expect, test } from "bun:test"
-import { mkdtemp, writeFile, rm } from "node:fs/promises"
-import path from "node:path"
-import os from "node:os"
 import { execute } from "../execute.js"
 
-// Opt-in because nested OS sandboxes are unavailable in some CI/agent environments.
-test.skipIf(process.env.LOCA_SANDBOX_TEST !== "1")(
-  "real OS execution denies undeclared files, writes, forks and network",
-  async () => {
-    const dir = await mkdtemp(path.join(os.tmpdir(), "loca-secret-"))
-    const secret = path.join(dir, "secret.txt")
-    await writeFile(secret, "must not be visible")
-    const code = `import os, socket, json
-from pathlib import Path
-result = {"answer": 2 + 2, "inputs": json.loads((Path(os.environ["LOCA_INPUTS"]) / "manifest.json").read_text())}
-for name, action in [
-  ("read", lambda: Path(${JSON.stringify(secret)}).read_text()),
-  ("write", lambda: Path(${JSON.stringify(path.join(dir, "unexpected"))}).write_text("bad")),
-  ("network", lambda: socket.create_connection(("127.0.0.1", 9), timeout=1)),
-  ("fork", lambda: os.fork()),
-]:
-  try:
-    action()
-    result[name] = "ALLOWED"
-  except PermissionError:
-    result[name] = "denied"
-  except BlockingIOError:
-    result[name] = "denied"
-  except OSError as error:
-    result[name] = "denied" if error.errno in (1, 11, 13) else str(error)
-print(json.dumps(result))
-Path("answer.txt").write_text("4")
-`
-    const result = await execute(
-      code,
-      [{ id: "data", hash: "fixture", content: "2" }],
-      { python: "python3", bytes: 10000 },
-      new AbortController().signal,
-    )
-    await rm(dir, { recursive: true, force: true })
-    expect(result.exit).toBe(0)
-    expect(JSON.parse(result.stdout)).toMatchObject({
-      answer: 4,
-      read: "denied",
-      write: "denied",
-      network: "denied",
-      fork: "denied",
-    })
-    expect(result.files).toEqual([{ name: "answer.txt", content: "4" }])
-  },
-)
+// OS 沙箱实测：CI 或已处于沙箱内的 agent 环境会禁止嵌套沙箱，显式开启才运行。
+const enabled = !!process.env.LOCA_SANDBOX_TEST
+const maybe = enabled ? test : test.skip
 
-test.skipIf(process.env.LOCA_SANDBOX_TEST !== "1")("sandbox abort signal interrupts runaway execution", async () => {
-  const abort = new AbortController()
-  setTimeout(() => abort.abort(), 200)
-  await expect(execute("while True: pass", [], { python: "python3", bytes: 10000 }, abort.signal)).rejects.toThrow(
-    "cancelled",
+maybe("sandbox isolates filesystem, network and spawn", async () => {
+  const run = await execute(
+    `import os, socket, subprocess, sys, json
+out = os.environ.get("LOCA_OUTPUTS")
+manifest = json.load(open(os.path.join(os.environ["LOCA_INPUTS"], "manifest.json")))
+read = open(os.path.join(os.environ["LOCA_INPUTS"], manifest[0]["file"])).read()
+open(os.path.join(out, "read.txt"), "w").write(read)
+for name, fn in [
+    ("spawn", lambda: subprocess.run(["/bin/true"])),
+    ("net", lambda: socket.socket().connect(("127.0.0.1", 1))),
+    ("home", lambda: open(os.path.expanduser("~/.zshenv"), "rb").read()),
+]:
+    try:
+        fn()
+        open(os.path.join(out, name + ".txt"), "w").write("ALLOWED")
+    except Exception as error:
+        open(os.path.join(out, name + ".txt"), "w").write("BLOCKED " + type(error).__name__)
+sys.exit(0)
+`,
+    [{ id: "input:x", hash: "h", name: "lorem.txt", content: "lorem ipsum" }],
+    { python: "python3", bytes: 1000000 },
   )
+  expect(run.exit).toBe(0)
+  const files = Object.fromEntries(run.files.map((file) => [file.name, file.content]))
+  expect(files["read.txt"]).toBe("lorem ipsum")
+  expect(files["spawn.txt"]).toContain("BLOCKED")
+  expect(files["net.txt"]).toContain("BLOCKED")
+  expect(files["home.txt"]).toContain("BLOCKED")
+})
+
+maybe("sandbox reports failing exit codes and stderr", async () => {
+  const run = await execute("import sys\nsys.stderr.write('boom')\nsys.exit(3)\n", [], {
+    python: "python3",
+    bytes: 1000000,
+  })
+  expect(run.exit).toBe(3)
+  expect(run.stderr).toContain("boom")
 })

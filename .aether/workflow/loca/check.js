@@ -8,17 +8,15 @@ const cfg = await Bun.file(path.join(import.meta.dir, "workflow.json")).json()
 const roles = [
   "contract",
   "fidelity",
+  "planner",
   "solve",
-  "split",
-  "structure",
-  "inputs",
-  "validate",
-  "reference",
-  "reasoning",
-  "computation",
-  "questioner",
-  "defender",
-  "closing",
+  "gate",
+  "anchor",
+  "vaudit",
+  "verify",
+  "adversarial",
+  "compat",
+  "triage",
   "integrate",
 ]
 for (const role of roles) {
@@ -37,12 +35,17 @@ for (const name of commands) {
 const files = (await readdir(import.meta.dir)).filter((file) => file.endsWith(".js"))
 for (const file of files)
   new Bun.Transpiler({ loader: "js" }).transformSync(await readFile(path.join(import.meta.dir, file), "utf8"))
-if (cfg.reviewers < 2 || cfg.phases.at(-1) !== "awaiting_human") throw new Error("Invalid workflow policy")
+if (cfg.concurrency < 1 || cfg.depth < 0 || cfg.phases.at(-1) !== "awaiting_human")
+  throw new Error("Invalid workflow policy")
 for (const role of roles) {
   const limit = cfg.timeout?.[role]
   if (limit !== null && !(typeof limit === "number" && limit > 0))
     throw new Error(`Invalid timeout for role ${role}: expected positive milliseconds or null`)
 }
+for (const group of ["contract", "gate", "verify", "unit", "compat", "vaudit", "integrate"])
+  if (!Array.isArray(cfg.checks?.[group]) || !cfg.checks[group].length)
+    throw new Error(`checks.${group} must be a non-empty array`)
+if (cfg.subattempts < 1 || cfg.challenges < 1 || cfg.spot < 0) throw new Error("Invalid workflow retry policies")
 if (cfg.execution?.timeout !== undefined) throw new Error("Execution must not define a hard timeout")
 if (cfg.execution?.bytes < 1 || !cfg.execution?.python) throw new Error("Invalid execution policy")
 if (cfg.idle !== undefined && !(typeof cfg.idle === "number" && cfg.idle > 0))

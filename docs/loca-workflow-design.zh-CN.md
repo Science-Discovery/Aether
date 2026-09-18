@@ -1,5 +1,7 @@
 # Aether LOCA workflow 设计草案
 
+> **已被第三版取代**（2026-09-18）：v3 设计见 `docs/loca-workflow-design-v3.zh-CN.md`（里程碑门控增量审核），实现位于 `.aether/workflow/loca/` 等目录；本版实现归档于 `archive/loca-v2/`，保留为历史基线与对照组。
+
 状态：第二版设计，已纳入用户对生产完成条件、并行审核、多轮工作、独立执行验收及核心概念追问的修订；尚未实现。日期：2026-09-11。
 
 Aether 基线：feature/loca-workflow，267b4f44a7560769f81b973c8ba0cbbd4c1b4dcf。

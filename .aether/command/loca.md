@@ -1,5 +1,5 @@
 ---
-description: 运行 LOCA；参数为目标、验收标准或新的反馈
+description: 运行 LOCA 里程碑门控工作流；参数为目标、验收标准或新的反馈
 agent: loca
 ---
 

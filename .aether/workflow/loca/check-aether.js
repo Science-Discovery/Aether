@@ -51,7 +51,7 @@ const server = Bun.serve({
     const value = structured
       ? {
           verdict: "pass",
-          checks: ["intent", "criteria", "retention", "testability"].map((id) => ({
+          checks: ["intent", "criteria", "retention", "testability", "assumptions"].map((id) => ({
             id,
             status: "pass",
             reason: "Native protocol fixture",
@@ -130,7 +130,7 @@ await Instance.provide({
   fn: async () => {
     const config = await Config.get()
     assert.equal(config.agent.loca.mode, "primary")
-    assert.equal(config.agent["loca-reasoning"].hidden, true)
+    assert.equal(config.agent["loca-gate"].hidden, true)
     assert.equal(config.command.loca.agent, "loca")
     assert(config.plugin.some((file) => file.endsWith("/plugins/loca.js")))
     const hooks = await Plugin.list()
@@ -161,7 +161,7 @@ await Instance.provide({
     const run = engine.store.create(session.id)
     run.model = { providerID: "loca-fixture", modelID: "fixture" }
     const asset = engine.store.put(run, "input", "goal.txt", "Check fixture")
-    engine.active.set(session.id, { controller: new AbortController() })
+    engine.active.set(run.id, { controller: new AbortController() })
     const result = await engine.runner.call(run, "fidelity", engine.packet(run, {}, [asset.id]), (value) =>
       review(value, cfg.checks.contract),
     )
@@ -174,10 +174,16 @@ await Instance.provide({
     engine.store.db.close()
   },
 }).finally(async () => {
-  await Instance.disposeAll()
+  await Instance.disposeAll().catch(() => {})
   server.stop(true)
-  await chmod(path.join(project, ".aether"), 0o755)
-  await rm(dir, { recursive: true, force: true })
+  await chmod(path.join(project, ".aether"), 0o755).catch(() => {})
+  try {
+    await rm(dir, { recursive: true, force: true })
+  } catch {
+    const proc = Bun.spawn(["chmod", "-R", "u+w", dir])
+    await proc.exited
+    await rm(dir, { recursive: true, force: true })
+  }
 })
 console.log(
   "Aether native loader, plugin tools, child-session SDK and structured output verified using a local scripted provider.",

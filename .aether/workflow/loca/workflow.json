@@ -1,99 +1,42 @@
 {
-  "version": 1,
-  "reviewers": 3,
+  "version": 3,
   "concurrency": 4,
   "attempts": 3,
-  "cycles": 5,
-  "solves": 8,
-  "splits": 5,
-  "questions": 2,
-  "calls": 240,
+  "cycles": 12,
+  "subattempts": 2,
+  "depth": 1,
+  "spot": 2,
+  "challenges": 12,
+  "calls": 360,
   "timeout": {
     "contract": 3600000,
     "fidelity": 3600000,
-    "questioner": 1800000,
-    "defender": 1800000,
-    "split": 1800000,
-    "structure": 1800000,
-    "inputs": 1800000,
-    "validate": 1800000,
-    "reference": 1800000,
-    "reasoning": 1800000,
-    "computation": 1800000,
-    "closing": 1800000,
-    "integrate": 1800000,
-    "solve": null
+    "planner": 1800000,
+    "solve": null,
+    "gate": 900000,
+    "anchor": 1800000,
+    "vaudit": 1800000,
+    "verify": 1800000,
+    "adversarial": 1800000,
+    "compat": 900000,
+    "triage": 900000,
+    "integrate": 1800000
   },
-  "bytes": 200000,
-  "packet": 180000,
+  "bytes": 2000000,
+  "packet": 262144,
   "idle": 300000,
   "execution": {
     "python": "python3",
     "bytes": 1000000
   },
-  "phases": [
-    "contract",
-    "solve",
-    "split",
-    "structure",
-    "inputs",
-    "validate",
-    "review",
-    "integrate",
-    "awaiting_human"
-  ],
+  "phases": ["contract", "planning", "working", "integrating", "awaiting_human"],
   "checks": {
-    "contract": [
-      "intent",
-      "criteria",
-      "retention",
-      "testability",
-      "assumptions"
-    ],
-    "structure": [
-      "coverage",
-      "single_type",
-      "dependencies",
-      "acceptance_independence",
-      "artifact_fidelity"
-    ],
-    "inputs": [
-      "provenance",
-      "fidelity",
-      "conditions",
-      "relevance",
-      "completeness"
-    ],
-    "reference": [
-      "original_fidelity",
-      "relevance",
-      "applicability",
-      "strength",
-      "counterevidence"
-    ],
-    "reasoning": [
-      "definitions",
-      "principles",
-      "inference",
-      "consistency",
-      "boundary",
-      "counterexample"
-    ],
-    "computation": [
-      "specification",
-      "implementation",
-      "coverage",
-      "dataflow",
-      "numerics",
-      "reproducibility"
-    ],
-    "integrate": [
-      "criteria_coverage",
-      "actual_artifacts",
-      "effective_nodes",
-      "findings_closed",
-      "scope",
-      "delivery_fidelity"
-    ]
+    "contract": ["intent", "criteria", "retention", "testability", "assumptions"],
+    "gate": ["statement", "anchor", "mass"],
+    "verify": ["independent_basis", "conclusion_match", "scope", "evidence_quality"],
+    "unit": ["step_validity", "independence", "evidence"],
+    "compat": ["explicit_conflicts", "semantic_consistency", "scope_overlap"],
+    "vaudit": ["semantic", "independence", "negative_controls"],
+    "integrate": ["criteria_coverage", "milestone_consistency", "strength_chains", "delivery_fidelity"]
   }
 }

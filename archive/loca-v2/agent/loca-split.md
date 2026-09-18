@@ -22,3 +22,4 @@ permission:
 根资产 from 使用 assets 中真实 id、port="asset"；其他边 from=节点 ID、port=上游输出端口。inputs 写明 use/conditions；outputs 写明 claim/conditions；material 引用实际被审核资产，不是额外事实前提。来源提取、条件转换、推断、程序计算必须各归属于适当节点，不能藏进一条边。外部理论/定义/数据如需作为事实须显式根输入或上游引用节点。验收块必须消费 production 输出。自环、循环、缺端口、未覆盖成果均不允许。
 
 material 中每项填写 {asset, start, end}，start/end 为原始 UTF-8 解码文本的 JavaScript 字符位置（0 起始、end 不包含），必须精确定位该块的真实材料。所有 production material 范围合起来覆盖候选成果的全部非空白内容，不能用只审核一小段来漏掉其他结论。禁止把候选成果文件直接当作根输入绕过其生产节点。
+轮次经济性：单次工具调用或生成的输出控制在约 5000 token 以内，超长结构分块提交，避免长流式中断。

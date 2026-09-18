@@ -1,134 +1,127 @@
-import { exact, schemas } from "./schema.js"
+import { schemas } from "./schema.js"
 
-export function graph(value, contract, candidate, assets) {
-  schemas.split.parse(value)
-  const nodes = new Map(value.nodes.map((node) => [node.id, node]))
-  if (nodes.size !== value.nodes.length) throw new Error("Duplicate node IDs")
+// 计划图校验：zod 之上的结构检查。planner 输出必须满足：
+// 子问题 id 唯一；criteria/depends/expectedRefs 可解析；每条验收标准至少有一个
+// 负责子问题（覆盖缺口直接打回，不允许"没人负责的标准"进入工作阶段）。
+export function planCheck(value, contract) {
+  schemas.planner.parse(value)
+  const ids = value.subproblems.map((sub) => sub.id)
+  if (new Set(ids).size !== ids.length) throw new Error("Duplicate subproblem IDs")
+  const known = new Set(ids)
   const criteria = new Set(contract.criteria.map((item) => item.id))
-  const claims = new Set(candidate.claims.map((item) => item.id))
-  const seen = new Set()
-  const active = new Set()
-  const order = []
-  function visit(node) {
-    if (active.has(node.id)) throw new Error(`DAG cycle at ${node.id}`)
-    if (seen.has(node.id)) return
-    if (assets.has(node.id)) throw new Error("Node ID collides with an asset")
-    active.add(node.id)
-    if (new Set(node.outputs.map((item) => item.port)).size !== node.outputs.length)
-      throw new Error("Duplicate output ports")
-    node.material.forEach((range) => {
-      const asset = assets.get(range.asset)
-      if (!asset || range.start >= range.end || range.end > asset.content.length)
-        throw new Error(`Invalid material range ${range.asset}`)
-      if (asset.kind && !["input", "source", "artifact", "code", "execution"].includes(asset.kind))
-        throw new Error("Audit reports and workflow instructions are not project materials")
+  for (const sub of value.subproblems) {
+    sub.criteria.forEach((id) => {
+      if (!criteria.has(id)) throw new Error(`Subproblem ${sub.id} references unknown criterion ${id}`)
     })
-    node.criteria.forEach((id) => {
-      if (!criteria.has(id)) throw new Error(`Unknown criterion ${id}`)
+    sub.depends.forEach((id) => {
+      if (!known.has(id)) throw new Error(`Subproblem ${sub.id} depends on unknown subproblem ${id}`)
     })
-    node.claims.forEach((id) => {
-      if (!claims.has(id)) throw new Error(`Unknown claim ${id}`)
+    sub.expectedRefs.forEach((id) => {
+      if (!known.has(id)) throw new Error(`Subproblem ${sub.id} expected-references unknown subproblem ${id}`)
+      if (id === sub.id) throw new Error(`Subproblem ${sub.id} cannot expected-reference itself`)
     })
-    node.inputs.forEach((input) => {
-      if (assets.has(input.from)) {
-        if (input.port !== "asset") throw new Error("Root asset port must be asset")
-        if (!["input", "source"].includes(assets.get(input.from).kind))
-          throw new Error("Only human inputs and frozen external sources may be DAG roots")
-        if (candidate.artifacts.includes(input.from))
-          throw new Error("Generated candidate artifacts must enter as node outputs, not unchecked root premises")
-        return
-      }
-      const parent = nodes.get(input.from)
-      if (!parent || !parent.outputs.some((item) => item.port === input.port))
-        throw new Error(`Missing input ${input.from}.${input.port}`)
-      visit(parent)
-    })
-    if (
-      node.purpose === "acceptance" &&
-      (!node.criteria.length || !node.inputs.some((input) => nodes.get(input.from)?.purpose === "production"))
-    )
-      throw new Error("Acceptance node must independently consume production output and identify criteria")
-    active.delete(node.id)
-    seen.add(node.id)
-    order.push(node.id)
+    if (!sub.robustness.trim()) throw new Error(`Subproblem ${sub.id} lacks a goal-robustness statement`)
+    if (!sub.verification.spec.trim()) throw new Error(`Subproblem ${sub.id} lacks a pre-registered verification spec`)
   }
-  value.nodes.forEach(visit)
-  criteria.forEach((id) => {
-    if (!value.nodes.some((node) => node.purpose === "acceptance" && node.criteria.includes(id)))
-      throw new Error(`No acceptance validation for ${id}`)
-  })
-  claims.forEach((id) => {
-    if (!value.nodes.some((node) => node.purpose === "production" && node.claims.includes(id)))
-      throw new Error(`Uncovered claim ${id}`)
-  })
-  candidate.artifacts.forEach((id) => {
-    const ranges = value.nodes
-      .filter((node) => node.purpose === "production")
-      .flatMap((node) => node.material.filter((range) => range.asset === id))
-      .sort((a, b) => a.start - b.start)
-    const content = assets.get(id).content
-    const coverage = ranges.reduce((end, range) => {
-      if (content.slice(end, range.start).trim())
-        throw new Error(`Uncovered artifact range ${id}:${end}-${range.start}`)
-      return Math.max(end, range.end)
-    }, 0)
-    if (content.slice(coverage).trim() || !ranges.length) throw new Error(`Uncovered artifact ${id}`)
-  })
-  return order
-}
-
-export function solved(value, contract, assets, previous) {
-  schemas.solve.parse(value)
-  previous?.problems.forEach((item) => {
-    if (!value.problems.some((next) => next.id === item.id)) throw new Error(`Problem silently removed: ${item.id}`)
-  })
-  if (value.status !== "completed") return false
-  if (
-    !value.artifacts.length ||
-    !value.claims.length ||
-    value.problems.some((item) => item.status !== "closed" || !item.evidence.length)
-  )
-    throw new Error("Completed candidate has no result or has unresolved problems")
-  if (new Set(value.claims.map((item) => item.id)).size !== value.claims.length) throw new Error("Duplicate claims")
-  exact(
-    value.criteria.map((item) => item.id),
-    contract.criteria.map((item) => item.id),
-    "solve criteria",
-  )
-  value.artifacts.forEach((id) => {
-    if (assets.get(id)?.kind !== "artifact") throw new Error(`Not a generated artifact: ${id}`)
-  })
-  value.claims.forEach((item) => {
-    if (!value.artifacts.includes(item.artifact)) throw new Error("Claim outside candidate artifacts")
-  })
-  previous?.problems.forEach((item) => {
-    if (!value.problems.some((next) => next.id === item.id && next.status === "closed" && next.evidence.length))
-      throw new Error(`Problem silently removed: ${item.id}`)
-  })
+  for (const criterion of contract.criteria)
+    if (!value.subproblems.some((sub) => sub.criteria.includes(criterion.id)))
+      throw new Error(`No subproblem is responsible for criterion ${criterion.id}`)
+  // 预期引用环：S1↔S2 互为前提会让双方 pre-flight 永久互锁，必须打回重排
+  const graph = new Map(ids.map((id) => [id, value.subproblems.find((s) => s.id === id).expectedRefs]))
+  const state = new Map()
+  const visit = (id) => {
+    if (state.get(id) === 1) throw new Error(`expectedRefs cycle detected at ${id}`)
+    if (state.get(id) === 2) return
+    state.set(id, 1)
+    for (const next of graph.get(id) ?? []) visit(next)
+    state.set(id, 2)
+  }
+  for (const id of ids) visit(id)
   return true
 }
 
-export function aggregate(nodes, reports, count, validations) {
-  const state = Object.create(null)
-  const pending = new Set(nodes.map((node) => node.id))
-  while (pending.size) {
-    const ready = nodes.filter((node) => pending.has(node.id) && node.inputs.every((input) => !pending.has(input.from)))
-    if (!ready.length) throw new Error("Cannot aggregate cyclic graph")
-    ready.forEach((node) => {
-      const panel = reports[node.id] ?? []
-      const local =
-        panel.length === count &&
-        panel.every((item) => item.verdict === "pass" && !item.findings.some((issue) => issue.blocking)) &&
-        (node.purpose !== "acceptance" || validations[node.id]?.verdict === "pass")
-      state[node.id] = {
-        local: local ? "pass" : "fail",
-        effective:
-          local && node.inputs.every((input) => !state[input.from] || state[input.from].effective === "pass")
-            ? "pass"
-            : "blocked",
+// 传递闭包（沿 expectedRefs 消费边）。用于回滚与推测深度统计。
+export function closure(subId, plan) {
+  const out = new Set()
+  const queue = [subId]
+  while (queue.length) {
+    const id = queue.pop()
+    const sub = plan.subproblems.find((item) => item.id === id)
+    if (!sub) continue
+    for (const ref of sub.expectedRefs)
+      if (!out.has(ref)) {
+        out.add(ref)
+        queue.push(ref)
       }
-      pending.delete(node.id)
-    })
   }
-  return state
+  return out
+}
+
+// 一个子问题名下的当前（未 superseded）里程碑。
+export function milestonesOf(run, subId) {
+  return Object.values(run.milestones).filter((m) => m.subproblem === subId && m.status !== "superseded")
+}
+
+// Pre-flight（T2）：子问题可调度的条件。
+// 直接前提 = expectedRefs 指向的子问题的全部当前里程碑：
+//   verified          → 硬前提成立；
+//   quick_checked     → 推测前提，计入推测预算；
+//   其他状态          → 阻塞（连快检都没过，不允许消费）。
+// 前提子问题未完成且尚无里程碑 → 阻塞（等它产出并过检）。
+// 前提子问题已完成但无里程碑 → 无硬前提，放行（覆盖缺口由集成期兜底）。
+export function preflight(run, subId) {
+  const sub = run.plan.subproblems.find((item) => item.id === subId)
+  if (!sub) return { ok: false, reason: `unknown subproblem ${subId}` }
+  let speculative = 0
+  for (const ref of sub.expectedRefs) {
+    // draft 是被 gate 拒绝的提案，从未被接受为前提：不参与前提检查，
+    // 否则它会永远阻塞依赖该子问题的下游（其 owner 可能已 completed）
+    const produced = milestonesOf(run, ref).filter((m) => m.status !== "draft")
+    for (const m of produced) {
+      if (m.status === "verified") continue
+      if (m.status === "quick_checked") {
+        speculative++
+        continue
+      }
+      return { ok: false, reason: `premise ${m.id} is ${m.status}` }
+    }
+    const done = run.subresults[ref]?.status === "completed"
+    if (!produced.length && !done)
+      return { ok: false, reason: `premise subproblem ${ref} has produced no milestone yet` }
+  }
+  return { ok: true, speculative }
+}
+
+// 推测预算：依赖闭包内"仅快检未深审"的里程碑总数 ≤ depth 才放行。
+// 直接前提用 preflight（硬阻塞语义）；闭包内任何未过快检的前提同样硬阻塞——
+// 否则 S3→S2→S1 链可以在多个未深审前提上叠加推测，违背"只越过 1 个"的设计。
+export function speculationOk(run, subId, depth) {
+  const flight = preflight(run, subId)
+  if (!flight.ok) return flight
+  let speculative = flight.speculative
+  for (const dep of closure(subId, run.plan)) {
+    if (run.plan.subproblems.find((item) => item.id === subId)?.expectedRefs.includes(dep)) continue
+    const produced = milestonesOf(run, dep).filter((m) => m.status !== "draft")
+    for (const m of produced) {
+      if (m.status === "verified") continue
+      if (m.status === "quick_checked") {
+        speculative++
+        continue
+      }
+      return { ok: false, reason: `transitive premise ${m.id} is ${m.status}` }
+    }
+    if (!produced.length && run.subresults[dep]?.status !== "completed")
+      return { ok: false, reason: `premise subproblem ${dep} has produced no milestone yet` }
+  }
+  if (speculative > depth)
+    return { ok: false, reason: `speculative depth ${speculative} exceeds budget ${depth}` }
+  return { ok: true, speculative }
+}
+
+// 计划边 staleness 快照：B/C 类传播后，哪些预期消费边涉及旧版本。
+export function staleEdges(run, changedSubs) {
+  const changed = new Set(changedSubs)
+  return run.plan.subproblems
+    .filter((sub) => sub.expectedRefs.some((ref) => changed.has(ref)) && !run.subresults[sub.id])
+    .map((sub) => ({ consumer: sub.id, premise: sub.expectedRefs.filter((ref) => changed.has(ref)) }))
 }

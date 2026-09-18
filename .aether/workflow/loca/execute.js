@@ -13,7 +13,9 @@ export async function execute(code, inputs, cfg, signal) {
   await Promise.all(inputs.map((item, index) => writeFile(path.join(input, `${index}.txt`), item.content)))
   await writeFile(
     path.join(input, "manifest.json"),
-    JSON.stringify(inputs.map((item, index) => ({ id: item.id, hash: item.hash, file: `${index}.txt` }))),
+    JSON.stringify(
+      inputs.map((item, index) => ({ id: item.id, hash: item.hash, name: item.name, file: `${index}.txt` })),
+    ),
   )
   await writeFile(path.join(dir, "code.py"), code)
   await writeFile(
@@ -80,8 +82,6 @@ export async function execute(code, inputs, cfg, signal) {
   const stop = () => proc.kill("SIGKILL")
   signal?.addEventListener("abort", stop, { once: true })
   if (signal?.aborted) stop()
-  // No wall-clock or CPU-time cutoff: run duration is the caller's judgement.
-  // The abort signal is the only interrupt path; output/file limits still bound runaway producers.
   const capture = async (stream) => {
     const reader = stream.getReader()
     const chunks = []
@@ -98,7 +98,6 @@ export async function execute(code, inputs, cfg, signal) {
     }
     return Buffer.concat(chunks).toString("utf8")
   }
-  // Always reap the process before cleanup, including output overflow and cancellation.
   return Promise.all([capture(proc.stdout), capture(proc.stderr), proc.exited])
     .then(async ([stdout, stderr, exit]) => {
       if (signal?.aborted) throw new Error("Execution cancelled")

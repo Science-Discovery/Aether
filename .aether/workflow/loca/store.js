@@ -28,6 +28,11 @@ export class Store {
     return row && JSON.parse(row.data)
   }
 
+  byId(id) {
+    const row = this.db.query("SELECT data FROM runs WHERE id = ?").get(id)
+    return row && JSON.parse(row.data)
+  }
+
   latest() {
     const row = this.db.query("SELECT data FROM runs ORDER BY rowid DESC LIMIT 1").get()
     return row && JSON.parse(row.data)
@@ -47,6 +52,19 @@ export class Store {
       assets: [],
       assumptions: [],
       questions: [],
+      contract: null,
+      plan: null,
+      planInvalid: false,
+      // v3 state: milestone registry, conclusion-level ledger, verifier registry,
+      // per-subproblem results. All milestones/reviews live in the run row; the
+      // frontier machine is a pure projection of this state and can be rebuilt
+      // from disk after any interruption.
+      milestones: {},
+      ledger: [],
+      verifiers: {},
+      subresults: {},
+      subreports: {},
+      feedback: null,
     }
     this.db.query("INSERT INTO runs VALUES (?, ?, ?, ?)").run(run.id, session, 0, JSON.stringify(run))
     this.event(run, "created", {})
@@ -74,34 +92,35 @@ export class Store {
   move(run, phase, data = {}) {
     const transitions = {
       new: ["contract"],
-      contract: ["solve", "needs_human"],
-      solve: ["split", "solve"],
-      split: ["structure", "split", "solve"],
-      structure: ["inputs", "split", "solve"],
-      inputs: ["split", "validate", "solve"],
-      validate: ["review", "solve"],
-      review: ["integrate", "solve"],
-      integrate: ["awaiting_human", "solve"],
+      contract: ["planning", "needs_human"],
+      planning: ["working", "needs_human"],
+      working: ["working", "planning", "integrating", "needs_human"],
+      integrating: ["awaiting_human", "working", "needs_human"],
       awaiting_human: ["accepted", "contract"],
       accepted: ["contract"],
-      unfinished: ["contract", "solve"],
-      cancelled: ["contract", "solve"],
-      needs_human: ["contract", "needs_human"],
+      unfinished: ["contract", "planning", "working", "integrating"],
+      cancelled: ["contract", "planning", "working", "integrating"],
+      needs_human: ["contract", "planning", "working", "needs_human"],
     }
-    const recovery = phase === "contract" || phase === "solve"
+    const recovery = ["contract", "planning", "working", "integrating"].includes(phase)
     if (!["unfinished", "cancelled"].includes(phase) && !recovery && !transitions[run.phase]?.includes(phase))
       throw new Error(`Illegal workflow transition ${run.phase} -> ${phase}`)
     if (
       phase === "awaiting_human" &&
       (!run.delivery ||
         !run.summary ||
-        !Object.keys(run.nodes ?? {}).length ||
-        Object.values(run.nodes).some((node) => node.effective !== "pass"))
+        !run.integrated ||
+        Object.values(run.milestones).some((m) => m.status === "failed" || m.status === "in_review"))
     )
-      throw new Error("Delivery gate requires an audited report and effective passing nodes")
+      throw new Error("Delivery gate requires an integrated report with no failed or in-review milestones")
     this.db.transaction(() => {
       run.phase = phase
-      this.save(run)
+      try {
+        this.save(run)
+      } catch {
+        this.event(run, "superseded_transition", { phase, round: run.round, cycle: run.cycle })
+        return
+      }
       this.event(run, "phase", { phase, round: run.round, cycle: run.cycle, ...data })
     })()
   }
@@ -127,6 +146,14 @@ export class Store {
     return asset
   }
 
+  // 元数据查询：不做 blob 完整性与哈希校验（仅用于名称索引等调度热路径；
+  // 引用解析与证据读取仍走 asset() 的完整性校验）。
+  metadata(id) {
+    const row = this.db.query("SELECT data FROM assets WHERE id = ?").get(id)
+    if (!row) throw new Error(`Unknown asset ${id}`)
+    return JSON.parse(row.data)
+  }
+
   asset(id) {
     const row = this.db.query("SELECT data FROM assets WHERE id = ?").get(id)
     if (!row) throw new Error(`Unknown asset ${id}`)
@@ -141,7 +168,8 @@ export class Store {
       queued: ["preparing"],
       preparing: ["running", "error", "cancelled", "stale"],
       running: ["checking", "timeout", "error", "cancelled", "stale"],
-      checking: ["accepted", "rejected", "error", "stale", "cancelled"],
+      checking: ["accepted", "rejected", "error", "stale", "cancelled", "correcting"],
+      correcting: ["checking", "accepted", "rejected", "timeout", "error", "stale", "cancelled", "exhausted"],
       rejected: ["retrying", "exhausted"],
       timeout: ["retrying", "exhausted"],
       retrying: [],
