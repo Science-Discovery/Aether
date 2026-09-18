@@ -2066,6 +2066,13 @@ export default function Layout(props: ParentProps) {
       }
     }
 
+    const handleForceDelete = () => {
+      dialog.close()
+      dialog.show(() => (
+        <DialogForceDeleteWorkspace root={props.root} directory={props.directory} gitStderr="" branch={props.branch} />
+      ))
+    }
+
     const description = () => {
       if (data.status === "loading") return language.t("workspace.status.checking")
       if (data.status === "error") return language.t("workspace.status.error")
@@ -2082,6 +2089,11 @@ export default function Layout(props: ParentProps) {
             <Button variant="ghost" size="large" onClick={() => dialog.close()}>
               {language.t("workspace.delete.cancel")}
             </Button>
+            <Show when={data.dirty && data.status === "ready"}>
+              <Button variant="secondary" size="large" onClick={handleForceDelete}>
+                {language.t("workspace.delete.stale.button")}
+              </Button>
+            </Show>
             <Show when={!data.dirty && data.sessionCount > 0}>
               <Button variant="secondary" size="large" onClick={handleMerge}>
                 {language.t("workspace.delete.mergeSessions")}
