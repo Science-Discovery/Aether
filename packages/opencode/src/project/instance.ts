@@ -22,9 +22,9 @@ const closing = new Set<string>()
 // Windows paths are case-insensitive but Filesystem.resolve only restores
 // true casing for paths that still exist, so the tombstone set must be
 // keyed case-insensitively there: endClose runs after the directory was
-// deleted and would otherwise miss the key beginClose stored.
-function closingKey(directory: string) {
-  const resolved = Filesystem.resolve(directory)
+// deleted and would otherwise miss the key beginClose stored. Takes an
+// already-resolved path to avoid a second realpath on hot request paths.
+function closingKey(resolved: string) {
   return process.platform === "win32" ? resolved.toLowerCase() : resolved
 }
 
@@ -135,10 +135,10 @@ export const Instance = {
    * re-create its instance (e.g. while a worktree is being removed).
    */
   beginClose(directory: string) {
-    closing.add(closingKey(directory))
+    closing.add(closingKey(Filesystem.resolve(directory)))
   },
   endClose(directory: string) {
-    closing.delete(closingKey(directory))
+    closing.delete(closingKey(Filesystem.resolve(directory)))
   },
   get current() {
     return context.use()

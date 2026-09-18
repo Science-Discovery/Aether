@@ -125,7 +125,14 @@ export function formatServerError(error: unknown, translate?: Translator, fallba
   if (isNamedErrorLike(error)) {
     const raw = error.data.message
     const msg = typeof raw === "string" ? raw.trim() : undefined
-    if (msg) return parseNetworkErrorMessage(msg.split("\n")[0]?.trim() || msg, translate)
+    if (msg)
+      return parseNetworkErrorMessage(
+        msg
+          .split("\n")
+          .map((line) => line.trim())
+          .find(Boolean) || msg,
+        translate,
+      )
   }
   if (error instanceof Error && error.message) return parseNetworkErrorMessage(error.message, translate)
   if (typeof error === "string" && error) return parseNetworkErrorMessage(error, translate)

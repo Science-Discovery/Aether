@@ -400,10 +400,11 @@ export namespace Worktree {
             } catch (e) {
               const code = (e as NodeJS.ErrnoException).code
               if (code === "ENOENT") return
-              // fsp.rm only retries EBUSY/EPERM/ENOTEMPTY; Windows handle
-              // release (fsmonitor daemon, just-disposed watchers) also
-              // surfaces as EACCES, so retry those ourselves.
-              if (attempt >= retries || (code !== "EACCES" && code !== "EBUSY")) throw e
+              // fsp.rm only retries EBUSY/EPERM/ENOTEMPTY internally; Windows
+              // handle release (fsmonitor daemon, just-disposed watchers) also
+              // surfaces as EACCES, so retry the transient set ourselves.
+              const transient = code === "EACCES" || code === "EBUSY" || code === "EPERM" || code === "ENOTEMPTY"
+              if (attempt >= retries || !transient) throw e
               await Bun.sleep(delay)
             }
           }
@@ -448,25 +449,29 @@ export namespace Worktree {
         return git(["worktree", "prune"], { cwd: Instance.worktree })
       }
 
+      const removeBranch = Effect.fnUntraced(function* (name: string, enabled?: boolean) {
+        if (!enabled) return
+        const del = yield* git(["branch", "-D", name], { cwd: Instance.worktree })
+        if (del.code !== 0) {
+          log.error("failed to delete branch after worktree removal", { name, stderr: del.stderr })
+        }
+      })
+
       const removeInner = Effect.fn("Worktree.remove.inner")(function* (input: RemoveInput, directory: string) {
         const list = yield* git(["worktree", "list", "--porcelain"], { cwd: Instance.worktree })
         const entries = parseWorktreeList(list.text)
         const entry = yield* locateWorktree(entries, directory)
         const branchRef = entry?.branch
+        // Branches are created with the worktree's name, so a missing
+        // registration (stale directory) still resolves to the branch.
+        const branchName = branchRef?.replace(/^refs\/heads\//, "") ?? pathSvc.basename(directory)
 
         if (input.force) {
           yield* stopFsmonitor(directory)
           const dirExists = yield* fsys.exists(directory).pipe(Effect.orDie)
           if (dirExists) yield* disposeAndClean(directory)
           yield* pruneWorktree()
-
-          if (input.deleteBranch && branchRef) {
-            const branchName = branchRef.replace(/^refs\/heads\//, "")
-            const del = yield* git(["branch", "-D", branchName], { cwd: Instance.worktree })
-            if (del.code !== 0) {
-              log.error("failed to delete branch after worktree removal", { branchName, stderr: del.stderr })
-            }
-          }
+          yield* removeBranch(branchName, input.deleteBranch)
 
           return { status: "forceOk" as const }
         }
@@ -482,14 +487,7 @@ export namespace Worktree {
             yield* disposeAndClean(directory)
           }
           yield* pruneWorktree()
-
-          if (input.deleteBranch && branchRef) {
-            const branchName = branchRef.replace(/^refs\/heads\//, "")
-            const del = yield* git(["branch", "-D", branchName], { cwd: Instance.worktree })
-            if (del.code !== 0) {
-              log.error("failed to delete branch after worktree removal", { branchName, stderr: del.stderr })
-            }
-          }
+          yield* removeBranch(branchName, input.deleteBranch)
 
           return { status: "ok" as const }
         }
@@ -518,14 +516,7 @@ export namespace Worktree {
 
         yield* cleanLogged(directory)
         yield* pruneWorktree()
-
-        if (input.deleteBranch && branchRef) {
-          const branchName = branchRef.replace(/^refs\/heads\//, "")
-          const del = yield* git(["branch", "-D", branchName], { cwd: Instance.worktree })
-          if (del.code !== 0) {
-            log.error("failed to delete branch after worktree removal", { branchName, stderr: del.stderr })
-          }
-        }
+        yield* removeBranch(branchName, input.deleteBranch)
 
         return { status: "ok" as const }
       })
