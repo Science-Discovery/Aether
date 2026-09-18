@@ -1,8 +1,10 @@
 import { beforeAll, describe, expect, mock, test } from "bun:test"
+import { base64Encode } from "@opencode-ai/util/encode"
 
 let getWorkspaceTerminalCacheKey: (dir: string) => string
 let getLegacyTerminalStorageKeys: (dir: string, legacySessionID?: string) => string[]
 let migrateTerminalState: (value: unknown) => unknown
+let runKey: (slug: string) => string
 
 beforeAll(async () => {
   mock.module("@solidjs/router", () => ({
@@ -19,6 +21,31 @@ beforeAll(async () => {
   getWorkspaceTerminalCacheKey = mod.getWorkspaceTerminalCacheKey
   getLegacyTerminalStorageKeys = mod.getLegacyTerminalStorageKeys
   migrateTerminalState = mod.migrateTerminalState
+  runKey = mod.runKey
+})
+
+describe("runKey", () => {
+  const slug = (dir: string) => base64Encode(dir)
+
+  test("merges slash spelling variants of the same directory", () => {
+    const back = slug("E:\\work\\AI\\Aether\\aether-test")
+    const forward = slug("E:/work/AI/Aether/aether-test")
+    expect(runKey(back)).toBe("e:\\work\\ai\\aether\\aether-test")
+    expect(runKey(forward)).toBe(runKey(back))
+  })
+
+  test("merges case variants", () => {
+    expect(runKey(slug("e:\\work\\ai\\aether\\AETHER-test"))).toBe(runKey(slug("E:\\work\\AI\\Aether\\aether-test")))
+  })
+
+  test("strips trailing separators", () => {
+    expect(runKey(slug("E:\\work\\AI\\Aether\\aether-test\\"))).toBe(runKey(slug("E:\\work\\AI\\Aether\\aether-test")))
+    expect(runKey(slug("E:/work/AI/Aether/aether-test//"))).toBe(runKey(slug("E:\\work\\AI\\Aether\\aether-test")))
+  })
+
+  test("falls back to the raw slug when it is not valid base64", () => {
+    expect(runKey("!!!")).toBe("!!!")
+  })
 })
 
 describe("getWorkspaceTerminalCacheKey", () => {

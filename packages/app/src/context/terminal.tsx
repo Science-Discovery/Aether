@@ -6,6 +6,7 @@ import { useSDK } from "./sdk"
 import type { Platform } from "./platform"
 import { defaultTitle, titleNumber } from "./terminal-title"
 import { Persist, persisted, removePersisted } from "@/utils/persist"
+import { decode64 } from "@/utils/base64"
 
 type PendingRun = {
   command: string
@@ -18,8 +19,21 @@ const [pendingTrigger, setPendingTrigger] = createSignal(0)
 
 export { pendingTrigger, pendingRuns }
 
+// URL slugs can be canonicalized after navigation (directory spelling may differ
+// from the sidebar's), so key pending runs by normalized directory. Lowercasing
+// also merges case variants (Windows spellings); the cost is that two distinct
+// case-sensitive POSIX directories would share one terminal store, which is
+// unlikely in practice.
+export function runKey(slug: string) {
+  const dir = decode64(slug)
+  return (dir ?? slug)
+    .replaceAll("/", "\\")
+    .replace(/[\\/]+$/, "")
+    .toLowerCase()
+}
+
 export function enqueueRun(slug: string, command: string, args: string[], title: string) {
-  pendingRuns.set(slug, { command, args, title })
+  pendingRuns.set(runKey(slug), { command, args, title })
   setPendingTrigger((n) => n + 1)
 }
 
@@ -127,17 +141,18 @@ const trimTerminal = (pty: LocalPTY) => {
 }
 
 export function clearWorkspaceTerminals(dir: string, sessionIDs?: string[], platform?: Platform) {
-  const key = getWorkspaceTerminalCacheKey(dir)
+  const dirKey = runKey(dir)
+  const key = getWorkspaceTerminalCacheKey(dirKey)
   for (const cache of caches) {
     const entry = cache.get(key)
     entry?.value.clear()
   }
 
-  removePersisted(Persist.workspace(dir, "terminal"), platform)
+  removePersisted(Persist.workspace(dirKey, "terminal"), platform)
 
-  const legacy = new Set(getLegacyTerminalStorageKeys(dir))
+  const legacy = new Set(getLegacyTerminalStorageKeys(dirKey))
   for (const id of sessionIDs ?? []) {
-    for (const key of getLegacyTerminalStorageKeys(dir, id)) {
+    for (const key of getLegacyTerminalStorageKeys(dirKey, id)) {
       legacy.add(key)
     }
   }
@@ -315,12 +330,37 @@ function createWorkspaceTerminalSession(sdk: ReturnType<typeof useSDK>, dir: str
         const id = data?.id
         if (!id || !data) return undefined
         batch(() => {
-          setStore("all", store.all.length, {
-            id,
-            title: data.title ?? title,
-            titleNumber: 0,
-          })
-          setStore("active", id)
+          // Re-run of the same script replaces its existing tab(s) in place.
+          const indexes = store.all.flatMap((x, i) => (x.title === title ? [i] : []))
+          if (indexes.length > 0) {
+            const [keep, ...extra] = indexes
+            const previous = store.all[keep].id
+            setStore("all", keep, { id, title, titleNumber: store.all[keep].titleNumber })
+            setStore("active", id)
+            if (previous !== id) {
+              sdk.client.pty.remove({ ptyID: previous }).catch(() => undefined)
+            }
+            for (const i of extra.reverse()) {
+              const stale = store.all[i]
+              if (!stale) continue
+              setStore(
+                "all",
+                produce((all) => {
+                  all.splice(i, 1)
+                }),
+              )
+              if (stale.id !== id) {
+                sdk.client.pty.remove({ ptyID: stale.id }).catch(() => undefined)
+              }
+            }
+          } else {
+            setStore("all", store.all.length, {
+              id,
+              title: data.title ?? title,
+              titleNumber: 0,
+            })
+            setStore("active", id)
+          }
         })
         return id
       } finally {
@@ -427,7 +467,10 @@ export const { use: useTerminal, provider: TerminalProvider } = createSimpleCont
 
     const loadWorkspace = (dir: string, legacySessionID?: string) => {
       // Terminals are workspace-scoped so tabs persist while switching sessions in the same directory.
-      const key = getWorkspaceTerminalCacheKey(dir)
+      // Key by normalized directory: the URL slug can be canonicalized mid-navigation,
+      // and the transient and final slugs must map to the same terminal store.
+      const dirKey = runKey(dir)
+      const key = getWorkspaceTerminalCacheKey(dirKey)
       const existing = cache.get(key)
       if (existing) {
         cache.delete(key)
@@ -436,7 +479,7 @@ export const { use: useTerminal, provider: TerminalProvider } = createSimpleCont
       }
 
       const entry = createRoot((dispose) => ({
-        value: createWorkspaceTerminalSession(sdk, dir, legacySessionID),
+        value: createWorkspaceTerminalSession(sdk, dirKey, legacySessionID),
         dispose,
       }))
 
@@ -464,9 +507,10 @@ export const { use: useTerminal, provider: TerminalProvider } = createSimpleCont
       pendingTrigger()
       const dir = params.dir
       if (!dir) return
-      const pending = pendingRuns.get(dir)
+      const key = runKey(dir)
+      const pending = pendingRuns.get(key)
       if (!pending) return
-      pendingRuns.delete(dir)
+      pendingRuns.delete(key)
       workspace().run(pending.command, pending.args, pending.title)
     })
 

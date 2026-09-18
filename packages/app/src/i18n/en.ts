@@ -1590,6 +1590,7 @@ export const dict = {
   "workspace.renameBranch.error.alreadyExists": "Branch name already exists",
   "workspace.renameBranch.error.invalid": "Branch name is invalid",
   "workspace.run": "Run",
+  "workspace.runHint": "Run scripts in this project's .aether/.bin/ or global scripts in {{path}}",
   "workspace.runScript": "Run: {{name}}",
   "workspace.runGlobalScript": "Global: {{name}}",
   "workspace.runProjectScripts": "Project scripts",

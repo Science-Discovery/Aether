@@ -11,6 +11,7 @@ export interface TooltipProps extends ComponentProps<typeof KobalteTooltip> {
   inactive?: boolean
   forceOpen?: boolean
   ignoreSafeArea?: boolean
+  interactive?: boolean
 }
 
 export interface TooltipKeybindProps extends Omit<TooltipProps, "value"> {
@@ -35,6 +36,7 @@ export function TooltipKeybind(props: TooltipKeybindProps) {
 
 export function Tooltip(props: TooltipProps) {
   let ref: HTMLDivElement | undefined
+  let contentRef: HTMLDivElement | undefined
   const [state, setState] = createStore({
     open: false,
     block: false,
@@ -48,6 +50,7 @@ export function Tooltip(props: TooltipProps) {
     "inactive",
     "forceOpen",
     "ignoreSafeArea",
+    "interactive",
     "value",
   ])
 
@@ -83,6 +86,15 @@ export function Tooltip(props: TooltipProps) {
   }
 
   const leave = () => {
+    if (local.interactive) {
+      setTimeout(() => {
+        if (ref?.matches(":hover")) return
+        if (contentRef?.matches(":hover")) return
+        setState("block", false)
+        close()
+      }, 150)
+      return
+    }
     if (!inside()) close()
     drop()
   }
@@ -113,6 +125,7 @@ export function Tooltip(props: TooltipProps) {
           onOpenChange={(open) => {
             if (local.forceOpen) return
             if (state.block && open) return
+            if (local.interactive && !open) return
             setState("open", open)
           }}
         >
@@ -133,11 +146,14 @@ export function Tooltip(props: TooltipProps) {
           </KobalteTooltip.Trigger>
           <KobalteTooltip.Portal>
             <KobalteTooltip.Content
+              ref={contentRef}
               data-component="tooltip"
               data-placement={props.placement}
               data-force-open={local.forceOpen}
+              data-interactive={local.interactive ? "true" : undefined}
               class={local.contentClass}
               style={local.contentStyle}
+              onPointerLeave={leave}
             >
               {local.value}
               {/* <KobalteTooltip.Arrow data-slot="tooltip-arrow" /> */}

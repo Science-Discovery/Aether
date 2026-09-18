@@ -1039,13 +1039,17 @@ export const dict = {
   "settingsSkills.maxVersions": "最大版本数",
   "settingsSkills.maxVersionsDescription": "每个 Skill 保留的最大版本快照数，超出后自动清理旧版本。",
   "settingsSkills.reviewMaxStepChars": "单步字数上限",
-  "settingsSkills.reviewMaxStepCharsDescription": "后台评审单步最多输出多少字符（单位 k，即千），超过就掐断这一步——防止模型在一步里停不下来狂吐。默认 300k（30 万）。",
+  "settingsSkills.reviewMaxStepCharsDescription":
+    "后台评审单步最多输出多少字符（单位 k，即千），超过就掐断这一步——防止模型在一步里停不下来狂吐。默认 300k（30 万）。",
   "settingsSkills.reviewMaxTotalChars": "整场字数上限",
-  "settingsSkills.reviewMaxTotalCharsDescription": "一次后台评审整场最多输出多少字符（单位 k，即千），超过就停掉整场——防止评审一步步磨蹭停不下来。默认 1000k（100 万）。",
+  "settingsSkills.reviewMaxTotalCharsDescription":
+    "一次后台评审整场最多输出多少字符（单位 k，即千），超过就停掉整场——防止评审一步步磨蹭停不下来。默认 1000k（100 万）。",
   "settingsSkills.evolutionEnabled": "Skill 自进化",
-  "settingsSkills.evolutionEnabledDescription": "总开关。关闭后所有项目都不再触发后台 Skill 评审——下面的设置在重新打开前都不生效。",
+  "settingsSkills.evolutionEnabledDescription":
+    "总开关。关闭后所有项目都不再触发后台 Skill 评审——下面的设置在重新打开前都不生效。",
   "settingsSkills.curatorEnabled": "Skill 管家",
-  "settingsSkills.curatorEnabledDescription": "定期统计 Skill 使用次数、把长期没用的标记为陈旧，并把 90 天没动过的 Skill 归档（归档副本可恢复）。关闭后停止所有自动维护。",
+  "settingsSkills.curatorEnabledDescription":
+    "定期统计 Skill 使用次数、把长期没用的标记为陈旧，并把 90 天没动过的 Skill 归档（归档副本可恢复）。关闭后停止所有自动维护。",
   "settingsSkills.outputDirsTitle": "产出目录",
   "settingsSkills.outputDirsDescription": "每个项目自进化出的 Skill 写到哪个文件夹，一个项目一个目录。",
   "settingsSkills.outputDirsEmpty": "暂无项目。",
@@ -1445,6 +1449,7 @@ export const dict = {
   "workspace.renameBranch.error.alreadyExists": "分支名称已存在",
   "workspace.renameBranch.error.invalid": "分支名称无效",
   "workspace.run": "运行",
+  "workspace.runHint": "运行本项目下 .aether/.bin/ 中的脚本，或 {{path}} 中的全局脚本",
   "workspace.runScript": "运行：{{name}}",
   "workspace.runGlobalScript": "全局：{{name}}",
   "workspace.runProjectScripts": "项目脚本",
