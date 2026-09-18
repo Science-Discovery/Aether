@@ -2875,7 +2875,6 @@ export default function Layout(props: ParentProps) {
                               size="large"
                               icon="plus-small"
                               class="w-full"
-                              disabled={creatingWorkspace()}
                               onClick={() => {
                                 createWorkspace(item())
                               }}
