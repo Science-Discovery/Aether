@@ -12,7 +12,7 @@ import { Log } from "../util/log"
 import { BusEvent } from "@/bus/bus-event"
 import { GlobalBus } from "@/bus/global"
 import { Git } from "@/git"
-import { Effect, FileSystem, Layer, Path, Scope, ServiceMap, Stream } from "effect"
+import { Effect, FileSystem, Layer, Path, Scope, Semaphore, ServiceMap, Stream } from "effect"
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
 import { NodeFileSystem, NodePath } from "@effect/platform-node"
 import { makeRuntime } from "@/effect/run-service"
@@ -325,16 +325,26 @@ export namespace Worktree {
 
       const createFromInfo = Effect.fn("Worktree.createFromInfo")(function* (info: Info, startCommand?: string) {
         yield* setup(info)
-        yield* boot(info, startCommand)
+        yield* bootLock.withPermits(1)(boot(info, startCommand))
       })
+
+      // Instance bootstrap races (watcher, pty, sqlite) crashed natively when
+      // two worktrees were created in quick succession, so serialize boots.
+      const bootLock = Semaphore.makeUnsafe(1)
+
+      const enqueueBoot = (info: Info, startCommand?: string) =>
+        bootLock
+          .withPermits(1)(
+            boot(info, startCommand).pipe(
+              Effect.catchCause((cause) => Effect.sync(() => log.error("worktree bootstrap failed", { cause }))),
+            ),
+          )
+          .pipe(Effect.forkIn(scope))
 
       const create = Effect.fn("Worktree.create")(function* (input?: CreateInput) {
         const info = yield* makeWorktreeInfo(input?.name)
         yield* setup(info)
-        yield* boot(info, input?.startCommand).pipe(
-          Effect.catchCause((cause) => Effect.sync(() => log.error("worktree bootstrap failed", { cause }))),
-          Effect.forkIn(scope),
-        )
+        yield* enqueueBoot(info, input?.startCommand)
         return info
       })
 
