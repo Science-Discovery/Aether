@@ -5,6 +5,7 @@ import { disposeInstance } from "@/effect/instance-registry"
 import { Filesystem } from "@/util/filesystem"
 import { iife } from "@/util/iife"
 import { Log } from "@/util/log"
+import path from "path"
 import { Context } from "../util/context"
 import { Project } from "./project"
 import { State } from "./state"
@@ -17,15 +18,20 @@ export interface Shape {
 }
 const context = Context.create<Shape>("instance")
 const cache = new Map<string, Promise<Shape>>()
-const closing = new Set<string>()
+// Tombstone for directories being torn down. Keyed by BOTH the lexical form
+// captured at beginClose and the true (realpath) form: Filesystem.resolve
+// only restores true casing / symlinks for paths that still exist, so a
+// single key would leak when endClose runs after the directory was deleted
+// (different form, missed delete, permanent no-create tombstone).
+const closing = new Map<string, string>()
 
-// Windows paths are case-insensitive but Filesystem.resolve only restores
-// true casing for paths that still exist, so the tombstone set must be
-// keyed case-insensitively there: endClose runs after the directory was
-// deleted and would otherwise miss the key beginClose stored. Takes an
-// already-resolved path to avoid a second realpath on hot request paths.
-function closingKey(resolved: string) {
+function lexKey(resolved: string) {
   return process.platform === "win32" ? resolved.toLowerCase() : resolved
+}
+
+function lexNorm(directory: string) {
+  const p = path.resolve(directory)
+  return lexKey(p)
 }
 
 const disposal = {
@@ -88,7 +94,7 @@ export const Instance = {
     worktree?: string
   }): Promise<R> {
     const directory = Filesystem.resolve(input.directory)
-    const closed = closing.has(closingKey(directory))
+    const closed = closing.has(lexKey(directory))
     let existing = cache.get(directory)
     if (!existing && input.create !== false && !closed) {
       Log.Default.info("creating instance", { directory })
@@ -135,10 +141,16 @@ export const Instance = {
    * re-create its instance (e.g. while a worktree is being removed).
    */
   beginClose(directory: string) {
-    closing.add(closingKey(Filesystem.resolve(directory)))
+    const lexical = lexNorm(directory)
+    const real = lexKey(Filesystem.resolve(directory))
+    closing.set(lexical, real)
+    if (real !== lexical) closing.set(real, real)
   },
   endClose(directory: string) {
-    closing.delete(closingKey(Filesystem.resolve(directory)))
+    const lexical = lexNorm(directory)
+    const real = closing.get(lexical)
+    if (real !== undefined) closing.delete(real)
+    closing.delete(lexical)
   },
   get current() {
     return context.use()
