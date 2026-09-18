@@ -19,6 +19,15 @@ const context = Context.create<Shape>("instance")
 const cache = new Map<string, Promise<Shape>>()
 const closing = new Set<string>()
 
+// Windows paths are case-insensitive but Filesystem.resolve only restores
+// true casing for paths that still exist, so the tombstone set must be
+// keyed case-insensitively there: endClose runs after the directory was
+// deleted and would otherwise miss the key beginClose stored.
+function closingKey(directory: string) {
+  const resolved = Filesystem.resolve(directory)
+  return process.platform === "win32" ? resolved.toLowerCase() : resolved
+}
+
 const disposal = {
   all: undefined as Promise<void> | undefined,
 }
@@ -79,8 +88,9 @@ export const Instance = {
     worktree?: string
   }): Promise<R> {
     const directory = Filesystem.resolve(input.directory)
+    const closed = closing.has(closingKey(directory))
     let existing = cache.get(directory)
-    if (!existing && input.create !== false && !closing.has(directory)) {
+    if (!existing && input.create !== false && !closed) {
       Log.Default.info("creating instance", { directory })
       existing = track(
         directory,
@@ -93,7 +103,9 @@ export const Instance = {
       )
     }
     if (!existing) {
-      if (input.create === false) {
+      // A closed directory is being torn down; never fall back to another
+      // instance or requests would silently run in the wrong directory.
+      if (input.create === false || closed) {
         const info = ProjectIdentity.resolve(directory)
         const browseCtx: Shape = {
           directory,
@@ -108,21 +120,12 @@ export const Instance = {
         }
         return context.provide(browseCtx, async () => input.fn())
       }
-      const fallback = Instance.fallback()
-      if (!fallback) throw new Error(`no instance for ${directory} and no fallback available`)
-      return context.provide(await fallback, async () => {
-        return input.fn()
-      })
+      throw new Error(`no instance for directory ${directory}`)
     }
     const ctx = await existing
     return context.provide(ctx, async () => {
       return input.fn()
     })
-  },
-  fallback() {
-    const entries = [...cache.values()]
-    if (entries.length === 0) return undefined
-    return entries[0]
   },
   has(directory: string) {
     return cache.has(Filesystem.resolve(directory))
@@ -132,10 +135,10 @@ export const Instance = {
    * re-create its instance (e.g. while a worktree is being removed).
    */
   beginClose(directory: string) {
-    closing.add(Filesystem.resolve(directory))
+    closing.add(closingKey(directory))
   },
   endClose(directory: string) {
-    closing.delete(Filesystem.resolve(directory))
+    closing.delete(closingKey(directory))
   },
   get current() {
     return context.use()

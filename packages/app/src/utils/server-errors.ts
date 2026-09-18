@@ -123,7 +123,8 @@ export function formatServerError(error: unknown, translate?: Translator, fallba
   if (isProviderModelNotFoundErrorLike(error)) return parseReadableProviderModelNotFoundError(error, translate)
   if (isWorktreeErrorLike(error)) return parseWorktreeError(error, translate)
   if (isNamedErrorLike(error)) {
-    const msg = error.data.message?.trim()
+    const raw = error.data.message
+    const msg = typeof raw === "string" ? raw.trim() : undefined
     if (msg) return parseNetworkErrorMessage(msg.split("\n")[0]?.trim() || msg, translate)
   }
   if (error instanceof Error && error.message) return parseNetworkErrorMessage(error.message, translate)

@@ -2050,6 +2050,7 @@ export default function Layout(props: ParentProps) {
       if (leaveDeletedWorkspace) {
         navigateWithSidebarReset(`/${base64Encode(props.root)}/session`)
       }
+      void globalSync.project.loadSessions(props.root, { force: true })
       if (props.branch) {
         const branch = props.branch
         dialog.show(() => (

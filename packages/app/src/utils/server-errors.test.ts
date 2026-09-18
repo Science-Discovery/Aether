@@ -100,6 +100,22 @@ describe("formatServerError", () => {
     )
   })
 
+  test("surfaces the first line of a named error's data message", () => {
+    const error = {
+      name: "UnknownError",
+      data: {
+        message: "EACCES: permission denied, rm 'dir' failed\n    at async rm (node:fs)\n    at ...",
+      },
+    }
+    expect(formatServerError(error, language.t)).toBe("EACCES: permission denied, rm 'dir' failed")
+  })
+
+  test("ignores non-string data messages", () => {
+    expect(formatServerError({ name: "UnknownError", data: { message: { code: 7 } } }, language.t)).toBe(
+      "Erro desconhecido",
+    )
+  })
+
   test("formats provider model errors using provider/model", () => {
     const error = {
       name: "ProviderModelNotFoundError",
