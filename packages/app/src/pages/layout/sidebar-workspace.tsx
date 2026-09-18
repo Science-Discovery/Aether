@@ -34,7 +34,7 @@ import { useGlobalSDK } from "@/context/global-sdk"
 import { loadDescendantsForRoots } from "@/context/global-sync/session-load"
 import { useLanguage } from "@/context/language"
 import { useSettings } from "@/context/settings"
-import { enqueueRun } from "@/context/terminal"
+import { enqueueRun, runKey } from "@/context/terminal"
 import { NewSessionItem, SessionItem, SessionSkeleton } from "./sidebar-items"
 import { childMapByParent, sortedRootSessions, workspaceKey } from "./helpers"
 import { formatServerError } from "@/utils/server-errors"
@@ -275,7 +275,9 @@ const RunScriptButton = (props: {
     const target = s.source === "global" ? `${scriptsPath()}/${s.name}` : s.path
     const [command, args] = shell(target)
     enqueueRun(slug, command, args, s.source === "global" ? s.name : s.path)
-    if (params.dir !== slug || !params.id) {
+    // Navigating between spelling variants of the SAME directory remounts the whole
+    // subtree (keyed Show) and orphans the pending terminal tab, so compare normalized.
+    if (runKey(params.dir ?? "") !== runKey(slug) || !params.id) {
       const sess = props.sessions()
       if (sess.length > 0) {
         navigate(`/${slug}/session/${sess[0].id}`)
