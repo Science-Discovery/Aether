@@ -28,7 +28,7 @@ import { Spinner } from "@opencode-ai/ui/spinner"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { showToast } from "@opencode-ai/ui/toast"
 import { type Session } from "@opencode-ai/sdk/v2/client"
-import { type LocalProject, useLayout } from "@/context/layout"
+import { type LocalProject } from "@/context/layout"
 import { useGlobalSync } from "@/context/global-sync"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { loadDescendantsForRoots } from "@/context/global-sync/session-load"
@@ -208,7 +208,6 @@ const RunScriptButton = (props: {
 }) => {
   const globalSdk = useGlobalSDK()
   const language = useLanguage()
-  const layout = useLayout()
   const navigate = useNavigate()
   const params = useParams()
 
@@ -260,18 +259,22 @@ const RunScriptButton = (props: {
     if (k) localStorage.setItem(`aether:run-script:${props.directory}`, k)
   })
 
+  const shell = (path: string): [string, string[]] => {
+    const ext = path.split(".").pop()?.toLowerCase()
+    if (ext === "bat" || ext === "cmd") return ["cmd", ["/k", path.replaceAll("/", "\\")]]
+    if (ext === "ps1") return ["powershell", ["-NoProfile", "-NoExit", "-ExecutionPolicy", "Bypass", "-File", path]]
+    return ["bash", ["-c", `"${path}"; exec bash --noediting`]]
+  }
+
   const run = async () => {
     const k = selected()
     if (!k) return
     const s = scripts().find((s) => key(s) === k)
     if (!s) return
     const slug = props.slug()
-    if (s.source === "global") {
-      const scriptPath = `"${scriptsPath()}/${s.name}"`
-      enqueueRun(slug, "bash", ["-c", `${scriptPath}; exec bash --noediting`], s.name)
-    } else {
-      enqueueRun(slug, "bash", ["-c", `${s.path}; exec bash --noediting`], s.path)
-    }
+    const target = s.source === "global" ? `${scriptsPath()}/${s.name}` : s.path
+    const [command, args] = shell(target)
+    enqueueRun(slug, command, args, s.source === "global" ? s.name : s.path)
     if (params.dir !== slug || !params.id) {
       const sess = props.sessions()
       if (sess.length > 0) {
@@ -280,7 +283,6 @@ const RunScriptButton = (props: {
         await props.createSession(props.directory)
       }
     }
-    layout.terminal.open()
   }
 
   const disabled = createMemo(() => scripts().length === 0)
@@ -298,18 +300,25 @@ const RunScriptButton = (props: {
 
   return (
     <ContextMenu onOpenChange={(open) => open && fetchScripts()}>
-      <ContextMenu.Trigger as="div" class="shrink-0">
-        <Button
-          variant="ghost"
-          size="small"
-          icon="terminal"
-          disabled={disabled()}
-          onClick={run}
-          class="h-6 px-1.5 text-12-regular text-text-weak gap-0.5"
-        >
-          {label()}
-        </Button>
-      </ContextMenu.Trigger>
+      <Tooltip
+        value={language.t("workspace.runHint", { path: scriptsPath() || "<datahome>/aether/.bin" })}
+        placement="top"
+        class="shrink-0"
+        interactive
+      >
+        <ContextMenu.Trigger as="div" class="shrink-0">
+          <Button
+            variant="ghost"
+            size="small"
+            icon="terminal"
+            disabled={disabled()}
+            onClick={run}
+            class="h-6 px-1.5 text-12-regular text-text-weak gap-0.5"
+          >
+            {label()}
+          </Button>
+        </ContextMenu.Trigger>
+      </Tooltip>
       <Show when={scripts().length > 0}>
         <ContextMenu.Portal>
           <ContextMenu.Content>

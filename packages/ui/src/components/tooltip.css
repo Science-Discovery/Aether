@@ -39,6 +39,17 @@
   line-height: var(--line-height-large); /* 166.667% */
   letter-spacing: var(--letter-spacing-normal);
 
+  &[data-interactive="true"] {
+    &[data-closed] {
+      pointer-events: none !important;
+    }
+
+    &:not([data-closed]) {
+      pointer-events: auto !important;
+      user-select: text;
+    }
+  }
+
   &[data-expanded] {
     opacity: 1;
     /* transform: translate3d(0, 0, 0); */

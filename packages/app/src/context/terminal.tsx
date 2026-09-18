@@ -6,6 +6,7 @@ import { useSDK } from "./sdk"
 import type { Platform } from "./platform"
 import { defaultTitle, titleNumber } from "./terminal-title"
 import { Persist, persisted, removePersisted } from "@/utils/persist"
+import { decode64 } from "@/utils/base64"
 
 type PendingRun = {
   command: string
@@ -18,8 +19,15 @@ const [pendingTrigger, setPendingTrigger] = createSignal(0)
 
 export { pendingTrigger, pendingRuns }
 
+// URL slugs can be canonicalized after navigation (directory spelling may differ
+// from the sidebar's), so key pending runs by normalized directory.
+export function runKey(slug: string) {
+  const dir = decode64(slug)
+  return (dir ?? slug).replaceAll("/", "\\").toLowerCase()
+}
+
 export function enqueueRun(slug: string, command: string, args: string[], title: string) {
-  pendingRuns.set(slug, { command, args, title })
+  pendingRuns.set(runKey(slug), { command, args, title })
   setPendingTrigger((n) => n + 1)
 }
 
@@ -464,9 +472,10 @@ export const { use: useTerminal, provider: TerminalProvider } = createSimpleCont
       pendingTrigger()
       const dir = params.dir
       if (!dir) return
-      const pending = pendingRuns.get(dir)
+      const key = runKey(dir)
+      const pending = pendingRuns.get(key)
       if (!pending) return
-      pendingRuns.delete(dir)
+      pendingRuns.delete(key)
       workspace().run(pending.command, pending.args, pending.title)
     })
 
