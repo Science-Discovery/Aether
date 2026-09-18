@@ -234,9 +234,12 @@ export namespace Worktree {
 
         const list = yield* git(["worktree", "list", "--porcelain"], { cwd: Instance.worktree })
         const existing = new Set<string>()
+        const registeredDirs = new Set<string>()
         for (const line of list.text.split("\n")) {
           const m = line.match(/^branch\s+refs\/heads\/sandbox-(\d+)$/)
           if (m) existing.add(m[1])
+          const wt = line.match(/^worktree\s+(.+)$/)
+          if (wt) registeredDirs.add(yield* canonical(wt[1]!.trim()))
         }
         for (let n = 1; n <= SANDBOX_MAX; n++) {
           const ns = String(n)
@@ -245,11 +248,21 @@ export namespace Worktree {
           const branch = `sandbox-${ns}`
           const directory = pathSvc.join(root, name)
 
-          if (yield* fsys.exists(directory).pipe(Effect.orDie)) continue
-
           const ref = `refs/heads/${branch}`
           const branchCheck = yield* git(["show-ref", "--verify", "--quiet", ref], { cwd: Instance.worktree })
           if (branchCheck.code === 0) continue
+
+          if (yield* fsys.exists(directory).pipe(Effect.orDie)) {
+            // A directory without registration, branch, or .git checkout is a
+            // leftover husk from a failed cleanup; without reclaiming it the
+            // name would be blocked forever.
+            const registeredDir = yield* canonical(directory)
+            if (registeredDirs.has(registeredDir)) continue
+            if (yield* fsys.exists(pathSvc.join(directory, ".git")).pipe(Effect.orDie)) continue
+            log.info("reclaiming orphan sandbox directory", { name, directory })
+            yield* cleanLogged(directory)
+            if (yield* fsys.exists(directory).pipe(Effect.orDie)) continue
+          }
 
           return Info.parse({ name, branch, directory })
         }
