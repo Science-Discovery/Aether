@@ -11,6 +11,7 @@ import { createMemo, createSignal, Match, onCleanup, Show, Switch, type JSX } fr
 import { formatKeybind, useCommand, type CommandOption } from "@/context/command"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useGlobalSync } from "@/context/global-sync"
+import { resolveProject } from "@/context/global-sync/bootstrap"
 import { useLayout } from "@/context/layout"
 import { useFile } from "@/context/file"
 import { useLanguage } from "@/context/language"
@@ -97,11 +98,7 @@ function highlight(text: string, query?: string) {
       break
     }
     if (index > cursor) out.push(text.slice(cursor, index))
-    out.push(
-      <b class="rounded-sm bg-warning/20 px-0.5 text-text-strong">
-        {text.slice(index, index + needle.length)}
-      </b>,
-    )
+    out.push(<b class="rounded-sm bg-warning/20 px-0.5 text-text-strong">{text.slice(index, index + needle.length)}</b>)
     cursor = index + needle.length
   }
 
@@ -323,7 +320,7 @@ export function DialogSelectFile(props: { mode?: DialogSelectFileMode; onOpenFil
   const project = createMemo(() => {
     const directory = projectDirectory()
     if (!directory) return
-    return layout.projects.list().find((p) => p.worktree === directory || p.sandboxes?.includes(directory))
+    return resolveProject(directory, layout.projects.list())
   })
   const workspaces = createMemo(() => {
     const directory = projectDirectory()

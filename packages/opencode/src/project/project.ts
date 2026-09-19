@@ -454,11 +454,18 @@ export namespace Project {
           vcs: data.vcs,
           time: { ...existing.time, updated: Date.now() },
         }
-        if (
+        if (data.kind === "subdirectory") {
+          const root = norm(result.worktree)
+          result.sandboxes = result.sandboxes.filter((s) => {
+            const box = norm(s).replace(/[\\/]+$/, "")
+            return box !== root && !root.startsWith(box + "/") && !root.startsWith(box + "\\")
+          })
+        } else if (
           norm(data.sandbox) !== norm(result.worktree) &&
           !result.sandboxes.some((s) => norm(s) === norm(data.sandbox))
-        )
+        ) {
           result.sandboxes.push(data.sandbox)
+        }
 
         const aliases = [...new Set([directory, data.worktree, data.sandbox].map((dir) => norm(dir)))]
         for (const dir of aliases) {
@@ -503,6 +510,7 @@ export namespace Project {
               set: {
                 worktree: norm(result.worktree),
                 vcs: result.vcs ?? null,
+                sandboxes: result.sandboxes,
                 time_updated: result.time.updated,
                 time_initialized: result.time.initialized,
                 commands: result.commands,

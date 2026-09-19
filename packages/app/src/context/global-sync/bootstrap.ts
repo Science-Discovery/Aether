@@ -11,7 +11,7 @@ import type {
   Todo,
 } from "@opencode-ai/sdk/v2/client"
 import { showToast } from "@opencode-ai/ui/toast"
-import { getFilename } from "@opencode-ai/util/path"
+import { getFilename, norm } from "@opencode-ai/util/path"
 import { retry } from "@opencode-ai/util/retry"
 import { batch } from "solid-js"
 import { reconcile, type SetStoreFunction, type Store } from "solid-js/store"
@@ -144,8 +144,16 @@ function groupBySession<T extends { id: string; sessionID: string }>(input: T[])
   }, {})
 }
 
-function projectID(directory: string, projects: Project[]) {
-  return projects.find((project) => project.worktree === directory || project.sandboxes?.includes(directory))?.id
+export function resolveProject<T extends { worktree: string; sandboxes?: string[] }>(directory: string, projects: T[]) {
+  const key = norm(directory)
+  return (
+    projects.find((project) => norm(project.worktree) === key) ??
+    projects.find((project) => project.sandboxes?.some((s) => norm(s) === key))
+  )
+}
+
+export function projectID(directory: string, projects: Project[]) {
+  return resolveProject(directory, projects)?.id
 }
 
 export async function bootstrapDirectory(input: {
