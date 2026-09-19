@@ -726,9 +726,14 @@ export default function Layout(props: ParentProps) {
     if (headerOffset) {
       ;(element as HTMLElement).style.scrollMarginTop = `${headerOffset}px`
     }
+    const bar = scrollContainerRef.querySelector<HTMLElement>(`[data-component="workspace-new"]`)
+    const barHeight = bar?.offsetHeight ?? 0
+    if (barHeight) {
+      ;(element as HTMLElement).style.scrollMarginBottom = `${barHeight}px`
+    }
     const containerRect = scrollContainerRef.getBoundingClientRect()
     const elementRect = element.getBoundingClientRect()
-    if (elementRect.top >= containerRect.top + headerOffset && elementRect.bottom <= containerRect.bottom) {
+    if (elementRect.top >= containerRect.top + headerOffset && elementRect.bottom <= containerRect.bottom - barHeight) {
       setState("scrollSessionKey", sessionKey)
       return
     }
@@ -2821,7 +2826,7 @@ export default function Layout(props: ParentProps) {
                           ref={(el) => {
                             scrollContainerRef = el
                           }}
-                          class="size-full pb-2 overflow-y-auto no-scrollbar [overflow-anchor:none]"
+                          class="size-full overflow-y-auto no-scrollbar [overflow-anchor:none]"
                         >
                           <SortableProvider ids={workspaces()}>
                             <For each={workspaces()}>
@@ -2837,7 +2842,7 @@ export default function Layout(props: ParentProps) {
                               )}
                             </For>
                           </SortableProvider>
-                          <div class="sticky bottom-0 pt-4 pb-2 bg-background-base">
+                          <div class="sticky bottom-0 z-40 pt-4 pb-2 bg-background-base" data-component="workspace-new">
                             <Button
                               size="large"
                               icon="plus-small"
