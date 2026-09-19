@@ -421,6 +421,7 @@ export function SessionHeader() {
                                   onFileClick={pickFile}
                                   onFileDelete={actions.remove}
                                   onFileRename={actions.rename}
+                                  onMenuSelect={() => setMenu("open", false)}
                                 />
                               </ScrollView>
                             </div>
