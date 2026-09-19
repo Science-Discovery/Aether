@@ -7,6 +7,8 @@ import * as CrossSpawnSpawner from "@/effect/cross-spawn-spawner"
 import { InstanceState } from "@/effect/instance-state"
 import { makeRuntime } from "@/effect/run-service"
 import { AppFileSystem } from "@/filesystem"
+import { FileWatcher } from "@/file/watcher"
+import { Bus } from "../bus"
 import { Hash } from "@/util/hash"
 import { Config } from "../config/config"
 import { Global } from "../global"
@@ -45,7 +47,9 @@ export namespace Snapshot {
     readonly stderr: string
   }
 
-  type State = Omit<Interface, "init">
+  type State = Omit<Interface, "init"> & {
+    readonly warm: () => Effect.Effect<void>
+  }
 
   export interface Interface {
     readonly init: () => Effect.Effect<void>
@@ -60,403 +64,686 @@ export namespace Snapshot {
 
   export class Service extends ServiceMap.Service<Service, Interface>()("@opencode/Snapshot") {}
 
-  export const layer: Layer.Layer<Service, never, AppFileSystem.Service | ChildProcessSpawner.ChildProcessSpawner> =
-    Layer.effect(
-      Service,
-      Effect.gen(function* () {
-        const fs = yield* AppFileSystem.Service
-        const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
-        const locks = new Map<string, Semaphore.Semaphore>()
+  export const layer: Layer.Layer<
+    Service,
+    never,
+    AppFileSystem.Service | ChildProcessSpawner.ChildProcessSpawner | Bus.Service
+  > = Layer.effect(
+    Service,
+    Effect.gen(function* () {
+      const fs = yield* AppFileSystem.Service
+      const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
+      const bus = yield* Bus.Service
+      const locks = new Map<string, Semaphore.Semaphore>()
 
-        const lock = (key: string) => {
-          const hit = locks.get(key)
-          if (hit) return hit
+      const lock = (key: string) => {
+        const hit = locks.get(key)
+        if (hit) return hit
 
-          const next = Semaphore.makeUnsafe(1)
-          locks.set(key, next)
-          return next
-        }
+        const next = Semaphore.makeUnsafe(1)
+        locks.set(key, next)
+        return next
+      }
 
-        const state = yield* InstanceState.make<State>(
-          Effect.fn("Snapshot.state")(function* (ctx) {
-            const state = {
-              directory: ctx.directory,
-              worktree: ctx.worktree,
-              gitdir: path.join(Global.Path.data, "snapshot", ctx.project.id, Hash.fast(ctx.worktree)),
-              vcs: ctx.project.vcs,
-            }
+      const state = yield* InstanceState.make<State>(
+        Effect.fn("Snapshot.state")(function* (ctx) {
+          const state = {
+            directory: ctx.directory,
+            worktree: ctx.worktree,
+            gitdir: path.join(Global.Path.data, "snapshot", ctx.project.id, Hash.fast(ctx.worktree)),
+            vcs: ctx.project.vcs,
+          }
 
-            const args = (cmd: string[]) => ["--git-dir", state.gitdir, "--work-tree", state.worktree, ...cmd]
+          // worktree-relative paths that changed since the last index update,
+          // fed by FileWatcher events (every edit tool publishes them)
+          const pending = new Set<string>()
+          let seeded = false
+          let reconciled = 0
+          const JOURNAL_MAX = 1000
+          const CHUNK = 64
+          const journalFile = path.join(state.gitdir, "journal.jsonl")
 
-            const git = Effect.fnUntraced(
-              function* (cmd: string[], opts?: { cwd?: string; env?: Record<string, string> }) {
-                const proc = ChildProcess.make("git", cmd, {
-                  cwd: opts?.cwd,
-                  env: opts?.env,
-                  extendEnv: true,
-                })
-                const handle = yield* spawner.spawn(proc)
-                const [text, stderr] = yield* Effect.all(
-                  [
-                    Stream.mkString(Stream.decodeText(handle.stdout)),
-                    Stream.mkString(Stream.decodeText(handle.stderr)),
-                  ],
-                  { concurrency: 2 },
-                )
-                const code = yield* handle.exitCode
-                return { code, text, stderr } satisfies GitResult
-              },
-              Effect.scoped,
-              Effect.catch((err) =>
-                Effect.succeed({
-                  code: ChildProcessSpawner.ExitCode(1),
-                  text: "",
-                  stderr: String(err),
-                }),
-              ),
-            )
+          const args = (cmd: string[]) => ["--git-dir", state.gitdir, "--work-tree", state.worktree, ...cmd]
 
-            const exists = (file: string) => fs.exists(file).pipe(Effect.orDie)
-            const read = (file: string) => fs.readFileString(file).pipe(Effect.catch(() => Effect.succeed("")))
-            const remove = (file: string) => fs.remove(file).pipe(Effect.catch(() => Effect.void))
-            const locked = <A, E, R>(fx: Effect.Effect<A, E, R>) => lock(state.gitdir).withPermits(1)(fx)
-
-            const enabled = Effect.fnUntraced(function* () {
-              if (state.vcs !== "git") return false
-              return (yield* Effect.promise(() => Config.get())).snapshot !== false
-            })
-
-            const excludes = Effect.fnUntraced(function* () {
-              const result = yield* git(["rev-parse", "--path-format=absolute", "--git-path", "info/exclude"], {
-                cwd: state.worktree,
+          const git = Effect.fnUntraced(
+            function* (cmd: string[], opts?: { cwd?: string; env?: Record<string, string> }) {
+              const proc = ChildProcess.make("git", cmd, {
+                cwd: opts?.cwd,
+                env: opts?.env,
+                extendEnv: true,
               })
-              const file = result.text.trim()
-              if (!file) return
-              if (!(yield* exists(file))) return
-              return file
-            })
-
-            const sync = Effect.fnUntraced(function* (list: string[] = []) {
-              const file = yield* excludes()
-              const ignore = path.join(state.worktree, ".gitignore")
-              const target = path.join(state.gitdir, "info", "exclude")
-              const text = [
-                file ? (yield* read(file)).trimEnd() : "",
-                (yield* read(ignore)).trimEnd(),
-                ...list.map((item) => `/${item.replaceAll("\\", "/")}`),
-              ]
-                .filter(Boolean)
-                .join("\n")
-              yield* fs.ensureDir(path.join(state.gitdir, "info")).pipe(Effect.orDie)
-              yield* fs.writeFileString(target, text ? `${text}\n` : "").pipe(Effect.orDie)
-            })
-
-            const add = Effect.fnUntraced(function* () {
-              yield* sync()
-              const [diff, other] = yield* Effect.all(
-                [
-                  git([...quote, ...args(["diff-files", "--name-only", "-z", "--", "."])], {
-                    cwd: state.directory,
-                  }),
-                  git([...quote, ...args(["ls-files", "--others", "--exclude-standard", "-z", "--", "."])], {
-                    cwd: state.directory,
-                  }),
-                ],
+              const handle = yield* spawner.spawn(proc)
+              const [text, stderr] = yield* Effect.all(
+                [Stream.mkString(Stream.decodeText(handle.stdout)), Stream.mkString(Stream.decodeText(handle.stderr))],
                 { concurrency: 2 },
               )
-              if (diff.code !== 0 || other.code !== 0) {
-                log.warn("failed to list snapshot files", {
-                  diffCode: diff.code,
-                  diffStderr: diff.stderr,
-                  otherCode: other.code,
-                  otherStderr: other.stderr,
-                })
-                return
-              }
+              const code = yield* handle.exitCode
+              return { code, text, stderr } satisfies GitResult
+            },
+            Effect.scoped,
+            Effect.catch((err) =>
+              Effect.succeed({
+                code: ChildProcessSpawner.ExitCode(1),
+                text: "",
+                stderr: String(err),
+              }),
+            ),
+          )
 
-              const tracked = diff.text.split("\0").filter(Boolean)
-              const all = Array.from(new Set([...tracked, ...other.text.split("\0").filter(Boolean)]))
-              if (!all.length) return
+          const exists = (file: string) => fs.exists(file).pipe(Effect.orDie)
+          const read = (file: string) => fs.readFileString(file).pipe(Effect.catch(() => Effect.succeed("")))
+          const remove = (file: string) => fs.remove(file).pipe(Effect.catch(() => Effect.void))
+          const locked = <A, E, R>(fx: Effect.Effect<A, E, R>) => lock(state.gitdir).withPermits(1)(fx)
 
-              const large = (yield* Effect.all(
-                all.map((item) =>
-                  fs
-                    .stat(path.join(state.directory, item))
-                    .pipe(Effect.catch(() => Effect.void))
-                    .pipe(
-                      Effect.map((stat) => {
-                        if (!stat || stat.type !== "File") return
-                        const size = typeof stat.size === "bigint" ? Number(stat.size) : stat.size
-                        return size > limit ? item : undefined
-                      }),
-                    ),
+          const enabled = Effect.fnUntraced(function* () {
+            if (state.vcs !== "git") return false
+            return (yield* Effect.promise(() => Config.get())).snapshot !== false
+          })
+
+          const rel = (file: string) => {
+            const abs = path.resolve(state.worktree, file)
+            const rel = path.relative(state.worktree, abs)
+            if (!rel || rel.startsWith("..") || path.isAbsolute(rel)) return
+            const norm = rel.replaceAll("\\", "/")
+            if (norm === ".git" || norm.startsWith(".git/")) return
+            return norm
+          }
+
+          // Edits made through opencode tools publish watcher events; staging
+          // them on demand keeps every track/patch/diff proportional to the
+          // number of touched files instead of the size of the repository.
+          if (state.vcs === "git") {
+            yield* bus
+              .subscribe(FileWatcher.Event.Updated)
+              .pipe(
+                Stream.runForEach((evt) =>
+                  Effect.sync(() => {
+                    const item = rel(evt.properties.file)
+                    if (item) pending.add(item)
+                  }),
                 ),
-                { concurrency: 8 },
-              )).filter((item): item is string => Boolean(item))
-              yield* sync(large)
-              const result = yield* git([...cfg, ...args(["add", "--sparse", "."])], { cwd: state.directory })
+                Effect.forkScoped,
+              )
+              .pipe(Effect.ignore)
+          }
+
+          const excludes = Effect.fnUntraced(function* () {
+            const result = yield* git(["rev-parse", "--path-format=absolute", "--git-path", "info/exclude"], {
+              cwd: state.worktree,
+            })
+            const file = result.text.trim()
+            if (!file) return
+            if (!(yield* exists(file))) return
+            return file
+          })
+
+          const sync = Effect.fnUntraced(function* (list: string[] = []) {
+            const file = yield* excludes()
+            const ignore = path.join(state.worktree, ".gitignore")
+            const target = path.join(state.gitdir, "info", "exclude")
+            const text = [
+              file ? (yield* read(file)).trimEnd() : "",
+              (yield* read(ignore)).trimEnd(),
+              ...list.map((item) => `/${item.replaceAll("\\", "/")}`),
+            ]
+              .filter(Boolean)
+              .join("\n")
+            yield* fs.ensureDir(path.join(state.gitdir, "info")).pipe(Effect.orDie)
+            yield* fs.writeFileString(target, text ? `${text}\n` : "").pipe(Effect.orDie)
+          })
+
+          const chunks = (list: string[]) =>
+            Array.from({ length: Math.ceil(list.length / CHUNK) }, (_, i) => list.slice(i * CHUNK, (i + 1) * CHUNK))
+
+          const ignoreCheck = Effect.fnUntraced(function* (list: string[]) {
+            const out = new Set<string>()
+            for (const chunk of chunks(list)) {
+              const result = yield* git([...quote, ...args(["check-ignore", "-z", "--", ...chunk])], {
+                cwd: state.worktree,
+              })
+              if (result.code === 0) {
+                for (const item of result.text.split("\0")) {
+                  if (item) out.add(item)
+                }
+              }
+            }
+            return out
+          })
+
+          const stage = Effect.fnUntraced(function* (list: string[]) {
+            for (const chunk of chunks(list)) {
+              const result = yield* git([...cfg, ...args(["update-index", "--add", "--remove", "--", ...chunk])], {
+                cwd: state.worktree,
+              })
               if (result.code !== 0) {
-                log.warn("failed to add snapshot files", {
-                  exitCode: result.code,
+                log.warn("failed to stage snapshot files", {
+                  code: result.code,
                   stderr: result.stderr,
+                  count: chunk.length,
                 })
               }
-            })
+            }
+          })
 
-            const cleanup = Effect.fnUntraced(function* () {
-              return yield* locked(
-                Effect.gen(function* () {
-                  if (!(yield* enabled())) return
-                  if (!(yield* exists(state.gitdir))) return
-                  const result = yield* git(args(["gc", `--prune=${prune}`]), { cwd: state.directory })
-                  if (result.code !== 0) {
-                    log.warn("cleanup failed", {
-                      exitCode: result.code,
-                      stderr: result.stderr,
-                    })
-                    return
-                  }
-                  log.info("cleanup", { prune })
+          // drain watcher events into the snapshot index
+          const apply = Effect.fnUntraced(function* () {
+            if (!pending.size) return []
+            const list = [...pending]
+            pending.clear()
+            const ignored = yield* ignoreCheck(list)
+            const large: string[] = []
+            const out: string[] = []
+            for (const item of list) {
+              if (ignored.has(item)) continue
+              const stat = yield* fs.stat(path.join(state.worktree, item)).pipe(Effect.catch(() => Effect.void))
+              if (stat && stat.type === "File") {
+                const size = typeof stat.size === "bigint" ? Number(stat.size) : stat.size
+                if (size > limit) {
+                  large.push(item)
+                  continue
+                }
+              }
+              out.push(item)
+            }
+            if (large.length) yield* sync(large)
+            if (out.length) yield* stage(out)
+            return out
+          })
+
+          type Entry = { hash: string; files: string[] }
+
+          const load = Effect.fnUntraced(function* () {
+            if (!(yield* exists(journalFile))) return [] as Entry[]
+            const text = yield* read(journalFile)
+            const out: Entry[] = []
+            for (const line of text.split("\n")) {
+              if (!line.trim()) continue
+              try {
+                const item = JSON.parse(line) as Entry
+                if (item && typeof item.hash === "string" && Array.isArray(item.files)) out.push(item)
+              } catch {
+                // skip malformed journal lines
+              }
+            }
+            return out
+          })
+
+          const persist = Effect.fnUntraced(function* (entry: Entry) {
+            const list = yield* load()
+            list.push(entry)
+            const keep = list.length > JOURNAL_MAX ? list.slice(-Math.floor(JOURNAL_MAX / 2)) : list
+            yield* fs
+              .writeFileString(journalFile, keep.map((item) => JSON.stringify(item)).join("\n") + "\n")
+              .pipe(Effect.orDie)
+          })
+
+          const tree = Effect.fnUntraced(function* () {
+            const result = yield* git(args(["write-tree"]), { cwd: state.worktree })
+            if (result.code !== 0) {
+              log.warn("failed to write tree", { exitCode: result.code, stderr: result.stderr })
+              return
+            }
+            return result.text.trim() || undefined
+          })
+
+          const commit = Effect.fnUntraced(function* (applied: string[]) {
+            const hash = yield* tree()
+            if (!hash) return
+            if (applied.length) yield* persist({ hash, files: applied })
+            return hash
+          })
+
+          // one-time setup: init the side gitdir, share the repository object
+          // store via alternates (no full copy), seed the index from HEAD so
+          // the first track is cheap, then reconcile dirty state in background
+          const seed = Effect.fnUntraced(function* () {
+            if (seeded) return
+            seeded = true
+            const existed = yield* exists(state.gitdir)
+            yield* fs.ensureDir(state.gitdir).pipe(Effect.orDie)
+            if (!existed) {
+              yield* git(["init"], {
+                env: { GIT_DIR: state.gitdir, GIT_WORK_TREE: state.worktree },
+              })
+              yield* git(["--git-dir", state.gitdir, "config", "core.autocrlf", "false"])
+              yield* git(["--git-dir", state.gitdir, "config", "core.longpaths", "true"])
+              yield* git(["--git-dir", state.gitdir, "config", "core.symlinks", "true"])
+              yield* git(["--git-dir", state.gitdir, "config", "core.fsmonitor", "false"])
+              log.info("initialized")
+            }
+
+            // share objects with the repository so trees/blobs referenced by
+            // HEAD need no copying into the snapshot store
+            const common = yield* git(["rev-parse", "--path-format=absolute", "--git-common-dir"], {
+              cwd: state.worktree,
+            })
+            const dir = common.text.trim()
+            if (common.code === 0 && dir) {
+              yield* fs.ensureDir(path.join(state.gitdir, "objects", "info")).pipe(Effect.orDie)
+              yield* fs
+                .writeFileString(path.join(state.gitdir, "objects", "info", "alternates"), `${dir}/objects\n`)
+                .pipe(Effect.orDie)
+            }
+
+            if (!(yield* exists(path.join(state.gitdir, "index")))) {
+              // seed from the repository's own index: it carries fresh stat
+              // data and cache-tree, so write-tree stays incremental and
+              // diff-files only reports real changes. Blobs resolve through
+              // the alternates entry above.
+              const idx = yield* git(["rev-parse", "--path-format=absolute", "--git-path", "index"], {
+                cwd: state.worktree,
+              })
+              const file = idx.text.trim()
+              if (idx.code === 0 && file && (yield* exists(file))) {
+                yield* fs.copyFile(file, path.join(state.gitdir, "index")).pipe(Effect.orDie)
+                log.info("seeded", { index: file })
+              } else {
+                const head = yield* git(["rev-parse", "HEAD^{tree}"], { cwd: state.worktree })
+                const hash = head.text.trim()
+                if (head.code === 0 && hash) {
+                  yield* git(args(["read-tree", hash]), { cwd: state.worktree })
+                  log.info("seeded", { tree: hash })
+                }
+              }
+            }
+          })
+
+          // full refresh: catches external edits that produce no watcher
+          // events. The walk runs against a copy of the index without
+          // holding the lock (a huge worktree scan must not block tracks);
+          // only the short apply phase is locked.
+          const reconcile = Effect.fnUntraced(function* () {
+            if (!(yield* enabled())) return
+            if (Date.now() - reconciled < 10 * 60_000) return
+            reconciled = Date.now()
+            yield* seed()
+            const walk = path.join(state.gitdir, "walk.index")
+            const index = path.join(state.gitdir, "index")
+            if (!(yield* exists(index))) return
+            const copied = yield* fs.copyFile(index, walk).pipe(
+              Effect.map(() => true),
+              Effect.catch(() => Effect.succeed(false)),
+            )
+            if (!copied) return
+            const env = { GIT_INDEX_FILE: walk }
+            const [diff, other] = yield* Effect.all(
+              [
+                git([...quote, ...args(["diff-files", "--name-only", "-z", "--", "."])], {
+                  cwd: state.worktree,
+                  env,
                 }),
-              )
-            })
-
-            const track = Effect.fnUntraced(function* () {
-              return yield* locked(
-                Effect.gen(function* () {
-                  if (!(yield* enabled())) return
-                  const existed = yield* exists(state.gitdir)
-                  yield* fs.ensureDir(state.gitdir).pipe(Effect.orDie)
-                  if (!existed) {
-                    yield* git(["init"], {
-                      env: { GIT_DIR: state.gitdir, GIT_WORK_TREE: state.worktree },
-                    })
-                    yield* git(["--git-dir", state.gitdir, "config", "core.autocrlf", "false"])
-                    yield* git(["--git-dir", state.gitdir, "config", "core.longpaths", "true"])
-                    yield* git(["--git-dir", state.gitdir, "config", "core.symlinks", "true"])
-                    yield* git(["--git-dir", state.gitdir, "config", "core.fsmonitor", "false"])
-                    log.info("initialized")
-                  }
-                  yield* add()
-                  const result = yield* git(args(["write-tree"]), { cwd: state.directory })
-                  const hash = result.text.trim()
-                  log.info("tracking", { hash, cwd: state.directory, git: state.gitdir })
-                  return hash
+                git([...quote, ...args(["ls-files", "--others", "--exclude-standard", "-z", "--", "."])], {
+                  cwd: state.worktree,
+                  env,
                 }),
-              )
-            })
+              ],
+              { concurrency: 2 },
+            )
+            if (diff.code !== 0 || other.code !== 0) {
+              log.warn("failed to list snapshot files", {
+                diffCode: diff.code,
+                otherCode: other.code,
+                stderr: diff.stderr || other.stderr,
+              })
+              return
+            }
+            const all = [...new Set([...diff.text.split("\0"), ...other.text.split("\0")].filter(Boolean))]
+            if (!all.length) return
+            return yield* locked(
+              Effect.gen(function* () {
+                yield* sync()
+                const large = (yield* Effect.all(
+                  all.map((item) =>
+                    fs
+                      .stat(path.join(state.worktree, item))
+                      .pipe(Effect.catch(() => Effect.void))
+                      .pipe(
+                        Effect.map((stat) => {
+                          if (!stat || stat.type !== "File") return
+                          const size = typeof stat.size === "bigint" ? Number(stat.size) : stat.size
+                          return size > limit ? item : undefined
+                        }),
+                      ),
+                  ),
+                  { concurrency: 8 },
+                )).filter((item): item is string => Boolean(item))
+                yield* sync(large)
+                yield* stage(all.filter((item) => !large.includes(item)))
+                yield* commit(all)
+                log.info("reconciled", { count: all.length })
+              }),
+            )
+          })
 
-            const patch = Effect.fnUntraced(function* (hash: string) {
-              return yield* locked(
-                Effect.gen(function* () {
-                  yield* add()
-                  const result = yield* git(
-                    [...quote, ...args(["diff", "--cached", "--no-ext-diff", "--name-only", hash, "--", "."])],
-                    {
-                      cwd: state.directory,
-                    },
-                  )
-                  if (result.code !== 0) {
-                    log.warn("failed to get diff", { hash, exitCode: result.code })
-                    return { hash, files: [] }
-                  }
-                  return {
-                    hash,
-                    files: result.text
-                      .trim()
-                      .split("\n")
-                      .map((x) => x.trim())
-                      .filter(Boolean)
-                      .map((x) => path.join(state.worktree, x).replaceAll("\\", "/")),
-                  }
-                }),
-              )
-            })
-
-            const restore = Effect.fnUntraced(function* (snapshot: string) {
-              return yield* locked(
-                Effect.gen(function* () {
-                  log.info("restore", { commit: snapshot })
-                  const result = yield* git([...core, ...args(["read-tree", snapshot])], { cwd: state.worktree })
-                  if (result.code === 0) {
-                    const checkout = yield* git([...core, ...args(["checkout-index", "-a", "-f"])], {
-                      cwd: state.worktree,
-                    })
-                    if (checkout.code === 0) return
-                    log.error("failed to restore snapshot", {
-                      snapshot,
-                      exitCode: checkout.code,
-                      stderr: checkout.stderr,
-                    })
-                    return
-                  }
-                  log.error("failed to restore snapshot", {
-                    snapshot,
+          const cleanup = Effect.fnUntraced(function* () {
+            return yield* locked(
+              Effect.gen(function* () {
+                if (!(yield* enabled())) return
+                if (!(yield* exists(state.gitdir))) return
+                const result = yield* git(args(["gc", `--prune=${prune}`]), { cwd: state.worktree })
+                if (result.code !== 0) {
+                  log.warn("cleanup failed", {
                     exitCode: result.code,
                     stderr: result.stderr,
                   })
-                }),
-              )
-            })
+                  return
+                }
+                log.info("cleanup", { prune })
+              }),
+            )
+          })
 
-            const revert = Effect.fnUntraced(function* (patches: Snapshot.Patch[]) {
-              return yield* locked(
-                Effect.gen(function* () {
-                  const seen = new Set<string>()
-                  for (const item of patches) {
-                    for (const file of item.files) {
-                      if (seen.has(file)) continue
-                      seen.add(file)
-                      log.info("reverting", { file, hash: item.hash })
-                      const result = yield* git([...core, ...args(["checkout", item.hash, "--", file])], {
-                        cwd: state.worktree,
-                      })
-                      if (result.code !== 0) {
-                        const rel = path.relative(state.worktree, file)
-                        const tree = yield* git([...core, ...args(["ls-tree", item.hash, "--", rel])], {
-                          cwd: state.worktree,
-                        })
-                        if (tree.code === 0 && tree.text.trim()) {
-                          log.info("file existed in snapshot but checkout failed, keeping", { file })
-                        } else {
-                          log.info("file did not exist in snapshot, deleting", { file })
-                          yield* remove(file)
-                        }
-                      }
-                    }
+          const track = Effect.fnUntraced(function* () {
+            return yield* locked(
+              Effect.gen(function* () {
+                if (!(yield* enabled())) return
+                yield* seed()
+                yield* reconcile().pipe(Effect.forkDetach)
+                const applied = yield* apply()
+                return yield* commit(applied)
+              }),
+            )
+          })
+
+          const filesSince = Effect.fnUntraced(function* (hash: string) {
+            const journal = yield* load()
+            const at = journal.findIndex((item) => item.hash === hash)
+            if (at < 0) return
+            const files = new Set<string>()
+            for (const item of journal.slice(at + 1)) {
+              for (const file of item.files) files.add(file)
+            }
+            return files
+          })
+
+          const patch = Effect.fnUntraced(function* (hash: string) {
+            return yield* locked(
+              Effect.gen(function* () {
+                if (!(yield* enabled())) return { hash, files: [] }
+                yield* seed()
+                const applied = yield* apply()
+                if (applied.length) yield* commit(applied)
+                const since = yield* filesSince(hash)
+                if (since) {
+                  return {
+                    hash,
+                    files: [...since].map((file) => path.join(state.worktree, file).replaceAll("\\", "/")),
                   }
-                }),
-              )
-            })
+                }
+                // unknown hash (pre-upgrade session): fall back to a tree diff
+                const result = yield* git(
+                  [...quote, ...args(["diff", "--cached", "--no-ext-diff", "--name-only", hash, "--", "."])],
+                  {
+                    cwd: state.worktree,
+                  },
+                )
+                if (result.code !== 0) {
+                  log.warn("failed to get diff", { hash, exitCode: result.code, stderr: result.stderr })
+                  return { hash, files: [] }
+                }
+                return {
+                  hash,
+                  files: result.text
+                    .trim()
+                    .split("\n")
+                    .map((x) => x.trim())
+                    .filter(Boolean)
+                    .map((x) => path.join(state.worktree, x).replaceAll("\\", "/")),
+                }
+              }),
+            )
+          })
 
-            const diff = Effect.fnUntraced(function* (hash: string) {
-              return yield* locked(
-                Effect.gen(function* () {
-                  yield* add()
-                  const result = yield* git(
-                    [...quote, ...args(["diff", "--cached", "--no-ext-diff", hash, "--", "."])],
-                    {
-                      cwd: state.worktree,
-                    },
-                  )
+          const restore = Effect.fnUntraced(function* (snapshot: string) {
+            return yield* locked(
+              Effect.gen(function* () {
+                if (!(yield* enabled())) return
+                yield* seed()
+                log.info("restore", { commit: snapshot })
+                const current = yield* tree()
+                if (!current) return
+                const statuses = yield* git(
+                  [
+                    ...quote,
+                    ...args([
+                      "diff",
+                      "--no-ext-diff",
+                      "--name-status",
+                      "--no-renames",
+                      "-z",
+                      snapshot,
+                      current,
+                      "--",
+                      ".",
+                    ]),
+                  ],
+                  { cwd: state.worktree },
+                )
+                if (statuses.code !== 0) {
+                  log.error("failed to restore snapshot", {
+                    snapshot,
+                    exitCode: statuses.code,
+                    stderr: statuses.stderr,
+                  })
+                  return
+                }
+                // changes needed to go from `snapshot` to `current`:
+                //   A = file only in current (delete), D = only in snapshot (checkout), M = modified (checkout)
+                const back: string[] = []
+                const gone: string[] = []
+                const items = statuses.text.split("\0").filter(Boolean)
+                for (let i = 0; i < items.length; i += 2) {
+                  const code = items[i]
+                  const file = items[i + 1]
+                  if (!code || !file) continue
+                  if (code === "A") gone.push(file)
+                  else back.push(file)
+                }
+                const swap = yield* git([...core, ...args(["read-tree", snapshot])], { cwd: state.worktree })
+                if (swap.code !== 0) {
+                  log.error("failed to restore snapshot", {
+                    snapshot,
+                    exitCode: swap.code,
+                    stderr: swap.stderr,
+                  })
+                  return
+                }
+                for (const chunk of chunks(back)) {
+                  const result = yield* git([...core, ...args(["checkout-index", "-f", "--", ...chunk])], {
+                    cwd: state.worktree,
+                  })
                   if (result.code !== 0) {
-                    log.warn("failed to get diff", {
-                      hash,
+                    log.error("failed to restore snapshot files", {
+                      snapshot,
                       exitCode: result.code,
                       stderr: result.stderr,
                     })
-                    return ""
                   }
-                  return result.text.trim()
-                }),
-              )
-            })
-
-            const diffFull = Effect.fnUntraced(function* (from: string, to: string) {
-              return yield* locked(
-                Effect.gen(function* () {
-                  const result: Snapshot.FileDiff[] = []
-                  const status = new Map<string, "added" | "deleted" | "modified">()
-
-                  const statuses = yield* git(
-                    [
-                      ...quote,
-                      ...args(["diff", "--no-ext-diff", "--name-status", "--no-renames", from, to, "--", "."]),
-                    ],
-                    { cwd: state.directory },
-                  )
-
-                  for (const line of statuses.text.trim().split("\n")) {
-                    if (!line) continue
-                    const [code, file] = line.split("\t")
-                    if (!code || !file) continue
-                    status.set(file, code.startsWith("A") ? "added" : code.startsWith("D") ? "deleted" : "modified")
-                  }
-
-                  const numstat = yield* git(
-                    [...quote, ...args(["diff", "--no-ext-diff", "--no-renames", "--numstat", from, to, "--", "."])],
-                    {
-                      cwd: state.directory,
-                    },
-                  )
-
-                  for (const line of numstat.text.trim().split("\n")) {
-                    if (!line) continue
-                    const [adds, dels, file] = line.split("\t")
-                    if (!file) continue
-                    const binary = adds === "-" && dels === "-"
-                    const [before, after] = binary
-                      ? ["", ""]
-                      : yield* Effect.all(
-                          [
-                            git([...cfg, ...args(["show", `${from}:${file}`])]).pipe(Effect.map((item) => item.text)),
-                            git([...cfg, ...args(["show", `${to}:${file}`])]).pipe(Effect.map((item) => item.text)),
-                          ],
-                          { concurrency: 2 },
-                        )
-                    const additions = binary ? 0 : parseInt(adds)
-                    const deletions = binary ? 0 : parseInt(dels)
-                    result.push({
-                      file,
-                      before,
-                      after,
-                      additions: Number.isFinite(additions) ? additions : 0,
-                      deletions: Number.isFinite(deletions) ? deletions : 0,
-                      status: status.get(file) ?? "modified",
-                    })
-                  }
-
-                  return result
-                }),
-              )
-            })
-
-            yield* cleanup().pipe(
-              Effect.catchCause((cause) => {
-                log.error("cleanup loop failed", { cause: Cause.pretty(cause) })
-                return Effect.void
+                }
+                for (const file of gone) yield* remove(path.join(state.worktree, file))
+                for (const file of [...back, ...gone]) {
+                  const item = rel(path.join(state.worktree, file))
+                  if (item) pending.add(item)
+                }
               }),
-              Effect.repeat(Schedule.spaced(Duration.hours(1))),
-              Effect.delay(Duration.minutes(1)),
-              Effect.forkScoped,
             )
+          })
 
-            return { cleanup, track, patch, restore, revert, diff, diffFull }
-          }),
-        )
+          const revert = Effect.fnUntraced(function* (patches: Snapshot.Patch[]) {
+            return yield* locked(
+              Effect.gen(function* () {
+                if (!(yield* enabled())) return
+                yield* seed()
+                const seen = new Set<string>()
+                for (const item of patches) {
+                  for (const file of item.files) {
+                    if (seen.has(file)) continue
+                    seen.add(file)
+                    log.info("reverting", { file, hash: item.hash })
+                    const result = yield* git([...core, ...args(["checkout", item.hash, "--", file])], {
+                      cwd: state.worktree,
+                    })
+                    if (result.code !== 0) {
+                      const relpath = path.relative(state.worktree, file)
+                      const tree = yield* git([...core, ...args(["ls-tree", item.hash, "--", relpath])], {
+                        cwd: state.worktree,
+                      })
+                      if (tree.code === 0 && tree.text.trim()) {
+                        log.info("file existed in snapshot but checkout failed, keeping", { file })
+                      } else {
+                        log.info("file did not exist in snapshot, deleting", { file })
+                        yield* remove(file)
+                      }
+                    }
+                    const item2 = rel(file)
+                    if (item2) pending.add(item2)
+                  }
+                }
+              }),
+            )
+          })
 
-        return Service.of({
-          init: Effect.fn("Snapshot.init")(function* () {
-            yield* InstanceState.get(state)
-          }),
-          cleanup: Effect.fn("Snapshot.cleanup")(function* () {
-            return yield* InstanceState.useEffect(state, (s) => s.cleanup())
-          }),
-          track: Effect.fn("Snapshot.track")(function* () {
-            return yield* InstanceState.useEffect(state, (s) => s.track())
-          }),
-          patch: Effect.fn("Snapshot.patch")(function* (hash: string) {
-            return yield* InstanceState.useEffect(state, (s) => s.patch(hash))
-          }),
-          restore: Effect.fn("Snapshot.restore")(function* (snapshot: string) {
-            return yield* InstanceState.useEffect(state, (s) => s.restore(snapshot))
-          }),
-          revert: Effect.fn("Snapshot.revert")(function* (patches: Snapshot.Patch[]) {
-            return yield* InstanceState.useEffect(state, (s) => s.revert(patches))
-          }),
-          diff: Effect.fn("Snapshot.diff")(function* (hash: string) {
-            return yield* InstanceState.useEffect(state, (s) => s.diff(hash))
-          }),
-          diffFull: Effect.fn("Snapshot.diffFull")(function* (from: string, to: string) {
-            return yield* InstanceState.useEffect(state, (s) => s.diffFull(from, to))
-          }),
-        })
-      }),
-    )
+          const diff = Effect.fnUntraced(function* (hash: string) {
+            return yield* locked(
+              Effect.gen(function* () {
+                if (!(yield* enabled())) return ""
+                yield* seed()
+                const applied = yield* apply()
+                if (applied.length) yield* commit(applied)
+                const result = yield* git([...quote, ...args(["diff", "--cached", "--no-ext-diff", hash, "--", "."])], {
+                  cwd: state.worktree,
+                })
+                if (result.code !== 0) {
+                  log.warn("failed to get diff", {
+                    hash,
+                    exitCode: result.code,
+                    stderr: result.stderr,
+                  })
+                  return ""
+                }
+                return result.text.trim()
+              }),
+            )
+          })
+
+          const diffFull = Effect.fnUntraced(function* (from: string, to: string) {
+            return yield* locked(
+              Effect.gen(function* () {
+                const result: Snapshot.FileDiff[] = []
+                const status = new Map<string, "added" | "deleted" | "modified">()
+
+                const statuses = yield* git(
+                  [...quote, ...args(["diff", "--no-ext-diff", "--name-status", "--no-renames", from, to, "--", "."])],
+                  { cwd: state.directory },
+                )
+
+                for (const line of statuses.text.trim().split("\n")) {
+                  if (!line) continue
+                  const [code, file] = line.split("\t")
+                  if (!code || !file) continue
+                  status.set(file, code.startsWith("A") ? "added" : code.startsWith("D") ? "deleted" : "modified")
+                }
+
+                const numstat = yield* git(
+                  [...quote, ...args(["diff", "--no-ext-diff", "--no-renames", "--numstat", from, to, "--", "."])],
+                  {
+                    cwd: state.directory,
+                  },
+                )
+
+                for (const line of numstat.text.trim().split("\n")) {
+                  if (!line) continue
+                  const [adds, dels, file] = line.split("\t")
+                  if (!file) continue
+                  const binary = adds === "-" && dels === "-"
+                  const [before, after] = binary
+                    ? ["", ""]
+                    : yield* Effect.all(
+                        [
+                          git([...cfg, ...args(["show", `${from}:${file}`])]).pipe(Effect.map((item) => item.text)),
+                          git([...cfg, ...args(["show", `${to}:${file}`])]).pipe(Effect.map((item) => item.text)),
+                        ],
+                        { concurrency: 2 },
+                      )
+                  const additions = binary ? 0 : parseInt(adds)
+                  const deletions = binary ? 0 : parseInt(dels)
+                  result.push({
+                    file,
+                    before,
+                    after,
+                    additions: Number.isFinite(additions) ? additions : 0,
+                    deletions: Number.isFinite(deletions) ? deletions : 0,
+                    status: status.get(file) ?? "modified",
+                  })
+                }
+
+                return result
+              }),
+            )
+          })
+
+          // seed the gitdir and build the first tree in the background so the
+          // first track() on a huge repository is already incremental
+          const warm = Effect.fnUntraced(function* () {
+            yield* locked(
+              Effect.gen(function* () {
+                if (!(yield* enabled())) return
+                yield* seed()
+                yield* tree()
+              }),
+            ).pipe(Effect.forkDetach)
+          })
+
+          yield* Effect.gen(function* () {
+            yield* reconcile().pipe(Effect.ignore)
+            yield* cleanup().pipe(Effect.ignore)
+          }).pipe(
+            Effect.catchCause((cause) => {
+              log.error("maintenance loop failed", { cause: Cause.pretty(cause) })
+              return Effect.void
+            }),
+            Effect.repeat(Schedule.spaced(Duration.hours(1))),
+            Effect.delay(Duration.minutes(1)),
+            Effect.forkScoped,
+          )
+
+          return { cleanup, track, patch, restore, revert, diff, diffFull, warm }
+        }),
+      )
+
+      return Service.of({
+        init: Effect.fn("Snapshot.init")(function* () {
+          yield* InstanceState.useEffect(state, (s) => s.warm())
+        }),
+        cleanup: Effect.fn("Snapshot.cleanup")(function* () {
+          return yield* InstanceState.useEffect(state, (s) => s.cleanup())
+        }),
+        track: Effect.fn("Snapshot.track")(function* () {
+          return yield* InstanceState.useEffect(state, (s) => s.track())
+        }),
+        patch: Effect.fn("Snapshot.patch")(function* (hash: string) {
+          return yield* InstanceState.useEffect(state, (s) => s.patch(hash))
+        }),
+        restore: Effect.fn("Snapshot.restore")(function* (snapshot: string) {
+          return yield* InstanceState.useEffect(state, (s) => s.restore(snapshot))
+        }),
+        revert: Effect.fn("Snapshot.revert")(function* (patches: Snapshot.Patch[]) {
+          return yield* InstanceState.useEffect(state, (s) => s.revert(patches))
+        }),
+        diff: Effect.fn("Snapshot.diff")(function* (hash: string) {
+          return yield* InstanceState.useEffect(state, (s) => s.diff(hash))
+        }),
+        diffFull: Effect.fn("Snapshot.diffFull")(function* (from: string, to: string) {
+          return yield* InstanceState.useEffect(state, (s) => s.diffFull(from, to))
+        }),
+      })
+    }),
+  )
 
   export const defaultLayer = layer.pipe(
     Layer.provide(CrossSpawnSpawner.layer),
     Layer.provide(AppFileSystem.defaultLayer),
+    Layer.provide(Bus.layer),
     Layer.provide(NodeFileSystem.layer), // needed by CrossSpawnSpawner
     Layer.provide(NodePath.layer),
   )
