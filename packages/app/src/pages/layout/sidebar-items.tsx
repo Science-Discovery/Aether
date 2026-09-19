@@ -21,7 +21,7 @@ import { usePermission } from "@/context/permission"
 import { usePlatform } from "@/context/platform"
 import { messageAgentColor } from "@/utils/agent"
 import { sessionPermissionRequest } from "../session/composer/session-request-tree"
-import { createWorkingState, isWorking } from "@/utils/working-state"
+import { isSessionWorking, isWorking } from "@/utils/working-state"
 import { childMapByParent, hasProjectPermissions } from "./helpers"
 
 const OPENCODE_PROJECT_ID = "4b0ea68d7af9a6031a7ffda7ad66e0cb83315750"
@@ -137,14 +137,8 @@ const TreeToggle = (props: {
       <Match when={props.isWorking}>
         <Spinner class="size-[15px]" />
       </Match>
-      <Match when={props.hasPermissions}>
-        <div class="size-1.5 rounded-full bg-surface-warning-strong" />
-      </Match>
-      <Match when={props.hasError}>
-        <div class="size-1.5 rounded-full bg-text-diff-delete-base" />
-      </Match>
-      <Match when={props.unseenCount > 0}>
-        <div class="size-1.5 rounded-full bg-text-interactive-base" />
+      <Match when={props.hasPermissions || props.hasError || props.unseenCount > 0}>
+        <StatusDot hasPermissions={props.hasPermissions} hasError={props.hasError} />
       </Match>
     </Switch>
   </button>
@@ -214,14 +208,8 @@ const SessionRow = (props: {
                 <Match when={props.isWorking()}>
                   <Spinner class="size-[15px]" />
                 </Match>
-                <Match when={props.hasPermissions()}>
-                  <div class="size-1.5 rounded-full bg-surface-warning-strong" />
-                </Match>
-                <Match when={props.hasError()}>
-                  <div class="size-1.5 rounded-full bg-text-diff-delete-base" />
-                </Match>
-                <Match when={props.unseenCount() > 0}>
-                  <div class="size-1.5 rounded-full bg-text-interactive-base" />
+                <Match when={props.hasPermissions() || props.hasError() || props.unseenCount() > 0}>
+                  <StatusDot hasPermissions={props.hasPermissions()} hasError={props.hasError()} />
                 </Match>
               </Switch>
             }
@@ -285,26 +273,14 @@ export const SessionItem = (props: SessionItemProps): JSX.Element => {
       return !permission.autoResponds(item, props.session.directory)
     })
   })
-  const isWorking = createWorkingState({
-    status: () => sessionStore.session_status[props.session.id],
-    pending: () =>
-      (sessionStore.message[props.session.id] ?? []).findLast(
-        (message) =>
-          message.role === "assistant" &&
-          typeof (message as { time?: { completed?: unknown } }).time?.completed !== "number",
-      ),
-    sessionID: () => props.session.id,
-    children: () => ({
+  const isWorking = createMemo(() =>
+    isSessionWorking({
+      id: props.session.id,
+      status: sessionStore.session_status[props.session.id],
       childMap: () => childMapByParent(sessionStore.session),
-      status: (id) => sessionStore.session_status[id],
-      pending: (id) =>
-        (sessionStore.message[id] ?? []).findLast(
-          (message) =>
-            message.role === "assistant" &&
-            typeof (message as { time?: { completed?: unknown } }).time?.completed !== "number",
-        ),
+      statusOf: (id) => sessionStore.session_status[id],
     }),
-  }).interactive
+  )
 
   const tint = createMemo(() => {
     return messageAgentColor(sessionStore.message[props.session.id], sessionStore.agent)

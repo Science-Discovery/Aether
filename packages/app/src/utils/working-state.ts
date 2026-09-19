@@ -1,6 +1,5 @@
 import { createEffect, createMemo, createSignal } from "solid-js"
 import { makeTimer } from "@solid-primitives/timer"
-import type { Message } from "@opencode-ai/sdk/v2/client"
 
 const GRACE_MS = 3000
 
@@ -18,19 +17,28 @@ export type ChildrenSource = {
 
 const busy = (status: SessionStatus) => status?.type === "busy" || status?.type === "retry"
 
-export function isWorking(store: {
-  session_status: { [sessionID: string]: SessionStatus }
-  message: { [sessionID: string]: Message[] }
+export function isWorking(store: { session_status: { [sessionID: string]: SessionStatus } }) {
+  return Object.values(store.session_status).some(busy)
+}
+
+export function isSessionWorking(input: {
+  id: string
+  status: SessionStatus
+  childMap?: () => Map<string, string[]>
+  statusOf?: (id: string) => SessionStatus
 }) {
-  const ids = new Set([...Object.keys(store.session_status), ...Object.keys(store.message)])
-  return [...ids].some((id) => {
-    if (busy(store.session_status[id])) return true
-    return !!store.message[id]?.findLast(
-      (message) =>
-        message.role === "assistant" &&
-        typeof (message as { time?: { completed?: unknown } }).time?.completed !== "number",
-    )
-  })
+  if (busy(input.status)) return true
+  if (!input.childMap || !input.statusOf) return false
+  const seen = new Set([input.id])
+  const stack = [...(input.childMap().get(input.id) ?? [])]
+  while (stack.length) {
+    const id = stack.pop()!
+    if (seen.has(id)) continue
+    seen.add(id)
+    if (busy(input.statusOf(id))) return true
+    stack.push(...(input.childMap().get(id) ?? []))
+  }
+  return false
 }
 
 function descendant(id: string, source: ChildrenSource, seen = new Set<string>()) {
