@@ -1,22 +1,25 @@
 import type { Session } from "@opencode-ai/sdk/v2/client"
+import { retry } from "@opencode-ai/util/retry"
 import type { RootLoadArgs } from "./types"
 
 export async function loadRootSessionsWithFallback(input: RootLoadArgs) {
-  try {
-    const result = await input.list({ directory: input.directory, roots: true, limit: input.limit })
-    return {
-      data: result.data,
-      limit: input.limit,
-      limited: true,
-    } as const
-  } catch {
-    const result = await input.list({ directory: input.directory, roots: true })
-    return {
-      data: result.data,
-      limit: input.limit,
-      limited: false,
-    } as const
-  }
+  return retry(async () => {
+    try {
+      const result = await input.list({ directory: input.directory, roots: true, limit: input.limit })
+      return {
+        data: result.data,
+        limit: input.limit,
+        limited: true,
+      } as const
+    } catch {
+      const result = await input.list({ directory: input.directory, roots: true })
+      return {
+        data: result.data,
+        limit: input.limit,
+        limited: false,
+      } as const
+    }
+  })
 }
 
 export async function loadDescendantsForRoots(input: {
