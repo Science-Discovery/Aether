@@ -74,3 +74,15 @@ export async function InstanceBootstrap() {
     }
   })
 }
+
+/**
+ * Apply a project info change (e.g. git was initialized mid-session) to the
+ * live instance in place: nothing is disposed, so running sessions and the
+ * frontend event stream are unaffected. Must be called inside the instance
+ * context.
+ */
+export async function refreshProject(project: Project.Info) {
+  Instance.setProject(project)
+  await Vcs.refresh()
+  await FileWatcher.refreshGit()
+}

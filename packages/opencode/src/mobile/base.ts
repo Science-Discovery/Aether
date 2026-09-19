@@ -7,7 +7,7 @@ import { Bus } from "@/bus"
 import { GlobalBus } from "@/bus/global"
 import { ActiveInstance } from "@/project/active-instance"
 import { Instance } from "@/project/instance"
-import { InstanceBootstrap } from "@/project/bootstrap"
+import { InstanceBootstrap, refreshProject } from "@/project/bootstrap"
 import { Project } from "@/project/project"
 import { Session } from "@/session"
 import { SessionPrompt } from "@/session/prompt"
@@ -1627,11 +1627,14 @@ export abstract class MobileManagerBase {
     const { project } = await Project.fromDirectory(newDir)
     if (project.vcs !== "git") {
       const initialized = await Project.initGit({ directory: newDir, project })
-      await Instance.reload({
+      await Instance.provide({
         directory: newDir,
-        worktree: newDir,
-        project: initialized,
         init: InstanceBootstrap,
+        fn: async () => {
+          if (initialized.vcs === project.vcs) return
+          await refreshProject(initialized)
+          await Project.emitUpdated(initialized)
+        },
       })
     }
 

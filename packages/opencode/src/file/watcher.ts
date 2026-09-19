@@ -170,6 +170,7 @@ export namespace FileWatcher {
     readonly init: () => Effect.Effect<void>
     readonly initFull: () => Effect.Effect<void>
     readonly initGit: () => Effect.Effect<void>
+    readonly refreshGit: () => Effect.Effect<void>
     readonly deactivate: () => Effect.Effect<void>
     readonly deactivateFull: () => Effect.Effect<void>
     readonly deactivateAll: () => Effect.Effect<void>
@@ -300,7 +301,7 @@ export namespace FileWatcher {
                 directory: Instance.directory,
                 worktree: Instance.project.worktree,
                 projectID: Instance.project.id,
-                cause: error instanceof Error ? error.stack ?? error.message : error,
+                cause: error instanceof Error ? (error.stack ?? error.message) : error,
               })
               input?.cancel?.()
               input?.pending.then((sub) => sub.unsubscribe()).catch(() => {})
@@ -389,6 +390,10 @@ export namespace FileWatcher {
         initGit: Effect.fn("FileWatcher.initGit")(function* () {
           yield* InstanceState.get(git)
         }),
+        refreshGit: Effect.fn("FileWatcher.refreshGit")(function* () {
+          yield* InstanceState.invalidate(git)
+          yield* InstanceState.get(git)
+        }),
         deactivate: Effect.fn("FileWatcher.deactivate")(function* () {
           yield* InstanceState.invalidate(full)
           yield* InstanceState.invalidate(git)
@@ -416,6 +421,10 @@ export namespace FileWatcher {
 
   export function initGit() {
     return runPromise((svc) => svc.initGit())
+  }
+
+  export function refreshGit() {
+    return runPromise((svc) => svc.refreshGit())
   }
 
   export function deactivate() {

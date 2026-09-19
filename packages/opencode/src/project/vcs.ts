@@ -127,6 +127,7 @@ export namespace Vcs {
 
   export interface Interface {
     readonly init: () => Effect.Effect<void>
+    readonly refresh: () => Effect.Effect<void>
     readonly branch: () => Effect.Effect<string | undefined>
     readonly defaultBranch: () => Effect.Effect<string | undefined>
     readonly diff: (mode: Mode) => Effect.Effect<Snapshot.FileDiff[]>
@@ -274,6 +275,10 @@ export namespace Vcs {
 
       return Service.of({
         init: Effect.fn("Vcs.init")(function* () {
+          yield* InstanceState.get(state)
+        }),
+        refresh: Effect.fn("Vcs.refresh")(function* () {
+          yield* InstanceState.invalidate(state)
           yield* InstanceState.get(state)
         }),
         branch: Effect.fn("Vcs.branch")(function* () {
@@ -473,6 +478,10 @@ export namespace Vcs {
 
   export function init() {
     return runPromise((svc) => svc.init())
+  }
+
+  export function refresh() {
+    return runPromise((svc) => svc.refresh())
   }
 
   export function branch() {

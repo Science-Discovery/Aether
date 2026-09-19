@@ -172,6 +172,17 @@ export const Instance = {
   state<S>(init: () => S, dispose?: (state: Awaited<S>) => Promise<void>): State.StateFn<S> {
     return State.create(() => Instance.directory, init, dispose)
   },
+  /**
+   * Swap the project info of the live instance in place. Readers of
+   * Instance.project see the new value immediately and nothing is disposed,
+   * so running sessions are unaffected. Must be called inside the instance
+   * context.
+   */
+  setProject(project: Project.Info) {
+    const ctx = context.use()
+    Log.Default.info("updating instance project", { directory: ctx.directory, vcs: project.vcs })
+    ctx.project = project
+  },
   async reload(input: { directory: string; init?: () => Promise<any>; project?: Project.Info; worktree?: string }) {
     const directory = Filesystem.resolve(input.directory)
     Log.Default.info("reloading instance", { directory })
