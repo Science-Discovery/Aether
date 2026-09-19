@@ -9207,7 +9207,6 @@ export type WechatStartResponses = {
       id: string
       name: string
     }
-    clientId?: string
   }
 }
 
@@ -9277,8 +9276,6 @@ export type WechatStatusResponses = {
       id: string
       name: string
     } | null
-    locked: boolean | null
-    lockHolder: string | null
     hasConfig: boolean
     error: {
       code: string

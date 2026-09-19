@@ -6,7 +6,6 @@ import {
   error,
   fetchStatus,
   hasConfig,
-  locked,
   setStatus,
   startBridge,
   status,
@@ -66,11 +65,14 @@ describe("mobile state machine", () => {
     expect(user("wechat")?.id).toBe("u1")
   })
 
-  test("startBridge locked response flags locked and stays idle", async () => {
-    responder = (url) => (url.endsWith("/start") ? { body: { success: false, code: "locked" } } : { body: {} })
+  test("startBridge sends a minimal body for wechat", async () => {
+    let sent: any = null
+    responder = (url, init) => {
+      if (url.endsWith("/start")) sent = JSON.parse(String(init?.body ?? "{}"))
+      return { body: { success: true } }
+    }
     await startBridge("wechat")
-    expect(locked("wechat")).toBe(true)
-    expect(status("wechat")).toBe("idle")
+    expect(sent).toEqual({ rescan: false })
   })
 
   test("startBridge config_missing enters config state", async () => {

@@ -10,15 +10,35 @@
 
 ## 状态文件
 
-`enabled.json` 位于各平台的持久化目录（与该平台 `config.json` / `session.json` 同目录）：
+`enabled.json` 位于各平台的持久化目录（与该平台 `config.json` / `session.json` 同目录）。**该目录按 channel 隔离**：`latest`（含 beta）沿用根目录，其余 channel（prod、local、dev 等）位于 `<root>\<channel>\` 子目录下，与 channel 数据库的分目录约定一致：
 
-| 平台 | Windows                    | macOS                                          | Linux                           |
-| ---- | -------------------------- | ---------------------------------------------- | ------------------------------- |
-| 微信 | `%APPDATA%\aether\wechat\` | `~/Library/Application Support/aether/wechat/` | `~/.local/share/aether/wechat/` |
-| 飞书 | `%APPDATA%\aether\feishu\` | `~/Library/Application Support/aether/feishu/` | `~/.local/share/aether/feishu/` |
-| QQ   | `%APPDATA%\aether\qq\`     | `~/Library/Application Support/aether/qq/`     | `~/.local/share/aether/qq/`     |
+| 平台 | latest / beta    | 其他 channel（prod / local / …）                       |
+| ---- | ---------------- | ------------------------------------------------------ |
+| 微信 | `<root>\wechat\` | `<root>\<channel>\wechat\`（如 `<root>\prod\wechat\`） |
+| 飞书 | `<root>\feishu\` | `<root>\<channel>\feishu\`                             |
+| QQ   | `<root>\qq\`     | `<root>\<channel>\qq\`                                 |
+
+其中 `<root>` 按平台为：
+
+| OS      | `<root>`                                |
+| ------- | --------------------------------------- |
+| Windows | `%APPDATA%\aether\`                     |
+| macOS   | `~/Library/Application Support/aether/` |
+| Linux   | `~/.local/share/aether/`                |
 
 内容：`{ "enabled": true, "updatedAt": 1730000000000 }`。文件不存在视为关。
+
+## 多 channel 隔离
+
+同一台机器可同时运行多个 channel（如 prod 与 local）。移动端桥接的**全部持久状态按 channel 隔离**：
+
+- 每个 channel 有自己的一套平台目录：`enabled.json`（期望状态）、凭证/令牌（微信 `ilink_state.json`、飞书/QQ `config.json`）、`sessions.json`、`hidden_projects.json`、`header_state.json`；
+- 每个 channel 的看门狗只读取**本 channel** 的期望状态与凭证，自动连接互不干扰——例如 prod 只自动开 QQ、local 只自动开微信，是完全受支持的用法；
+- 一个 channel 的「连接/断开」操作不会影响另一个 channel 的连接。
+
+**迁移语义**：升级到本版本后，`latest` 沿用原有目录（无感）；其余 channel 从空白状态开始，需要一次性重新登录/配置（微信扫一次码、飞书/QQ 重填应用配置）。不会自动继承旧的共享状态——否则每个 channel 都会继承相同的账号并自动连接，重新造成串台。
+
+**已知限制**：微信凭据是平台单会话语义。若在两个 channel 登录**同一个**微信账号，两个进程会互相顶号（连接互踢），请为不同 channel 使用不同账号或只在一个 channel 登录。
 
 ## 状态转换表
 
@@ -39,7 +59,7 @@
 packages/opencode/src/mobile/
   base.ts           # MobileManagerBase：desired()/setDesired()/hasCredentials() 统一实现
   supervisor.ts     # MobileSupervisor：每 60s 检查 enabled + 凭据 + 状态，必要时幂等调 start()
-  wechat.ts         # 微信管理器：锁内置于 start()；pollLoop 运行中续租 lock.json
+  wechat.ts         # 微信管理器：start() 幂等（_starting/_pollRunning 守卫），pollLoop 带 generation 计数
   feishu.ts / qq.ts # 各自的 WebSocket 自愈（指数退避重连，最大间隔 5 分钟）
   route.ts          # HTTP API：/start 写入 enabled=开；/stop、DELETE /session 写入 enabled=关
 packages/app/src/context/mobile.ts   # 前端状态；仅展示，不再控制桥的生死
@@ -52,7 +72,7 @@ packages/app/src/context/mobile.ts   # 前端状态；仅展示，不再控制�
   期望状态为关            → 跳过
   无凭据（未配置/需扫码）  → 跳过（等待用户操作，绝不自动出二维码）
   状态非 idle/error       → 跳过（运行中或自带自愈）
-  其余                    → 调用 start()（幂等，跨进程由微信锁挡住）
+  其余                    → 调用 start()（幂等）
 ```
 
 ### 微信 token 过期的特殊处理
@@ -65,10 +85,11 @@ packages/app/src/context/mobile.ts   # 前端状态；仅展示，不再控制�
 ## HTTP API 变化
 
 - `GET /mobile/{platform}/status` 响应新增 `enabled: boolean` 字段；
-- `POST /mobile/{platform}/stop`：微信平台在锁由其它进程的客户端持有时，要求 `clientId` 与当前锁持有者一致才执行，不一致则忽略（防止残留页面误断其它窗口的连接）；同进程或无锁时直接执行；
-- 移除 `POST /mobile/wechat/ping`（看门狗取代其职责）。
+- `POST /mobile/{platform}/stop`：无条件执行（不再区分客户端）；
+- 移除 `POST /mobile/wechat/ping`（看门狗取代其职责）；
+- 移除微信跨进程文件锁及 `/start` 的 `clientId`/`force` 参数与 `/status` 的 `locked`/`lockHolder` 字段（channel 隔离后锁不再必要，见「已知限制」）。
 
 ## 已知限制
 
 - **恢复间隙消息可能丢失**：微信 cursor 在处理前推进、飞书/QQ 无离线缓冲，断线到恢复之间（最长约 60 秒）到达的消息无法补投。这是平台协议限制。
-- **跨进程强制接管**：两个 Aether 服务进程共享数据目录时，第二个进程可通过「强制接管」抢锁，但不会停止第一个进程已有的轮询（历史行为，未改变）；意外双跑已被锁 + 运行中续租机制阻止。
+- **无跨进程锁**：同一 channel 若同时运行两个服务进程且都自动连接同一平台（如两个窗口各起一个服务），微信会同 token 双重轮询、互相干扰。channel 隔离已消除跨 channel 场景；同 channel 请保证只有一个服务进程。

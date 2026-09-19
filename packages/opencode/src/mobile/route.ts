@@ -32,8 +32,6 @@ export function createMobileRoutes(platform: "feishu" | "qq" | "wechat") {
         ? {
             qrcode: z.string().nullable(),
             user: z.object({ id: z.string(), name: z.string() }).nullable(),
-            locked: z.boolean().nullable(),
-            lockHolder: z.string().nullable(),
             hasConfig: z.boolean(),
           }
         : {}),
@@ -47,7 +45,7 @@ export function createMobileRoutes(platform: "feishu" | "qq" | "wechat") {
     status: z.string().optional(),
     ...(platform === "feishu" || platform === "qq"
       ? { appId: z.string().optional() }
-      : { user: z.object({ id: z.string(), name: z.string() }).optional(), clientId: z.string().optional() }),
+      : { user: z.object({ id: z.string(), name: z.string() }).optional() }),
   })
 
   return new Hono()
@@ -75,17 +73,12 @@ export function createMobileRoutes(platform: "feishu" | "qq" | "wechat") {
               ? { providerID: body.model.providerID as string, modelID: body.model.modelID as string }
               : undefined
           const result = await mgr.start(config, model)
-          if (result.code !== "locked") await mgr.setDesired(true)
+          await mgr.setDesired(true)
           return c.json(result)
-        } else {
-          const clientId: string = body?.clientId || crypto.randomUUID()
-          const result = await WeChatManager.start(body?.model, body?.autoInstall === true, body?.rescan === true, {
-            clientId,
-            force: body?.force === true,
-          })
-          if (result.code !== "locked") await WeChatManager.setDesired(true)
-          return c.json({ ...result, clientId })
         }
+        const result = await WeChatManager.start(body?.rescan === true)
+        await WeChatManager.setDesired(true)
+        return c.json(result)
       },
     )
     .post(
@@ -122,14 +115,6 @@ export function createMobileRoutes(platform: "feishu" | "qq" | "wechat") {
         },
       }),
       async (c) => {
-        if (platform === "wechat") {
-          const body = await c.req.json().catch(() => ({}))
-          const holder = WeChatManager.lockHolder
-          if (holder && body?.clientId && body.clientId !== holder) {
-            return c.json({ success: true, ignored: true })
-          }
-          await WeChatManager.unlock(body?.clientId).catch(() => {})
-        }
         await manager.setDesired(false)
         await manager.stop()
         return c.json({ success: true })
@@ -176,8 +161,6 @@ export function createMobileRoutes(platform: "feishu" | "qq" | "wechat") {
             qrcode: WeChatManager.qrcode,
             user: WeChatManager.session?.user || session?.user || null,
             error: WeChatManager.error,
-            locked: WeChatManager.lockHolder !== null,
-            lockHolder: WeChatManager.lockHolder,
             hasConfig: !!session?.connected && !!session?.user,
           })
         }

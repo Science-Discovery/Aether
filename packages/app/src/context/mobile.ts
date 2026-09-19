@@ -10,7 +10,6 @@ interface PlatformState {
   user: { id: string; name: string } | null
   loadingMsg: string
   qrcode: string | null
-  locked: boolean
   hasConfig: boolean
   enabled: boolean
   appId: string | null
@@ -23,7 +22,6 @@ function defaults(loadingMsg: string): PlatformState {
     user: null,
     loadingMsg,
     qrcode: null,
-    locked: false,
     hasConfig: false,
     enabled: false,
     appId: null,
@@ -41,7 +39,6 @@ export const error = (p: MobilePlatform) => state[p].error
 export const user = (p: MobilePlatform) => state[p].user
 export const loadingMsg = (p: MobilePlatform) => state[p].loadingMsg
 export const qrcode = (p: MobilePlatform) => state[p].qrcode
-export const locked = (p: MobilePlatform) => state[p].locked
 export const hasConfig = (p: MobilePlatform) => state[p].hasConfig
 export const enabled = (p: MobilePlatform) => state[p].enabled
 export const appId = (p: MobilePlatform) => state[p].appId
@@ -51,8 +48,6 @@ export function setStatus(p: MobilePlatform, s: MobileStatus) {
 }
 
 const patch = (p: MobilePlatform, u: Partial<PlatformState>) => setState(p, u)
-
-let clientId: string | null = null
 
 type Resolver = () => { url: string; headers: HeadersInit }
 let resolve: Resolver | null = null
@@ -126,11 +121,7 @@ export async function fetchStatus(p: MobilePlatform) {
     const prefix = `/mobile/${p}`
     const response = await fetch(`${url}${prefix}/status`, { headers })
     const data = await response.json()
-    if (p === "wechat" && data.locked && data.status !== "idle" && data.lockHolder !== clientId) {
-      patch("wechat", { locked: true, user: data.user || state.wechat.user })
-      return
-    }
-    if (p === "wechat") patch("wechat", { locked: false, hasConfig: data.hasConfig })
+    if (p === "wechat") patch("wechat", { hasConfig: data.hasConfig })
     if (p === "feishu") patch("feishu", { hasConfig: data.hasConfig })
     if (p === "qq") patch("qq", { hasConfig: data.hasConfig })
     const base: Partial<PlatformState> = { enabled: data.enabled === true }
@@ -153,23 +144,12 @@ export async function fetchStatus(p: MobilePlatform) {
   } catch {}
 }
 
-export async function startBridge(
-  p: MobilePlatform,
-  auto = false,
-  modelStr?: string,
-  force = false,
-  appIdVal?: string,
-  appSecretVal?: string,
-  rescan = false,
-) {
+export async function startBridge(p: MobilePlatform, appIdVal?: string, appSecretVal?: string, rescan = false) {
   patch(p, {
     status: "loading",
     loadingMsg: p === "feishu" ? "正在连接飞书..." : p === "qq" ? "正在连接QQ..." : "正在启动微信桥接...",
     error: null,
-    locked: false,
   })
-
-  if (p === "wechat") clientId = clientId || crypto.randomUUID()
 
   try {
     const { url, headers } = api()
@@ -182,11 +162,7 @@ export async function startBridge(
         body.appSecret = appSecretVal
       }
     } else {
-      body.clientId = clientId
-      body.autoInstall = auto
-      body.force = force
       body.rescan = rescan
-      if (modelStr) body.model = modelStr
     }
 
     const response = await fetch(`${url}${prefix}/start`, {
@@ -197,10 +173,6 @@ export async function startBridge(
     const data = await response.json()
 
     if (!data.success) {
-      if (data.code === "locked") {
-        patch(p, { locked: true, status: "idle" })
-        return
-      }
       if (data.code === "config_missing") {
         patch(p, { status: "config" })
         return
@@ -211,8 +183,6 @@ export async function startBridge(
       })
       return
     }
-
-    if (p === "wechat") clientId = data.clientId || clientId
 
     if (data.status === "connected" && data.user) {
       patch(p, { user: data.user, status: "connected", enabled: true })
@@ -230,32 +200,18 @@ export async function stopBridge(p: MobilePlatform) {
   try {
     const { url, headers } = api()
     const prefix = `/mobile/${p}`
-    const body: any = {}
-    if (p === "wechat" && clientId) body.clientId = clientId
-    await fetch(`${url}${prefix}/stop`, {
-      method: "POST",
-      headers: { ...headers, "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    })
+    await fetch(`${url}${prefix}/stop`, { method: "POST", headers })
   } catch {}
-  if (p === "wechat") clientId = null
   patch(p, { status: "idle", qrcode: null, enabled: false })
 }
 
 export async function logout(p: MobilePlatform) {
   const { url, headers } = api()
   const prefix = `/mobile/${p}`
-  const stopBody: any = {}
-  if (p === "wechat" && clientId) stopBody.clientId = clientId
   try {
-    await fetch(`${url}${prefix}/stop`, {
-      method: "POST",
-      headers: { ...headers, "Content-Type": "application/json" },
-      body: JSON.stringify(stopBody),
-    })
+    await fetch(`${url}${prefix}/stop`, { method: "POST", headers })
     await fetch(`${url}${prefix}/session`, { method: "DELETE", headers })
   } catch {}
-  if (p === "wechat") clientId = null
   patch(p, { user: null, appId: null, hasConfig: false, status: "idle", qrcode: null, enabled: false })
 }
 
@@ -266,11 +222,7 @@ export async function retryBridge(p: MobilePlatform) {
 export async function rescanBridge(p: MobilePlatform) {
   if (p !== "wechat") return
   await stopBridge("wechat")
-  return startBridge("wechat", true, undefined, false, undefined, undefined, true)
-}
-
-export async function forceTakeover(p: MobilePlatform, modelStr?: string) {
-  return startBridge(p, true, modelStr, true)
+  return startBridge("wechat", undefined, undefined, true)
 }
 
 export function initMobile(p: MobilePlatform) {
