@@ -221,6 +221,7 @@ describe("projectSessionHref", () => {
     expect(
       projectSessionHref({ slug: "abc", currentDirectory: "E:/repo", directory: "E:/repo", suffix: "/session/s1" }),
     ).toBe("/abc/session/s1")
+    expect(projectSessionHref({ slug: "abc", currentDirectory: "e:/repo", directory: "E:/REPO" })).toBe("/abc/session")
   })
 
   test("encodes a fresh slug for a different project", () => {

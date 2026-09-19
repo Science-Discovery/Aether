@@ -10,6 +10,8 @@ import { Spinner } from "@opencode-ai/ui/spinner"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { getFilename } from "@opencode-ai/util/path"
 import { A, useNavigate, useParams } from "@solidjs/router"
+import { decode64 } from "@/utils/base64"
+import { workspaceKey } from "./helpers"
 import { type Accessor, createMemo, createSignal, For, type JSX, Match, onCleanup, Show, Switch } from "solid-js"
 import { useGlobalSync } from "@/context/global-sync"
 import { useLanguage } from "@/context/language"
@@ -631,6 +633,7 @@ export const SessionItem = (props: SessionItemProps): JSX.Element => {
 
 export const NewSessionItem = (props: {
   slug: string
+  directory?: string
   dense?: boolean
   clearHoverProjectSoon: () => void
   setHoverSession: (id: string | undefined) => void
@@ -639,8 +642,18 @@ export const NewSessionItem = (props: {
   const language = useLanguage()
   const platform = usePlatform()
   const navigate = useNavigate()
+  const params = useParams()
   const label = language.t("command.session.new")
-  const href = createMemo(() => `/${props.slug}/session`)
+  // Reuse the current URL slug when the target is the project already open:
+  // a second spelling of the same directory (e.g. "/" vs "\\") would
+  // otherwise remount the whole project tree and reload open files.
+  const href = createMemo(() => {
+    const current = decode64(params.dir) ?? ""
+    if (params.dir && props.directory && workspaceKey(current) === workspaceKey(props.directory)) {
+      return `/${params.dir}/session`
+    }
+    return `/${props.slug}/session`
+  })
   const go = (event: MouseEvent) => {
     if (!platform.electronWindows) return
     event.preventDefault()

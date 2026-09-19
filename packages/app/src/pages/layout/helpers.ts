@@ -98,6 +98,16 @@ export const effectiveWorkspaceOrder = (local: string, dirs: string[], persisted
  * spelling of the same directory (e.g. "/" vs "\\") would otherwise remount
  * the whole project tree and reload open files.
  */
+/**
+ * Case-insensitive on Windows drive paths, separator-normalized everywhere:
+ * the identity used to decide whether a navigation target is the project
+ * already open in the URL.
+ */
+const hrefKey = (directory: string) => {
+  const key = workspaceKey(directory)
+  return /^[A-Za-z]:/.test(key) ? key.toLowerCase() : key
+}
+
 export const projectSessionHref = (input: {
   slug: string | undefined
   currentDirectory: string | undefined
@@ -105,11 +115,7 @@ export const projectSessionHref = (input: {
   suffix?: string
 }) => {
   const suffix = input.suffix ?? "/session"
-  if (
-    input.slug &&
-    input.currentDirectory &&
-    workspaceKey(input.currentDirectory) === workspaceKey(input.directory)
-  ) {
+  if (input.slug && input.currentDirectory && hrefKey(input.currentDirectory) === hrefKey(input.directory)) {
     return `/${input.slug}${suffix}`
   }
   return `/${base64Encode(input.directory)}${suffix}`
