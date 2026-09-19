@@ -245,7 +245,7 @@ export async function assertHealthy(page: Page, context: string) {
 }
 
 async function waitSidebarButton(page: Page, context: string) {
-  const button = page.getByRole("button", { name: /toggle sidebar/i }).first()
+  const button = page.getByRole("button", { name: /^(open|close) sidebar$/i }).first()
   const boundary = page.getByRole("heading", { name: /something went wrong/i }).first()
   await button.or(boundary).first().waitFor({ state: "visible", timeout: 10_000 })
   await assertHealthy(page, context)
