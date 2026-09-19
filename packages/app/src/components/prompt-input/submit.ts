@@ -18,6 +18,7 @@ import { useSync } from "@/context/sync"
 import { useKnowledge } from "@/context/knowledge"
 import { promptProbe } from "@/testing/prompt"
 import { Identifier } from "@/utils/id"
+import { claimSession } from "@/utils/session-pending"
 import { Worktree as WorktreeState } from "@/utils/worktree"
 import { buildRequestParts, type DataAttachment } from "./build-request-parts"
 import { setCursorPosition } from "./editor-dom"
@@ -418,6 +419,8 @@ export function createPromptSubmit(input: PromptSubmitInput) {
     return language.t("common.requestFailed")
   }
 
+  let submitting = false
+
   const abort = async () => {
     const sessionID = params.id
     if (!sessionID) return Promise.resolve()
@@ -480,6 +483,11 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       next.splice(result.index, 0, info)
       return next
     })
+  }
+
+  const unseed = (dir: string, id: string) => {
+    const [, setStore] = globalSync.child(dir)
+    setStore("session", (list: Session[]) => list.filter((item) => item.id !== id))
   }
 
   const fetchReadingContextPages = async (input: {
@@ -588,71 +596,112 @@ export function createPromptSubmit(input: PromptSubmitInput) {
     let client = sdk.client
 
     if (isNewSession) {
-      if (worktreeSelection === "create") {
-        const createdWorktree = await client.worktree
-          .create({ directory: projectDirectory })
-          .then((x) => x.data)
-          .catch((err) => {
+      if (submitting) return
+      submitting = true
+      try {
+        if (worktreeSelection === "create") {
+          const createdWorktree = await client.worktree
+            .create({ directory: projectDirectory })
+            .then((x) => x.data)
+            .catch((err) => {
+              showToast({
+                title: language.t("prompt.toast.worktreeCreateFailed.title"),
+                description: errorMessage(err),
+              })
+              return undefined
+            })
+
+          if (!createdWorktree?.directory) {
             showToast({
               title: language.t("prompt.toast.worktreeCreateFailed.title"),
-              description: errorMessage(err),
+              description: language.t("common.requestFailed"),
             })
-            return undefined
-          })
-
-        if (!createdWorktree?.directory) {
-          showToast({
-            title: language.t("prompt.toast.worktreeCreateFailed.title"),
-            description: language.t("common.requestFailed"),
-          })
-          return
+            return
+          }
+          WorktreeState.pending(createdWorktree.directory)
+          sessionDirectory = createdWorktree.directory
         }
-        WorktreeState.pending(createdWorktree.directory)
-        sessionDirectory = createdWorktree.directory
-      }
 
-      if (worktreeSelection !== "main" && worktreeSelection !== "create") {
-        sessionDirectory = worktreeSelection
-      }
+        if (worktreeSelection !== "main" && worktreeSelection !== "create") {
+          sessionDirectory = worktreeSelection
+        }
 
-      if (sessionDirectory !== projectDirectory) {
-        client = sdk.createClient({
-          directory: sessionDirectory,
-          throwOnError: true,
-        })
-        globalSync.child(sessionDirectory)
-      }
+        if (sessionDirectory !== projectDirectory) {
+          client = sdk.createClient({
+            directory: sessionDirectory,
+            throwOnError: true,
+          })
+          globalSync.child(sessionDirectory)
+        }
 
-      input.onNewSessionWorktreeReset?.()
+        input.onNewSessionWorktreeReset?.()
+      } finally {
+        submitting = false
+      }
     }
 
     let session = input.info()
+    let claimed: Promise<Session | undefined> | undefined
+
     if (!session && isNewSession) {
-      const created = await client.session
-        .create()
-        .then((x) => x.data ?? undefined)
-        .catch((err) => {
-          showToast({
-            title: language.t("prompt.toast.sessionCreateFailed.title"),
-            description: errorMessage(err),
-          })
-          return undefined
-        })
-      if (created) {
-        seed(sessionDirectory, created)
-        session = created
-        if (shouldAutoAccept) permission.enableAutoAccept(session.id, sessionDirectory)
-        local.session.promote(sessionDirectory, session.id)
-        layout.handoff.setTabs(base64Encode(sessionDirectory), session.id)
-        navigate(`/${base64Encode(sessionDirectory)}/session/${session.id}`)
+      const sessionID = Identifier.descending("session")
+      const info: Session = {
+        id: sessionID,
+        slug: "",
+        projectID: globalSync.child(sessionDirectory)[0].project,
+        directory: sessionDirectory,
+        title: `New session - ${new Date().toISOString()}`,
+        version: "",
+        time: { created: Date.now(), updated: Date.now() },
       }
+      seed(sessionDirectory, info)
+      session = info
+      local.session.promote(sessionDirectory, sessionID)
+      layout.handoff.setTabs(base64Encode(sessionDirectory), sessionID)
+      navigate(`/${base64Encode(sessionDirectory)}/session/${sessionID}`)
+
+      claimed = claimSession(sessionID, () => client.session.create({ id: sessionID }).then((x) => x.data ?? undefined))
     }
+
     if (!session) {
       showToast({
         title: language.t("prompt.toast.promptSendFailed.title"),
         description: language.t("prompt.toast.promptSendFailed.description"),
       })
       return
+    }
+
+    const waitForSession = async () => {
+      if (!claimed) return true
+      let created: Session | undefined
+      try {
+        created = await claimed
+      } catch (err) {
+        unseed(sessionDirectory, session.id)
+        if (params.id === session.id) {
+          navigate(`/${base64Encode(projectDirectory)}/session`, { replace: true })
+        }
+        showToast({
+          title: language.t("prompt.toast.sessionCreateFailed.title"),
+          description: errorMessage(err),
+        })
+        removeOptimisticMessage()
+        restoreCommentItems(commentItems)
+        restoreInput()
+        return false
+      }
+      if (!created) return false
+      if (created.id !== session.id) {
+        unseed(sessionDirectory, session.id)
+        if (params.id === session.id) {
+          navigate(`/${base64Encode(sessionDirectory)}/session/${created.id}`, { replace: true })
+        }
+        Object.assign(session, created)
+        draft.sessionID = created.id
+      }
+      seed(sessionDirectory, created)
+      if (shouldAutoAccept) permission.enableAutoAccept(session.id, sessionDirectory)
+      return true
     }
 
     const model = {
@@ -712,6 +761,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
     input.onSubmit?.()
 
     if (mode === "shell") {
+      if (!(await waitForSession())) return
       clearInput()
       client.session
         .shell({
@@ -735,6 +785,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       const commandName = cmdName.slice(1)
       const customCommand = sync.data.command.find((c) => c.name === commandName)
       if (customCommand) {
+        if (!(await waitForSession())) return
         clearInput()
         client.session
           .command({
@@ -1169,7 +1220,10 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       draft,
       messageID,
       optimisticBusy: sessionDirectory === projectDirectory,
-      before: waitForWorktree,
+      before: async () => {
+        if (!(await waitForSession())) return false
+        return waitForWorktree()
+      },
       knowledgeBase,
     }).catch((err) => {
       pending.delete(session.id)

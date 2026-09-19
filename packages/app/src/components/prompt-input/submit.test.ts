@@ -22,22 +22,27 @@ const promoted: Array<{ directory: string; sessionID: string }> = []
 const sentShell: string[] = []
 const syncedDirectories: string[] = []
 const prompted: Array<Record<string, unknown>> = []
+const toasts: Array<{ title?: string }> = []
 
 let params: { id?: string } = {}
 let selected = "/repo/worktree-a"
 let variant: string | undefined
+let failCreate: Error | undefined
 
 const promptValue: Prompt = [{ type: "text", content: "ls", start: 0, end: 2 }]
+
+const flush = () => new Promise((resolve) => setTimeout(resolve, 0))
 
 const clientFor = (directory: string) => {
   createdClients.push(directory)
   return {
     session: {
-      create: async () => {
+      create: async (input: { id?: string }) => {
         createdSessions.push(directory)
+        if (failCreate) throw failCreate
         return {
           data: {
-            id: `session-${createdSessions.length}`,
+            id: input?.id ?? `session-${createdSessions.length}`,
             title: `New session ${createdSessions.length}`,
           },
         }
@@ -76,7 +81,7 @@ beforeAll(async () => {
   }))
 
   mock.module("@opencode-ai/ui/toast", () => ({
-    showToast: () => 0,
+    showToast: (input: { title?: string }) => toasts.push(input),
   }))
 
   mock.module("@opencode-ai/util/encode", () => ({
@@ -237,12 +242,14 @@ beforeEach(() => {
   optimistic.length = 0
   optimisticSeeded.length = 0
   promoted.length = 0
+  prompted.length = 0
+  toasts.length = 0
   params = {}
   sentShell.length = 0
   syncedDirectories.length = 0
-  prompted.length = 0
   selected = "/repo/worktree-a"
   variant = undefined
+  failCreate = undefined
   for (const key of Object.keys(storedSessions)) delete storedSessions[key]
 })
 
@@ -270,18 +277,28 @@ describe("prompt submit worktree selection", () => {
     const event = { preventDefault: () => undefined } as unknown as Event
 
     await submit.handleSubmit(event)
+    await flush()
     selected = "/repo/worktree-b"
     await submit.handleSubmit(event)
+    await flush()
 
     expect(createdClients).toEqual(["/repo/worktree-a", "/repo/worktree-b"])
     expect(createdSessions).toEqual(["/repo/worktree-a", "/repo/worktree-b"])
     expect(sentShell).toEqual(["/repo/worktree-a", "/repo/worktree-b"])
-    expect(syncedDirectories).toEqual(["/repo/worktree-a", "/repo/worktree-a", "/repo/worktree-b", "/repo/worktree-b"])
-    expect(promoted).toEqual([
-      { directory: "/repo/worktree-a", sessionID: "session-1" },
-      { directory: "/repo/worktree-b", sessionID: "session-2" },
+    expect(syncedDirectories).toEqual([
+      "/repo/worktree-a",
+      "/repo/worktree-a",
+      "/repo/worktree-a",
+      "/repo/worktree-a",
+      "/repo/worktree-b",
+      "/repo/worktree-b",
+      "/repo/worktree-b",
+      "/repo/worktree-b",
     ])
-    expect(syncedDirectories).toEqual(["/repo/worktree-a", "/repo/worktree-a", "/repo/worktree-b", "/repo/worktree-b"])
+    expect(promoted).toEqual([
+      { directory: "/repo/worktree-a", sessionID: storedSessions["/repo/worktree-a"][0]?.id },
+      { directory: "/repo/worktree-b", sessionID: storedSessions["/repo/worktree-b"][0]?.id },
+    ])
   })
 
   test("applies auto-accept to newly created sessions", async () => {
@@ -307,8 +324,11 @@ describe("prompt submit worktree selection", () => {
     const event = { preventDefault: () => undefined } as unknown as Event
 
     await submit.handleSubmit(event)
+    await flush()
 
-    expect(enabledAutoAccept).toEqual([{ sessionID: "session-1", directory: "/repo/worktree-a" }])
+    expect(enabledAutoAccept).toEqual([
+      { sessionID: storedSessions["/repo/worktree-a"][0]?.id, directory: "/repo/worktree-a" },
+    ])
   })
 
   test("includes the selected variant on optimistic prompts", async () => {
@@ -369,9 +389,78 @@ describe("prompt submit worktree selection", () => {
     const event = { preventDefault: () => undefined } as unknown as Event
 
     await submit.handleSubmit(event)
+    await flush()
 
-    expect(storedSessions["/repo/worktree-a"]).toEqual([{ id: "session-1", title: "New session 1" }])
+    expect(storedSessions["/repo/worktree-a"]).toHaveLength(1)
+    expect(storedSessions["/repo/worktree-a"]?.[0]?.title).toBe("New session 1")
     expect(optimisticSeeded).toEqual([true])
+  })
+
+  test("shows the optimistic session before the server create resolves", async () => {
+    const submit = createPromptSubmit({
+      info: () => undefined,
+      imageAttachments: () => [],
+      commentCount: () => 0,
+      autoAccept: () => false,
+      mode: () => "normal",
+      working: () => false,
+      editor: () => undefined,
+      queueScroll: () => undefined,
+      promptLength: (value) => value.reduce((sum, part) => sum + ("content" in part ? part.content.length : 0), 0),
+      addToHistory: () => undefined,
+      resetHistoryNavigation: () => undefined,
+      setMode: () => undefined,
+      setPopover: () => undefined,
+      newSessionWorktree: () => selected,
+      onNewSessionWorktreeReset: () => undefined,
+      onSubmit: () => undefined,
+    })
+
+    const event = { preventDefault: () => undefined } as unknown as Event
+
+    await submit.handleSubmit(event)
+
+    const seeded = storedSessions["/repo/worktree-a"]
+    expect(seeded).toHaveLength(1)
+    expect(seeded?.[0]?.id).toBeTruthy()
+    expect(prompted).toHaveLength(0)
+
+    await flush()
+
+    expect(prompted).toHaveLength(1)
+    expect(prompted[0].sessionID).toBe(seeded?.[0]?.id)
+  })
+
+  test("rolls back the optimistic session when the server create fails", async () => {
+    failCreate = new Error("create failed")
+
+    const submit = createPromptSubmit({
+      info: () => undefined,
+      imageAttachments: () => [],
+      commentCount: () => 0,
+      autoAccept: () => false,
+      mode: () => "normal",
+      working: () => false,
+      editor: () => undefined,
+      queueScroll: () => undefined,
+      promptLength: (value) => value.reduce((sum, part) => sum + ("content" in part ? part.content.length : 0), 0),
+      addToHistory: () => undefined,
+      resetHistoryNavigation: () => undefined,
+      setMode: () => undefined,
+      setPopover: () => undefined,
+      newSessionWorktree: () => selected,
+      onNewSessionWorktreeReset: () => undefined,
+      onSubmit: () => undefined,
+    })
+
+    const event = { preventDefault: () => undefined } as unknown as Event
+
+    await submit.handleSubmit(event)
+    await flush()
+
+    expect(storedSessions["/repo/worktree-a"]).toEqual([])
+    expect(prompted).toHaveLength(0)
+    expect(toasts.some((toast) => toast.title === "prompt.toast.sessionCreateFailed.title")).toBe(true)
   })
 
   test("builds a file quote ask prompt and clears the pending quote", async () => {
