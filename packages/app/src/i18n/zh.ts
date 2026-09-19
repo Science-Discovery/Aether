@@ -26,6 +26,8 @@ export const dict = {
   "theme.scheme.dark": "深色",
 
   "command.sidebar.toggle": "切换侧边栏",
+  "command.sidebar.open": "打开侧边栏",
+  "command.sidebar.close": "关闭侧边栏",
 
   "command.project.open": "打开项目",
   "command.project.new": "新建项目",
@@ -64,10 +66,16 @@ export const dict = {
   "command.input.focus": "聚焦输入框",
 
   "command.terminal.toggle": "切换终端",
+  "command.terminal.open": "打开终端",
+  "command.terminal.close": "关闭终端",
 
   "command.fileTree.toggle": "切换文件树",
+  "command.fileTree.open": "打开文件树",
+  "command.fileTree.close": "关闭文件树",
 
   "command.review.toggle": "切换审查",
+  "command.review.open": "打开审查",
+  "command.review.close": "关闭审查",
 
   "command.terminal.new": "新建终端",
   "command.terminal.new.description": "创建新的终端标签页",

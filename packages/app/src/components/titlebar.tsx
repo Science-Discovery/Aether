@@ -53,6 +53,7 @@ export function Titlebar() {
   const web = createMemo(() => platform.platform === "web")
   const zoom = () => platform.webviewZoom?.() ?? 1
   const minHeight = () => (mac() ? `${28 / zoom()}px` : undefined)
+  const sidebarTitle = () => language.t(layout.sidebar.opened() ? "command.sidebar.close" : "command.sidebar.open")
 
   const [history, setHistory] = createStore({
     stack: [] as string[],
@@ -184,14 +185,15 @@ export function Titlebar() {
           <TooltipKeybind
             class={web() ? "flex shrink-0 ml-14" : "flex shrink-0 ml-2"}
             placement="bottom"
-            title={language.t("command.sidebar.toggle")}
+            hideOnExpand={false}
+            title={sidebarTitle()}
             keybind={command.keybind("sidebar.toggle")}
           >
             <Button
               variant="ghost"
               class="group/sidebar-toggle titlebar-icon w-8 h-6 p-0 box-border"
               onClick={layout.sidebar.toggle}
-              aria-label={language.t("command.sidebar.toggle")}
+              aria-label={sidebarTitle()}
               aria-expanded={layout.sidebar.opened()}
             >
               <Icon size="small" name={layout.sidebar.opened() ? "sidebar-active" : "sidebar"} />

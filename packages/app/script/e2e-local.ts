@@ -76,6 +76,8 @@ const serverEnv = {
   ANTHROPIC_API_KEY: "",
   OPENCODE_CLIENT: "app",
   OPENCODE_STRICT_CONFIG_DEPS: "true",
+  OPENCODE_SERVER_USERNAME: "",
+  OPENCODE_SERVER_PASSWORD: "",
 } satisfies Record<string, string>
 
 const runnerEnv = {
