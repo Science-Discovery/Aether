@@ -53,6 +53,17 @@ export namespace Vcs {
       list,
       (item) =>
         Effect.gen(function* () {
+          // collapsed untracked directory (trailing slash): nothing to read
+          if (item.status === "added" && item.file.endsWith("/")) {
+            return {
+              file: item.file,
+              before: "",
+              after: "",
+              additions: 0,
+              deletions: 0,
+              status: "added",
+            } satisfies Snapshot.FileDiff
+          }
           const before = item.status === "added" || !ref ? "" : yield* git.show(cwd, ref, item.file, base)
           const after = item.status === "deleted" ? "" : yield* work(fs, cwd, item.file)
           const stat = map.get(item.file)

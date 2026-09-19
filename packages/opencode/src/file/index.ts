@@ -362,6 +362,20 @@ export namespace File {
 
   interface State {
     cache: Entry
+    /** fingerprint of the last scan (git index/HEAD mtimes), set once scanned */
+    key?: string
+    /** wall clock of the last scan, used as TTL fallback when no fingerprint exists */
+    at: number
+    /** gitdir resolved for fingerprinting */
+    gitdir?: string
+    /** armed single-flight scan shared by concurrent ensure() callers */
+    pending?: Effect.Effect<void>
+    /** background untracked merge in flight */
+    merging?: Promise<void>
+    /** scan generation, bumps on each rescan so stale background merges are dropped */
+    gen: number
+    /** directory paths already in cache.dirs, for incremental merges */
+    seen: Set<string>
   }
 
   const clean = (input: string) => {
@@ -660,17 +674,113 @@ export namespace File {
         Effect.fn("File.state")(() =>
           Effect.succeed({
             cache: { files: [], dirs: [] } as Entry,
+            at: 0,
+            gen: 0,
+            seen: new Set<string>(),
           }),
         ),
       )
 
+      // Cheap change fingerprint for git projects: tracked-set changes rewrite
+      // .git/index (commit, checkout, add) and branch moves rewrite .git/HEAD,
+      // so their mtimes catch everything the listing depends on without a walk.
+      const stamp = async (s: State) => {
+        if (Instance.project.vcs !== "git") return
+        s.gitdir ??= (await Git.run(["rev-parse", "--absolute-git-dir"], { cwd: Instance.directory })).text().trim()
+        if (!s.gitdir) return
+        const [index, head, root] = await Promise.all([
+          fs.promises.stat(path.join(s.gitdir, "index")).catch(() => undefined),
+          fs.promises.stat(path.join(s.gitdir, "HEAD")).catch(() => undefined),
+          fs.promises.stat(Instance.directory).catch(() => undefined),
+        ])
+        return `${index?.mtimeMs ?? 0}:${index?.size ?? 0}:${head?.mtimeMs ?? 0}:${root?.mtimeMs ?? 0}`
+      }
+
+      // Untracked directories are listed collapsed by git; expand up to a cap
+      // so fuzzy file search keeps working inside them while huge untracked
+      // trees stay one directory entry instead of a full walk.
+      const UNTRACKED_MAX = 20_000
+      const DIRS_MAX = 100
+
+      const lsCached = async () => {
+        const result = await Git.run(["ls-files", "--cached", "-z", "--", "."], { cwd: Instance.directory })
+        if (result.exitCode !== 0) return undefined
+        return result.text().split("\0").filter(Boolean)
+      }
+
+      // Slow phase: git walks the whole tree to enumerate untracked entries,
+      // so it runs in the background and merges into the cache when done.
+      const lsOthers = async () => {
+        const result = await Git.run(["ls-files", "--others", "--directory", "--exclude-standard", "-z", "--", "."], {
+          cwd: Instance.directory,
+        })
+        if (result.exitCode !== 0) return undefined
+        const files: string[] = []
+        const collapsed: string[] = []
+        for (const item of result.text().split("\0")) {
+          if (!item) continue
+          if (item.endsWith("/")) collapsed.push(item.slice(0, -1))
+          else files.push(item)
+        }
+        const idle: string[] = []
+        if (collapsed.length && files.length < UNTRACKED_MAX) {
+          const ac = new AbortController()
+          try {
+            for await (const file of Ripgrep.files({
+              cwd: Instance.directory,
+              paths: collapsed.slice(0, DIRS_MAX),
+              signal: ac.signal,
+            })) {
+              files.push(file)
+              if (files.length >= UNTRACKED_MAX) break
+            }
+          } catch {
+            // untracked expansion is best-effort
+          } finally {
+            ac.abort()
+          }
+          idle.push(...collapsed.slice(DIRS_MAX))
+        } else {
+          idle.push(...collapsed)
+        }
+        return { files, idle }
+      }
+
+      const add = (s: State, file: string) => {
+        s.cache.files.push(file)
+        let current = file
+        while (true) {
+          const dir = path.dirname(current)
+          if (dir === "." || dir === current) break
+          current = dir
+          if (s.seen.has(dir)) continue
+          s.seen.add(dir)
+          s.cache.dirs.push(dir + "/")
+        }
+      }
+
+      const merge = (s: State, dir: string) => {
+        if (s.seen.has(dir)) return
+        s.seen.add(dir)
+        s.cache.dirs.push(dir + "/")
+      }
+
       const scan = Effect.fn("File.scan")(function* () {
         if (Instance.directory === path.parse(Instance.directory).root) return
         const isGlobalHome = Instance.directory === Global.Path.home && Instance.project.id === "global"
-        const next: Entry = { files: [], dirs: [] }
+        const s = yield* InstanceState.get(state)
+        s.gen++
+        const gen = s.gen
+        s.cache = { files: [], dirs: [] }
+        s.seen = new Set()
 
-        yield* Effect.promise(async () => {
-          if (isGlobalHome) {
+        const commit = function* () {
+          s.at = Date.now()
+          s.key = yield* Effect.promise(() => stamp(s))
+        }
+
+        if (isGlobalHome) {
+          yield* Effect.promise(async () => {
             const dirs = new Set<string>()
             const protectedNames = Protected.names()
             const ignoreNested = new Set(["node_modules", "dist", "build", "target", "vendor"])
@@ -694,34 +804,52 @@ export namespace File {
               }
             }
 
-            next.dirs = Array.from(dirs).toSorted()
-          } else {
-            const seen = new Set<string>()
-            for await (const file of Ripgrep.files({ cwd: Instance.directory })) {
-              next.files.push(file)
-              let current = file
-              while (true) {
-                const dir = path.dirname(current)
-                if (dir === ".") break
-                if (dir === current) break
-                current = dir
-                if (seen.has(dir)) continue
-                seen.add(dir)
-                next.dirs.push(dir + "/")
-              }
-            }
-          }
-        })
+            s.cache.dirs = Array.from(dirs).toSorted()
+          })
+          yield* commit()
+          return
+        }
 
-        const s = yield* InstanceState.get(state)
-        s.cache = next
+        // Fast phase: tracked files come straight from the git index without
+        // touching the filesystem.
+        const tracked = Instance.project.vcs === "git" ? yield* Effect.promise(() => lsCached()) : undefined
+        if (tracked) {
+          for (const file of tracked) add(s, file)
+          yield* commit()
+
+          // Background top-up: untracked enumeration can cost seconds on huge
+          // trees; drop the merge if a newer scan started meanwhile.
+          if (!s.merging) {
+            s.merging = (async () => {
+              const others = await lsOthers()
+              if (!others || s.gen !== gen) return
+              for (const file of others.files) add(s, file)
+              for (const dir of others.idle) merge(s, dir)
+            })().finally(() => (s.merging = undefined))
+          }
+          return
+        }
+
+        // Non-git fallback: full ripgrep walk.
+        yield* Effect.promise(async () => {
+          for await (const file of Ripgrep.files({ cwd: Instance.directory })) add(s, file)
+        })
+        yield* commit()
       })
 
-      let cachedScan = yield* Effect.cached(scan().pipe(Effect.catchCause(() => Effect.void)))
-
       const ensure = Effect.fn("File.ensure")(function* () {
-        yield* cachedScan
-        cachedScan = yield* Effect.cached(scan().pipe(Effect.catchCause(() => Effect.void)))
+        const s = yield* InstanceState.get(state)
+        if (s.pending) return yield* s.pending
+        if (s.key) {
+          const key = yield* Effect.promise(() => stamp(s))
+          if (key === s.key && Date.now() - s.at < 60_000) return
+        } else if (s.at && Date.now() - s.at < 10_000 && (s.cache.files.length > 0 || s.cache.dirs.length > 0)) {
+          return
+        }
+        const pending = yield* Effect.cached(scan().pipe(Effect.catchCause(() => Effect.void)))
+        s.pending = pending
+        yield* pending
+        if (s.pending === pending) s.pending = undefined
       })
 
       const init = Effect.fn("File.init")(function* () {
@@ -743,6 +871,10 @@ export namespace File {
           if (item.status === "deleted") {
             changed.push({ path: item.file, added: 0, removed: 0, status: "deleted" })
           } else if (item.status === "added") {
+            if (item.file.endsWith("/")) {
+              changed.push({ path: item.file, added: 0, removed: 0, status: "added" })
+              continue
+            }
             const content = yield* Effect.promise(() =>
               Filesystem.readText(path.join(Instance.directory, item.file)),
             ).pipe(Effect.catch(() => Effect.succeed(null)))
