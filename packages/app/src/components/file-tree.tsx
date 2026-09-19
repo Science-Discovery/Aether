@@ -25,6 +25,7 @@ import {
   type ParentProps,
 } from "solid-js"
 import { TruncateMiddle } from "@/components/truncate-middle"
+import { parentDir } from "@/utils/file-tree"
 import { Dynamic } from "solid-js/web"
 import type { FileNode } from "@opencode-ai/sdk/v2"
 
@@ -700,6 +701,7 @@ export default function FileTree(props: {
                             title: language.t("fileTree.addedToGitignore"),
                           })
                         }
+                        file.tree.refresh(parentDir(node.path))
                       } catch (err) {
                         console.error("Failed to add to .gitignore:", err)
                         showToast({
@@ -712,13 +714,20 @@ export default function FileTree(props: {
                   >
                     <ContextMenu.ItemLabel>{language.t("fileTree.ignoreChanges")}</ContextMenu.ItemLabel>
                   </ContextMenu.Item>
-                  <ContextMenu.Item onSelect={() => props.onFileRename?.(node)}>
-                    <ContextMenu.ItemLabel>{language.t("common.rename")}</ContextMenu.ItemLabel>
-                  </ContextMenu.Item>
-                  <ContextMenu.Separator />
-                  <ContextMenu.Item onSelect={() => props.onFileDelete?.(node)} class="text-red-500 focus:text-red-500">
-                    <ContextMenu.ItemLabel>{language.t("common.delete")}</ContextMenu.ItemLabel>
-                  </ContextMenu.Item>
+                  <Show when={props.onFileRename}>
+                    <ContextMenu.Item onSelect={() => props.onFileRename?.(node)}>
+                      <ContextMenu.ItemLabel>{language.t("common.rename")}</ContextMenu.ItemLabel>
+                    </ContextMenu.Item>
+                  </Show>
+                  <Show when={props.onFileDelete}>
+                    <ContextMenu.Separator />
+                    <ContextMenu.Item
+                      onSelect={() => props.onFileDelete?.(node)}
+                      class="text-red-500 focus:text-red-500"
+                    >
+                      <ContextMenu.ItemLabel>{language.t("common.delete")}</ContextMenu.ItemLabel>
+                    </ContextMenu.Item>
+                  </Show>
                 </ContextMenu.Content>
               </ContextMenu.Portal>
             </ContextMenu>

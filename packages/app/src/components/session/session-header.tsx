@@ -11,7 +11,7 @@ import { showToast } from "@opencode-ai/ui/toast"
 import { Tooltip, TooltipKeybind } from "@opencode-ai/ui/tooltip"
 import { getFilename } from "@opencode-ai/util/path"
 import type { FileNode } from "@opencode-ai/sdk/v2"
-import { createEffect, createMemo, For, onCleanup, Show } from "solid-js"
+import { createEffect, createMemo, onCleanup, Show } from "solid-js"
 import { createStore } from "solid-js/store"
 import { Portal } from "solid-js/web"
 import FileTree from "@/components/file-tree"
@@ -25,6 +25,7 @@ import { useServer } from "@/context/server"
 import { useSync } from "@/context/sync"
 import { useTerminal } from "@/context/terminal"
 import { createOpenSessionFileTab, focusTerminalById } from "@/pages/session/helpers"
+import { createFileActions } from "@/pages/session/file-actions"
 import { useSessionLayout } from "@/pages/session/session-layout"
 import { messageAgentColor } from "@/utils/agent"
 import { decode64 } from "@/utils/base64"
@@ -252,7 +253,7 @@ export function SessionHeader() {
     focusTerminalById(id)
   }
 
-  const [prefs, setPrefs] = persisted(Persist.global("open.app"), createStore({ app: "finder" as OpenApp }))
+  const [prefs] = persisted(Persist.global("open.app"), createStore({ app: "finder" as OpenApp }))
   const [menu, setMenu] = createStore({ open: false })
   const [openRequest, setOpenRequest] = createStore({
     app: undefined as OpenApp | undefined,
@@ -273,11 +274,6 @@ export function SessionHeader() {
   const tint = createMemo(() =>
     messageAgentColor(params.id ? sync.data.message[params.id] : undefined, sync.data.agent),
   )
-
-  const selectApp = (app: OpenApp) => {
-    if (!options().some((item) => item.id === app)) return
-    setPrefs("app", app)
-  }
 
   const openDir = (app: OpenApp) => {
     if (opening() || !canOpen()) return
@@ -323,6 +319,13 @@ export function SessionHeader() {
       if (!view().reviewPanel.opened()) view().reviewPanel.open()
     },
     setActive: tabs().setActive,
+  })
+
+  const actions = createFileActions({
+    tabs,
+    refresh: () => {
+      if (params.id) void sync.session.diff(params.id, { force: true })
+    },
   })
 
   const pickFile = (node: FileNode) => {
@@ -412,37 +415,14 @@ export function SessionHeader() {
                                 </Tooltip>
                               </div>
                               <ScrollView class="h-80 mt-1">
-                                <FileTree path="" class="pt-1 pr-1" onFileClick={pickFile} />
+                                <FileTree
+                                  path=""
+                                  class="pt-1 pr-1"
+                                  onFileClick={pickFile}
+                                  onFileDelete={actions.remove}
+                                  onFileRename={actions.rename}
+                                />
                               </ScrollView>
-                              <div class="shrink-0 border-t border-border-weak-base pt-1.5 px-0.5 pb-0.5">
-                                <div class="px-1 pb-1 text-12-regular text-text-weak">
-                                  {language.t("session.header.openIn")}
-                                </div>
-                                <div class="flex flex-wrap gap-0.5 px-0.5 pb-1">
-                                  <For each={options()}>
-                                    {(o) => (
-                                      <Tooltip placement="bottom" value={o.label}>
-                                        <button
-                                          type="button"
-                                          class="flex size-7 items-center justify-center rounded-md hover:bg-surface-raised-base-hover disabled:opacity-50 disabled:!cursor-default"
-                                          classList={{ "bg-surface-raised-base-active": o.id === current().id }}
-                                          disabled={opening()}
-                                          aria-label={o.label}
-                                          onClick={() => {
-                                            setMenu("open", false)
-                                            selectApp(o.id)
-                                            openDir(o.id)
-                                          }}
-                                        >
-                                          <div class="flex size-5 shrink-0 items-center justify-center [&_[data-component=app-icon]]:size-5">
-                                            <AppIcon id={o.icon} />
-                                          </div>
-                                        </button>
-                                      </Tooltip>
-                                    )}
-                                  </For>
-                                </div>
-                              </div>
                             </div>
                           </Popover>
                         </div>
