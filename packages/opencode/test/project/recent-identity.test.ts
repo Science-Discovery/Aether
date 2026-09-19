@@ -212,20 +212,123 @@ describe("startup reconciliation removes ghost sandbox projects", () => {
     ).toBeFalsy()
   })
 
+  test("recentFromDir never revives a stored project kind for a sandbox directory", async () => {
+    await using tmp = await tmpdir({ git: true })
+    const { project } = await Project.fromDirectory(tmp.path)
+    await Instance.provide({ directory: tmp.path, fn: async () => Session.create({}) })
+    const sandboxDir = path.join(tmp.path, "sandbox-ghost-kind")
+
+    await Project.addSandbox(project.id, sandboxDir)
+    mainSqlite()
+      .prepare(
+        "INSERT INTO project_recent (key, kind, project_id, directory, activity_at, time_created, time_updated) VALUES (?, 'project', ?, ?, 0, 0, 0) ON CONFLICT(key) DO UPDATE SET kind = 'project'",
+      )
+      .run(`dir:${norm(sandboxDir)}`, project.id, norm(sandboxDir))
+
+    const info = Project.recentFromDir(sandboxDir)
+    expect(info).toBeDefined()
+    expect(info?.kind).toBe("directory")
+    expect(info?.worktree).toBeUndefined()
+    expect(info?.projectID).toBeUndefined()
+    expect(Project.recentList().some((i) => Project.norm(i.directory) === norm(sandboxDir))).toBe(false)
+  })
+
+  test("gpm mapping backfills a NULLed project_id for the feed, keyed lookup and project list", async () => {
+    await using tmp = await tmpdir({ git: true })
+    const { project } = await Project.fromDirectory(tmp.path)
+    await Instance.provide({ directory: tmp.path, fn: async () => Session.create({}) })
+
+    mainSqlite()
+      .prepare("UPDATE project_recent SET project_id = NULL WHERE key = ?")
+      .run(`dir:${norm(tmp.path)}`)
+    expect(
+      mainSqlite().prepare("SELECT project_id FROM global_project_map WHERE directory = ?").get(norm(tmp.path)),
+    ).toBeDefined()
+
+    const feedItem = Project.recentList().find((i) => Project.norm(i.directory) === norm(tmp.path))
+    expect(feedItem?.kind).toBe("project")
+    expect(feedItem?.projectID).toBe(project.id)
+
+    const info = Project.recentFromDir(tmp.path)
+    expect(info?.kind).toBe("project")
+    expect(info?.projectID).toBe(project.id)
+
+    expect(Project.list().find((p) => p.id === project.id)).toBeDefined()
+  })
+
+  test("a dead pid row hides from the feed but stays resolvable via keyed lookup", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Project.fromDirectory(tmp.path)
+    const deadDir = path.join(tmp.path, "dead-ref")
+    const deadPid = ProjectID.fromDirectory(norm(deadDir))
+
+    mainSqlite()
+      .prepare(
+        "INSERT OR IGNORE INTO project_recent (key, kind, project_id, directory, activity_at, time_created, time_updated) VALUES (?, 'directory', ?, ?, 0, 0, 0)",
+      )
+      .run(`dir:${norm(deadDir)}`, deadPid, norm(deadDir))
+
+    expect(Project.recentList().some((i) => Project.norm(i.directory) === norm(deadDir))).toBe(false)
+
+    const info = Project.recentFromDir(deadDir)
+    expect(info?.kind).toBe("directory")
+    expect(info?.projectID).toBeUndefined()
+    expect(info?.name).toBe("dead-ref")
+  })
+
+  test("rename survives a project_recent row rebuild through the directory_meta fallback", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Project.fromDirectory(tmp.path)
+    await Instance.provide({ directory: tmp.path, fn: async () => Session.create({}) })
+
+    await Project.updateDirectoryMeta({ directory: tmp.path, name: "my-rename" })
+    mainSqlite()
+      .prepare("DELETE FROM project_recent WHERE key = ?")
+      .run(`dir:${norm(tmp.path)}`)
+
+    await Project.fromDirectory(tmp.path)
+
+    const feedItem = Project.recentList().find((i) => Project.norm(i.directory) === norm(tmp.path))
+    expect(feedItem?.name).toBe("my-rename")
+    expect(Project.recentFromDir(tmp.path)?.name).toBe("my-rename")
+  })
+
+  test("cutoff window: a re-touched row re-earns exactly one reconcile exemption pass", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Project.fromDirectory(tmp.path)
+    const rowHere = () => mainSqlite().prepare("SELECT key FROM project_recent WHERE directory = ?").get(norm(tmp.path))
+
+    Database.registerUntrackedProjects(Database.Client())
+    expect(rowHere()).toBeDefined()
+
+    Database.registerUntrackedProjects(Database.Client())
+    expect(rowHere()).toBeFalsy()
+
+    await Bun.sleep(2)
+    await Project.fromDirectory(tmp.path)
+    Database.registerUntrackedProjects(Database.Client())
+    expect(rowHere()).toBeDefined()
+
+    Database.registerUntrackedProjects(Database.Client())
+    expect(rowHere()).toBeFalsy()
+  })
+
   test("projects without sessions in this channel do not keep a feed row, and re-earn it on activity", async () => {
     await using tmp = await tmpdir({ git: true })
     await Project.fromDirectory(tmp.path)
     expect(mainSqlite().prepare("SELECT key FROM project_recent WHERE directory = ?").get(norm(tmp.path))).toBeDefined()
 
+    // First pass: the row was touched after the previous pass, so a fresh boot
+    // registration is presumed live and survives (same-process recovery safety).
     Database.registerUntrackedProjects(Database.Client())
+    expect(mainSqlite().prepare("SELECT key FROM project_recent WHERE directory = ?").get(norm(tmp.path))).toBeDefined()
 
-    // Registration alone is not activity: the feed row is dropped.
+    // Second pass: nothing re-touched it — registration alone is not activity.
+    Database.registerUntrackedProjects(Database.Client())
     expect(mainSqlite().prepare("SELECT key FROM project_recent WHERE directory = ?").get(norm(tmp.path))).toBeFalsy()
     expect(Project.recentList().some((i) => Project.norm(i.directory) === norm(tmp.path))).toBe(false)
 
     // Real activity re-earns the row and survives reconciliation.
-    const { Instance } = await import("../../src/project/instance")
-    const { Session } = await import("../../src/session")
     await Instance.provide({ directory: tmp.path, fn: async () => Session.create({}) })
     await Project.fromDirectory(tmp.path)
     Database.registerUntrackedProjects(Database.Client())

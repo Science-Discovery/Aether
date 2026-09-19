@@ -910,8 +910,13 @@ export namespace Database {
     }
   }
 
+  /** End timestamp of the previous reconciliation pass. Rows touched after it
+   *  were re-registered by a live instance boot and must survive a repeat pass. */
+  let lastReconcileAt = 0
+
   export function registerUntrackedProjects(db: DrizzleClient) {
     const sqlite = db.$client
+    const cutoff = lastReconcileAt
 
     cleanupQuarantinedOriginals()
 
@@ -987,10 +992,14 @@ export namespace Database {
           //     registration residue (covers sandboxes already deleted from disk,
           //     where re-resolution can no longer see the parent).
           if (projectRow?.worktree && projectRow.worktree !== "/" && sessionCount === 0) {
-            const wtNorm = norm(projectRow.worktree)
+            // Managed comparison is case-insensitive on win32: stored worktree
+            // strings can drift in drive-letter/path casing and norm does not
+            // fold case.
+            const ci = (s: string) => (process.platform === "win32" ? s.toLowerCase() : s)
+            const managedRoot = ci(norm(path.join(Global.Path.data, "worktree")))
+            const wtNorm = ci(norm(projectRow.worktree))
             const managed =
-              wtNorm.startsWith(norm(Global.Path.data) + "\\worktree\\") ||
-              wtNorm.startsWith(norm(Global.Path.data) + "/worktree/")
+              wtNorm === managedRoot || wtNorm.startsWith(managedRoot + "\\") || wtNorm.startsWith(managedRoot + "/")
             const orphaned = managed || ProjectIdentity.resolve(projectRow.worktree).id !== pid
             if (orphaned) {
               pSqlite.close()
@@ -1088,6 +1097,7 @@ export namespace Database {
       if (resolvedDbExists) {
         if (!fixRecentOnly) {
           updateMap.run(resolved.id, Date.now(), directory)
+          mapPidByDir.set(directory, resolved.id)
           mapCorrected++
         }
         updateRecent.run(resolved.id, Date.now(), key)
@@ -1118,16 +1128,21 @@ export namespace Database {
     //          for projects with zero sessions in this channel: the feed records
     //          activity, not registration. A project re-earns its row the moment
     //          a session is created in it (fromDirectory touches on boot).
+    //          Rows touched after the previous reconcile run are exempt: a second
+    //          same-process pass (db recovery after quarantine) must not delete
+    //          rows that instance boots re-touched in between, because touch is
+    //          the only writer and a purged row would not come back until the
+    //          next fromDirectory.
     const staleRows = sqlite
-      .prepare("SELECT key, project_id, directory FROM project_recent WHERE project_id IS NOT NULL")
-      .all() as { key: string; project_id: string; directory: string }[]
+      .prepare("SELECT key, project_id, directory, time_updated FROM project_recent WHERE project_id IS NOT NULL")
+      .all() as { key: string; project_id: string; directory: string; time_updated: number }[]
     let removed = 0
     for (const row of staleRows) {
       const noDb = !existingDbIds.has(row.project_id) || corruptedIds.has(row.project_id)
       const wt = worktreeByPid.get(row.project_id)
       const wsDirs = workspaceDirsByPid.get(row.project_id)
       const internal = wt !== undefined && norm(row.directory) !== norm(wt) && !wsDirs?.has(norm(row.directory))
-      const inactive = (sessionCountByPid.get(row.project_id) ?? 0) === 0
+      const inactive = (sessionCountByPid.get(row.project_id) ?? 0) === 0 && (!cutoff || row.time_updated <= cutoff)
       if (noDb || internal || inactive) {
         sqlite.prepare("DELETE FROM project_recent WHERE key = ?").run(row.key)
         removed++
@@ -1164,6 +1179,8 @@ export namespace Database {
       mapRemoved++
     }
     if (mapRemoved > 0) log.info("removed stale/duplicate global_project_map entries", { mapRemoved })
+
+    lastReconcileAt = Date.now()
   }
 
   export function transaction<T>(
