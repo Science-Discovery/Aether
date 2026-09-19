@@ -6,11 +6,13 @@ import {
   parseDeepLink,
   parseNewSessionDeepLink,
 } from "./deep-links"
+import { base64Encode } from "@opencode-ai/util/encode"
 import { type Session } from "@opencode-ai/sdk/v2/client"
 import {
   displayName,
   effectiveWorkspaceOrder,
   errorMessage,
+  projectSessionHref,
   hasProjectPermissions,
   latestRootSession,
   workspaceKey,
@@ -210,5 +212,24 @@ describe("layout workspace helpers", () => {
     expect(errorMessage({ data: { message: "boom" } }, "fallback")).toBe("boom")
     expect(errorMessage(new Error("broken"), "fallback")).toBe("broken")
     expect(errorMessage("unknown", "fallback")).toBe("fallback")
+  })
+})
+
+describe("projectSessionHref", () => {
+  test("reuses the current slug for the same project across spellings", () => {
+    expect(projectSessionHref({ slug: "abc", currentDirectory: "E:\\repo", directory: "E:/repo" })).toBe("/abc/session")
+    expect(
+      projectSessionHref({ slug: "abc", currentDirectory: "E:/repo", directory: "E:/repo", suffix: "/session/s1" }),
+    ).toBe("/abc/session/s1")
+  })
+
+  test("encodes a fresh slug for a different project", () => {
+    const href = projectSessionHref({ slug: "abc", currentDirectory: "E:/repo", directory: "E:/other" })
+    expect(href).toBe(`/${base64Encode("E:/other")}/session`)
+  })
+
+  test("encodes when there is no current project", () => {
+    const href = projectSessionHref({ slug: undefined, currentDirectory: undefined, directory: "/tmp/app" })
+    expect(href).toBe(`/${base64Encode("/tmp/app")}/session`)
   })
 })

@@ -308,7 +308,7 @@ export function FileTabContent(props: { tab: string }) {
     }
   }
 
-  const { params, sessionKey, tabs, view } = useSessionLayout()
+  const { params, sessionKey, tabs, view, reading } = useSessionLayout()
   const activeFileTab = createSessionTabs({
     tabs,
     pathFromTab: file.pathFromTab,
@@ -426,7 +426,7 @@ export function FileTabContent(props: { tab: string }) {
     const p = path()
     if (!p || !params.id) return
     if (view().reviewPanel.opened()) view().reviewPanel.close()
-    view().quickReading.open(p, p.split("/").pop() ?? "document.pdf")
+    reading().open(p, p.split("/").pop() ?? "document.pdf")
   }
 
   const focusPromptInput = () => {

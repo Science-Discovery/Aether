@@ -11,10 +11,12 @@ export const useSessionKey = () => {
 export const useSessionLayout = () => {
   const layout = useLayout()
   const { params, sessionKey } = useSessionKey()
+  const tabsKey = createMemo(() => params.dir ?? "")
   return {
     params,
     sessionKey,
-    tabs: createMemo(() => layout.tabs(sessionKey)),
+    tabs: createMemo(() => layout.tabs(tabsKey)),
     view: createMemo(() => layout.view(sessionKey)),
+    reading: createMemo(() => layout.view(tabsKey).quickReading),
   }
 }

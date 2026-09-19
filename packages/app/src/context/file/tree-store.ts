@@ -9,6 +9,11 @@ type DirectoryState = {
   children?: string[]
 }
 
+export type TreeSnapshot = {
+  node: Record<string, FileNode>
+  dir: Record<string, DirectoryState>
+}
+
 type TreeStoreOptions = {
   scope: () => string
   normalizeDir: (input: string) => string
@@ -18,16 +23,38 @@ type TreeStoreOptions = {
   initialExpanded?: Set<string>
   /** 目录展开/折叠变化时的回调（用于持久化） */
   onExpandedChange?: (expanded: Set<string>) => void
+  /** 上次会话的树快照（按目录缓存，用于项目切换/重挂载时立即渲染） */
+  initialSnapshot?: TreeSnapshot
+  /** 树变化时的快照回调（用于持久化） */
+  onSnapshot?: (snapshot: TreeSnapshot) => void
 }
 
 export function createFileTreeStore(options: TreeStoreOptions) {
+  const cached = options.initialSnapshot
   const [tree, setTree] = createStore<{
     node: Record<string, FileNode>
     dir: Record<string, DirectoryState>
-  }>({
-    node: {},
-    dir: { "": { expanded: true } },
-  })
+  }>(
+    cached
+      ? {
+          node: { ...cached.node },
+          // Render from cache immediately, but let every directory refetch so
+          // external changes are picked up after the remount.
+          dir: Object.fromEntries(
+            Object.entries(cached.dir).map(([path, state]) => [path, { ...state, loaded: false, loading: false }]),
+          ),
+        }
+      : { node: {}, dir: { "": { expanded: true } } },
+  )
+  if (cached && !tree.dir[""]) setTree("dir", "", { expanded: true })
+
+  const writeCache = () => {
+    if (!options.onSnapshot) return
+    options.onSnapshot({
+      node: JSON.parse(JSON.stringify(tree.node)) as Record<string, FileNode>,
+      dir: JSON.parse(JSON.stringify(tree.dir)) as Record<string, DirectoryState>,
+    })
+  }
 
   const inflight = new Map<string, Promise<void>>()
 
@@ -131,6 +158,7 @@ export function createFileTreeStore(options: TreeStoreOptions) {
             draft.children = nextChildren
           }),
         )
+        writeCache()
       })
       .catch((e) => {
         if (options.scope() !== directory) return

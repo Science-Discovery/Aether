@@ -58,7 +58,6 @@ export function SessionSidePanel(props: {
   treeMaxWidth?: number
   onOverflow?: (deficit: number) => void
   fileTreeResizable?: boolean
-  canReview: () => boolean
   diffs: () => FileDiff[]
   diffsReady: () => boolean
   empty: () => string
@@ -233,7 +232,7 @@ export function SessionSidePanel(props: {
     pathFromTab: file.pathFromTab,
     normalizeTab,
     review: reviewTab,
-    hasReview: props.canReview,
+    hasReview: () => !!params.id,
   })
   const contextOpen = tabState.contextOpen
   const gitGraphOpen = tabState.gitGraphOpen
@@ -682,7 +681,7 @@ export function SessionSidePanel(props: {
                   onCleanup(stop)
                 }}
               >
-                <Show when={reviewTab() && props.canReview()}>
+                <Show when={reviewTab()}>
                   <Tabs.Trigger value="review">
                     <div class="flex items-center gap-1.5">
                       <div>{language.t("session.tab.review")}</div>
@@ -803,7 +802,7 @@ export function SessionSidePanel(props: {
           >
             <div class="size-full min-w-0 h-full bg-background-base">
               <Tabs value={activeTab()} onChange={openTab}>
-                <Show when={reviewTab() && props.canReview()}>
+                <Show when={reviewTab()}>
                   <Tabs.Content value="review" class="flex flex-col h-full overflow-hidden contain-strict">
                     <Show when={activeTab() === "review"}>{props.reviewPanel()}</Show>
                   </Tabs.Content>

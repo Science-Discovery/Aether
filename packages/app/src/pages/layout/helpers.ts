@@ -1,4 +1,5 @@
 import { getFilename, norm } from "@opencode-ai/util/path"
+import { base64Encode } from "@opencode-ai/util/encode"
 import { type Session } from "@opencode-ai/sdk/v2/client"
 
 type SessionStore = {
@@ -89,4 +90,27 @@ export const effectiveWorkspaceOrder = (local: string, dirs: string[], persisted
   }
 
   return [...result, ...live.values()]
+}
+
+/**
+ * Build the href for a project's session view. When the target directory is
+ * the project already open in the URL, reuse the current slug: a second
+ * spelling of the same directory (e.g. "/" vs "\\") would otherwise remount
+ * the whole project tree and reload open files.
+ */
+export const projectSessionHref = (input: {
+  slug: string | undefined
+  currentDirectory: string | undefined
+  directory: string
+  suffix?: string
+}) => {
+  const suffix = input.suffix ?? "/session"
+  if (
+    input.slug &&
+    input.currentDirectory &&
+    workspaceKey(input.currentDirectory) === workspaceKey(input.directory)
+  ) {
+    return `/${input.slug}${suffix}`
+  }
+  return `/${base64Encode(input.directory)}${suffix}`
 }

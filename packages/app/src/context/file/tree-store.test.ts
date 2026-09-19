@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test"
-import { createFileTreeStore } from "./tree-store"
+import { createFileTreeStore, type TreeSnapshot } from "./tree-store"
+import type { FileNode } from "@opencode-ai/sdk/v2"
 
 type Node = {
   name: string
@@ -85,5 +86,63 @@ describe("file tree store refresh", () => {
     expect(tree.dirState("")?.expanded).toBe(true)
     expect(tree.dirState("docs")?.expanded).toBe(false)
     expect(tree.dirState("src/nested")?.expanded).toBe(false)
+  })
+})
+
+describe("tree snapshots", () => {
+  const node = (path: string, type: "file" | "directory"): FileNode => ({
+    name: path.split("/").pop() ?? path,
+    path,
+    absolute: `/repo/${path}`,
+    type,
+    ignored: false,
+  })
+
+  test("seeds from initialSnapshot without fetching and refetches on load", async () => {
+    let calls = 0
+    const tree = createFileTreeStore({
+      scope: () => "/repo",
+      normalizeDir: (input) => input,
+      list: async () => {
+        calls++
+        return [node("README.md", "file")]
+      },
+      onError: () => {},
+      initialSnapshot: {
+        node: { docs: node("docs", "directory"), "docs/a.md": node("docs/a.md", "file") },
+        dir: {
+          "": { expanded: true, loaded: true, children: ["docs"] },
+          docs: { expanded: true, loaded: true, children: ["docs/a.md"] },
+        },
+      },
+    })
+
+    expect(calls).toBe(0)
+    expect(tree.children("").map((n) => n.path)).toEqual(["docs"])
+    expect(tree.isLoaded("")).toBe(false)
+
+    await tree.listDir("", { force: true })
+    expect(calls).toBe(1)
+    expect(tree.children("").map((n) => n.path)).toEqual(["README.md"])
+    expect(tree.isLoaded("")).toBe(true)
+  })
+
+  test("writes sanitized snapshots through onSnapshot", async () => {
+    const snapshots: TreeSnapshot[] = []
+    const tree = createFileTreeStore({
+      scope: () => "/repo",
+      normalizeDir: (input) => input,
+      list: async () => [node("a.md", "file")],
+      onError: () => {},
+      onSnapshot: (snapshot) => snapshots.push(snapshot),
+    })
+
+    await tree.listDir("")
+
+    expect(snapshots.length).toBeGreaterThan(0)
+    const last = snapshots.at(-1)!
+    expect(last.dir[""]?.loaded).toBe(true)
+    expect(last.dir[""]?.children).toEqual(["a.md"])
+    expect(last.node["a.md"]?.path).toBe("a.md")
   })
 })

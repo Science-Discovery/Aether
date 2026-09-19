@@ -23,7 +23,7 @@ import {
   touchFileContent,
 } from "./file/content-cache"
 import { createFileViewCache } from "./file/view-cache"
-import { createFileTreeStore } from "./file/tree-store"
+import { createFileTreeStore, type TreeSnapshot } from "./file/tree-store"
 import { invalidateFromWatcher } from "./file/watcher"
 import {
   selectionFromLines,
@@ -240,7 +240,7 @@ export const { use: useFile, provider: FileProvider } = createSimpleContext({
       document.removeEventListener("mousedown", handleMousedown, true)
       clearHighlight()
     })
-    const tabs = layout.tabs(() => `${params.dir}${params.id ? "/" + params.id : ""}`)
+    const tabs = layout.tabs(() => params.dir ?? "")
 
     const inflight = new Map<string, Promise<void>>()
     const [store, setStore] = createStore<{
@@ -253,6 +253,11 @@ export const { use: useFile, provider: FileProvider } = createSimpleContext({
       Persist.serverGlobal("file-tree-expanded.v2"),
       createStore<Record<string, string[]>>({}),
     )
+    const [treeCacheStore, setTreeCacheStore] = persisted(
+      Persist.serverGlobal("file-tree-cache.v1"),
+      createStore<Record<string, TreeSnapshot>>({}),
+    )
+    const TREE_CACHE_MAX = 12
     const tree = createFileTreeStore({
       scope,
       normalizeDir: path.normalizeDir,
@@ -267,6 +272,16 @@ export const { use: useFile, provider: FileProvider } = createSimpleContext({
       initialExpanded: new Set(treeExpandStore[scope()] ?? []),
       onExpandedChange: (expanded) => {
         setTreeExpandStore(scope(), [...expanded])
+      },
+      initialSnapshot: treeCacheStore[scope()],
+      onSnapshot: (snapshot) => {
+        const dir = scope()
+        if (!dir) return
+        setTreeCacheStore(dir, snapshot)
+        const keys = Object.keys(treeCacheStore)
+        for (const stale of keys.slice(0, Math.max(0, keys.length - TREE_CACHE_MAX))) {
+          setTreeCacheStore(stale, undefined!)
+        }
       },
     })
 
@@ -300,7 +315,7 @@ export const { use: useFile, provider: FileProvider } = createSimpleContext({
     )
 
     const viewCache = createFileViewCache()
-    const view = createMemo(() => viewCache.load(scope(), params.id))
+    const view = createMemo(() => viewCache.load(scope(), undefined))
 
     const ensure = (file: string) => {
       if (!file) return

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { createRoot, createSignal } from "solid-js"
-import { createSessionKeyReader, ensureSessionKey, pruneSessionKeys } from "./layout"
+import { createSessionKeyReader, ensureSessionKey, migrateSessionTabs, pruneSessionKeys } from "./layout"
 
 describe("layout session-key helpers", () => {
   test("couples touch and scroll seed in order", () => {
@@ -65,5 +65,52 @@ describe("pruneSessionKeys", () => {
     })
 
     expect(drop).toEqual([])
+  })
+})
+
+describe("migrateSessionTabs", () => {
+  test("adopts session buckets into an empty project bucket", () => {
+    const value = {
+      "dirA": { all: [], active: undefined },
+      "dirA/ses1": { all: ["file://a"], active: "file://a" },
+    }
+
+    const out = migrateSessionTabs(value) as Record<string, { all: string[]; active?: string }>
+
+    expect(out["dirA/ses1"]).toBeUndefined()
+    expect(out["dirA"]?.all).toHaveLength(1)
+    expect(out["dirA"]?.active).toBeDefined()
+  })
+
+  test("keeps a non-empty project bucket over session buckets", () => {
+    const value = {
+      "dirA": { all: ["file://x"], active: "file://x" },
+      "dirA/ses1": { all: ["file://a"], active: "file://a" },
+    }
+
+    const out = migrateSessionTabs(value) as Record<string, { all: string[]; active?: string }>
+
+    expect(out["dirA"]).toEqual({ all: ["file://x"], active: "file://x" })
+    expect(out["dirA/ses1"]).toBeUndefined()
+  })
+
+  test("normalizes invalid entries and returns a new object", () => {
+    const value = { dirA: { all: ["file://a", 42, null], active: 5 } }
+
+    const out = migrateSessionTabs(value) as Record<string, { all: string[]; active?: string }>
+
+    expect(out).not.toBe(value)
+    expect(out["dirA"]?.all).toHaveLength(1)
+    expect(out["dirA"]?.active).toBeUndefined()
+  })
+
+  test("passes non-record state through untouched", () => {
+    expect(migrateSessionTabs(undefined)).toBeUndefined()
+    expect(migrateSessionTabs("junk")).toBe("junk")
+  })
+
+  test("returns the same reference when nothing changes", () => {
+    const value = { dirA: { all: [], active: undefined } }
+    expect(migrateSessionTabs(value)).toBe(value)
   })
 })

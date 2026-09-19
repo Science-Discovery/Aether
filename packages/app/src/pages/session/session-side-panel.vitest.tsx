@@ -289,7 +289,6 @@ function mount(tab: "changes" | "all", focus: ReturnType<typeof vi.fn>) {
   const off = render(
     () => (
       <SessionSidePanel
-        canReview={() => true}
         diffs={() => [
           { file: state.diffPath, status: "modified", before: "", after: "x\n", additions: 1, deletions: 0 },
         ]}

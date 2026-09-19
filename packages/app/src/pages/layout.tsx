@@ -78,6 +78,7 @@ import {
   displayName,
   effectiveWorkspaceOrder,
   latestRootSession,
+  projectSessionHref,
   sortedRootSessions,
   workspaceKey,
 } from "./layout/helpers"
@@ -654,7 +655,12 @@ export default function Layout(props: ParentProps) {
           e.details.type === "permission.asked"
             ? language.t("notification.permission.description", { sessionTitle, projectName })
             : language.t("notification.question.description", { sessionTitle, projectName })
-        const href = `/${base64Encode(directory)}/session/${props.sessionID}`
+        const href = projectSessionHref({
+          slug: params.dir,
+          currentDirectory: currentDir(),
+          directory,
+          suffix: `/session/${props.sessionID}`,
+        })
         const notify = shouldNotify({
           current_dir: currentDir(),
           current_session: params.id,
@@ -1248,7 +1254,7 @@ export default function Layout(props: ParentProps) {
   }
 
   async function createSession(directory: string) {
-    navigateWithSidebarReset(`/${base64Encode(directory)}/session`)
+    navigateWithSidebarReset(projectSessionHref({ slug: params.dir, currentDirectory: currentDir(), directory }))
   }
 
   async function deleteSession(session: Session) {
@@ -1602,7 +1608,7 @@ export default function Layout(props: ParentProps) {
       if (data.session.some((item) => item.id === target.id)) {
         setStore("lastProjectSession", directory, { directory: target.directory, id: target.id, at: Date.now() })
         OpenIntent.mark(server.key, target.directory)
-        navigateWithSidebarReset(`/${base64Encode(target.directory)}/session/${target.id}`)
+        navigateWithSidebarReset(projectSessionHref({ slug: params.dir, currentDirectory: currentDir(), directory: target.directory, suffix: `/session/${target.id}` }))
         return true
       }
       const resolved = await globalSDK.client.session
@@ -1613,7 +1619,7 @@ export default function Layout(props: ParentProps) {
       if (!canOpen(resolved.directory)) return false
       setStore("lastProjectSession", directory, { directory: resolved.directory, id: resolved.id, at: Date.now() })
       OpenIntent.mark(server.key, resolved.directory)
-      navigateWithSidebarReset(`/${base64Encode(resolved.directory)}/session/${resolved.id}`)
+      navigateWithSidebarReset(projectSessionHref({ slug: params.dir, currentDirectory: currentDir(), directory: resolved.directory, suffix: `/session/${resolved.id}` }))
       return true
     }
 
@@ -1649,13 +1655,20 @@ export default function Layout(props: ParentProps) {
       return
     }
 
-    navigateWithSidebarReset(`/${base64Encode(directory)}/session`)
+    navigateWithSidebarReset(projectSessionHref({ slug: params.dir, currentDirectory: currentDir(), directory }))
   }
 
   function navigateToSession(session: Session | undefined) {
     if (!session) return
     OpenIntent.mark(server.key, session.directory)
-    navigateWithSidebarReset(`/${base64Encode(session.directory)}/session/${session.id}`)
+    navigateWithSidebarReset(
+      projectSessionHref({
+        slug: params.dir,
+        currentDirectory: currentDir(),
+        directory: session.directory,
+        suffix: `/session/${session.id}`,
+      }),
+    )
   }
 
   function openProject(directory: string, navigate = true) {
@@ -1972,7 +1985,7 @@ export default function Layout(props: ParentProps) {
       actions: [
         {
           label: language.t("command.session.new"),
-          onClick: () => navigate(`/${base64Encode(directory)}/session`),
+          onClick: () => navigate(projectSessionHref({ slug: params.dir, currentDirectory: currentDir(), directory })),
         },
         {
           label: language.t("common.dismiss"),
