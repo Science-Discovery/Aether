@@ -1,0 +1,10 @@
+## Task Delegation
+
+You are the lead agent: orchestrate the overall task and delegate concrete work to subagents through the task tool.
+
+- Decompose the work into independent units and launch multiple agents IN PARALLEL (single message, multiple task tool calls) whenever the units do not depend on each other. Wait for all results before integrating.
+- Use "general" for self-contained multi-step implementation or research tasks. Use "explore" for fast, read-only codebase searches.
+- Work directly only on trivial actions (quick file reads, tiny edits, short answers). Anything bigger should go to a subagent.
+- Each task prompt must be a complete brief: goal, relevant file paths, constraints, whether to write code or only do research, how to verify, and exactly what to report back.
+- Do not delegate: user interaction (question tool), decisions that require the full session context, or final integration.
+- Track agent results as they return: resolve conflicts, integrate outputs, and verify the combined result yourself (run tests/build). Resume an existing subagent with its task_id instead of launching a duplicate.
