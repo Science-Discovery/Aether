@@ -1,18 +1,22 @@
 import { AppIcon } from "@opencode-ai/ui/app-icon"
 import { Button } from "@opencode-ai/ui/button"
-import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
 import { Icon } from "@opencode-ai/ui/icon"
 import { IconButton } from "@opencode-ai/ui/icon-button"
 import { PdfConvertProgressBar } from "@/components/pdf-convert-progress"
 import { Keybind } from "@opencode-ai/ui/keybind"
+import { Popover } from "@opencode-ai/ui/popover"
+import { ScrollView } from "@opencode-ai/ui/scroll-view"
 import { Spinner } from "@opencode-ai/ui/spinner"
 import { showToast } from "@opencode-ai/ui/toast"
 import { Tooltip, TooltipKeybind } from "@opencode-ai/ui/tooltip"
 import { getFilename } from "@opencode-ai/util/path"
+import type { FileNode } from "@opencode-ai/sdk/v2"
 import { createEffect, createMemo, For, onCleanup, Show } from "solid-js"
 import { createStore } from "solid-js/store"
 import { Portal } from "solid-js/web"
+import FileTree from "@/components/file-tree"
 import { useCommand } from "@/context/command"
+import { useFile } from "@/context/file"
 import { useLanguage } from "@/context/language"
 import { useLayout } from "@/context/layout"
 import { usePlatform } from "@/context/platform"
@@ -20,7 +24,7 @@ import { useSDK } from "@/context/sdk"
 import { useServer } from "@/context/server"
 import { useSync } from "@/context/sync"
 import { useTerminal } from "@/context/terminal"
-import { focusTerminalById } from "@/pages/session/helpers"
+import { createOpenSessionFileTab, focusTerminalById } from "@/pages/session/helpers"
 import { useSessionLayout } from "@/pages/session/session-layout"
 import { messageAgentColor } from "@/utils/agent"
 import { decode64 } from "@/utils/base64"
@@ -181,9 +185,16 @@ export function SessionHeader() {
   const language = useLanguage()
   const sync = useSync()
   const terminal = useTerminal()
-  const { params, view } = useSessionLayout()
+  const file = useFile()
+  const { params, view, tabs } = useSessionLayout()
 
   const projectDirectory = createMemo(() => decode64(params.dir) ?? "")
+  const name = createMemo(() => {
+    const directory = projectDirectory()
+    const project = layout.projects.list().find((p) => p.worktree === directory || p.sandboxes?.includes(directory))
+    if (project) return project.name || getFilename(project.worktree)
+    return getFilename(directory)
+  })
   const os = createMemo(() => detectOS(platform))
 
   const [exists, setExists] = createStore<Partial<Record<OpenApp, boolean>>>({
@@ -303,6 +314,23 @@ export function SessionHeader() {
       .catch((err: unknown) => showRequestError(language, err))
   }
 
+  const openFileTab = createOpenSessionFileTab({
+    normalizeTab: (value: string) => (value.startsWith("file://") ? file.tab(value) : value),
+    openTab: tabs().open,
+    pathFromTab: file.pathFromTab,
+    loadFile: file.load,
+    openReviewPanel: () => {
+      if (!view().reviewPanel.opened()) view().reviewPanel.open()
+    },
+    setActive: tabs().setActive,
+  })
+
+  const pickFile = (node: FileNode) => {
+    if (node.type !== "file") return
+    setMenu("open", false)
+    openFileTab(file.tab(node.path))
+  }
+
   const rightMount = createMemo(() => document.getElementById("opencode-titlebar-right"))
 
   return (
@@ -351,76 +379,72 @@ export function SessionHeader() {
                               </Show>
                             </div>
                           </Button>
-                          <DropdownMenu
+                          <Popover
                             gutter={4}
                             placement="bottom-end"
                             open={menu.open}
                             onOpenChange={(open) => setMenu("open", open)}
-                          >
-                            <DropdownMenu.Trigger
-                              as={IconButton}
-                              icon="chevron-down"
-                              variant="ghost"
-                              disabled={opening()}
-                              class="rounded-none h-full w-[20px] p-0 border-none shadow-none data-[expanded]:bg-surface-raised-base-active disabled:!cursor-default"
-                              classList={{
+                            triggerAs={IconButton}
+                            triggerProps={{
+                              icon: "chevron-down",
+                              variant: "ghost",
+                              disabled: opening(),
+                              class:
+                                "rounded-none h-full w-[20px] p-0 border-none shadow-none data-[expanded]:bg-surface-raised-base-active disabled:!cursor-default",
+                              classList: {
                                 "bg-surface-raised-base-active": opening(),
-                              }}
-                              aria-label={language.t("session.header.open.menu")}
-                            />
-                            <DropdownMenu.Portal>
-                              <DropdownMenu.Content class="[&_[data-slot=dropdown-menu-item]]:pl-1 [&_[data-slot=dropdown-menu-radio-item]]:pl-1 [&_[data-slot=dropdown-menu-radio-item]+[data-slot=dropdown-menu-radio-item]]:mt-1">
-                                <DropdownMenu.Group>
-                                  <DropdownMenu.GroupLabel class="!px-1 !py-1">
-                                    {language.t("session.header.openIn")}
-                                  </DropdownMenu.GroupLabel>
-                                  <DropdownMenu.RadioGroup
-                                    class="mt-1"
-                                    value={current().id}
-                                    onChange={(value) => {
-                                      if (!OPEN_APPS.includes(value as OpenApp)) return
-                                      selectApp(value as OpenApp)
-                                    }}
-                                  >
-                                    <For each={options()}>
-                                      {(o) => (
-                                        <DropdownMenu.RadioItem
-                                          value={o.id}
+                              },
+                              "aria-label": language.t("session.header.open.menu"),
+                            }}
+                          >
+                            <div class="flex flex-col w-[320px]">
+                              <div class="flex h-8 shrink-0 items-center gap-1 pl-2.5 pr-0.5 border-b border-border-weak-base">
+                                <span class="flex-1 min-w-0 truncate text-12-medium text-text-strong">{name()}</span>
+                                <Tooltip placement="bottom" value={language.t("session.header.open.copyPath")}>
+                                  <IconButton
+                                    icon="copy"
+                                    variant="ghost"
+                                    size="small"
+                                    class="size-6"
+                                    onClick={copyPath}
+                                    aria-label={language.t("session.header.open.copyPath")}
+                                  />
+                                </Tooltip>
+                              </div>
+                              <ScrollView class="h-80 mt-1">
+                                <FileTree path="" class="pt-1 pr-1" onFileClick={pickFile} />
+                              </ScrollView>
+                              <div class="shrink-0 border-t border-border-weak-base pt-1.5 px-0.5 pb-0.5">
+                                <div class="px-1 pb-1 text-12-regular text-text-weak">
+                                  {language.t("session.header.openIn")}
+                                </div>
+                                <div class="flex flex-wrap gap-0.5 px-0.5 pb-1">
+                                  <For each={options()}>
+                                    {(o) => (
+                                      <Tooltip placement="bottom" value={o.label}>
+                                        <button
+                                          type="button"
+                                          class="flex size-7 items-center justify-center rounded-md hover:bg-surface-raised-base-hover disabled:opacity-50 disabled:!cursor-default"
+                                          classList={{ "bg-surface-raised-base-active": o.id === current().id }}
                                           disabled={opening()}
-                                          onSelect={() => {
+                                          aria-label={o.label}
+                                          onClick={() => {
                                             setMenu("open", false)
+                                            selectApp(o.id)
                                             openDir(o.id)
                                           }}
                                         >
                                           <div class="flex size-5 shrink-0 items-center justify-center [&_[data-component=app-icon]]:size-5">
                                             <AppIcon id={o.icon} />
                                           </div>
-                                          <DropdownMenu.ItemLabel>{o.label}</DropdownMenu.ItemLabel>
-                                          <DropdownMenu.ItemIndicator>
-                                            <Icon name="check-small" size="small" class="text-icon-weak" />
-                                          </DropdownMenu.ItemIndicator>
-                                        </DropdownMenu.RadioItem>
-                                      )}
-                                    </For>
-                                  </DropdownMenu.RadioGroup>
-                                </DropdownMenu.Group>
-                                <DropdownMenu.Separator />
-                                <DropdownMenu.Item
-                                  onSelect={() => {
-                                    setMenu("open", false)
-                                    copyPath()
-                                  }}
-                                >
-                                  <div class="flex size-5 shrink-0 items-center justify-center">
-                                    <Icon name="copy" size="small" class="text-icon-weak" />
-                                  </div>
-                                  <DropdownMenu.ItemLabel>
-                                    {language.t("session.header.open.copyPath")}
-                                  </DropdownMenu.ItemLabel>
-                                </DropdownMenu.Item>
-                              </DropdownMenu.Content>
-                            </DropdownMenu.Portal>
-                          </DropdownMenu>
+                                        </button>
+                                      </Tooltip>
+                                    )}
+                                  </For>
+                                </div>
+                              </div>
+                            </div>
+                          </Popover>
                         </div>
                       </div>
                     </Tooltip>
