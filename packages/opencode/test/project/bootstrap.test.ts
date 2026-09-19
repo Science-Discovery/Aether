@@ -18,15 +18,23 @@ describe("InstanceBootstrap creates .aether directory", () => {
 
     await Instance.provide({ directory: tmp.path, init: InstanceBootstrap, fn: async () => {} })
 
-    expect(await fs.stat(aetherDir).then(() => true).catch(() => false)).toBe(true)
+    expect(
+      await fs
+        .stat(aetherDir)
+        .then(() => true)
+        .catch(() => false),
+    ).toBe(true)
   })
 
   test("creates .aether in git subdirectory without leaking to git root", async () => {
-    await using tmp = await tmpdir({ git: true, init: async (dir) => {
-      const sub = path.join(dir, "packages", "my-pkg")
-      await fs.mkdir(sub, { recursive: true })
-      return sub
-    }})
+    await using tmp = await tmpdir({
+      git: true,
+      init: async (dir) => {
+        const sub = path.join(dir, "packages", "my-pkg")
+        await fs.mkdir(sub, { recursive: true })
+        return sub
+      },
+    })
 
     const subAether = path.join(tmp.extra, PROJECT)
     const rootAether = path.join(tmp.path, PROJECT)
@@ -35,8 +43,18 @@ describe("InstanceBootstrap creates .aether directory", () => {
 
     await Instance.provide({ directory: tmp.extra, init: InstanceBootstrap, fn: async () => {} })
 
-    expect(await fs.stat(subAether).then(() => true).catch(() => false)).toBe(true)
-    expect(await fs.stat(rootAether).then(() => true).catch(() => false)).toBe(false)
+    expect(
+      await fs
+        .stat(subAether)
+        .then(() => true)
+        .catch(() => false),
+    ).toBe(true)
+    expect(
+      await fs
+        .stat(rootAether)
+        .then(() => true)
+        .catch(() => false),
+    ).toBe(false)
   })
 
   test("creates .aether in non-git directory", async () => {
@@ -47,7 +65,12 @@ describe("InstanceBootstrap creates .aether directory", () => {
 
     await Instance.provide({ directory: tmp.path, init: InstanceBootstrap, fn: async () => {} })
 
-    expect(await fs.stat(aetherDir).then(() => true).catch(() => false)).toBe(true)
+    expect(
+      await fs
+        .stat(aetherDir)
+        .then(() => true)
+        .catch(() => false),
+    ).toBe(true)
   })
 
   test("does not fail when .aether already exists", async () => {
@@ -55,10 +78,38 @@ describe("InstanceBootstrap creates .aether directory", () => {
 
     const aetherDir = path.join(tmp.path, PROJECT)
     await fs.mkdir(aetherDir, { recursive: true })
-    expect(await fs.stat(aetherDir).then(() => true).catch(() => false)).toBe(true)
+    expect(
+      await fs
+        .stat(aetherDir)
+        .then(() => true)
+        .catch(() => false),
+    ).toBe(true)
 
     await Instance.provide({ directory: tmp.path, init: InstanceBootstrap, fn: async () => {} })
 
-    expect(await fs.stat(aetherDir).then(() => true).catch(() => false)).toBe(true)
+    expect(
+      await fs
+        .stat(aetherDir)
+        .then(() => true)
+        .catch(() => false),
+    ).toBe(true)
+  })
+})
+
+describe("Instance.setProject", () => {
+  test("swaps the live project in place without touching the directory", async () => {
+    await using tmp = await tmpdir()
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const before = Instance.project
+        const next = { ...before, vcs: "git" as const }
+        Instance.setProject(next)
+        expect(Instance.project).toBe(next)
+        expect(Instance.project.vcs).toBe("git")
+        expect(Instance.directory).toBe(tmp.path)
+      },
+    })
   })
 })

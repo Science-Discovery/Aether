@@ -7,7 +7,7 @@ import z from "zod"
 import { ProjectID } from "../../project/schema"
 import { errors } from "../error"
 import { lazy } from "../../util/lazy"
-import { InstanceBootstrap } from "../../project/bootstrap"
+import { refreshProject } from "../../project/bootstrap"
 
 export const ProjectRoutes = lazy(() =>
   new Hono()
@@ -120,13 +120,10 @@ export const ProjectRoutes = lazy(() =>
           directory: dir,
           project: prev,
         })
-        if (next.id === prev.id && next.vcs === prev.vcs && next.worktree === prev.worktree) return c.json(next)
-        await Instance.reload({
-          directory: dir,
-          worktree: dir,
-          project: next,
-          init: InstanceBootstrap,
-        })
+        if (next.vcs !== prev.vcs) {
+          await refreshProject(next)
+          await Project.emitUpdated(next)
+        }
         return c.json(next)
       },
     )

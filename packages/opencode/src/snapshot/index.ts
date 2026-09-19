@@ -9,6 +9,7 @@ import { makeRuntime } from "@/effect/run-service"
 import { AppFileSystem } from "@/filesystem"
 import { Hash } from "@/util/hash"
 import { Config } from "../config/config"
+import { Instance } from "../project/instance"
 import { Global } from "../global"
 import { Log } from "../util/log"
 
@@ -83,7 +84,6 @@ export namespace Snapshot {
               directory: ctx.directory,
               worktree: ctx.worktree,
               gitdir: path.join(Global.Path.data, "snapshot", ctx.project.id, Hash.fast(ctx.worktree)),
-              vcs: ctx.project.vcs,
             }
 
             const args = (cmd: string[]) => ["--git-dir", state.gitdir, "--work-tree", state.worktree, ...cmd]
@@ -122,7 +122,7 @@ export namespace Snapshot {
             const locked = <A, E, R>(fx: Effect.Effect<A, E, R>) => lock(state.gitdir).withPermits(1)(fx)
 
             const enabled = Effect.fnUntraced(function* () {
-              if (state.vcs !== "git") return false
+              if (Instance.project.vcs !== "git") return false
               return (yield* Effect.promise(() => Config.get())).snapshot !== false
             })
 

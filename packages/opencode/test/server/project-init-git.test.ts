@@ -2,7 +2,7 @@ import { afterEach, describe, expect, spyOn, test } from "bun:test"
 import path from "path"
 import { GlobalBus } from "../../src/bus/global"
 import { Snapshot } from "../../src/snapshot"
-import { InstanceBootstrap } from "../../src/project/bootstrap"
+import { Vcs } from "../../src/project/vcs"
 import { Instance } from "../../src/project/instance"
 import { Server } from "../../src/server/server"
 import { Filesystem } from "../../src/util/filesystem"
@@ -17,15 +17,14 @@ afterEach(async () => {
 })
 
 describe("project.initGit endpoint", () => {
-  test("initializes git and reloads immediately", async () => {
+  test("initializes git without reloading the instance", async () => {
     await using tmp = await tmpdir()
     const app = Server.Default()
     const seen: { directory?: string; payload: { type: string } }[] = []
     const fn = (evt: { directory?: string; payload: { type: string } }) => {
       seen.push(evt)
     }
-    const reload = Instance.reload
-    const reloadSpy = spyOn(Instance, "reload").mockImplementation((input) => reload(input))
+    const reloadSpy = spyOn(Instance, "reload")
     GlobalBus.on("event", fn)
 
     try {
@@ -41,10 +40,9 @@ describe("project.initGit endpoint", () => {
         vcs: "git",
         worktree: tmp.path,
       })
-      expect(reloadSpy).toHaveBeenCalledTimes(1)
-      expect(reloadSpy.mock.calls[0]?.[0]?.init).toBe(InstanceBootstrap)
+      expect(reloadSpy).toHaveBeenCalledTimes(0)
       expect(seen.some((evt) => evt.directory === tmp.path && evt.payload.type === "server.instance.disposed")).toBe(
-        true,
+        false,
       )
       expect(await Filesystem.exists(path.join(tmp.path, ".git", "opencode"))).toBe(false)
 
@@ -63,6 +61,9 @@ describe("project.initGit endpoint", () => {
         directory: tmp.path,
         fn: async () => {
           expect(await Snapshot.track()).toBeTruthy()
+          await Bun.write(path.join(tmp.path, "demo.txt"), "hello")
+          const diffs = await Vcs.diff("git")
+          expect(diffs.some((diff) => diff.file === "demo.txt" && diff.status === "added")).toBe(true)
         },
       })
     } finally {
@@ -72,15 +73,14 @@ describe("project.initGit endpoint", () => {
     }
   })
 
-  test("does not reload when the project is already git", async () => {
+  test("does not touch the instance when the project is already git", async () => {
     await using tmp = await tmpdir({ git: true })
     const app = Server.Default()
     const seen: { directory?: string; payload: { type: string } }[] = []
     const fn = (evt: { directory?: string; payload: { type: string } }) => {
       seen.push(evt)
     }
-    const reload = Instance.reload
-    const reloadSpy = spyOn(Instance, "reload").mockImplementation((input) => reload(input))
+    const reloadSpy = spyOn(Instance, "reload")
     GlobalBus.on("event", fn)
 
     try {

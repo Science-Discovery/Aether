@@ -277,6 +277,7 @@ export namespace Project {
       projectID?: ProjectID
     }) => Effect.Effect<void>
     readonly initGit: (input: { directory: string; project: Info }) => Effect.Effect<Info>
+    readonly emitUpdated: (project: Info) => Effect.Effect<void>
     readonly setInitialized: (id: ProjectID) => Effect.Effect<void>
     readonly sandboxes: (id: ProjectID) => Effect.Effect<string[]>
     readonly addSandbox: (id: ProjectID, directory: string) => Effect.Effect<void>
@@ -919,6 +920,7 @@ export namespace Project {
         update,
         updateDirectoryMeta,
         initGit,
+        emitUpdated,
         setInitialized,
         sandboxes,
         addSandbox,
@@ -1050,6 +1052,10 @@ export namespace Project {
 
   export function update(input: UpdateInput) {
     return runPromise((svc) => svc.update(input))
+  }
+
+  export function emitUpdated(project: Info) {
+    return runPromise((svc) => svc.emitUpdated(project))
   }
 
   export function updateDirectoryMeta(input: {
