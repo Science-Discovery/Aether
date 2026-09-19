@@ -1,6 +1,6 @@
 import { mkdir, readFile, writeFile, rm } from "fs/promises"
 import { join } from "path"
-import { existsSync, readFileSync } from "fs"
+import { existsSync } from "fs"
 import QRCode from "qrcode"
 import { Bus } from "@/bus"
 import { Instance } from "@/project/instance"
@@ -99,30 +99,6 @@ class WeChatManagerImpl extends MobileManagerBase {
   private _loginAbort: AbortController | null = null
   private _tokenKnownExpired: boolean = false
 
-  get lockHolder(): string | null {
-    try {
-      if (!existsSync(wcFile("lock.json"))) return null
-      const raw = readFileSync(wcFile("lock.json"), "utf-8")
-      const lock = JSON.parse(raw) as { clientId: string; pid: number; updatedAt?: number }
-      if (lock.pid === process.pid) return null
-      try {
-        process.kill(lock.pid, 0)
-      } catch {
-        try {
-          rm(wcFile("lock.json")).catch(() => {})
-        } catch {}
-        return null
-      }
-      if (lock.updatedAt && Date.now() - lock.updatedAt > 30_000) {
-        rm(wcFile("lock.json")).catch(() => {})
-        return null
-      }
-      return lock.clientId
-    } catch {
-      return null
-    }
-  }
-
   get qrcode() {
     return this._qrcode
   }
@@ -149,46 +125,15 @@ class WeChatManagerImpl extends MobileManagerBase {
     this.adapter = adapter
   }
 
-  async tryLock(clientId: string): Promise<boolean> {
-    await mkdir(wcDir(), { recursive: true })
-    const current = this.lockHolder
-    if (!current || current === clientId) {
-      await writeFile(wcFile("lock.json"), JSON.stringify({ clientId, pid: process.pid, updatedAt: Date.now() }))
-      return true
-    }
-    return false
-  }
-
-  async forceLock(clientId: string): Promise<void> {
-    await mkdir(wcDir(), { recursive: true })
-    try {
-      await rm(wcFile("lock.json"), { force: true })
-    } catch {}
-    await writeFile(wcFile("lock.json"), JSON.stringify({ clientId, pid: process.pid, updatedAt: Date.now() }))
-  }
-
-  async unlock(clientId: string): Promise<void> {
-    const current = this.lockHolder
-    if (!current || current === clientId) {
-      await rm(wcFile("lock.json"), { force: true })
-    }
-  }
-
   // ── Start: pure TS login + poll ────────────────────────────────────────────
 
   override async hasCredentials(): Promise<boolean> {
     return !!(await this.loadILinkState())
   }
 
-  async start(
-    model?: string,
-    auto = false,
-    rescan = false,
-    lock?: { clientId: string; force?: boolean },
-  ): Promise<{
+  async start(rescan = false): Promise<{
     success: boolean
     message?: string
-    code?: string
     status?: string
     user?: { id: string; name: string }
   }> {
@@ -206,44 +151,33 @@ class WeChatManagerImpl extends MobileManagerBase {
 
     this._starting = true
     try {
-      const lockId = lock?.clientId || crypto.randomUUID()
-      if (lock?.force) await this.forceLock(lockId)
-      else if (!(await this.tryLock(lockId))) {
-        return { success: false, code: "locked", message: "微信已被其他客户端连接" }
-      }
+      this._error = null
 
-      try {
-        this._error = null
+      this.sessionMap = await this.loadSessionMap()
+      this._hiddenDirs = await this.loadHiddenDirs()
+      this._showHeader = await this.loadHeaderState()
 
-        this.sessionMap = await this.loadSessionMap()
-        this._hiddenDirs = await this.loadHiddenDirs()
-        this._showHeader = await this.loadHeaderState()
-
-        if (!rescan) {
-          const savedSession = await this.adapter.loadSession()
-          if (savedSession?.connected && savedSession.user) {
-            try {
-              if (await this.resumeFromSaved()) {
-                return { success: true, status: "connected", user: this._wcSession?.user }
-              }
-            } catch (err) {
-              const message = err instanceof Error ? err.message : String(err)
-              console.error("[wechat] resume failed:", err)
-              this._error = { code: "resume_failed", message }
-              this.status = "error"
-              Bus.publish(this.busEvents.Error, this._error)
-              return { success: false, message }
+      if (!rescan) {
+        const savedSession = await this.adapter.loadSession()
+        if (savedSession?.connected && savedSession.user) {
+          try {
+            if (await this.resumeFromSaved()) {
+              return { success: true, status: "connected", user: this._wcSession?.user }
             }
+          } catch (err) {
+            const message = err instanceof Error ? err.message : String(err)
+            console.error("[wechat] resume failed:", err)
+            this._error = { code: "resume_failed", message }
+            this.status = "error"
+            Bus.publish(this.busEvents.Error, this._error)
+            return { success: false, message }
           }
         }
-
-        this.status = "starting"
-        void this.loginAndPoll()
-        return { success: true }
-      } catch (err) {
-        await this.unlock(lockId).catch(() => {})
-        throw err
       }
+
+      this.status = "starting"
+      void this.loginAndPoll()
+      return { success: true }
     } finally {
       this._starting = false
     }
@@ -386,16 +320,6 @@ class WeChatManagerImpl extends MobileManagerBase {
 
   // ── Poll loop ──────────────────────────────────────────────────────────────
 
-  private async touchLock(): Promise<void> {
-    try {
-      if (!existsSync(wcFile("lock.json"))) return
-      const raw = readFileSync(wcFile("lock.json"), "utf-8")
-      const lock = JSON.parse(raw) as { clientId: string; pid: number; updatedAt?: number }
-      if (lock.pid !== process.pid) return
-      await writeFile(wcFile("lock.json"), JSON.stringify({ ...lock, updatedAt: Date.now() }))
-    } catch {}
-  }
-
   private async expire(reason: string): Promise<void> {
     console.warn(`[wechat] session invalidated (${reason}), reconnecting...`)
     this._pollRunning = false
@@ -426,7 +350,6 @@ class WeChatManagerImpl extends MobileManagerBase {
         }
 
         failures = 0
-        await this.touchLock()
 
         for (const raw of result.messages) {
           const parsed = ilink.parseMessage(raw)

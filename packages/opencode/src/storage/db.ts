@@ -14,7 +14,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, unl
 import { Database as BunSqlite } from "bun:sqlite"
 import { EOL } from "os"
 
-import { Installation } from "../installation"
+import { channelSlug } from "../persist/naming"
 import { Flag } from "../flag/flag"
 import { iife } from "@/util/iife"
 import { ProjectIdentity } from "../project/identity"
@@ -54,9 +54,7 @@ export namespace Database {
   }
 
   function channel() {
-    const ch = Installation.CHANNEL
-    if (["latest", "beta"].includes(ch) || Flag.OPENCODE_DISABLE_CHANNEL_DB) return "latest"
-    return ch.replace(/[^a-zA-Z0-9._-]/g, "-")
+    return channelSlug()
   }
 
   export function channelDir() {
@@ -64,8 +62,7 @@ export namespace Database {
   }
 
   export function getChannelPath() {
-    if (["latest", "beta"].includes(Installation.CHANNEL) || Flag.OPENCODE_DISABLE_CHANNEL_DB)
-      return path.join(Global.Path.data, "aether.db")
+    if (channel() === "latest") return path.join(Global.Path.data, "aether.db")
     return path.join(Global.Path.data, `aether-${channel()}.db`)
   }
 
@@ -682,8 +679,7 @@ export namespace Database {
     if (existingCount > 0) return
 
     const projectRow = pSqlite.prepare("SELECT worktree, vcs FROM project WHERE id = ?").get(pid) as
-      | { worktree: string; vcs: string | null }
-      | undefined
+      { worktree: string; vcs: string | null } | undefined
     if (!projectRow) return
 
     const worktree = projectRow.worktree
@@ -745,8 +741,7 @@ export namespace Database {
     if (!hasTable) return
 
     const projectRow = pSqlite.prepare("SELECT worktree, vcs FROM project WHERE id = ?").get(pid) as
-      | { worktree: string; vcs: string | null }
-      | undefined
+      { worktree: string; vcs: string | null } | undefined
     if (!projectRow) return
 
     const worktree = projectRow.worktree
@@ -861,8 +856,7 @@ export namespace Database {
     if (!hasTable) return
 
     const projectRow = pSqlite.prepare("SELECT worktree FROM project WHERE id = ?").get(pid) as
-      | { worktree: string }
-      | undefined
+      { worktree: string } | undefined
     if (!projectRow) return
 
     const worktree = norm(projectRow.worktree)
@@ -880,8 +874,7 @@ export namespace Database {
     if (!hasTable) return
 
     const projectRow = pSqlite.prepare("SELECT worktree FROM project WHERE id = ?").get(pid) as
-      | { worktree: string }
-      | undefined
+      { worktree: string } | undefined
     const canonicalWorktree = projectRow?.worktree ?? "/"
 
     const metaRows = pSqlite.prepare("SELECT * FROM directory_meta").all() as {
@@ -905,8 +898,7 @@ export namespace Database {
 
     // Also pick up icon from ProjectTable as authoritative source
     const projectIcon = pSqlite.prepare("SELECT icon_url, icon_color FROM project WHERE id = ?").get(pid) as
-      | { icon_url: string | null; icon_color: string | null }
-      | undefined
+      { icon_url: string | null; icon_color: string | null } | undefined
 
     const insertMap = sqlite.prepare(
       `INSERT INTO global_project_map (directory, project_id, time_created, time_updated)
@@ -1015,8 +1007,7 @@ export namespace Database {
         let closed = false
         try {
           const projectRow = pSqlite.prepare("SELECT worktree FROM project WHERE id = ?").get(pid) as
-            | { worktree: string }
-            | undefined
+            { worktree: string } | undefined
           const sessionCount = (pSqlite.prepare("SELECT COUNT(*) as cnt FROM session").get() as { cnt: number }).cnt
           if (!projectRow && sessionCount === 0) {
             pSqlite.close()

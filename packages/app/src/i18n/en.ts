@@ -606,12 +606,7 @@ export const dict = {
   "fileTree.selectFolderFailed": "Failed to select folder",
 
   "wechat.connection": "WeChat Connection",
-  "wechat.lockedByOther": "WeChat is connected by another client",
-  "wechat.disconnectOnOtherPage": "Another page is currently using WeChat, please disconnect first",
   "wechat.close": "Close",
-  "wechat.forceTakeover": "Force Takeover",
-  "wechat.connectionTakenOver": "Connection Taken Over",
-  "wechat.takenOverByOther": "WeChat connection has been taken over by another client or service",
   "wechat.reconnect": "Reconnect",
   "wechat.connectToUse": "Connect WeChat to use Aether AI in WeChat",
   "wechat.connectWechat": "Connect WeChat",
@@ -1002,7 +997,6 @@ export const dict = {
 
   "session.header.search.placeholder": "Search {{project}}",
   "session.header.searchFiles": "Search files",
-  "session.header.openIn": "Open in",
   "session.header.open.action": "Open {{app}}",
   "session.header.open.ariaLabel": "Open in {{app}}",
   "session.header.open.menu": "Open options",

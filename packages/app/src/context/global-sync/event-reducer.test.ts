@@ -289,7 +289,7 @@ describe("applyDirectoryEvent", () => {
     }
   })
 
-  test("cleans caches for trimmed sessions on session.created", () => {
+  test("keeps busy status for trimmed sessions when cleaning caches on session.created", () => {
     const dropped = rootSession({ id: "ses_b" })
     const kept = rootSession({ id: "ses_a" })
     const message = userMessage("msg_1", dropped.id)
@@ -328,8 +328,78 @@ describe("applyDirectoryEvent", () => {
     expect(store.todo[dropped.id]).toBeUndefined()
     expect(store.permission[dropped.id]).toBeUndefined()
     expect(store.question[dropped.id]).toBeUndefined()
-    expect(store.session_status[dropped.id]).toBeUndefined()
+    expect(store.session_status[dropped.id]).toEqual({ type: "busy" })
     expect(todos).toEqual([dropped.id])
+  })
+
+  test("keeps busy status for status-only sessions in cleanupDroppedSessionCaches", () => {
+    const [store, setStore] = createStore(
+      baseState({
+        session: [rootSession({ id: "ses_keep" })],
+        session_status: { ses_dropped: { type: "busy" } },
+      }),
+    )
+
+    cleanupDroppedSessionCaches(store, setStore, store.session)
+
+    expect(store.session_status.ses_dropped).toEqual({ type: "busy" })
+  })
+
+  test("keeps busy status but drops message caches for dropped sessions in cleanupDroppedSessionCaches", () => {
+    const message = userMessage("msg_1", "ses_busy")
+    const [store, setStore] = createStore(
+      baseState({
+        session: [rootSession({ id: "ses_keep" })],
+        message: { ses_busy: [message] },
+        part: { [message.id]: [textPart("prt_1", "ses_busy", message.id)] },
+        session_status: { ses_busy: { type: "busy" } },
+      }),
+    )
+
+    cleanupDroppedSessionCaches(store, setStore, store.session)
+
+    expect(store.message.ses_busy).toBeUndefined()
+    expect(store.part[message.id]).toBeUndefined()
+    expect(store.session_status.ses_busy).toEqual({ type: "busy" })
+  })
+
+  test("applies session.status events per session", () => {
+    const [store, setStore] = createStore(baseState())
+
+    applyDirectoryEvent({
+      event: { type: "session.status", properties: { sessionID: "ses_1", status: { type: "busy" } } },
+      store,
+      setStore,
+      push() {},
+      directory: "/tmp",
+      loadLsp() {},
+    })
+    applyDirectoryEvent({
+      event: {
+        type: "session.status",
+        properties: { sessionID: "ses_2", status: { type: "retry", attempt: 2, message: "rate limit", next: 3 } },
+      },
+      store,
+      setStore,
+      push() {},
+      directory: "/tmp",
+      loadLsp() {},
+    })
+
+    expect(store.session_status.ses_1).toEqual({ type: "busy" })
+    expect(store.session_status.ses_2).toEqual({ type: "retry", attempt: 2, message: "rate limit", next: 3 })
+
+    applyDirectoryEvent({
+      event: { type: "session.status", properties: { sessionID: "ses_1", status: { type: "idle" } } },
+      store,
+      setStore,
+      push() {},
+      directory: "/tmp",
+      loadLsp() {},
+    })
+
+    expect(store.session_status.ses_1).toEqual({ type: "idle" })
+    expect(store.session_status.ses_2).toEqual({ type: "retry", attempt: 2, message: "rate limit", next: 3 })
   })
 
   test("cleanupDroppedSessionCaches clears part-only orphan state", () => {

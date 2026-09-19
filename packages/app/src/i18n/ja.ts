@@ -574,7 +574,6 @@ export const dict = {
   "session.new.lastModified": "最終更新",
   "session.header.search.placeholder": "{{project}}を検索",
   "session.header.searchFiles": "ファイルを検索",
-  "session.header.openIn": "で開く",
   "session.header.open.action": "{{app}}を開く",
   "session.header.open.ariaLabel": "{{app}}で開く",
   "session.header.open.menu": "開くオプション",

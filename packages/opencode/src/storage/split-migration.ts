@@ -5,8 +5,7 @@ import { Log } from "../util/log"
 import path from "path"
 import { createHash } from "crypto"
 import { existsSync, mkdirSync, readdirSync, copyFileSync, readFileSync, unlinkSync, writeFileSync, statSync } from "fs"
-import { Installation } from "../installation"
-import { Flag } from "../flag/flag"
+import { channelSlug } from "../persist/naming"
 import { init } from "#db"
 import { ProjectIdentity } from "@/project/identity"
 
@@ -16,9 +15,7 @@ export namespace SplitMigration {
   const log = Log.create({ service: "split-migration" })
 
   function channel() {
-    const ch = Installation.CHANNEL
-    if (["latest", "beta"].includes(ch) || Flag.OPENCODE_DISABLE_CHANNEL_DB) return "latest"
-    return ch.replace(/[^a-zA-Z0-9._-]/g, "-")
+    return channelSlug()
   }
 
   function channelDir() {

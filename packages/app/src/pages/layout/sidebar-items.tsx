@@ -19,10 +19,21 @@ import { usePermission } from "@/context/permission"
 import { usePlatform } from "@/context/platform"
 import { messageAgentColor } from "@/utils/agent"
 import { sessionPermissionRequest } from "../session/composer/session-request-tree"
-import { createWorkingState } from "@/utils/working-state"
+import { createWorkingState, isWorking } from "@/utils/working-state"
 import { childMapByParent, hasProjectPermissions } from "./helpers"
 
 const OPENCODE_PROJECT_ID = "4b0ea68d7af9a6031a7ffda7ad66e0cb83315750"
+
+export const StatusDot = (props: { hasPermissions?: boolean; hasError?: boolean; class?: string }): JSX.Element => (
+  <div
+    class={`size-1.5 rounded-full ${props.class ?? ""}`}
+    classList={{
+      "bg-surface-warning-strong": !!props.hasPermissions,
+      "bg-icon-critical-base": !props.hasPermissions && !!props.hasError,
+      "bg-text-interactive-base": !props.hasPermissions && !props.hasError,
+    }}
+  />
+)
 
 export const ProjectIcon = (props: { project: LocalProject; class?: string; notify?: boolean }): JSX.Element => {
   const globalSync = useGlobalSync()
@@ -42,20 +53,7 @@ export const ProjectIcon = (props: { project: LocalProject; class?: string; noti
   )
   const notify = createMemo(() => props.notify && (hasPermissions() || unseenCount() > 0))
   const isBusy = createMemo(() =>
-    dirs().some((directory) => {
-      const [store] = globalSync.child(directory, { bootstrap: false })
-      const ids = new Set([...Object.keys(store.session_status), ...Object.keys(store.message)])
-      return [...ids].some((id) => {
-        const status = store.session_status[id]
-        if (status?.type === "busy" || status?.type === "retry") return true
-        const pending = (store.message[id] ?? []).findLast(
-          (message) =>
-            message.role === "assistant" &&
-            typeof (message as { time?: { completed?: unknown } }).time?.completed !== "number",
-        )
-        return !!pending
-      })
-    }),
+    dirs().some((directory) => isWorking(globalSync.child(directory, { bootstrap: false })[0])),
   )
   const name = createMemo(() => props.project.name || getFilename(props.project.worktree))
   const recent = createMemo(() => globalSync.project.recentFromDir(props.project.worktree))
@@ -75,14 +73,7 @@ export const ProjectIcon = (props: { project: LocalProject; class?: string; noti
         />
       </div>
       <Show when={notify()}>
-        <div
-          classList={{
-            "absolute top-px right-px size-1.5 rounded-full z-10": true,
-            "bg-surface-warning-strong": hasPermissions(),
-            "bg-icon-critical-base": !hasPermissions() && hasError(),
-            "bg-text-interactive-base": !hasPermissions() && !hasError(),
-          }}
-        />
+        <StatusDot hasPermissions={hasPermissions()} hasError={hasError()} class="absolute top-px right-px z-10" />
       </Show>
       <Show when={isBusy()}>
         <div class="absolute bottom-px right-px size-[14px] rounded-full bg-background-base flex items-center justify-center z-10">

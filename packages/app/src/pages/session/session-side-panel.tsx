@@ -27,7 +27,6 @@ import { GitGraphTab } from "@/pages/session/git-graph/tab"
 import { useCommand } from "@/context/command"
 import { useFile, type SelectedLineRange } from "@/context/file"
 import { useLanguage } from "@/context/language"
-import { formatServerError } from "@/utils/server-errors"
 import { useLayout } from "@/context/layout"
 import { usePlatform } from "@/context/platform"
 import { useSync } from "@/context/sync"
@@ -45,6 +44,7 @@ import { setSessionHandoff } from "@/pages/session/handoff"
 import { useSessionLayout } from "@/pages/session/session-layout"
 import { SessionSearchFiles } from "@/components/session/session-header"
 import { panel, tab } from "@/pages/session/session-side-panel-state"
+import { createFileActions } from "./file-actions"
 import { save } from "./download"
 import { fromDir, fromDrop, fromList, isExternal, send } from "./upload"
 import type { FileNode } from "@opencode-ai/sdk/v2"
@@ -127,196 +127,10 @@ export function SessionSidePanel(props: {
     restored = key
     void restoreActiveTasks(fetchApi, sdk.url, sdk.directory, s)
   })
-  function handleFileCreate(dir: string, type: "file" | "directory") {
-    const title = type === "file" ? language.t("fileTree.newFile") : language.t("fileTree.newFolder")
-    const placeholder =
-      type === "file" ? language.t("fileTree.newFilePlaceholder") : language.t("fileTree.newFolderPlaceholder")
-    dialog.show(() => {
-      const [name, setName] = createSignal("")
-      const doCreate = async () => {
-        const trimmed = name().trim()
-        if (!trimmed) return
-        dialog.close()
-        const newPath = dir ? `${dir}/${trimmed}` : trimmed
-        try {
-          await sdk.client.file.create({ path: newPath, type })
-          file.tree.refresh(dir)
-          refresh()
-          if (!file.tree.state(dir)?.expanded) file.tree.expand(dir)
-        } catch (err) {
-          showToast({
-            variant: "error",
-            icon: "circle-x",
-            title: language.t("fileTree.createFailed"),
-            description: formatServerError(err, language.t),
-          })
-        }
-      }
-      return (
-        <Dialog
-          title={title}
-          action={
-            <div style={{ display: "flex", gap: "8px" }}>
-              <button onClick={() => dialog.close()} style={{ padding: "4px 12px", cursor: "pointer" }}>
-                {language.t("common.cancel")}
-              </button>
-              <button onClick={doCreate} style={{ padding: "4px 12px", cursor: "pointer", "font-weight": "bold" }}>
-                {language.t("common.confirm")}
-              </button>
-            </div>
-          }
-        >
-          <div style={{ padding: "12px 0" }}>
-            <input
-              autofocus
-              type="text"
-              value={name()}
-              placeholder={placeholder}
-              onInput={(e) => setName(e.currentTarget.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") doCreate()
-                if (e.key === "Escape") dialog.close()
-              }}
-              style={{ width: "100%", padding: "6px 8px", "box-sizing": "border-box" }}
-            />
-          </div>
-        </Dialog>
-      )
-    })
-  }
-
-  function handleFileDelete(node: FileNode) {
-    const label = node.type === "directory" ? language.t("fileTree.folder") : language.t("fileTree.file")
-    dialog.show(() => {
-      const doDelete = async () => {
-        dialog.close()
-        const parentDir = node.path.includes("/") ? node.path.slice(0, node.path.lastIndexOf("/")) : ""
-        try {
-          await sdk.client.file.delete({ path: node.path })
-          file.tree.refresh(parentDir)
-          // Close tabs for the deleted file/directory
-          const tabsToClose = tabs()
-            .all()
-            .filter((tab) => {
-              const tabPath = file.pathFromTab(tab)
-              if (!tabPath) return false
-              if (node.type === "directory") {
-                return tabPath === node.path || tabPath.startsWith(node.path + "/")
-              }
-              return tabPath === node.path
-            })
-          for (const tab of tabsToClose) tabs().close(tab)
-          // Also clear multi-select if the deleted path was selected
-          setSelectedPaths((prev) => {
-            if (!prev.has(node.path)) return prev
-            const next = new Set(prev)
-            next.delete(node.path)
-            return next
-          })
-          refresh()
-        } catch (err) {
-          showToast({
-            variant: "error",
-            icon: "circle-x",
-            title: language.t("fileTree.deleteFailed"),
-            description: formatServerError(err, language.t),
-          })
-        }
-      }
-      return (
-        <Dialog
-          title={language.t("fileTree.deleteTitle", { label })}
-          description={language.t("fileTree.deleteConfirmDesc", { label, name: node.name })}
-          action={
-            <div style={{ display: "flex", gap: "8px" }}>
-              <button onClick={() => dialog.close()} style={{ padding: "4px 12px", cursor: "pointer" }}>
-                {language.t("common.cancel")}
-              </button>
-              <button
-                autofocus
-                onClick={doDelete}
-                style={{ padding: "4px 12px", cursor: "pointer", "font-weight": "bold", color: "red" }}
-              >
-                {language.t("common.delete")}
-              </button>
-            </div>
-          }
-        />
-      )
-    })
-  }
-
-  function handleFileRename(node: FileNode) {
-    dialog.show(() => {
-      const [name, setName] = createSignal(node.name)
-      const doRename = async () => {
-        const newName = name().trim()
-        if (!newName || newName === node.name) {
-          dialog.close()
-          return
-        }
-        dialog.close()
-        const parentDir = node.path.includes("/") ? node.path.slice(0, node.path.lastIndexOf("/")) : ""
-        try {
-          await sdk.client.file.rename({ path: node.path, name: newName })
-          file.tree.refresh(parentDir)
-          refresh()
-        } catch (err) {
-          showToast({
-            variant: "error",
-            icon: "circle-x",
-            title: language.t("fileTree.renameFailed"),
-            description: formatServerError(err, language.t),
-          })
-        }
-      }
-      return (
-        <Dialog
-          title={language.t("fileTree.renameTitle")}
-          action={
-            <div style={{ display: "flex", gap: "8px" }}>
-              <button onClick={() => dialog.close()} style={{ padding: "4px 12px", cursor: "pointer" }}>
-                {language.t("common.cancel")}
-              </button>
-              <button
-                autofocus
-                onClick={doRename}
-                style={{ padding: "4px 12px", cursor: "pointer", "font-weight": "bold" }}
-              >
-                {language.t("common.confirm")}
-              </button>
-            </div>
-          }
-        >
-          <input
-            type="text"
-            value={name()}
-            onInput={(e) => setName(e.currentTarget.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") doRename()
-              if (e.key === "Escape") dialog.close()
-            }}
-            style={{
-              width: "100%",
-              padding: "6px 8px",
-              background: "var(--surface-raised-base)",
-              border: "1px solid var(--border-base)",
-              "border-radius": "4px",
-              color: "var(--text-strong)",
-              "font-size": "14px",
-              outline: "none",
-            }}
-            ref={(el) =>
-              setTimeout(() => {
-                el.focus()
-                el.select()
-              }, 0)
-            }
-          />
-        </Dialog>
-      )
-    })
-  }
+  const actions = createFileActions({ tabs, refresh })
+  const handleFileCreate = actions.create
+  const handleFileDelete = actions.remove
+  const handleFileRename = actions.rename
 
   function handleRefresh() {
     void file.tree.refresh("")

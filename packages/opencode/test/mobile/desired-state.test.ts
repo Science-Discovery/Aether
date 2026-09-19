@@ -70,6 +70,14 @@ describe("mobile desired state", () => {
     expect(await new Manager(tmp.path).desired()).toBe(false)
   })
 
+  test("desired state does not leak across directories", async () => {
+    await using a = await tmpdir()
+    await using b = await tmpdir()
+    await new Manager(a.path).setDesired(true)
+    expect(await new Manager(b.path).desired()).toBe(false)
+    expect(await new Manager(a.path).desired()).toBe(true)
+  })
+
   test("hasCredentials follows adapter config", async () => {
     await using tmp = await tmpdir()
     expect(await new Manager(tmp.path).hasCredentials()).toBe(false)

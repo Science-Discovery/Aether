@@ -19,6 +19,7 @@ import { SESSION_CACHE_LIMIT, dropSessionCaches, pickSessionCacheEvictions } fro
 import { useLanguage } from "./language"
 import { formatServerError } from "@/utils/server-errors"
 import { MessageOrder } from "@/utils/message-order"
+import { waitSession } from "@/utils/session-pending"
 
 const SKIP_PARTS = new Set(["patch", "step-start", "step-finish"])
 
@@ -485,6 +486,8 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
           const [store, setStore] = globalSync.child(directory)
           const key = keyFor(directory, sessionID)
 
+          if (!(await waitSession(sessionID))) return
+
           touch(directory, setStore, sessionID)
 
           const seeded = getSessionPrefetch(directory, sessionID)
@@ -555,6 +558,7 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
           const directory = sdk.directory
           const client = sdk.client
           const [store, setStore] = globalSync.child(directory)
+          if (!(await waitSession(sessionID))) return
           touch(directory, setStore, sessionID)
           if (store.session_diff[sessionID] !== undefined && !opts?.force) return
 
@@ -572,6 +576,7 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
           const directory = sdk.directory
           const client = sdk.client
           const [store, setStore] = globalSync.child(directory)
+          if (!(await waitSession(sessionID))) return
           touch(directory, setStore, sessionID)
           const existing = store.todo[sessionID]
           const cached = globalSync.data.session_todo[sessionID]

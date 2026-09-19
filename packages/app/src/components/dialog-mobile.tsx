@@ -6,15 +6,12 @@ import { Switch as SwitchToggle } from "@opencode-ai/ui/switch"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { Component, Show, Switch, Match, createSignal, onMount } from "solid-js"
 import { createStore } from "solid-js/store"
-import { useServer } from "@/context/server"
-import { useModels } from "@/context/models"
 import {
   status,
   error,
   user,
   loadingMsg,
   qrcode,
-  locked,
   hasConfig,
   enabled,
   appId,
@@ -22,7 +19,6 @@ import {
   stopBridge,
   logout,
   fetchStatus,
-  forceTakeover,
   retryBridge,
   rescanBridge,
   setStatus,
@@ -47,8 +43,6 @@ const iconName = (p: MobilePlatform) =>
 
 export const DialogMobile: Component<Props> = (props) => {
   const dialog = useDialog()
-  const server = useServer()
-  const models = useModels()
   const [inputAppId, setInputAppId] = createSignal("")
   const [inputAppSecret, setInputAppSecret] = createSignal("")
   const [steps, setSteps] = createStore({ 1: false, 2: false, 3: false, 4: false, 5: false })
@@ -62,32 +56,13 @@ export const DialogMobile: Component<Props> = (props) => {
     setStatus(p(), "config")
   }
 
-  const authHeaders = (): HeadersInit => {
-    const s = server.current?.http
-    if (!s?.password) return {}
-    return { Authorization: `Basic ${btoa(`${s.username ?? "opencode"}:${s.password}`)}` }
-  }
-
-  const currentModelStr = () => {
-    if (p() === "wechat") {
-      const m = models.recent.list()[0]
-      return m ? `${m.providerID}/${m.modelID}` : undefined
-    }
-    const m = models.recent.list()[0]
-    return m ? { providerID: m.providerID, modelID: m.modelID } : undefined
-  }
-
   const doStart = () => {
     if (p() === "feishu" || p() === "qq") {
       if (prevStatus() === "connected")
-        return stopBridge(p()).then(() => startBridge(p(), false, undefined, false, inputAppId(), inputAppSecret()))
-      return startBridge(p(), false, undefined, false, inputAppId(), inputAppSecret())
+        return stopBridge(p()).then(() => startBridge(p(), inputAppId(), inputAppSecret()))
+      return startBridge(p(), inputAppId(), inputAppSecret())
     }
-    return startBridge("wechat", true, currentModelStr() as string | undefined)
-  }
-
-  const doForceTakeover = () => {
-    if (p() === "wechat") return forceTakeover("wechat", currentModelStr() as string | undefined)
+    return startBridge("wechat")
   }
 
   const doRetry = () => {
@@ -107,26 +82,6 @@ export const DialogMobile: Component<Props> = (props) => {
     >
       <div class="flex flex-col items-center gap-6 p-6">
         <Switch fallback={<div />}>
-          <Match when={p() === "wechat" && locked("wechat")}>
-            <div class="flex flex-col items-center gap-4">
-              <Icon name={iconName(p())} size="large" class="size-16 text-icon-weak" />
-              <div class="flex flex-col items-center gap-1">
-                <p class="text-16-medium text-text-strong">微信已被其他客户端连接</p>
-                <p class="text-14-regular text-text-weak text-center">
-                  当前有另一个页面正在使用微信，请先在该页面断开连接
-                </p>
-              </div>
-              <div class="flex gap-2">
-                <Button variant="secondary" onClick={() => dialog.close()}>
-                  关闭
-                </Button>
-                <Button variant="primary" onClick={doForceTakeover}>
-                  强制接管
-                </Button>
-              </div>
-            </div>
-          </Match>
-
           <Match when={status(p()) === "idle"}>
             <div class="flex flex-col items-center gap-4">
               <Icon name={iconName(p())} size="large" class="size-16 text-icon-base" />
@@ -347,7 +302,7 @@ export const DialogMobile: Component<Props> = (props) => {
                   variant="ghost"
                   onClick={() => {
                     if (prevStatus() === "connected") {
-                      stopBridge("wechat").then(() => startBridge("wechat", true))
+                      stopBridge("wechat").then(() => startBridge("wechat"))
                     } else {
                       stopBridge("wechat")
                     }
