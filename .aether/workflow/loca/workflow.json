@@ -1,0 +1,42 @@
+{
+  "version": 3,
+  "concurrency": 4,
+  "attempts": 3,
+  "cycles": 12,
+  "subattempts": 2,
+  "depth": 1,
+  "spot": 2,
+  "challenges": 12,
+  "calls": 360,
+  "timeout": {
+    "contract": 3600000,
+    "fidelity": 3600000,
+    "planner": 1800000,
+    "solve": null,
+    "gate": 900000,
+    "anchor": 1800000,
+    "vaudit": 1800000,
+    "verify": 1800000,
+    "adversarial": 1800000,
+    "compat": 900000,
+    "triage": 900000,
+    "integrate": 1800000
+  },
+  "bytes": 2000000,
+  "packet": 262144,
+  "idle": 300000,
+  "execution": {
+    "python": "python3",
+    "bytes": 1000000
+  },
+  "phases": ["contract", "planning", "working", "integrating", "awaiting_human"],
+  "checks": {
+    "contract": ["intent", "criteria", "retention", "testability", "assumptions"],
+    "gate": ["statement", "anchor", "mass"],
+    "verify": ["independent_basis", "conclusion_match", "scope", "evidence_quality"],
+    "unit": ["step_validity", "independence", "evidence"],
+    "compat": ["explicit_conflicts", "semantic_consistency", "scope_overlap"],
+    "vaudit": ["semantic", "independence", "negative_controls"],
+    "integrate": ["criteria_coverage", "milestone_consistency", "strength_chains", "delivery_fidelity"]
+  }
+}

@@ -1564,6 +1564,91 @@ ToolRegistry.register({
   },
 })
 
+const LOCA_PHASES = [
+  "contract",
+  "solve",
+  "split",
+  "structure",
+  "inputs",
+  "validate",
+  "review",
+  "integrate",
+  "awaiting_human",
+]
+const LOCA_LABEL: Record<string, string> = {
+  new: "启动",
+  contract: "合约",
+  solve: "求解",
+  split: "拆分",
+  structure: "结构审核",
+  inputs: "输入审核",
+  validate: "验证",
+  review: "面板审核",
+  integrate: "集成",
+  awaiting_human: "待人工验收",
+  accepted: "已验收",
+  cancelled: "已取消",
+  unfinished: "未完成",
+  needs_human: "需人工输入",
+}
+
+ToolRegistry.register({
+  name: "loca",
+  render(props) {
+    const meta = createMemo(() => (props.metadata ?? {}) as Record<string, unknown>)
+    const running = () => props.status === "pending" || props.status === "running"
+    const title = () => {
+      const m = meta()
+      const role =
+        typeof m.role === "string"
+          ? `${m.role}${m.slot ? `#${m.slot}` : ""} attempt ${m.attempt ?? 1}`
+          : (LOCA_LABEL[m.phase as string] ?? m.phase ?? "")
+      return `LOCA R${m.round ?? 0}C${m.cycle ?? 0} · ${role}`
+    }
+    const subtitle = () => {
+      const m = meta()
+      return typeof m.calls === "number" ? `调用 ${m.calls}/${m.budget ?? "?"}` : undefined
+    }
+    const items = createMemo(() => {
+      const at = LOCA_PHASES.indexOf(meta().phase as string)
+      return LOCA_PHASES.map((phase, index) => ({
+        phase,
+        label: LOCA_LABEL[phase] ?? phase,
+        state: at < 0 || index < at ? "done" : index === at ? "active" : "todo",
+      }))
+    })
+    return (
+      <BasicTool {...props} icon="checklist" trigger={{ title: title(), subtitle: subtitle() }} forceOpen={running()}>
+        <div data-component="loca-progress">
+          <Show when={meta().hint}>
+            <div data-slot="loca-progress-hint" class="text-13-regular text-text-weak">
+              {meta().hint as string}
+            </div>
+          </Show>
+          <div data-slot="loca-progress-phases" class="flex flex-wrap items-center gap-x-4 gap-y-1">
+            <For each={items()}>
+              {(item) => (
+                <span
+                  data-slot="loca-progress-phase"
+                  data-state={item.state}
+                  class={`text-13-regular ${item.state === "active" ? "text-text-strong" : item.state === "done" ? "text-text-base" : "text-text-weak"}`}
+                >
+                  {item.state === "active" ? "●" : item.state === "done" ? "✓" : "○"} {item.label}
+                </span>
+              )}
+            </For>
+          </div>
+          <Show when={!running() && props.output}>
+            <div data-component="tool-output" data-scrollable>
+              <Markdown text={props.output!} />
+            </div>
+          </Show>
+        </div>
+      </BasicTool>
+    )
+  },
+})
+
 ToolRegistry.register({
   name: "glob",
   render(props) {
