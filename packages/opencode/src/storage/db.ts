@@ -712,30 +712,33 @@ export namespace Database {
     }
   }
 
-  function gitWorktreeDirectories(worktree: string): string[] {
-    if (!existsSync(worktree)) return []
+  function gitWorktreeDirectories(worktree: string): Promise<string[]> {
+    if (!existsSync(worktree)) return Promise.resolve([])
     try {
-      const proc = Bun.spawnSync(["git", "worktree", "list", "--porcelain"], {
+      const proc = Bun.spawn(["git", "worktree", "list", "--porcelain"], {
         cwd: worktree,
         stderr: "pipe",
         stdout: "pipe",
       })
-      if (proc.exitCode !== 0) return []
-      const text = proc.stdout?.toString() ?? ""
-      const dirs: string[] = []
-      for (const line of text.split("\n")) {
-        const trimmed = line.trim()
-        if (trimmed.startsWith("worktree ")) {
-          dirs.push(trimmed.slice("worktree ".length).trim())
-        }
-      }
-      return dirs
+      return proc.exited.then((exitCode) => {
+        if (exitCode !== 0) return []
+        return new Response(proc.stdout).text().then((text) => {
+          const dirs: string[] = []
+          for (const line of text.split("\n")) {
+            const trimmed = line.trim()
+            if (trimmed.startsWith("worktree ")) {
+              dirs.push(trimmed.slice("worktree ".length).trim())
+            }
+          }
+          return dirs
+        })
+      })
     } catch {
-      return []
+      return Promise.resolve([])
     }
   }
 
-  function validateDirectoryMeta(pSqlite: BunSqlite, pid: string, recentLookup: Map<string, any>) {
+  async function validateDirectoryMeta(pSqlite: BunSqlite, pid: string, recentLookup: Map<string, any>) {
     const hasTable = pSqlite
       .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='directory_meta'")
       .get()
@@ -757,7 +760,7 @@ export namespace Database {
 
     const setB = new Set<string>()
     if (projectRow.vcs === "git" && worktree !== "/") {
-      for (const dir of gitWorktreeDirectories(worktree)) {
+      for (const dir of await gitWorktreeDirectories(worktree)) {
         setB.add(norm(dir))
       }
     }
@@ -914,9 +917,28 @@ export namespace Database {
    *  were re-registered by a live instance boot and must survive a repeat pass. */
   let lastReconcileAt = 0
 
+  let reconcilingProjects = false
+
+  /**
+   * Reconcile every project DB against the main DB (directory_meta backfill,
+   * stale-row cleanup, identity re-resolution). With hundreds of project DBs
+   * this opens and integrity-checks each one, so it must never block the
+   * first project open: it runs in the background and yields to the event
+   * loop between chunks. Idempotent — a killed run is completed by the next
+   * process start.
+   */
   export function registerUntrackedProjects(db: DrizzleClient) {
+    if (reconcilingProjects) return
+    reconcilingProjects = true
+    void reconcileProjects(db)
+      .catch((error) => log.error("project reconciliation failed", { error: String(error) }))
+      .finally(() => (reconcilingProjects = false))
+  }
+
+  async function reconcileProjects(db: DrizzleClient) {
     const sqlite = db.$client
     const cutoff = lastReconcileAt
+    const breathe = () => new Promise<void>((resolve) => setImmediate(resolve))
 
     cleanupQuarantinedOriginals()
 
@@ -1017,7 +1039,7 @@ export namespace Database {
           }
 
           ensureDirectoryMeta(pSqlite, pid, recentLookup)
-          validateDirectoryMeta(pSqlite, pid, recentLookup)
+          await validateDirectoryMeta(pSqlite, pid, recentLookup)
           syncProjectSandboxes(pSqlite, pid)
           syncDirectoryMetaToGlobal(sqlite, pSqlite, pid)
           activeByPid.set(pid, hasMessage)
@@ -1055,6 +1077,8 @@ export namespace Database {
         quarantine(fullPath, "project", pid)
         corruptedIds.add(pid)
       }
+      // yield to the event loop so pending requests are not starved
+      if (synced > 0 && synced % 8 === 0) await breathe()
     }
     if (synced > 0) log.info("directory_meta sync complete", { synced })
 
@@ -1114,10 +1138,14 @@ export namespace Database {
       return true
     }
 
-    for (const row of mapRows) fixEntry(row.directory, row.project_id, false)
-    for (const row of recentPidRows) {
+    for (const [i, row] of mapRows.entries()) {
+      fixEntry(row.directory, row.project_id, false)
+      if (i % 200 === 199) await breathe()
+    }
+    for (const [i, row] of recentPidRows.entries()) {
       const mapPid = mapPidByDir.get(row.directory)
       if (mapPid && mapPid !== row.project_id) fixEntry(row.directory, row.project_id, true)
+      if (i % 200 === 199) await breathe()
     }
     if (mapCorrected > 0) log.info("corrected stale global_project_map entries", { mapCorrected })
     if (recentCorrected > 0) log.info("corrected stale project_recent entries", { recentCorrected })
