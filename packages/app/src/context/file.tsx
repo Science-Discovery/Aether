@@ -496,11 +496,23 @@ export const { use: useFile, provider: FileProvider } = createSimpleContext({
       onCleanup(() => clearInterval(timer))
     })
 
-    const search = (query: string, dirs: "true" | "false") =>
-      sdk.client.find.files({ query, dirs }).then(
-        (x) => (x.data ?? []).map(path.normalize),
-        () => [],
-      )
+    // File search fires on every keystroke (picker + @-mention); debounce and
+    // drop superseded responses so fast typing doesn't flood the server.
+    // Separate counters per mode so the picker and @-mention never cancel
+    // each other when used in quick succession.
+    const seq: Record<"true" | "false", number> = { true: 0, false: 0 }
+    const search = (query: string, dirs: "true" | "false") => {
+      const id = ++seq[dirs]
+      return new Promise<string[]>((resolve) => {
+        setTimeout(() => {
+          if (id !== seq[dirs]) return resolve([])
+          sdk.client.find.files({ query, dirs }).then(
+            (x) => resolve(id === seq[dirs] ? (x.data ?? []).map(path.normalize) : []),
+            () => resolve([]),
+          )
+        }, 150)
+      })
+    }
 
     const stop = sdk.event.listen((e) => {
       if (e.details.type === "file.watcher.updated") {

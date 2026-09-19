@@ -11,8 +11,6 @@ export namespace Git {
     "-c",
     "core.autocrlf=false",
     "-c",
-    "core.fsmonitor=false",
-    "-c",
     "core.longpaths=true",
     ...(process.platform !== "win32" ? ["-c", "core.symlinks=true"] : []),
     "-c",
@@ -21,8 +19,6 @@ export namespace Git {
 
   const statusCfg = [
     "--no-optional-locks",
-    "-c",
-    "core.fsmonitor=false",
     "-c",
     "core.longpaths=true",
     ...(process.platform !== "win32" ? ["-c", "core.symlinks=true"] : []),
@@ -116,7 +112,7 @@ export namespace Git {
     readonly hasHead: (cwd: string) => Effect.Effect<boolean>
     readonly mergeBase: (cwd: string, base: string, head?: string) => Effect.Effect<string | undefined>
     readonly show: (cwd: string, ref: string, file: string, prefix?: string) => Effect.Effect<string>
-    readonly status: (cwd: string) => Effect.Effect<Item[]>
+    readonly status: (cwd: string, path?: string) => Effect.Effect<Item[]>
     readonly diff: (cwd: string, ref: string) => Effect.Effect<Item[]>
     readonly stats: (cwd: string, ref: string) => Effect.Effect<Stat[]>
     readonly log: (
@@ -255,9 +251,16 @@ export namespace Git {
         return result.text()
       })
 
-      const status = Effect.fn("Git.status")(function* (cwd: string) {
+      const status = Effect.fn("Git.status")(function* (cwd: string, path?: string) {
+        // Without a path, untracked directories stay collapsed (git default)
+        // so the walk does not descend into them. With a path, enumerate
+        // everything under it so callers can expand a collapsed directory on
+        // demand with the walk bounded to that subtree.
+        const cmd = path
+          ? ["status", "--porcelain=v1", "--untracked-files=all", "--no-renames", "-z", "--", path]
+          : ["status", "--porcelain=v1", "--untracked-files=normal", "--no-renames", "-z", "--", "."]
         return nuls(
-          yield* text(["status", "--porcelain=v1", "--untracked-files=all", "--no-renames", "-z", "--", "."], {
+          yield* text(cmd, {
             cwd,
             config: statusCfg,
           }),
@@ -531,8 +534,8 @@ export namespace Git {
     return runPromise((git) => git.show(cwd, ref, file, prefix))
   }
 
-  export function status(cwd: string) {
-    return runPromise((git) => git.status(cwd))
+  export function status(cwd: string, path?: string) {
+    return runPromise((git) => git.status(cwd, path))
   }
 
   export function diff(cwd: string, ref: string) {
