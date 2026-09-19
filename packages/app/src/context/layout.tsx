@@ -132,6 +132,57 @@ const normalizeStoredSessionTabs = (key: string, tabs: SessionTabs) => {
   }
 }
 
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value)
+
+/**
+ * Upgrade persisted session-tab state: normalize entries, then fold
+ * session-scoped keys ("dir/id") into their project key ("dir") — tabs are
+ * project-scoped now. The project bucket wins when it already has tabs of its
+ * own; otherwise the latest session bucket is adopted.
+ */
+export function migrateSessionTabs(sessionTabs: unknown): unknown {
+  if (!isRecord(sessionTabs)) return sessionTabs
+
+  let changed = false
+  const normalized: Record<string, unknown> = {}
+  for (const [key, tabs] of Object.entries(sessionTabs)) {
+    if (!isRecord(tabs) || !Array.isArray(tabs.all)) {
+      normalized[key] = tabs
+      continue
+    }
+
+    const current = {
+      all: tabs.all.filter((tab): tab is string => typeof tab === "string"),
+      active: typeof tabs.active === "string" ? tabs.active : undefined,
+    }
+    const next = normalizeStoredSessionTabs(key, current)
+    if (current.all.length !== tabs.all.length) changed = true
+    if (!same(current.all, next.all) || current.active !== next.active) changed = true
+    if (tabs.active !== undefined && typeof tabs.active !== "string") changed = true
+    normalized[key] = next
+  }
+
+  const result: Record<string, unknown> = {}
+  const adopted: Record<string, unknown> = {}
+  for (const [key, tabs] of Object.entries(normalized)) {
+    if (!key.includes("/")) {
+      result[key] = tabs
+      continue
+    }
+    adopted[key.slice(0, key.indexOf("/"))] = tabs
+    changed = true
+  }
+  for (const [dir, tabs] of Object.entries(adopted)) {
+    const parent = result[dir]
+    if (isRecord(parent) && Array.isArray(parent.all) && (parent.all.length > 0 || parent.active !== undefined))
+      continue
+    result[dir] = tabs
+  }
+
+  return changed ? result : sessionTabs
+}
+
 export const { use: useLayout, provider: LayoutProvider } = createSimpleContext({
   name: "Layout",
   init: () => {
@@ -139,9 +190,6 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
     const globalSync = useGlobalSync()
     const server = useServer()
     const platform = usePlatform()
-
-    const isRecord = (value: unknown): value is Record<string, unknown> =>
-      typeof value === "object" && value !== null && !Array.isArray(value)
 
     const migrate = (value: unknown) => {
       if (!isRecord(value)) return value
@@ -184,60 +232,7 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
       })()
 
       const sessionTabs = value.sessionTabs
-      const migratedSessionTabs = (() => {
-        if (!isRecord(sessionTabs)) return sessionTabs
-
-        let changed = false
-        const next = Object.fromEntries(
-          Object.entries(sessionTabs).map(([key, tabs]) => {
-            if (!isRecord(tabs) || !Array.isArray(tabs.all)) return [key, tabs]
-
-            const current = {
-              all: tabs.all.filter((tab): tab is string => typeof tab === "string"),
-              active: typeof tabs.active === "string" ? tabs.active : undefined,
-            }
-            const normalized = normalizeStoredSessionTabs(key, current)
-            if (current.all.length !== tabs.all.length) changed = true
-            if (!same(current.all, normalized.all) || current.active !== normalized.active) changed = true
-            if (tabs.active !== undefined && typeof tabs.active !== "string") changed = true
-            return [key, normalized]
-          }),
-        )
-
-        // Tabs are project-scoped now: fold session-scoped keys ("dir/id")
-        // into their project key ("dir"), keeping the project bucket when it
-        // already has tabs of its own.
-        const merged: Record<string, unknown> = {}
-        const adopted: Record<string, unknown> = {}
-        for (const [key, tabs] of Object.entries(next)) {
-          if (!key.includes("/")) {
-            merged[key] = tabs
-            continue
-          }
-          const dir = key.slice(0, key.indexOf("/"))
-          adopted[dir] = tabs
-          changed = true
-        }
-        for (const [dir, tabs] of Object.entries(adopted)) {
-          const parent = merged[dir]
-          if (isRecord(parent) && Array.isArray(parent.all) && (parent.all.length > 0 || parent.active !== undefined))
-            continue
-          merged[dir] = tabs
-        }
-        for (const [key, tabs] of Object.entries(next)) {
-          if (!key.includes("/")) continue
-          const dir = key.slice(0, key.indexOf("/"))
-          const parent = merged[dir]
-          const kept =
-            isRecord(parent) && Array.isArray(parent.all) && (parent.all.length > 0 || parent.active !== undefined)
-          if (kept) continue
-          merged[dir] = tabs
-          changed = true
-        }
-
-        if (!changed) return sessionTabs
-        return merged
-      })()
+      const migratedSessionTabs = migrateSessionTabs(sessionTabs)
 
       if (
         migratedSidebar === sidebar &&
