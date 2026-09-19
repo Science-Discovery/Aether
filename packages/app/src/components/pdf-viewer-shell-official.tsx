@@ -142,7 +142,7 @@ export const PdfViewerShell: Component<PdfViewerShellProps> = (props) => {
   const channel = crypto.randomUUID()
   bindViewThemeSync()
   let iframeRef: HTMLIFrameElement | undefined
-  let ready = false
+  const [viewerReady, setViewerReady] = createSignal(false)
   let lastReportedPage: number | undefined
   let lastReportedLocation: string | undefined
   let lastConfigKey = ""
@@ -251,7 +251,7 @@ export const PdfViewerShell: Component<PdfViewerShellProps> = (props) => {
 
   createEffect(() => {
     const data = annotations()
-    if (!ready || !data) return
+    if (!viewerReady() || !data) return
     post({ channel: "aether-pdf-viewer", type: "annotations", annotations: data.annotations })
   })
 
@@ -281,7 +281,7 @@ export const PdfViewerShell: Component<PdfViewerShellProps> = (props) => {
     const detail = (event as CustomEvent<{ channel: string; path: string; data: PdfAnnotationFile }>).detail
     if (!detail || detail.channel === channel || detail.path !== props.annotationPath) return
     setAnnotations(detail.data)
-    if (ready) post({ channel: "aether-pdf-viewer", type: "annotations", annotations: detail.data.annotations })
+    if (viewerReady()) post({ channel: "aether-pdf-viewer", type: "annotations", annotations: detail.data.annotations })
   }
   window.addEventListener("aether:pdf-annotations", onAnnotations)
   onCleanup(() => window.removeEventListener("aether:pdf-annotations", onAnnotations))
@@ -324,7 +324,7 @@ export const PdfViewerShell: Component<PdfViewerShellProps> = (props) => {
 
   const sendPage = () => {
     const page = props.page
-    if (!ready || page === undefined) return
+    if (!viewerReady() || page === undefined) return
     if (page === lastReportedPage) return
     post({
       channel: "aether-pdf-viewer",
@@ -335,7 +335,7 @@ export const PdfViewerShell: Component<PdfViewerShellProps> = (props) => {
 
   const sendLocation = () => {
     const location = props.location
-    if (!ready || !location) return
+    if (!viewerReady() || !location) return
     if (location === lastReportedLocation) return
     post({
       channel: "aether-pdf-viewer",
@@ -346,7 +346,7 @@ export const PdfViewerShell: Component<PdfViewerShellProps> = (props) => {
 
   const sendConfig = () => {
     const nextConfig = config()
-    if (!nextConfig.src || !ready) return
+    if (!nextConfig.src || !viewerReady()) return
     const key = JSON.stringify(nextConfig)
     if (key === lastConfigKey) return
     lastConfigKey = key
@@ -379,7 +379,7 @@ export const PdfViewerShell: Component<PdfViewerShellProps> = (props) => {
   createEffect(() => {
     const root = document.documentElement
     const observer = new MutationObserver(() => {
-      if (!ready) return
+      if (!viewerReady()) return
       post({
         channel: "aether-pdf-viewer",
         type: "themechange",
@@ -403,7 +403,7 @@ export const PdfViewerShell: Component<PdfViewerShellProps> = (props) => {
     if (!isFileProtocol() && event.origin !== window.location.origin) return
 
     if (event.data.type === "ready") {
-      ready = true
+      setViewerReady(true)
       lastReportedPage = undefined
       lastReportedLocation = undefined
       lastConfigKey = ""

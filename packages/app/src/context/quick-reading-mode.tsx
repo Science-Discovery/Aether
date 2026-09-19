@@ -36,6 +36,8 @@ export type QuickReadingPendingQuestion =
 export type QuickReadingPersistedPdfState = {
   totalPages: number
   layoutSwapped: boolean
+  page?: number
+  location?: string
 }
 
 type PersistedState = {
@@ -43,13 +45,11 @@ type PersistedState = {
   byPdfPath: Record<string, QuickReadingPersistedPdfState | undefined>
 }
 
-type Binding =
-  | {
-      sessionID: string
-      pdfPath: string
-      pdfFileName: string
-    }
-  | null
+type Binding = {
+  sessionID: string
+  pdfPath: string
+  pdfFileName: string
+} | null
 
 type Snapshot = QuickReadingPersistedPdfState & {
   settings: QuickReadingSettings
@@ -124,6 +124,11 @@ function normalizePdfState(input?: Partial<QuickReadingPersistedPdfState> | null
         ? Math.round(input.totalPages)
         : fallback.totalPages,
     layoutSwapped: typeof input?.layoutSwapped === "boolean" ? input.layoutSwapped : fallback.layoutSwapped,
+    page:
+      typeof input?.page === "number" && Number.isFinite(input.page) && input.page >= 1
+        ? Math.round(input.page)
+        : undefined,
+    location: typeof input?.location === "string" ? input.location : undefined,
   }
 }
 
@@ -160,10 +165,25 @@ export function QuickReadingModeProvider(props: ParentProps) {
     return `${binding.sessionID}:${binding.pdfPath}`
   }
 
-  const shared = () => (ready() ? cloneSettings(persistedStore.settings ?? legacySettings(persistedStore)) : cloneSettings())
+  const shared = () =>
+    ready() ? cloneSettings(persistedStore.settings ?? legacySettings(persistedStore)) : cloneSettings()
 
   const persistSnapshot = (pdfPath: string, snapshot: Snapshot) => {
-    setPersistedStore("byPdfPath", pdfPath, normalizePdfState(snapshot))
+    setPersistedStore("byPdfPath", pdfPath, (prev) => ({
+      ...normalizePdfState({ ...prev, ...snapshot }),
+      page: store.view.pdfPath === pdfPath ? store.view.page : prev?.page,
+      location: store.view.pdfPath === pdfPath ? store.view.location : prev?.location,
+    }))
+  }
+
+  const persistView = () => {
+    const pdfPath = store.view.pdfPath
+    if (!pdfPath || !ready()) return
+    setPersistedStore("byPdfPath", pdfPath, (prev) => ({
+      ...normalizePdfState(prev),
+      page: store.view.page,
+      location: store.view.location,
+    }))
   }
 
   const updateSnapshot = (updater: (current: Snapshot) => Snapshot, persist = true) => {
@@ -182,23 +202,24 @@ export function QuickReadingModeProvider(props: ParentProps) {
     setStore({
       binding: { sessionID, pdfPath, pdfFileName },
       snapshot: nextSnapshot,
-        view:
-          store.view.pdfPath === pdfPath
-            ? store.view
-            : {
-                pdfPath,
-                page: 1,
-                location: undefined,
-              },
-        hydratedKey: ready() ? nextKey : undefined,
+      view:
+        store.view.pdfPath === pdfPath
+          ? store.view
+          : {
+              pdfPath,
+              page: nextSnapshot.page ?? 1,
+              location: nextSnapshot.location,
+            },
+      hydratedKey: ready() ? nextKey : undefined,
     })
     if (ready() && !persistedStore.byPdfPath[pdfPath]) persistSnapshot(pdfPath, nextSnapshot)
   }
 
   const unbind = () => {
+    // Keep the last snapshot (layout/totalPages) so an unbound pane — e.g. on the
+    // new-session view — does not visibly flip back to defaults.
     setStore({
       binding: null,
-      snapshot: { ...createPdfState(), settings: shared() },
       hydratedKey: undefined,
     })
   }
@@ -214,6 +235,11 @@ export function QuickReadingModeProvider(props: ParentProps) {
     }
     setStore("snapshot", nextSnapshot)
     setStore("hydratedKey", key)
+    // Adopt the persisted reading position if the view has not been interacted with yet.
+    if (store.view.pdfPath === binding.pdfPath && !store.view.location && store.view.page <= 1) {
+      setStore("view", "page", nextSnapshot.page ?? 1)
+      setStore("view", "location", nextSnapshot.location)
+    }
     if (!persistedStore.byPdfPath[binding.pdfPath]) persistSnapshot(binding.pdfPath, nextSnapshot)
   })
 
@@ -233,10 +259,12 @@ export function QuickReadingModeProvider(props: ParentProps) {
       const next = Math.round(page)
       if (store.view.page === next) return
       setStore("view", "page", next)
+      persistView()
     },
     setLocation: (location) => {
       if (store.view.location === location) return
       setStore("view", "location", location)
+      persistView()
     },
     setTotalPages: (totalPages) => {
       if (!Number.isFinite(totalPages) || totalPages < 0) return

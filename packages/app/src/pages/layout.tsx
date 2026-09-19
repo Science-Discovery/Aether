@@ -1247,8 +1247,16 @@ export default function Layout(props: ParentProps) {
     }
   }
 
+  // Reuse the current URL slug when navigating within the active project: a
+  // second spelling of the same directory (e.g. "/" vs "\\") would otherwise
+  // remount the whole project tree and reload open files.
+  const projectHref = (directory: string, suffix = "/session") => {
+    if (params.dir && workspaceKey(currentDir()) === workspaceKey(directory)) return `/${params.dir}${suffix}`
+    return `/${base64Encode(directory)}${suffix}`
+  }
+
   async function createSession(directory: string) {
-    navigateWithSidebarReset(`/${base64Encode(directory)}/session`)
+    navigateWithSidebarReset(projectHref(directory))
   }
 
   async function deleteSession(session: Session) {
@@ -1602,7 +1610,7 @@ export default function Layout(props: ParentProps) {
       if (data.session.some((item) => item.id === target.id)) {
         setStore("lastProjectSession", directory, { directory: target.directory, id: target.id, at: Date.now() })
         OpenIntent.mark(server.key, target.directory)
-        navigateWithSidebarReset(`/${base64Encode(target.directory)}/session/${target.id}`)
+        navigateWithSidebarReset(projectHref(target.directory, `/session/${target.id}`))
         return true
       }
       const resolved = await globalSDK.client.session
@@ -1613,7 +1621,7 @@ export default function Layout(props: ParentProps) {
       if (!canOpen(resolved.directory)) return false
       setStore("lastProjectSession", directory, { directory: resolved.directory, id: resolved.id, at: Date.now() })
       OpenIntent.mark(server.key, resolved.directory)
-      navigateWithSidebarReset(`/${base64Encode(resolved.directory)}/session/${resolved.id}`)
+      navigateWithSidebarReset(projectHref(resolved.directory, `/session/${resolved.id}`))
       return true
     }
 
@@ -1649,13 +1657,13 @@ export default function Layout(props: ParentProps) {
       return
     }
 
-    navigateWithSidebarReset(`/${base64Encode(directory)}/session`)
+    navigateWithSidebarReset(projectHref(directory))
   }
 
   function navigateToSession(session: Session | undefined) {
     if (!session) return
     OpenIntent.mark(server.key, session.directory)
-    navigateWithSidebarReset(`/${base64Encode(session.directory)}/session/${session.id}`)
+    navigateWithSidebarReset(projectHref(session.directory, `/session/${session.id}`))
   }
 
   function openProject(directory: string, navigate = true) {

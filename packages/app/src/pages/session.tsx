@@ -365,7 +365,7 @@ function SessionPageContent(props: SessionPageProps = {}) {
   const terminal = useTerminal()
   const quickReading = useQuickReadingMode()
   const [searchParams, setSearchParams] = useSearchParams<{ prompt?: string }>()
-  const { params, sessionKey, tabs, view } = useSessionLayout()
+  const { params, sessionKey, tabs, view, reading } = useSessionLayout()
 
   createEffect(() => {
     if (!untrack(() => prompt.ready())) return
@@ -391,48 +391,8 @@ function SessionPageContent(props: SessionPageProps = {}) {
 
   const composer = createSessionComposerState()
 
-  const workspaceKey = createMemo(() => params.dir ?? "")
-  const workspaceTabs = createMemo(() => layout.tabs(workspaceKey))
   const propReadingPane = children(() => props.readingPane)
-  const quickReadingRequested = createMemo(
-    () => !!params.id && !props.readingPane && view().quickReading.active() && !!view().quickReading.pdfPath(),
-  )
-
-  createEffect(
-    on(
-      () => params.id,
-      (id, prev) => {
-        if (!id) return
-        if (prev) return
-
-        const pending = layout.handoff.tabs()
-        if (!pending) return
-        if (Date.now() - pending.at > 60_000) {
-          layout.handoff.clearTabs()
-          return
-        }
-
-        if (pending.id !== id) return
-        layout.handoff.clearTabs()
-        if (pending.dir !== (params.dir ?? "")) return
-
-        const from = workspaceTabs().tabs()
-        if (from.all.length === 0 && !from.active) return
-
-        const current = tabs().tabs()
-        if (current.all.length > 0 || current.active) return
-
-        const all = normalizeTabs(from.all)
-        const active = from.active ? normalizeTab(from.active) : undefined
-        tabs().setAll(all)
-        tabs().setActive(active && all.includes(active) ? active : all[0])
-
-        workspaceTabs().setAll([])
-        workspaceTabs().setActive(undefined)
-      },
-      { defer: true },
-    ),
-  )
+  const quickReadingRequested = createMemo(() => !props.readingPane && reading().active() && !!reading().pdfPath())
 
   const isDesktop = createMediaQuery("(min-width: 768px)")
   const size = props.readingSizing ?? createSizing()
@@ -631,18 +591,6 @@ function SessionPageContent(props: SessionPageProps = {}) {
     return file.tab(tab)
   }
 
-  function normalizeTabs(list: string[]) {
-    const seen = new Set<string>()
-    const next: string[] = []
-    for (const item of list) {
-      const value = normalizeTab(item)
-      if (seen.has(value)) continue
-      seen.add(value)
-      next.push(value)
-    }
-    return next
-  }
-
   const openReviewPanel = () => {
     if (!view().reviewPanel.opened()) view().reviewPanel.open()
   }
@@ -662,27 +610,19 @@ function SessionPageContent(props: SessionPageProps = {}) {
     return Array.isArray(val) ? val : []
   })
   const saved = createMemo(() => info()?.summary?.files ?? 0)
-  const canReview = createMemo(() => !!params.id)
   const reviewTab = createMemo(() => isDesktop())
   const tabState = createSessionTabs({
     tabs,
     pathFromTab: file.pathFromTab,
     normalizeTab,
     review: reviewTab,
-    hasReview: canReview,
+    hasReview: () => !!params.id,
   })
   const contextOpen = tabState.contextOpen
   const openedTabs = tabState.openedTabs
   const activeTab = tabState.activeTab
   const activeFileTab = tabState.activeFileTab
-  const activeFilePath = createMemo(() => {
-    const tab = activeFileTab()
-    if (!tab) return
-    return file.pathFromTab(tab)
-  })
-  const quickReadingController = useQuickReadingController({
-    activeFilePath,
-  })
+  const quickReadingController = useQuickReadingController({})
   const revertMessageID = createMemo(() => info()?.revert?.messageID)
   const messages = createMemo(() => (params.id ? (sync.data.message[params.id] ?? []) : []))
   const messagesReady = createMemo(() => {
@@ -1414,10 +1354,6 @@ function SessionPageContent(props: SessionPageProps = {}) {
   })
 
   const changesTitle = () => {
-    if (!canReview()) {
-      return null
-    }
-
     const label = (option: ChangeMode) => {
       if (option === "git") return language.t("ui.sessionReview.title.git")
       if (option === "branch") return language.t("ui.sessionReview.title.branch")
@@ -2668,7 +2604,6 @@ function SessionPageContent(props: SessionPageProps = {}) {
             if (deficit - give > 0) pushSidebar(deficit - give)
           }}
           fileTreeResizable={readingModeActive() ? readingFileTreeResizable() : undefined}
-          canReview={canReview}
           diffs={reviewDiffs}
           diffsReady={reviewReady}
           empty={reviewEmptyText}

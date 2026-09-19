@@ -1,9 +1,8 @@
-import { createEffect, createMemo, createSignal, type Accessor } from "solid-js"
+import { createEffect, createMemo, createSignal } from "solid-js"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { showToast } from "@opencode-ai/ui/toast"
 import { DialogQuickReadingSettings } from "@/components/quick-reading/dialog-quick-reading-settings"
 import { DEFAULT_PROMPT } from "@/context/prompt"
-import { useFile } from "@/context/file"
 import { useGlobalSync } from "@/context/global-sync"
 import { useLanguage } from "@/context/language"
 import { useLocal } from "@/context/local"
@@ -17,14 +16,11 @@ import { Identifier } from "@/utils/id"
 import { createReadingQuoteMetadata, summarizeReadingQuoteText } from "@/utils/comment-note"
 import { formatServerError } from "@/utils/server-errors"
 
-type Options = {
-  activeFilePath: Accessor<string | undefined>
-}
+type Options = Record<string, never>
 
 const isPdfPath = (path?: string) => !!path && path.split(".").pop()?.toLowerCase() === "pdf"
 
-export function useQuickReadingController(options: Options) {
-  const file = useFile()
+export function useQuickReadingController(_options: Options) {
   const dialog = useDialog()
   const globalSync = useGlobalSync()
   const language = useLanguage()
@@ -33,15 +29,15 @@ export function useQuickReadingController(options: Options) {
   const sdk = useSDK()
   const server = useServer()
   const sync = useSync()
-  const { params, view } = useSessionLayout()
+  const { params, view, reading } = useSessionLayout()
   const [firstReadOpen, setFirstReadOpen] = createSignal(false)
 
-  const quickReadingPdfPath = createMemo(() => view().quickReading.pdfPath())
+  const quickReadingPdfPath = createMemo(() => reading().pdfPath())
 
   const closeQuickReading = () => {
     setFirstReadOpen(false)
     quickReading.unbind()
-    view().quickReading.close()
+    reading().close()
     if (!view().reviewPanel.opened()) view().reviewPanel.open()
   }
 
@@ -144,9 +140,7 @@ export function useQuickReadingController(options: Options) {
 
     const settings = quickReading.store.snapshot.settings
     const label =
-      input.endPage > input.startPage
-        ? `pages ${input.startPage}-${input.endPage}`
-        : `page ${input.startPage}`
+      input.endPage > input.startPage ? `pages ${input.startPage}-${input.endPage}` : `page ${input.startPage}`
     await sendQuickReadingTranslate({
       page: input.startPage,
       extraTextParts: [
@@ -177,7 +171,11 @@ export function useQuickReadingController(options: Options) {
     })
   }
 
-  const handleImageSelectionAction = async (input: { action: "copy" | "translate" | "ask"; page: number; imageDataUrl: string }) => {
+  const handleImageSelectionAction = async (input: {
+    action: "copy" | "translate" | "ask"
+    page: number
+    imageDataUrl: string
+  }) => {
     if (!input.imageDataUrl) return
     const binding = quickReading.store.binding
     if (!binding) return
@@ -225,15 +223,20 @@ export function useQuickReadingController(options: Options) {
 
   createEffect(() => {
     const sessionID = params.id
-    const active = view().quickReading.active()
-    const pdfPath = view().quickReading.pdfPath()
-    const pdfFileName = view().quickReading.pdfFileName()
+    const active = reading().active()
+    const pdfPath = reading().pdfPath()
+    const pdfFileName = reading().pdfFileName()
     if (!sessionID || !active || !pdfPath || !pdfFileName) {
       if (quickReading.store.binding) quickReading.unbind()
       return
     }
     const binding = quickReading.store.binding
-    if (binding && binding.sessionID === sessionID && binding.pdfPath === pdfPath && binding.pdfFileName === pdfFileName) {
+    if (
+      binding &&
+      binding.sessionID === sessionID &&
+      binding.pdfPath === pdfPath &&
+      binding.pdfFileName === pdfFileName
+    ) {
       return
     }
     quickReading.bind(sessionID, pdfPath, pdfFileName)
@@ -241,7 +244,7 @@ export function useQuickReadingController(options: Options) {
 
   const active = createMemo(() => {
     const boundPath = quickReadingPdfPath()
-    return !!params.id && view().quickReading.active() && !!boundPath && options.activeFilePath() === boundPath && isPdfPath(boundPath)
+    return reading().active() && !!boundPath && isPdfPath(boundPath)
   })
   const layoutSwapped = createMemo(() => quickReading.store.snapshot.layoutSwapped)
   const page = createMemo(() => quickReading.store.view.page)
@@ -255,17 +258,6 @@ export function useQuickReadingController(options: Options) {
     const http = server.current?.http
     if (!http?.password) return undefined
     return `Basic ${btoa(`${http.username ?? "opencode"}:${http.password}`)}`
-  })
-
-  createEffect(() => {
-    if (!view().quickReading.active()) return
-    const boundPath = quickReadingPdfPath()
-    if (!boundPath) {
-      closeQuickReading()
-      return
-    }
-    const currentPath = options.activeFilePath()
-    if (!currentPath || currentPath !== boundPath) closeQuickReading()
   })
 
   const handlePageChange = (page: number) => {
@@ -317,9 +309,9 @@ export function useQuickReadingController(options: Options) {
           title: language.t("common.requestFailed"),
           description: "The PDF is still loading. Try pre-read again in a moment.",
         })
-      return
-    }
-    setFirstReadOpen(true)
-  },
+        return
+      }
+      setFirstReadOpen(true)
+    },
   }
 }

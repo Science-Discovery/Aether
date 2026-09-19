@@ -50,12 +50,6 @@ type SessionView = {
   pendingToggleAt?: number
 }
 
-type TabHandoff = {
-  dir: string
-  id: string
-  at: number
-}
-
 export type LocalProject = Partial<Project> & { worktree: string; expanded: boolean }
 
 export type ReviewDiffStyle = "unified" | "split"
@@ -210,15 +204,47 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
           }),
         )
 
+        // Tabs are project-scoped now: fold session-scoped keys ("dir/id")
+        // into their project key ("dir"), keeping the project bucket when it
+        // already has tabs of its own.
+        const merged: Record<string, unknown> = {}
+        const adopted: Record<string, unknown> = {}
+        for (const [key, tabs] of Object.entries(next)) {
+          if (!key.includes("/")) {
+            merged[key] = tabs
+            continue
+          }
+          const dir = key.slice(0, key.indexOf("/"))
+          adopted[dir] = tabs
+          changed = true
+        }
+        for (const [dir, tabs] of Object.entries(adopted)) {
+          const parent = merged[dir]
+          if (isRecord(parent) && Array.isArray(parent.all) && (parent.all.length > 0 || parent.active !== undefined))
+            continue
+          merged[dir] = tabs
+        }
+        for (const [key, tabs] of Object.entries(next)) {
+          if (!key.includes("/")) continue
+          const dir = key.slice(0, key.indexOf("/"))
+          const parent = merged[dir]
+          const kept =
+            isRecord(parent) && Array.isArray(parent.all) && (parent.all.length > 0 || parent.active !== undefined)
+          if (kept) continue
+          merged[dir] = tabs
+          changed = true
+        }
+
         if (!changed) return sessionTabs
-        return next
+        return merged
       })()
 
       if (
         migratedSidebar === sidebar &&
         migratedReview === review &&
         migratedFileTree === fileTree &&
-        migratedSessionTabs === sessionTabs
+        migratedSessionTabs === sessionTabs &&
+        value.handoff === undefined
       ) {
         return value
       }
@@ -260,9 +286,6 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
         },
         sessionTabs: {} as Record<string, SessionTabs>,
         sessionView: {} as Record<string, SessionView>,
-        handoff: {
-          tabs: undefined as TabHandoff | undefined,
-        },
       }),
     )
 
@@ -496,16 +519,6 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
           const next = Math.max(0, Math.floor(px))
           if (next === demandPx()) return
           setDemandPx(next)
-        },
-      },
-      handoff: {
-        tabs: createMemo(() => store.handoff?.tabs),
-        setTabs(dir: string, id: string) {
-          setStore("handoff", "tabs", { dir, id, at: Date.now() })
-        },
-        clearTabs() {
-          if (!store.handoff?.tabs) return
-          setStore("handoff", "tabs", undefined)
         },
       },
       projects: {

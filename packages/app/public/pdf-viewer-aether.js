@@ -1491,6 +1491,43 @@
     }
   }
 
+  const DOC_STATE_KEY = "aether-pdf-doc-state"
+  const DOC_STATE_MAX = 24
+  let docStateTimer
+
+  function loadDocState(id) {
+    try {
+      const raw = JSON.parse(localStorage.getItem(DOC_STATE_KEY) || "{}")
+      const entry = raw[id]
+      return entry && entry.state ? entry.state : null
+    } catch {
+      return null
+    }
+  }
+
+  function saveDocState(id, state) {
+    if (!id || !state) return
+    try {
+      const raw = JSON.parse(localStorage.getItem(DOC_STATE_KEY) || "{}")
+      delete raw[id]
+      const entries = Object.keys(raw).sort((a, b) => (raw[b].ts || 0) - (raw[a].ts || 0))
+      for (const stale of entries.slice(DOC_STATE_MAX - 1)) {
+        delete raw[stale]
+      }
+      raw[id] = { ts: Date.now(), state }
+      localStorage.setItem(DOC_STATE_KEY, JSON.stringify(raw))
+    } catch {}
+  }
+
+  function scheduleDocStateSave() {
+    if (docStateTimer) return
+    docStateTimer = setTimeout(function () {
+      docStateTimer = undefined
+      const id = currentKey ? docId(currentKey.split("|")[0]) : undefined
+      saveDocState(id, captureState())
+    }, 600)
+  }
+
   function applySettings(state) {
     const app = window.PDFViewerApplication
     if (!app?.pdfViewer) return
@@ -1560,12 +1597,12 @@
       }
       if (Date.now() < suppressBroadcastUntil) return
       if (lastLocation) post("locationchange", { location: lastLocation })
+      scheduleDocStateSave()
     })
 
     eventBus.on("pagesinit", function () {
       if (!restoreState) return
       applySettings(restoreState)
-      applyPosition(restoreState)
     })
 
     eventBus.on("pagesloaded", function (evt) {
@@ -1576,6 +1613,8 @@
       if (currentConfig) {
         requestAnimationFrame(function () {
           if (!currentConfig) return
+          // Chrome + position come from the persisted viewer state; the app
+          // config position applies only when nothing was restored.
           if (restoreState) {
             applySettings(restoreState)
             applyPosition(restoreState)
@@ -1832,7 +1871,7 @@
 
     const reload = !!currentKey && isReload(currentKey, key)
     if (!reload) {
-      restoreState = null
+      restoreState = loadDocState(docId(config.src))
     } else if (docSettled) {
       restoreState = captureState() || restoreState
     }

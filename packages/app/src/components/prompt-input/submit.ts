@@ -8,7 +8,6 @@ import type { FileSelection } from "@/context/file"
 import { useFile } from "@/context/file"
 import { useGlobalSync } from "@/context/global-sync"
 import { useLanguage } from "@/context/language"
-import { useLayout } from "@/context/layout"
 import { useLocal } from "@/context/local"
 import { usePermission } from "@/context/permission"
 import { DEFAULT_PROMPT, type ContextItem, type ImageAttachmentPart, type Prompt, usePrompt } from "@/context/prompt"
@@ -403,7 +402,6 @@ export function createPromptSubmit(input: PromptSubmitInput) {
   const local = useLocal()
   const permission = usePermission()
   const prompt = usePrompt()
-  const layout = useLayout()
   const language = useLanguage()
   const params = useParams()
   const knowledge = useKnowledge()
@@ -657,7 +655,6 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       seed(sessionDirectory, info)
       session = info
       local.session.promote(sessionDirectory, sessionID)
-      layout.handoff.setTabs(base64Encode(sessionDirectory), sessionID)
       navigate(`/${base64Encode(sessionDirectory)}/session/${sessionID}`)
 
       claimed = claimSession(sessionID, () => client.session.create({ id: sessionID }).then((x) => x.data ?? undefined))
