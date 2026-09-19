@@ -9,7 +9,7 @@ Use for short hints; avoid long descriptions.
 
 ### API
 - Required: \`value\` (tooltip content).
-- Optional: \`inactive\`, \`forceOpen\`, placement props from Kobalte.
+- Optional: \`inactive\`, \`forceOpen\`, \`hideOnExpand\` (set false so a descendant with \`aria-expanded="true"\`, e.g. a panel toggle, does not suppress the tooltip), placement props from Kobalte.
 
 ### Variants and states
 - Supports keybind-style tooltip via \`TooltipKeybind\`.
@@ -61,4 +61,14 @@ export const Inactive = {
   args: {
     inactive: true,
   },
+}
+
+export const OnDisclosureToggle = {
+  render: () => (
+    <mod.Tooltip hideOnExpand={false} value="Close panel" openDelay={0}>
+      <button type="button" aria-expanded="true" style={{ "text-decoration": "underline" }}>
+        Hover while expanded
+      </button>
+    </mod.Tooltip>
+  ),
 }

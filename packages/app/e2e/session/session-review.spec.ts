@@ -58,7 +58,7 @@ async function patch(sdk: ReturnType<typeof createSdk>, sessionID: string, patch
 }
 
 async function show(page: Parameters<typeof test>[0]["page"]) {
-  const btn = page.getByRole("button", { name: "Toggle review" }).first()
+  const btn = page.locator('[aria-controls="review-panel"]')
   await expect(btn).toBeVisible()
   if ((await btn.getAttribute("aria-expanded")) !== "true") await btn.click()
   await expect(btn).toHaveAttribute("aria-expanded", "true")

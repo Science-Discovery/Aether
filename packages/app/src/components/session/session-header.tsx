@@ -253,6 +253,10 @@ export function SessionHeader() {
     focusTerminalById(id)
   }
 
+  const terminalTitle = () => language.t(view().terminal.opened() ? "command.terminal.close" : "command.terminal.open")
+  const reviewTitle = () => language.t(view().reviewPanel.opened() ? "command.review.close" : "command.review.open")
+  const fileTreeTitle = () => language.t(layout.fileTree.opened() ? "command.fileTree.close" : "command.fileTree.open")
+
   const [prefs] = persisted(Persist.global("open.app"), createStore({ app: "finder" as OpenApp }))
   const [menu, setMenu] = createStore({ open: false })
   const [openRequest, setOpenRequest] = createStore({
@@ -438,14 +442,15 @@ export function SessionHeader() {
                 </Tooltip>
                 <TooltipKeybind
                   placement="bottom"
-                  title={language.t("command.terminal.toggle")}
+                  hideOnExpand={false}
+                  title={terminalTitle()}
                   keybind={command.keybind("terminal.toggle")}
                 >
                   <Button
                     variant="ghost"
                     class="group/terminal-toggle titlebar-icon w-8 h-6 p-0 box-border shrink-0"
                     onClick={toggleTerminal}
-                    aria-label={language.t("command.terminal.toggle")}
+                    aria-label={terminalTitle()}
                     aria-expanded={view().terminal.opened()}
                     aria-controls="terminal-panel"
                   >
@@ -454,15 +459,12 @@ export function SessionHeader() {
                 </TooltipKeybind>
 
                 <div class="hidden md:flex items-center gap-1 shrink-0">
-                  <TooltipKeybind
-                    title={language.t("command.review.toggle")}
-                    keybind={command.keybind("review.toggle")}
-                  >
+                  <TooltipKeybind hideOnExpand={false} title={reviewTitle()} keybind={command.keybind("review.toggle")}>
                     <Button
                       variant="ghost"
                       class="group/review-toggle titlebar-icon w-8 h-6 p-0 box-border"
                       onClick={() => view().reviewPanel.toggle()}
-                      aria-label={language.t("command.review.toggle")}
+                      aria-label={reviewTitle()}
                       aria-expanded={view().reviewPanel.opened()}
                       aria-controls="review-panel"
                     >
@@ -471,14 +473,15 @@ export function SessionHeader() {
                   </TooltipKeybind>
 
                   <TooltipKeybind
-                    title={language.t("command.fileTree.toggle")}
+                    hideOnExpand={false}
+                    title={fileTreeTitle()}
                     keybind={command.keybind("fileTree.toggle")}
                   >
                     <Button
                       variant="ghost"
                       class="titlebar-icon w-8 h-6 p-0 box-border"
                       onClick={() => layout.fileTree.toggle()}
-                      aria-label={language.t("command.fileTree.toggle")}
+                      aria-label={fileTreeTitle()}
                       aria-expanded={layout.fileTree.opened()}
                       aria-controls="file-tree-panel"
                     >

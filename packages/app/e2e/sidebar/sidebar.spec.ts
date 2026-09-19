@@ -5,7 +5,7 @@ test("sidebar can be collapsed and expanded", async ({ page, gotoSession }) => {
   await gotoSession()
 
   await openSidebar(page)
-  const button = page.getByRole("button", { name: /toggle sidebar/i }).first()
+  const button = page.getByRole("button", { name: /^(open|close) sidebar$/i }).first()
   await expect(button).toHaveAttribute("aria-expanded", "true")
 
   await toggleSidebar(page)
@@ -21,7 +21,7 @@ test("sidebar collapsed state persists across navigation and reload", async ({ p
       await gotoSession(session1.id)
 
       await openSidebar(page)
-      const button = page.getByRole("button", { name: /toggle sidebar/i }).first()
+      const button = page.getByRole("button", { name: /^(open|close) sidebar$/i }).first()
       await toggleSidebar(page)
       await expect(button).toHaveAttribute("aria-expanded", "false")
 

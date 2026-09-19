@@ -98,7 +98,7 @@ describe("titlebar sidebar toggle", () => {
   test("renders on web without breakpoint gating", () => {
     const { host, off } = mount()
 
-    const button = host.querySelector('[aria-label="command.sidebar.toggle"]')
+    const button = host.querySelector('[aria-label="command.sidebar.open"]')
     expect(button).not.toBeNull()
     expect(button?.getAttribute("aria-expanded")).toBe("false")
 
@@ -113,10 +113,20 @@ describe("titlebar sidebar toggle", () => {
   test("toggles the sidebar on click", () => {
     const { host, off } = mount()
 
-    const button = host.querySelector('[aria-label="command.sidebar.toggle"]') as HTMLButtonElement
+    const button = host.querySelector('[aria-label="command.sidebar.open"]') as HTMLButtonElement
     button.click()
 
     expect(state.toggle).toHaveBeenCalledTimes(1)
+
+    off()
+  })
+
+  test("label reflects sidebar state", () => {
+    state.opened = true
+    const { host, off } = mount()
+
+    expect(host.querySelector('[aria-label="command.sidebar.close"]')).not.toBeNull()
+    expect(host.querySelector('[aria-label="command.sidebar.open"]')).toBeNull()
 
     off()
   })

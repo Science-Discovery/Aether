@@ -12,12 +12,12 @@ test("review panel can be toggled via keybind", async ({ page, gotoSession }) =>
 
   const reviewPanel = page.locator("#review-panel")
 
-  const treeToggle = page.getByRole("button", { name: "Toggle file tree" }).first()
+  const treeToggle = page.locator('[aria-controls="file-tree-panel"]')
   await expect(treeToggle).toBeVisible()
   if (await expanded(treeToggle)) await treeToggle.click()
   await expect(treeToggle).toHaveAttribute("aria-expanded", "false")
 
-  const reviewToggle = page.getByRole("button", { name: "Toggle review" }).first()
+  const reviewToggle = page.locator('[aria-controls="review-panel"]')
   await expect(reviewToggle).toBeVisible()
   if (await expanded(reviewToggle)) await reviewToggle.click()
   await expect(reviewToggle).toHaveAttribute("aria-expanded", "false")

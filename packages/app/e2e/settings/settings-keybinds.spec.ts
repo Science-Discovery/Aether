@@ -32,7 +32,7 @@ test("changing sidebar toggle keybind works", async ({ page, gotoSession }) => {
 
   await closeDialog(page, dialog)
 
-  const button = page.getByRole("button", { name: /toggle sidebar/i }).first()
+  const button = page.getByRole("button", { name: /^(open|close) sidebar$/i }).first()
   const initiallyClosed = (await button.getAttribute("aria-expanded")) !== "true"
 
   await page.keyboard.press(`${modKey}+Shift+H`)

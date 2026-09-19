@@ -10,6 +10,7 @@ export interface TooltipProps extends ComponentProps<typeof KobalteTooltip> {
   contentStyle?: JSX.CSSProperties
   inactive?: boolean
   forceOpen?: boolean
+  hideOnExpand?: boolean
   ignoreSafeArea?: boolean
   interactive?: boolean
 }
@@ -49,6 +50,7 @@ export function Tooltip(props: TooltipProps) {
     "contentStyle",
     "inactive",
     "forceOpen",
+    "hideOnExpand",
     "ignoreSafeArea",
     "interactive",
     "value",
@@ -101,6 +103,7 @@ export function Tooltip(props: TooltipProps) {
 
   createEffect(() => {
     if (!ref) return
+    if (local.hideOnExpand === false) return
     sync()
     const obs = new MutationObserver(sync)
     obs.observe(ref, {
