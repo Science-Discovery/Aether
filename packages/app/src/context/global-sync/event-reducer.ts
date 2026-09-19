@@ -13,7 +13,7 @@ import type {
 } from "@opencode-ai/sdk/v2/client"
 import type { State, VcsCache } from "./types"
 import { trimSessions } from "./session-trim"
-import { dropSessionCaches } from "./session-cache"
+import { dropSessionCaches, dropSessionStatus } from "./session-cache"
 import { MessageOrder } from "@/utils/message-order"
 
 const SKIP_PARTS = new Set(["patch", "step-start", "step-finish"])
@@ -78,6 +78,7 @@ function cleanupSessionCaches(
   setStore(
     produce((draft) => {
       dropSessionCaches(draft, [sessionID])
+      dropSessionStatus(draft, [sessionID])
     }),
   )
 }
@@ -95,7 +96,6 @@ export function cleanupDroppedSessionCaches(
     ...Object.keys(store.todo),
     ...Object.keys(store.permission),
     ...Object.keys(store.question),
-    ...Object.keys(store.session_status),
     ...Object.values(store.part)
       .map((parts) => parts?.find((part) => !!part?.sessionID)?.sessionID)
       .filter((sessionID): sessionID is string => !!sessionID),

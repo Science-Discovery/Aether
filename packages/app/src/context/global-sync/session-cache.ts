@@ -34,9 +34,15 @@ export function dropSessionCaches(store: SessionCache, sessionIDs: Iterable<stri
     delete store.message[sessionID]
     delete store.todo[sessionID]
     delete store.session_diff[sessionID]
-    delete store.session_status[sessionID]
     delete store.permission[sessionID]
     delete store.question[sessionID]
+  }
+}
+
+export function dropSessionStatus(store: SessionCache, sessionIDs: Iterable<string>) {
+  for (const sessionID of sessionIDs) {
+    if (!sessionID) continue
+    delete store.session_status[sessionID]
   }
 }
 
