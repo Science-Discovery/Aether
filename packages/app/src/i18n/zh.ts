@@ -588,12 +588,7 @@ export const dict = {
   "fileTree.selectFolderFailed": "选择文件夹失败",
 
   "wechat.connection": "微信连接",
-  "wechat.lockedByOther": "微信已被其他客户端连接",
-  "wechat.disconnectOnOtherPage": "当前有另一个页面正在使用微信，请先在该页面断开连接",
   "wechat.close": "关闭",
-  "wechat.forceTakeover": "强制接管",
-  "wechat.connectionTakenOver": "连接已被接管",
-  "wechat.takenOverByOther": "微信连接已被其他客户端或服务接管",
   "wechat.reconnect": "重新连接",
   "wechat.connectToUse": "连接微信后，可在微信中使用 Aether AI",
   "wechat.connectWechat": "连接微信",

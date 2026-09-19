@@ -1,6 +1,7 @@
 import os from "os"
 import path from "path"
 import { xdgCache, xdgConfig, xdgData, xdgState } from "xdg-basedir"
+import { Flag } from "../flag/flag"
 
 export const APP = "aether"
 export const LEGACY_APP = "opencode"
@@ -58,7 +59,23 @@ function platformRoot(name: string, sub: string) {
 }
 
 export function platformDir(sub: string) {
-  return platformRoot(APP, sub)
+  return scopedPlatformDir(channelSlug(), sub)
+}
+
+// Canonical channel slug, shared with the channel DB layout in storage/db.ts.
+// OPENCODE_CHANNEL is injected at build time; tests fall back to "local".
+export function channelSlug(): string {
+  const ch = typeof OPENCODE_CHANNEL === "string" ? OPENCODE_CHANNEL : "local"
+  if (["latest", "beta"].includes(ch) || Flag.OPENCODE_DISABLE_CHANNEL_DB) return "latest"
+  return ch.replace(/[^a-zA-Z0-9._-]/g, "-")
+}
+
+// Non-latest channels isolate platform state (mobile bridge credentials,
+// enabled.json, session maps) so two channels on one machine never share
+// bridge state.
+export function scopedPlatformDir(slug: string, sub: string) {
+  if (slug === "latest") return platformRoot(APP, sub)
+  return path.join(platformRoot(APP, slug), sub)
 }
 
 export function legacyPlatformDir(sub: string) {
