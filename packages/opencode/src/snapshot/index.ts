@@ -99,6 +99,7 @@ export namespace Snapshot {
           const pending = new Set<string>()
           let seeded = false
           let reconciled = 0
+          let walkMs = 0
           const JOURNAL_MAX = 1000
           const CHUNK = 64
           const journalFile = path.join(state.gitdir, "journal.jsonl")
@@ -354,11 +355,15 @@ export namespace Snapshot {
           // events. The walk runs against a copy of the index without
           // holding the lock (a huge worktree scan must not block tracks);
           // only the short apply phase is locked.
-          const reconcile = Effect.fnUntraced(function* () {
+          const reconcile = Effect.fnUntraced(function* (force = false) {
             if (!(yield* enabled())) return
-            if (Date.now() - reconciled < 10 * 60_000) return
+            if (!force && Date.now() - reconciled < 10 * 60_000) return
             reconciled = Date.now()
+            const began = Date.now()
             yield* seed()
+            // refresh ignore rules BEFORE the walk so newly excluded files
+            // are not listed as untracked
+            yield* sync()
             const walk = path.join(state.gitdir, "walk.index")
             const index = path.join(state.gitdir, "index")
             if (!(yield* exists(index))) return
@@ -390,31 +395,48 @@ export namespace Snapshot {
               return
             }
             const all = [...new Set([...diff.text.split("\0"), ...other.text.split("\0")].filter(Boolean))]
-            if (!all.length) return
-            return yield* locked(
-              Effect.gen(function* () {
-                yield* sync()
-                const large = (yield* Effect.all(
-                  all.map((item) =>
-                    fs
-                      .stat(path.join(state.worktree, item))
-                      .pipe(Effect.catch(() => Effect.void))
-                      .pipe(
-                        Effect.map((stat) => {
-                          if (!stat || stat.type !== "File") return
-                          const size = typeof stat.size === "bigint" ? Number(stat.size) : stat.size
-                          return size > limit ? item : undefined
-                        }),
-                      ),
-                  ),
-                  { concurrency: 8 },
-                )).filter((item): item is string => Boolean(item))
-                yield* sync(large)
-                yield* stage(all.filter((item) => !large.includes(item)))
-                yield* commit(all)
-                log.info("reconciled", { count: all.length })
-              }),
-            )
+            if (all.length) {
+              yield* locked(
+                Effect.gen(function* () {
+                  yield* sync()
+                  const large = (yield* Effect.all(
+                    all.map((item) =>
+                      fs
+                        .stat(path.join(state.worktree, item))
+                        .pipe(Effect.catch(() => Effect.void))
+                        .pipe(
+                          Effect.map((stat) => {
+                            if (!stat || stat.type !== "File") return
+                            const size = typeof stat.size === "bigint" ? Number(stat.size) : stat.size
+                            return size > limit ? item : undefined
+                          }),
+                        ),
+                    ),
+                    { concurrency: 8 },
+                  )).filter((item): item is string => Boolean(item))
+                  yield* sync(large)
+                  yield* stage(all.filter((item) => !large.includes(item)))
+                  yield* commit(all)
+                  log.info("reconciled", { count: all.length })
+                }),
+              )
+            }
+            walkMs = Date.now() - began
+          })
+
+          // Freshness policy: on normal repositories the full walk is cheap
+          // (< SLOW_MS), so track/patch/diff refresh inline and external
+          // edits are always captured - identical to the classic semantics.
+          // On huge repositories the walk costs seconds, so refreshes run in
+          // the background and snapshot freshness for external edits is
+          // bounded by the reconcile interval instead.
+          const SLOW_MS = 500
+          const fresh = Effect.fnUntraced(function* () {
+            if (walkMs > SLOW_MS) {
+              yield* reconcile().pipe(Effect.forkDetach)
+              return
+            }
+            yield* reconcile(true)
           })
 
           const cleanup = Effect.fnUntraced(function* () {
@@ -435,12 +457,15 @@ export namespace Snapshot {
             )
           })
 
+          // lock discipline: seed/fresh run OUTSIDE the snapshot lock (the
+          // cheap-repo reconcile awaits a walk whose apply phase takes the
+          // same non-reentrant lock); only index mutations are locked.
           const track = Effect.fnUntraced(function* () {
+            if (!(yield* enabled())) return
+            yield* seed()
+            yield* fresh()
             return yield* locked(
               Effect.gen(function* () {
-                if (!(yield* enabled())) return
-                yield* seed()
-                yield* reconcile().pipe(Effect.forkDetach)
                 const applied = yield* apply()
                 return yield* commit(applied)
               }),
@@ -459,10 +484,11 @@ export namespace Snapshot {
           })
 
           const patch = Effect.fnUntraced(function* (hash: string) {
+            if (!(yield* enabled())) return { hash, files: [] }
+            yield* seed()
+            yield* fresh()
             return yield* locked(
               Effect.gen(function* () {
-                if (!(yield* enabled())) return { hash, files: [] }
-                yield* seed()
                 const applied = yield* apply()
                 if (applied.length) yield* commit(applied)
                 const since = yield* filesSince(hash)
@@ -502,22 +528,13 @@ export namespace Snapshot {
                 if (!(yield* enabled())) return
                 yield* seed()
                 log.info("restore", { commit: snapshot })
-                const current = yield* tree()
-                if (!current) return
+                // diff the snapshot tree against the WORKTREE directly: the
+                // index may be stale (external edits without events), and
+                // restore must revert what is actually on disk
                 const statuses = yield* git(
                   [
                     ...quote,
-                    ...args([
-                      "diff",
-                      "--no-ext-diff",
-                      "--name-status",
-                      "--no-renames",
-                      "-z",
-                      snapshot,
-                      current,
-                      "--",
-                      ".",
-                    ]),
+                    ...args(["diff", "--no-ext-diff", "--name-status", "--no-renames", "-z", snapshot, "--", "."]),
                   ],
                   { cwd: state.worktree },
                 )
@@ -606,10 +623,11 @@ export namespace Snapshot {
           })
 
           const diff = Effect.fnUntraced(function* (hash: string) {
+            if (!(yield* enabled())) return ""
+            yield* seed()
+            yield* fresh()
             return yield* locked(
               Effect.gen(function* () {
-                if (!(yield* enabled())) return ""
-                yield* seed()
                 const applied = yield* apply()
                 if (applied.length) yield* commit(applied)
                 const result = yield* git([...quote, ...args(["diff", "--cached", "--no-ext-diff", hash, "--", "."])], {
@@ -684,16 +702,18 @@ export namespace Snapshot {
             )
           })
 
-          // seed the gitdir and build the first tree in the background so the
-          // first track() on a huge repository is already incremental
+          // seed the gitdir, build the first tree, and measure the first full
+          // walk in the background: the first track() on a huge repository is
+          // then already incremental and correctly classified as slow
           const warm = Effect.fnUntraced(function* () {
+            if (!(yield* enabled())) return
             yield* locked(
               Effect.gen(function* () {
-                if (!(yield* enabled())) return
                 yield* seed()
                 yield* tree()
               }),
-            ).pipe(Effect.forkDetach)
+            )
+            yield* reconcile(true)
           })
 
           yield* Effect.gen(function* () {
