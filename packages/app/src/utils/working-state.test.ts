@@ -1,6 +1,26 @@
 import { describe, expect, test } from "bun:test"
 import { createRoot, createSignal } from "solid-js"
-import { createWorkingState } from "./working-state"
+import { createWorkingState, isWorking } from "./working-state"
+
+describe("isWorking", () => {
+  test("busy when any session is busy or retrying", () => {
+    expect(isWorking({ session_status: { a: { type: "idle" }, b: { type: "busy" } } })).toBe(true)
+    expect(isWorking({ session_status: { a: { type: "retry", attempt: 1, message: "", next: 0 } } })).toBe(true)
+  })
+
+  test("idle when no session is busy", () => {
+    expect(isWorking({ session_status: { a: { type: "idle" }, b: { type: "idle" } } })).toBe(false)
+    expect(isWorking({ session_status: {} })).toBe(false)
+  })
+
+  test("stale incomplete assistant message does not imply busy", () => {
+    const store = {
+      session_status: { a: { type: "idle" as const } },
+      message: { a: [{ role: "assistant", time: {} }] },
+    }
+    expect(isWorking(store as Parameters<typeof isWorking>[0])).toBe(false)
+  })
+})
 
 describe("working state", () => {
   test("busy status is working without cached messages", () => {

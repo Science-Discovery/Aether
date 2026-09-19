@@ -1,6 +1,5 @@
 import { createEffect, createMemo, createSignal } from "solid-js"
 import { makeTimer } from "@solid-primitives/timer"
-import type { Message } from "@opencode-ai/sdk/v2/client"
 
 const GRACE_MS = 3000
 
@@ -18,19 +17,8 @@ export type ChildrenSource = {
 
 const busy = (status: SessionStatus) => status?.type === "busy" || status?.type === "retry"
 
-export function isWorking(store: {
-  session_status: { [sessionID: string]: SessionStatus }
-  message: { [sessionID: string]: Message[] }
-}) {
-  const ids = new Set([...Object.keys(store.session_status), ...Object.keys(store.message)])
-  return [...ids].some((id) => {
-    if (busy(store.session_status[id])) return true
-    return !!store.message[id]?.findLast(
-      (message) =>
-        message.role === "assistant" &&
-        typeof (message as { time?: { completed?: unknown } }).time?.completed !== "number",
-    )
-  })
+export function isWorking(store: { session_status: { [sessionID: string]: SessionStatus } }) {
+  return Object.values(store.session_status).some(busy)
 }
 
 function descendant(id: string, source: ChildrenSource, seen = new Set<string>()) {
