@@ -298,6 +298,14 @@ function createGlobalSync() {
 
     children.pin(directory)
     const [store, setStore] = children.child(directory, { bootstrap: false })
+    const refreshStatus = () =>
+      retry(() => globalSDK.client.session.status({ directory }))
+        .then((x) => {
+          setStore("session_status", reconcile(x.data!))
+        })
+        .catch((err) => {
+          console.error("Failed to refresh session status", err)
+        })
     if (opts?.force) sessionMeta.delete(directory)
     const meta = sessionMeta.get(directory)
     if (meta && meta.limit >= store.limit) {
@@ -309,9 +317,7 @@ function createGlobalSync() {
         setStore("session", reconcile(next, { key: "id" }))
         cleanupDroppedSessionCaches(store, setStore, next, setSessionTodo)
       }
-      globalSDK.client.session.status().then((x) => {
-        setStore("session_status", reconcile(x.data!))
-      })
+      void refreshStatus()
       children.unpin(directory)
       return
     }
@@ -355,9 +361,7 @@ function createGlobalSync() {
         )
         setStore("session", reconcile(sessions, { key: "id" }))
         cleanupDroppedSessionCaches(store, setStore, sessions, setSessionTodo)
-        globalSDK.client.session.status().then((x) => {
-          setStore("session_status", reconcile(x.data!))
-        })
+        void refreshStatus()
         sessionMeta.set(directory, { limit })
       })
       .catch((err) => {
