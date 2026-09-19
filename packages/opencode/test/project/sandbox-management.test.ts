@@ -31,21 +31,23 @@ function mainSqlite() {
   return Database.Client().$client
 }
 
-describe("addSandbox writes project_recent immediately", () => {
-  test("sandbox appears in project_recent with kind=directory after addSandbox", async () => {
+describe("addSandbox registers sandbox outside the recent feed", () => {
+  test("sandbox gets directory_meta + global map but no project_recent row", async () => {
     await using tmp = await tmpdir({ git: true })
     const { project } = await Project.fromDirectory(tmp.path)
     const sandboxDir = path.join(tmp.path, "sandbox-test")
 
     await Project.addSandbox(project.id, sandboxDir)
 
-    const row = mainSqlite()
-      .prepare("SELECT key, kind, project_id, directory FROM project_recent WHERE directory = ?")
-      .get(norm(sandboxDir)) as { key: string; kind: string; project_id: string; directory: string } | undefined
+    const row = mainSqlite().prepare("SELECT key FROM project_recent WHERE directory = ?").get(norm(sandboxDir))
+    expect(row).toBeFalsy()
 
-    expect(row).toBeDefined()
-    expect(row!.kind).toBe("directory")
-    expect(row!.project_id).toBe(project.id)
+    const mapRow = mainSqlite()
+      .prepare("SELECT project_id FROM global_project_map WHERE directory = ?")
+      .get(norm(sandboxDir)) as { project_id: string } | undefined
+    expect(mapRow?.project_id).toBe(project.id)
+
+    expect(Project.recentList().some((item) => Project.norm(item.directory) === norm(sandboxDir))).toBe(false)
   })
 })
 
@@ -87,7 +89,7 @@ describe("removeSandbox cleans up all related data", () => {
     const recentBefore = mainSqlite()
       .prepare("SELECT key FROM project_recent WHERE directory = ?")
       .get(norm(sandboxDir))
-    expect(recentBefore).toBeDefined()
+    expect(recentBefore).toBeFalsy()
 
     const gpmBefore = mainSqlite()
       .prepare("SELECT directory FROM global_project_map WHERE directory = ?")
@@ -124,8 +126,8 @@ describe("removeSandbox cleans up all related data", () => {
   })
 })
 
-describe("sandbox project_recent.kind stays directory after fromDirectory on main worktree", () => {
-  test("opening main worktree does not overwrite sandbox kind to project", async () => {
+describe("sandbox never enters project_recent, even after main worktree activity", () => {
+  test("opening main worktree does not create a recent row for the sandbox", async () => {
     await using tmp = await tmpdir({ git: true })
 
     const { project } = await Project.fromDirectory(tmp.path)
@@ -135,19 +137,16 @@ describe("sandbox project_recent.kind stays directory after fromDirectory on mai
 
     await Project.addSandbox(project.id, wtPath)
 
-    const wtRow = mainSqlite().prepare("SELECT kind FROM project_recent WHERE directory = ?").get(norm(wtPath)) as
-      | { kind: string }
-      | undefined
-    expect(wtRow).toBeDefined()
-    expect(wtRow!.kind).toBe("directory")
+    const wtRow = mainSqlite().prepare("SELECT kind FROM project_recent WHERE directory = ?").get(norm(wtPath))
+    expect(wtRow).toBeFalsy()
 
     await Project.fromDirectory(tmp.path)
 
-    const wtRowAfter = mainSqlite().prepare("SELECT kind FROM project_recent WHERE directory = ?").get(norm(wtPath)) as
-      | { kind: string }
-      | undefined
-    expect(wtRowAfter).toBeDefined()
-    expect(wtRowAfter!.kind).toBe("directory")
+    const wtRowAfter = mainSqlite()
+      .prepare("SELECT directory FROM project_recent WHERE directory = ?")
+      .get(norm(wtPath))
+    expect(wtRowAfter).toBeFalsy()
+    expect(Project.recentList().some((item) => Project.norm(item.directory) === norm(wtPath))).toBe(false)
 
     await $`git worktree remove ${wtPath}`
       .cwd(tmp.path)

@@ -131,41 +131,88 @@ export namespace Project {
   }
 
   function canonical() {
-    const recentRows = Database.use((db) =>
-      db.select().from(ProjectRecentTable).where(eq(ProjectRecentTable.kind, "project")).all(),
-    )
+    const recentRows = Database.use((d) => d.select().from(ProjectRecentTable).all())
+    const mappedPID = mappedProjectIDs()
     const seen = new Set<ProjectID>()
     const result: Info[] = []
     for (const row of recentRows) {
-      if (!row.project_id) continue
-      if (seen.has(row.project_id)) continue
-      if (!Database.hasProject(row.project_id)) continue
-      const projectRow = Database.useProject(row.project_id, (d) =>
-        d.select().from(ProjectTable).where(eq(ProjectTable.id, row.project_id!)).get(),
+      const dirNorm = norm(row.directory)
+      const pid = (row.project_id ?? mappedPID.get(dirNorm)) as ProjectID | undefined
+      if (!pid || seen.has(pid) || !Database.hasProject(pid)) continue
+      const projectRow = Database.useProject(pid, (d) =>
+        d.select().from(ProjectTable).where(eq(ProjectTable.id, pid)).get(),
       )
       if (!projectRow) continue
-      seen.add(row.project_id)
       const info = fromRow(projectRow)
-      const wt = norm(info.worktree)
-      const metaRows = Database.useProject(row.project_id, (d) =>
+      // Identity-derived: only the directory that IS the project worktree counts
+      // as the project entry — never trust the stored kind column.
+      if (norm(info.worktree) !== dirNorm) continue
+      seen.add(pid)
+      const metaRows = Database.useProject(pid, (d) =>
         d.select({ directory: DirectoryMetaTable.directory }).from(DirectoryMetaTable).all(),
       )
-      info.sandboxes = metaRows.map((r) => norm(r.directory)).filter((d) => d !== wt)
+      info.sandboxes = metaRows.map((r) => norm(r.directory)).filter((d) => d !== norm(info.worktree))
       result.push(info)
     }
     return result.sort((a, b) => a.id.localeCompare(b.id))
   }
+
+  function mappedProjectIDs() {
+    const gpm = Database.use((d) => d.select().from(GlobalProjectMapTable).all())
+    const mapped = new Map<string, string>()
+    for (const row of gpm) mapped.set(norm(row.directory), row.project_id)
+    return mapped
+  }
+
+  // Classify a recent row from project identity, not the stored kind: a row is a
+  // project entry iff its directory IS the mapped project's worktree. Directories
+  // that belong to a known project as non-worktree (sandboxes, aliases) are
+  // internal — they surface through the project's workspace list, not the feed.
+  function classifyRecent(row: typeof ProjectRecentTable.$inferSelect) {
+    const dirNorm = norm(row.directory)
+    const pid = (row.project_id ?? mappedProjectIDs().get(dirNorm)) as ProjectID | undefined
+    const known = pid
+      ? Database.hasProject(pid)
+        ? (Database.useProject(pid, (d) => d.select().from(ProjectTable).where(eq(ProjectTable.id, pid)).get()) ??
+          undefined)
+        : "missing"
+      : undefined
+    if (known === "missing") return undefined
+    const project = known ? fromRow(known) : undefined
+    const base =
+      project?.icon ?? rowIcon({ icon_url: row.icon_url ?? null, icon_color: row.icon_color ?? null }) ?? undefined
+    const override = row.icon_override ?? undefined
+    const icon = base && override ? { ...base, override } : override ? { override } : base
+    const time = { activity: row.activity_at, created: row.time_created, updated: row.time_updated }
+    if (project && norm(project.worktree) === dirNorm) {
+      return {
+        id: row.key,
+        kind: "project" as const,
+        projectID: project.id,
+        directory: row.directory,
+        worktree: project.worktree,
+        vcs: project.vcs,
+        name: row.name ?? project.name ?? name(row.directory),
+        icon,
+        commands: project.commands,
+        time,
+      }
+    }
+    if (project) return undefined
+    return {
+      id: row.key,
+      kind: "directory" as const,
+      directory: row.directory,
+      name: row.name ?? name(row.directory),
+      icon,
+      time,
+    }
+  }
+
   function recent() {
     const recentRows = Database.use((d) =>
       d.select().from(ProjectRecentTable).orderBy(desc(ProjectRecentTable.activity_at)).all(),
     )
-    const gpm = Database.use((d) => d.select().from(GlobalProjectMapTable).all())
-    const canonicalPID = new Map<string, string>()
-    for (const row of gpm) canonicalPID.set(norm(row.directory), row.project_id)
-    const pidCounts = new Map<string, number>()
-    for (const row of recentRows) {
-      if (row.project_id) pidCounts.set(row.project_id, (pidCounts.get(row.project_id) ?? 0) + 1)
-    }
     const seen = new Map<string, (typeof recentRows)[number]>()
     for (const row of recentRows) {
       const key = norm(row.directory)
@@ -173,64 +220,7 @@ export namespace Project {
       if (!prev || row.activity_at > prev.activity_at) seen.set(key, row)
     }
     return [...seen.values()]
-      .map((row) => {
-        const resolvedPID =
-          row.kind === "project" && row.project_id
-            ? (canonicalPID.get(norm(row.directory)) ?? row.project_id)
-            : undefined
-        if (row.kind === "project" && resolvedPID) {
-          if (!Database.hasProject(resolvedPID)) return undefined
-          const projectRow = Database.useProject(resolvedPID, (d) =>
-            d
-              .select()
-              .from(ProjectTable)
-              .where(eq(ProjectTable.id, resolvedPID as ProjectID))
-              .get(),
-          )
-          const known = projectRow ? fromRow(projectRow) : undefined
-          const icon = (() => {
-            const base = known?.icon
-            const override = row.icon_override ?? undefined
-            if (base && override) return { ...base, override }
-            if (override) return { override }
-            return base
-          })()
-          return {
-            id: row.key,
-            kind: "project" as const,
-            projectID: resolvedPID,
-            directory: row.directory,
-            worktree: known?.worktree,
-            vcs: known?.vcs,
-            name: row.name ?? known?.name ?? name(row.directory),
-            icon,
-            commands: known?.commands,
-            time: {
-              activity: row.activity_at,
-              created: row.time_created,
-              updated: row.time_updated,
-            },
-          }
-        }
-        if (row.kind === "directory" && row.project_id && (pidCounts.get(row.project_id) ?? 0) > 1) return undefined
-        const baseIcon =
-          row.icon_url || row.icon_color
-            ? rowIcon({ icon_url: row.icon_url ?? null, icon_color: row.icon_color ?? null })
-            : undefined
-        const icon = baseIcon
-          ? { ...baseIcon, override: row.icon_override ?? undefined }
-          : row.icon_override
-            ? { override: row.icon_override }
-            : undefined
-        return {
-          id: row.key,
-          kind: "directory" as const,
-          directory: row.directory,
-          name: row.name ?? name(row.directory),
-          icon,
-          time: { activity: row.activity_at, created: row.time_created, updated: row.time_updated },
-        }
-      })
+      .map((row) => classifyRecent(row))
       .filter((item) => item !== undefined && !skipDir(item.directory)) as RecentInfo[]
   }
 
@@ -743,21 +733,16 @@ export namespace Project {
             })
             .run(),
         )
+        // Sandboxes are registered here (project row + directory_meta + the
+        // global directory→project map) and shown through the project's
+        // workspace list — never as project_recent entries.
         yield* db((d) =>
           d
-            .insert(ProjectRecentTable)
-            .values({
-              key: dirKey(dirNorm),
-              kind: "directory",
-              project_id: id,
-              directory: dirNorm,
-              activity_at: Date.now(),
-              time_created: Date.now(),
-              time_updated: Date.now(),
-            })
+            .insert(GlobalProjectMapTable)
+            .values({ directory: dirNorm, project_id: id, time_created: Date.now(), time_updated: Date.now() })
             .onConflictDoUpdate({
-              target: ProjectRecentTable.key,
-              set: { kind: "directory", project_id: id, activity_at: Date.now(), time_updated: Date.now() },
+              target: GlobalProjectMapTable.directory,
+              set: { project_id: id, time_updated: Date.now() },
             })
             .run(),
         )
@@ -858,7 +843,7 @@ export namespace Project {
               key,
               kind,
               project_id: isMainWorktree ? pid : (pid ?? null),
-              directory: input.directory,
+              directory: dir,
               name: input.name ?? name(input.directory),
               icon_url: input.icon?.url ?? null,
               icon_color: input.icon?.color ?? null,
@@ -964,30 +949,32 @@ export namespace Project {
     const row = Database.use((d) => d.select().from(ProjectRecentTable).where(eq(ProjectRecentTable.key, key)).get())
     if (!row) return undefined
     const pid = row.project_id
-    if (row.kind === "project" && pid) {
-      if (!Database.hasProject(pid)) return undefined
+    if (pid && Database.hasProject(pid)) {
       const projectRow = Database.useProject(pid, (d) =>
         d.select().from(ProjectTable).where(eq(ProjectTable.id, pid)).get(),
       )
-      const known = projectRow ? fromRow(projectRow) : undefined
-      const icon = (() => {
-        const base = known?.icon
-        const override = row.icon_override ?? undefined
-        if (base && override) return { ...base, override }
-        if (override) return { override }
-        return base
-      })()
-      return {
-        id: row.key,
-        kind: "project" as const,
-        projectID: pid,
-        directory: row.directory,
-        worktree: known?.worktree,
-        vcs: known?.vcs,
-        name: row.name ?? known?.name ?? name(row.directory),
-        icon,
-        commands: known?.commands,
-        time: { activity: row.activity_at, created: row.time_created, updated: row.time_updated },
+      // Identity-derived: treat as project entry only when the directory IS the worktree.
+      if (projectRow && norm(projectRow.worktree) === dirNorm) {
+        const known = fromRow(projectRow)
+        const icon = (() => {
+          const base = known?.icon
+          const override = row.icon_override ?? undefined
+          if (base && override) return { ...base, override }
+          if (override) return { override }
+          return base
+        })()
+        return {
+          id: row.key,
+          kind: "project" as const,
+          projectID: pid,
+          directory: row.directory,
+          worktree: known?.worktree,
+          vcs: known?.vcs,
+          name: row.name ?? known?.name ?? name(row.directory),
+          icon,
+          commands: known?.commands,
+          time: { activity: row.activity_at, created: row.time_created, updated: row.time_updated },
+        }
       }
     }
     const baseIcon =
