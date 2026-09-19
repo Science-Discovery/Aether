@@ -13,6 +13,7 @@ import { useGlobalSync } from "@/context/global-sync"
 import { useLanguage } from "@/context/language"
 import { useServer } from "@/context/server"
 import { picked } from "./pick-folder"
+import { compare, sortRows, type Row } from "./dialog-select-directory-compare"
 import { useLayout } from "@/context/layout"
 
 function DialogCreateDirectory(props: { path: string; onClose: (ok: boolean) => void }) {
@@ -48,15 +49,6 @@ interface DialogSelectDirectoryProps {
   multiple?: boolean
   persistent?: boolean
   onSelect: (result: string | string[] | null) => void
-}
-
-type Row = {
-  absolute: string
-  search: string
-  group: "recent" | "folders"
-  isExpander?: true
-  isCollapser?: true
-  expanderCount?: number
 }
 
 function cleanInput(value: string) {
@@ -216,7 +208,11 @@ function useDirectorySearch(args: {
 
   const match = async (dir: string, query: string, limit: number) => {
     const items = await dirs(dir)
-    if (!query) return items.slice(0, limit).map((x) => x.absolute)
+    if (!query)
+      return [...items]
+        .sort((a, b) => compare(a.name, b.name))
+        .slice(0, limit)
+        .map((x) => x.absolute)
     return fuzzysort.go(query, items, { key: "name", limit }).map((x) => x.obj.absolute)
   }
 
@@ -346,6 +342,7 @@ export function DialogSelectDirectory(props: DialogSelectDirectoryProps) {
         const name = item.name || getFilename(item.directory)
         return { ...row, search: `${row.search}\n${name}` }
       })
+      .sort((a, b) => compare(a.absolute, b.absolute))
 
     if (!isExpanded && all.length > RECENT_LIMIT) {
       return [
@@ -522,6 +519,7 @@ export function DialogSelectDirectory(props: DialogSelectDirectoryProps) {
         key={(x) => x.absolute}
         filterKeys={["search"]}
         groupBy={(item) => item.group}
+        sortBy={sortRows}
         sortGroupsBy={(a, b) => {
           const order = { recent: 0, folders: 1 }
           return (order[a.category as keyof typeof order] ?? 2) - (order[b.category as keyof typeof order] ?? 2)
