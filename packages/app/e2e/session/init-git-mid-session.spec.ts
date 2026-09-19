@@ -54,7 +54,9 @@ test("creating a git repository mid-session keeps the running turn alive", async
   await expect.poll(status, { timeout: 30_000 }).toMatchObject({ type: "busy" })
 
   // Open the review panel; a VCS-less project shows the create-git empty state.
-  const reviewToggle = page.getByRole("button", { name: "Toggle review" }).first()
+  // The toggle label is state-dependent and differs across builds
+  // ("Toggle review" / "Open review" / "Close review"), so match loosely.
+  const reviewToggle = page.getByRole("button", { name: /^(Open|Close|Toggle) review$/i }).first()
   await expect(reviewToggle).toBeVisible()
   if ((await reviewToggle.getAttribute("aria-expanded")) !== "true") await reviewToggle.click()
   const create = page.getByRole("button", { name: "Create Git repository" })
