@@ -1733,7 +1733,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                       classList={{
                         "h-7 w-7 p-0 shrink-0 flex items-center justify-center": true,
                         "text-text-base": !accepting(),
-                        "hover:bg-surface-success-base": accepting(),
+                        "bg-surface-success-base": accepting(),
                       }}
                       style={control()}
                       aria-label={acceptLabel()}
