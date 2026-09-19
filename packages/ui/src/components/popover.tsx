@@ -78,6 +78,13 @@ export function Popover<T extends ValidComponent = "div">(props: PopoverProps<T>
       return false
     }
 
+    // Context menus opened from inside the popover (e.g. right-click on a file
+    // tree node) portal to the body and steal focus; the popover must stay open
+    // while such a menu is open or being interacted with.
+    const inContextMenu = (node: Node | null | undefined) =>
+      node instanceof Element &&
+      !!node.closest('[data-component="context-menu-content"], [data-component="context-menu-sub-content"]')
+
     const close = (reason: "escape" | "outside") => {
       setState("dismiss", reason)
       onOpenChange(false)
@@ -85,6 +92,7 @@ export function Popover<T extends ValidComponent = "div">(props: PopoverProps<T>
 
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return
+      if (event.target instanceof Node && inContextMenu(event.target)) return
       close("escape")
       event.preventDefault()
       event.stopPropagation()
@@ -93,6 +101,7 @@ export function Popover<T extends ValidComponent = "div">(props: PopoverProps<T>
     const onPointerDown = (event: PointerEvent) => {
       const target = event.target
       if (!(target instanceof Node)) return
+      if (inContextMenu(target)) return
       if (inside(target)) return
       close("outside")
     }
@@ -100,6 +109,7 @@ export function Popover<T extends ValidComponent = "div">(props: PopoverProps<T>
     const onFocusIn = (event: FocusEvent) => {
       const target = event.target
       if (!(target instanceof Node)) return
+      if (inContextMenu(target)) return
       if (inside(target)) return
       close("outside")
     }

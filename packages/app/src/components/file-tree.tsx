@@ -25,6 +25,7 @@ import {
   type ParentProps,
 } from "solid-js"
 import { TruncateMiddle } from "@/components/truncate-middle"
+import { parentDir } from "@/utils/file-tree"
 import { Dynamic } from "solid-js/web"
 import type { FileNode } from "@opencode-ai/sdk/v2"
 
@@ -247,6 +248,8 @@ export default function FileTree(props: {
   onUploadToDir?: (dir: string, type: "file" | "directory") => void
   /** PDF 转 Markdown（单文件或批量） */
   onPdfConvert?: (paths: string[]) => void
+  /** Right-click menu made a selection; the host popover should dismiss */
+  onMenuSelect?: () => void
 
   _filter?: Filter
   _marks?: Set<string>
@@ -384,7 +387,7 @@ export default function FileTree(props: {
         if (level !== 0) return ["", "", ""] as const
         const paths = [...(props.selectedPaths ?? [])]
         const path = paths.length === 1 ? paths[0] : ""
-        const node = path ? file.tree.node(path)?.path ?? "" : ""
+        const node = path ? (file.tree.node(path)?.path ?? "") : ""
         const dirs = path
           ? path
               .split("/")
@@ -467,7 +470,11 @@ export default function FileTree(props: {
   })
 
   return (
-    <div ref={level === 0 ? (node) => (root = node) : undefined} data-component="filetree" class={`flex flex-col gap-0.5 ${props.class ?? ""}`}>
+    <div
+      ref={level === 0 ? (node) => (root = node) : undefined}
+      data-component="filetree"
+      class={`flex flex-col gap-0.5 ${props.class ?? ""}`}
+    >
       <For each={nodes()}>
         {(node) => {
           const expanded = () => file.tree.state(node.path)?.expanded ?? false
@@ -492,12 +499,18 @@ export default function FileTree(props: {
           }
 
           const multiContextMenu = (trigger: () => JSXElement) => (
-            <ContextMenu>
+            <ContextMenu modal={false}>
               <ContextMenu.Trigger as="div" class="w-full">
                 {trigger()}
               </ContextMenu.Trigger>
               <ContextMenu.Portal>
-                <ContextMenu.Content>
+                <ContextMenu.Content
+                  onClick={() => props.onMenuSelect?.()}
+                  onKeyDown={(e) => {
+                    if (e.key !== "Enter" && e.key !== " ") return
+                    props.onMenuSelect?.()
+                  }}
+                >
                   <ContextMenu.Item
                     onSelect={() => {
                       const paths = [...(props.selectedPaths ?? [])]
@@ -573,12 +586,18 @@ export default function FileTree(props: {
           )
 
           const contextMenu = (trigger: () => JSXElement) => (
-            <ContextMenu>
+            <ContextMenu modal={false}>
               <ContextMenu.Trigger as="div" class="w-full">
                 {trigger()}
               </ContextMenu.Trigger>
               <ContextMenu.Portal>
-                <ContextMenu.Content>
+                <ContextMenu.Content
+                  onClick={() => props.onMenuSelect?.()}
+                  onKeyDown={(e) => {
+                    if (e.key !== "Enter" && e.key !== " ") return
+                    props.onMenuSelect?.()
+                  }}
+                >
                   {node.type === "directory" && (
                     <>
                       <ContextMenu.Item onSelect={() => props.onFileCreate?.(node.path, "file")}>
@@ -700,6 +719,7 @@ export default function FileTree(props: {
                             title: language.t("fileTree.addedToGitignore"),
                           })
                         }
+                        file.tree.refresh(parentDir(node.path))
                       } catch (err) {
                         console.error("Failed to add to .gitignore:", err)
                         showToast({
@@ -712,13 +732,20 @@ export default function FileTree(props: {
                   >
                     <ContextMenu.ItemLabel>{language.t("fileTree.ignoreChanges")}</ContextMenu.ItemLabel>
                   </ContextMenu.Item>
-                  <ContextMenu.Item onSelect={() => props.onFileRename?.(node)}>
-                    <ContextMenu.ItemLabel>{language.t("common.rename")}</ContextMenu.ItemLabel>
-                  </ContextMenu.Item>
-                  <ContextMenu.Separator />
-                  <ContextMenu.Item onSelect={() => props.onFileDelete?.(node)} class="text-red-500 focus:text-red-500">
-                    <ContextMenu.ItemLabel>{language.t("common.delete")}</ContextMenu.ItemLabel>
-                  </ContextMenu.Item>
+                  <Show when={props.onFileRename}>
+                    <ContextMenu.Item onSelect={() => props.onFileRename?.(node)}>
+                      <ContextMenu.ItemLabel>{language.t("common.rename")}</ContextMenu.ItemLabel>
+                    </ContextMenu.Item>
+                  </Show>
+                  <Show when={props.onFileDelete}>
+                    <ContextMenu.Separator />
+                    <ContextMenu.Item
+                      onSelect={() => props.onFileDelete?.(node)}
+                      class="text-red-500 focus:text-red-500"
+                    >
+                      <ContextMenu.ItemLabel>{language.t("common.delete")}</ContextMenu.ItemLabel>
+                    </ContextMenu.Item>
+                  </Show>
                 </ContextMenu.Content>
               </ContextMenu.Portal>
             </ContextMenu>
