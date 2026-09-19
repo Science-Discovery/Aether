@@ -33,10 +33,13 @@ import { useGlobalSync } from "@/context/global-sync"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { loadDescendantsForRoots } from "@/context/global-sync/session-load"
 import { useLanguage } from "@/context/language"
+import { useNotification } from "@/context/notification"
+import { usePermission } from "@/context/permission"
 import { useSettings } from "@/context/settings"
 import { enqueueRun, runKey } from "@/context/terminal"
-import { NewSessionItem, SessionItem, SessionSkeleton } from "./sidebar-items"
-import { childMapByParent, sortedRootSessions, workspaceKey } from "./helpers"
+import { isWorking } from "@/utils/working-state"
+import { NewSessionItem, SessionItem, SessionSkeleton, StatusDot } from "./sidebar-items"
+import { childMapByParent, hasProjectPermissions, sortedRootSessions, workspaceKey } from "./helpers"
 import { formatServerError } from "@/utils/server-errors"
 import { SessionImportInput } from "@/components/session-import-input"
 import { SidebarBranchView } from "@/pages/session/branch/sidebar-branch-view"
@@ -368,6 +371,10 @@ const RunScriptButton = (props: {
 
 const WorkspaceHeader = (props: {
   busy: Accessor<boolean>
+  sessionBusy: Accessor<boolean>
+  notify: Accessor<boolean>
+  hasPermissions: Accessor<boolean>
+  hasError: Accessor<boolean>
   open: Accessor<boolean>
   directory: string
   language: ReturnType<typeof useLanguage>
@@ -381,9 +388,16 @@ const WorkspaceHeader = (props: {
   setEditor: WorkspaceSidebarContext["setEditor"]
 }): JSX.Element => (
   <div class="flex items-center gap-1 min-w-0 flex-1">
-    <div class="flex items-center justify-center shrink-0 size-6">
-      <Show when={props.busy()} fallback={<Icon name="branch" size="small" />}>
+    <div class="relative flex items-center justify-center shrink-0 size-6">
+      <Show when={props.busy() || props.sessionBusy()} fallback={<Icon name="branch" size="small" />}>
         <Spinner class="size-[15px]" />
+      </Show>
+      <Show when={props.notify()}>
+        <StatusDot
+          hasPermissions={props.hasPermissions()}
+          hasError={props.hasError()}
+          class="absolute -top-1 -right-1 z-10"
+        />
       </Show>
     </div>
     <props.InlineEditor
@@ -1107,6 +1121,8 @@ export const SortableWorkspace = (props: {
   const globalSync = useGlobalSync()
   const language = useLanguage()
   const dialog = useDialog()
+  const notification = useNotification()
+  const permission = usePermission()
   const sortable = createSortable(props.directory)
   const [workspaceStore, setWorkspaceStore] = globalSync.child(props.directory, { bootstrap: false })
   const [menu, setMenu] = createStore({
@@ -1137,6 +1153,12 @@ export const SortableWorkspace = (props: {
   const busy = createMemo(() => props.ctx.isBusy(props.directory))
   const wasBusy = createMemo((prev) => prev || busy(), false)
   const loading = createMemo(() => open() && !booted() && count() === 0 && !wasBusy())
+  const sessionBusy = createMemo(() => isWorking(workspaceStore))
+  const hasPermissions = createMemo(() =>
+    hasProjectPermissions(workspaceStore.permission, (item) => !permission.autoResponds(item, props.directory)),
+  )
+  const hasError = createMemo(() => notification.project.unseenHasError(props.directory))
+  const notify = createMemo(() => hasPermissions() || notification.project.unseenCount(props.directory) > 0)
   const touch = createMediaQuery("(hover: none)")
   const showNew = createMemo(() => !loading())
   const loadMore = async () => {
@@ -1161,6 +1183,10 @@ export const SortableWorkspace = (props: {
   const header = () => (
     <WorkspaceHeader
       busy={busy}
+      sessionBusy={sessionBusy}
+      notify={notify}
+      hasPermissions={hasPermissions}
+      hasError={hasError}
       open={open}
       directory={props.directory}
       language={language}
