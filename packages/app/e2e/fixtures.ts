@@ -121,6 +121,7 @@ type ProjectHandle = {
 type ProjectOptions = {
   extra?: string[]
   model?: { providerID: string; modelID: string }
+  git?: boolean
   setup?: (directory: string) => Promise<void>
   beforeGoto?: (project: { directory: string; sdk: ReturnType<typeof createSdk> }) => Promise<void>
 }
@@ -389,7 +390,7 @@ function makeProject(
 
   const open = async (options?: ProjectOptions) => {
     if (state) return
-    const directory = await createTestProject({ serverUrl: backend.url })
+    const directory = await createTestProject({ serverUrl: backend.url, git: options?.git })
     const sdk = backend.sdk(directory)
     await options?.setup?.(directory)
     await seedStorage(page, {
