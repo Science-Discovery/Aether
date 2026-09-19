@@ -22,6 +22,7 @@ import { Plugin } from "../plugin"
 import PROMPT_PLAN from "../session/prompt/plan.txt"
 import BUILD_SWITCH from "../session/prompt/build-switch.txt"
 import MAX_STEPS from "../session/prompt/max-steps.txt"
+import ORCHESTRATE_BUILD from "../session/prompt/orchestrate-build.txt"
 import { defer } from "../util/defer"
 import { ToolRegistry } from "../tool/registry"
 import { MCP } from "../mcp"
@@ -681,6 +682,7 @@ export namespace SessionPrompt {
         ...(await SystemPrompt.environment(model)),
         ...(skills ? [skills] : []),
         ...(await InstructionPrompt.system()),
+        ...(agent.name === "build" ? [ORCHESTRATE_BUILD] : []),
       ]
       const format = lastUser.format ?? { type: "text" }
       if (format.type === "json_schema") {
