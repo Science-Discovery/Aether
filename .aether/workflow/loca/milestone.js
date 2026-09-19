@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto"
 import { milestonesOf } from "./graph.js"
 
 // 里程碑注册表与传播逻辑。全部纯函数：状态在 run 行内，任何中断后 frontier
@@ -44,8 +45,23 @@ function resolveShorthand(run, from) {
   return hits.length === 1 ? run.milestones[hits[0]] : null
 }
 
+// 里程碑内容指纹：statement/scope/产物/声明量/分支的语义标识。
+// 版本号是表面标识（任何重申报都 +1），指纹是语义标识（内容不变则不变）——
+// "确认不变"的刷新对下游应零成本。
+export function contentFingerprint(m) {
+  return createHash("sha256")
+    .update(JSON.stringify([m.statement, m.scope, m.artifacts ?? [], m.values ?? [], m.branches ?? []]))
+    .digest("hex")
+    .slice(0, 32)
+}
+
 // 前提版本漂移：注册后前提又前进了（B 类修正落地）→ 本里程碑不能直接 verified。
+// 前提漂移：注册后前提又前进了（B 类修正落地）→ 本里程碑不能直接 verified。
+// 返回 { ok, semanticBypass? } 或 { ok: false, reason }：
+//   版本漂移但内容指纹一致（"确认不变"的刷新）→ 语义放行
+//   版本与指纹都变，或前提状态退化 → 阻断
 export function premiseDrift(run, m) {
+  let bypassed = null
   for (const input of m.inputs) {
     if (input.from === "internal") continue
     const premise = run.milestones[input.from] ?? resolveShorthand(run, input.from)
@@ -53,27 +69,55 @@ export function premiseDrift(run, m) {
     // 前提状态退化（stale/failed/draft 等）与版本漂移同样阻断验证：
     // gate 时刻的封闭性检查不能保证深审完成时前提仍然成立
     if (!["verified", "quick_checked"].includes(premise.status))
-      return `${premise.id} 状态已退化为 ${premise.status}（申报时为可用前提）`
+      return { ok: false, reason: `${premise.id} 状态已退化为 ${premise.status}（申报时为可用前提）` }
     const entry = run.ledger.find((e) => e.consumer === m.id && e.consumed === input.from)
-    if (entry?.pv != null && premise.version !== entry.pv)
-      return `${premise.id} 已更新至 v${premise.version}（本里程碑申报基于 v${entry.pv}）`
+    if (entry?.pv != null && premise.version !== entry.pv) {
+      const unchanged = entry.pcf != null && contentFingerprint(premise) === entry.pcf
+      if (unchanged) {
+        bypassed = `${premise.id} v${entry.pv}→v${premise.version} 内容指纹一致（确认不变的刷新）`
+        continue
+      }
+      return {
+        ok: false,
+        reason: `${premise.id} 已更新至 v${premise.version}（本里程碑申报基于 v${entry.pv}，内容已变化）`,
+      }
+    }
   }
-  return null
+  return bypassed ? { ok: true, semanticBypass: bypassed } : { ok: true }
 }
+
+// 命题文本归一化：剥离轮次/审计叙述类样板（"经第 N 轮…后维持"、
+// "round-N patch/refine 完成X后维持"等过程性前缀），只保留命题主干。
+// 模型 patch/refine 常把过程叙述写进 statement——数学内容未变但字面变了，
+// 字面比较会让已 trusted 的验证方案被无谓重置（anchor/gate/vaudit 全链重跑）。
+const essential = (text) =>
+  String(text ?? "")
+    .replace(/，?（?经?(第)?\s*\d+\s*轮[^，。）]*复核[^，。）]*后维持[：:]?）?/g, "")
+    .replace(/，?（?经?\s*round[-\s]?\d+\s*(patch|refine|维持性补洞)[^，。）]*后维持[：:]?）?/gi, "")
+    .replace(/，?且经[^，。]{0,40}(维持|补洞|复核)[^，。]{0,30}(后)?维持[：:]?/g, "")
+    .replace(/\s+/g, "")
+    .trim()
 
 // 注册 solve 输出中的里程碑提案。
 // 规则：每个子问题的第一个提案视为计划主里程碑（使用 planner 预注册的验证方案，
 // anchor 按实现模式工作）；其余为涌现里程碑（anchor 按提案模式独立提出方案）。
-// 重复申报同一 local id → 版本递增；命题文本不变则沿用已 trusted 的验证方案，
-// 仅重跑快检与深审；命题变化则验证方案重置（重新 anchor/vaudit）。
+// 重复申报同一 local id → 版本递增；命题文本不变（归一化后主干相同）则沿用
+// 已 trusted 的验证方案，仅重跑快检与深审；命题变化则验证方案重置
+// （重新 anchor/vaudit）。
 export function registerProposals(run, sub, value) {
   const primarySeen = milestonesOf(run, sub.id).some((m) => m.kind === "planned")
   const planned = sub.verification
   value.milestones.forEach((proposal, index) => {
-    const id = `${sub.id}:${proposal.id}`
+    // local id 归一：patch/refine 模式下模型常带（多层）完整前缀申报——
+    // 循环剥掉本子问题前缀再拼接，避免 P1:P1:P1:M2-… 的累积前缀
+    let local = proposal.id
+    while (local.startsWith(`${sub.id}:`)) local = local.slice(sub.id.length + 1)
+    proposal.id = local
+    const id = `${sub.id}:${local}`
     const existing = run.milestones[id]
     if (existing && existing.status !== "superseded") {
-      const sameStatement = existing.statement === proposal.statement
+      // 归一化比较：剥离过程性叙述后的主干相同 → 命题未变
+      const sameStatement = essential(existing.statement) === essential(proposal.statement)
       const prev = existing.status
       existing.history.push({
         version: existing.version,
@@ -133,6 +177,8 @@ export function registerProposals(run, sub, value) {
         use: input.use,
         version: record.version,
         pv: premise ? premise.version : null,
+        // 注册时前提的内容指纹：版本漂移但指纹一致 → 语义未变，不算 drift
+        pcf: premise ? contentFingerprint(premise) : null,
       })
     })
   })
@@ -146,7 +192,14 @@ export function gateDecision(run, m, value) {
     return "promote"
   }
   if (value.decision === "merge") {
-    const parent = milestonesOf(run, m.subproblem).find((item) => item.id !== m.id)
+    // 语义优先：gate 声明的 mergeInto 是语义判断的结果；
+    // 未声明时回退到结构性规则（同子问题第一个其他里程碑）
+    let parent = null
+    if (value.mergeInto) {
+      const target = run.milestones[value.mergeInto]
+      if (target && target.id !== m.id && target.status !== "superseded") parent = target
+    }
+    if (!parent) parent = milestonesOf(run, m.subproblem).find((item) => item.id !== m.id)
     if (parent) {
       parent.branches.push({ id: m.id.split(":").pop(), statement: m.statement, inputs: m.inputs.map((i) => i.from) })
       // 父级已 verified 时退回 quick_checked：新分支必须补验证后重新聚合
@@ -405,18 +458,22 @@ export function aggregate(run, m) {
     (review.units ?? []).length >= (review.unitPlan?.length ?? 0) &&
     (review.unitPlan ?? []).every((id) => (review.units ?? []).some((u) => u.id === id))
   if (!complete) return { done: false }
-  // 前提版本漂移：本里程碑注册后前提又前进了（B 类修正落地），
+  // 前提漂移：本里程碑注册后前提又前进了（B 类修正落地），
   // 不能在旧前提上直接 verified——作为失败交 triage 重做。
+  // 语义放行（版本变但内容指纹一致）记入 review 供审计。
   const drift = premiseDrift(run, m)
-  if (drift)
+  if (!drift.ok) {
     findings.push({
       id: `${m.id}-drift`,
       target: m.id,
-      detail: `前提版本漂移：${drift}`,
+      detail: `前提漂移：${drift.reason}`,
       evidence: m.artifacts.slice(0, 4),
       repair: "solve",
       blocking: true,
     })
+  } else if (drift.semanticBypass) {
+    review.driftBypasses = [...(review.driftBypasses ?? []), drift.semanticBypass]
+  }
   if (findings.some((f) => f.blocking)) {
     m.status = "failed"
     m.review.findings = findings
@@ -425,7 +482,7 @@ export function aggregate(run, m) {
   m.status = "verified"
   m.strength = strengthName(chainStrength(run, m))
   m.review.findings = []
-  return { done: true, failed: false }
+  return { done: true, failed: false, bypasses: review.driftBypasses ?? [] }
 }
 
 // milestone 深审是否全部组件到齐（frontier 判定用）。
@@ -492,4 +549,55 @@ export function retainProblems(value, prior) {
       value.problems.push({ id: item.id, detail: item.detail, status: "open", evidence: [] })
   })
   value.problems = mergeProblems(value.problems)
+}
+
+// planner 声明的语义迁移（oldSubId → newSubId）：以语义为核心的重连。
+// 原子重布线：里程碑 key 与 subproblem、inputs/branches 引用、账本边、
+// verifiers 键、subresults/subreports。冲突（新 key 已被占用）时保守放弃
+// 该子问题的迁移（其里程碑随后走孤儿清理），并返回跳过清单。
+export function migrateSubproblems(run, mapping) {
+  const keyMap = new Map()
+  const skipped = []
+  for (const [oldId, newId] of Object.entries(mapping)) {
+    const owned = Object.entries(run.milestones).filter(([, m]) => m.subproblem === oldId)
+    const clash = owned.some(([key]) => {
+      const newKey = `${newId}:${key.split(":").slice(1).join(":")}`
+      return newKey !== key && run.milestones[newKey] !== undefined
+    })
+    if (clash) {
+      skipped.push(oldId)
+      continue
+    }
+    for (const [key, m] of owned) {
+      const newKey = `${newId}:${key.split(":").slice(1).join(":")}`
+      m.subproblem = newId
+      if (newKey !== key) {
+        run.milestones[newKey] = m
+        delete run.milestones[key]
+      }
+      keyMap.set(key, newKey)
+    }
+    if (run.subresults[oldId] !== undefined && run.subresults[newId] === undefined) {
+      run.subresults[newId] = run.subresults[oldId]
+      delete run.subresults[oldId]
+    }
+    if (run.subreports?.[oldId] !== undefined) {
+      run.subreports[newId] = run.subreports[oldId]
+      delete run.subreports[oldId]
+    }
+  }
+  const rewrite = (ref) => (typeof ref === "string" ? (keyMap.get(ref) ?? ref) : ref)
+  for (const m of Object.values(run.milestones)) {
+    m.inputs = (m.inputs ?? []).map((i) => ({ ...i, from: rewrite(i.from) }))
+    m.branches = (m.branches ?? []).map((b) => ({ ...b, inputs: (b.inputs ?? []).map(rewrite) }))
+    if (typeof m.mergedInto === "string") m.mergedInto = rewrite(m.mergedInto)
+  }
+  for (const e of run.ledger) {
+    e.consumer = rewrite(e.consumer)
+    e.consumed = rewrite(e.consumed)
+  }
+  const verifiers = {}
+  for (const [k, v] of Object.entries(run.verifiers)) verifiers[rewrite(k)] = v
+  run.verifiers = verifiers
+  return { migrated: [...keyMap.keys()], skipped }
 }

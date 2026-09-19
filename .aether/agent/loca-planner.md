@@ -23,5 +23,6 @@ permission:
   - verification：**预注册验证方案**——锚类型（programmatic 可程序检查 / rederivation 独立重推导 / limit 极限特例 / literature 文献基准 / crosscheck 交叉验证 / weak 无独立锚）+ 具体规格（检查什么性质、怎么检查）。预注册防止"看到答案后发明软验证"
   - robustness：目标抗失效性自检——说明目标为何结论无关，或为何必须依赖具体结论
 - 有 verified 里程碑可复用时（packet.verified）优先沿用，不要推倒重来
+- **语义迁移声明**：重排时凡语义上沿用旧计划子问题的（即使 id 改名或 goal 措辞调整），必须在其 `migratedFrom` 字段填旧子问题 id——引擎据此迁移既有里程碑、验证器与求解成果。未声明的旧子问题按删除处理（其里程碑被归档）。宁可多声明迁移、少丢弃成果
 - packet.feedback 是上一计划版本的失败分类（A/B/C）——C 类重规划只重排受影响子树，独立分支保留
 - 优先 programmatic 锚：物理/数值问题中的守恒律、恒等式、量纲、极限退化大多可写成检查程序，一次审计终身重跑

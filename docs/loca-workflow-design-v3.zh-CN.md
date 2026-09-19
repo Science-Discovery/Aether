@@ -82,9 +82,11 @@ draft（solve 声明中）
   → unverified（深审失败且未修复）
 ```
 
-### 2.4 执行验收状态机（沿用 v2 不变）
+### 2.4 执行验收状态机（v3.1 增补 interrupted 续传）
 
 queued → preparing → running → checking → accepted / rejected → retrying；blocked / error / timeout / cancelled / stale / exhausted 终态。一份证据完整、schema 合格的 `verdict: fail` 是 accepted 的合法执行。
+
+`interrupted`（v3.1）：进程/实例中断遗留的在飞 job 转入此暂存态（保留隔离子会话与上下文目录）；恢复后同 role+slot+packet 的调度命中时回到 queued→preparing 走**原会话续传**（带 resume 指令，`produced` 从落盘资产按 job 字段回填）。packet 或 epoch 已变化的候选转 stale 归档。用户 cancel、任务级 abort、watchdog 超时不进此态。
 
 ## 3. 里程碑：判据与通道
 
@@ -223,7 +225,7 @@ integrate 输出逐标准责任表：标准 ID/原文 → 负责里程碑（含�
 
 ## 10. 配置（workflow.json 摘要）
 
-`concurrency`（4）、`attempts`（3）、`cycles`（16，计划版本数）、`calls`（360）、`depth`（推测深度默认 1）、`questions`（每里程碑 adversarial 追问上限）、`timeout`（按角色）、`packet`/`bytes`/`idle`、`execution`、`checks`（gate/verify/unit/adversarial/compat/vaudit/triage/integrate 各自的必需检查项）。
+`concurrency`（4）、`attempts`（3）、`cycles`（16，计划版本数）、`calls`（360）、`depth`（推测深度默认 1）、`questions`（每里程碑 adversarial 追问上限）、`timeout`（按角色 wall-clock 上限，v3.1 软化：不杀活跃任务，仅停滞时生效；活跃超 `timeout×4` 绝对上限才强杀）、`packet`/`bytes`/`idle`（watchdog 停滞判定，活动语义）、`execution`、`checks`（gate/verify/unit/adversarial/compat/vaudit/triage/integrate 各自的必需检查项）。
 
 ## 11. 开放问题与评估计划
 

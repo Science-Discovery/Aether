@@ -1564,27 +1564,15 @@ ToolRegistry.register({
   },
 })
 
-const LOCA_PHASES = [
-  "contract",
-  "solve",
-  "split",
-  "structure",
-  "inputs",
-  "validate",
-  "review",
-  "integrate",
-  "awaiting_human",
-]
+// LOCA v3 阶段序列（与 .aether/workflow/loca/engine.js 的 LABELS 对应）。
+// v2 的 explore/solve/assemble/split/structure/inputs/validate/review 已废弃。
+const LOCA_PHASES = ["contract", "planning", "working", "integrating", "awaiting_human"]
 const LOCA_LABEL: Record<string, string> = {
   new: "启动",
   contract: "合约",
-  solve: "求解",
-  split: "拆分",
-  structure: "结构审核",
-  inputs: "输入审核",
-  validate: "验证",
-  review: "面板审核",
-  integrate: "集成",
+  planning: "规划",
+  working: "里程碑工作",
+  integrating: "集成",
   awaiting_human: "待人工验收",
   accepted: "已验收",
   cancelled: "已取消",
@@ -1599,23 +1587,68 @@ ToolRegistry.register({
     const running = () => props.status === "pending" || props.status === "running"
     const title = () => {
       const m = meta()
-      const role =
-        typeof m.role === "string"
+      const end = terminal()
+      const role = end
+        ? end
+        : typeof m.role === "string"
           ? `${m.role}${m.slot ? `#${m.slot}` : ""} attempt ${m.attempt ?? 1}`
           : (LOCA_LABEL[m.phase as string] ?? m.phase ?? "")
-      return `LOCA R${m.round ?? 0}C${m.cycle ?? 0} · ${role}`
+      const beat = typeof m.turns === "number" ? ` · 轮次 ${m.turns} · 工具 ${m.tools ?? 0}` : ""
+      const budget = typeof m.calls === "number" ? ` · 调用 ${m.calls}/${m.budget ?? "?"}` : ""
+      return `LOCA R${m.round ?? 0}C${m.cycle ?? 0} · ${role}${beat}${budget}`
     }
+    // 折叠态可见的最新动态：工具运行中每完成一项里程碑工作（solve/验证方案/
+    // 快检/深审组件/修复）即时更新一行简要汇报，无需展开
     const subtitle = () => {
-      const m = meta()
-      return typeof m.calls === "number" ? `调用 ${m.calls}/${m.budget ?? "?"}` : undefined
+      const list = digests()
+      const latest = (list.at(-1) as string | undefined) ?? ""
+      return latest ? `最新：${latest.length > 90 ? `${latest.slice(0, 90)}…` : latest}` : undefined
     }
     const items = createMemo(() => {
-      const at = LOCA_PHASES.indexOf(meta().phase as string)
-      return LOCA_PHASES.map((phase, index) => ({
-        phase,
-        label: LOCA_LABEL[phase] ?? phase,
-        state: at < 0 || index < at ? "done" : index === at ? "active" : "todo",
+      const m = meta()
+      // Terminal phases never appear in LOCA_PHASES: when the tool has settled,
+      // the definitive phase comes from the engine's final status line, not the
+      // last live heartbeat (which stays mid-work — e.g. "assemble" — and made
+      // every earlier stage look "done" on an unfinished/cancelled run).
+      const settled =
+        !running() && typeof m.phase === "string" && !LOCA_PHASES.includes(m.phase) ? (m.phase as string) : null
+      const phase = settled ?? (m.phase as string)
+      const at = LOCA_PHASES.indexOf(phase)
+      return LOCA_PHASES.map((p, index) => ({
+        phase: p,
+        label: LOCA_LABEL[p] ?? p,
+        // No phase metadata at all (a stale/empty loca call) must not render as
+        // "everything done" — indexOf(undefined) is -1 and used to flip every stage
+        // to done. Unknown phase = all pending.
+        state:
+          typeof phase !== "string"
+            ? "todo"
+            : settled
+              ? // 终态且不在序列中（accepted/unfinished/…）：到达即全链完成；
+                // 终态在序列中（awaiting_human）：当前及之前均完成
+                at < 0
+                ? "done"
+                : index <= at
+                  ? "done"
+                  : "todo"
+              : at < 0
+                ? "todo"
+                : index < at
+                  ? "done"
+                  : index === at
+                    ? "active"
+                    : "todo",
       }))
+    })
+    const terminal = () => {
+      const phase = (meta().phase as string) ?? ""
+      return ["unfinished", "cancelled", "needs_human", "awaiting_human", "accepted"].includes(phase) && !running()
+        ? (LOCA_LABEL[phase] ?? phase)
+        : null
+    }
+    const digests = createMemo(() => {
+      const list = meta().stages
+      return Array.isArray(list) ? (list as string[]) : []
     })
     return (
       <BasicTool {...props} icon="checklist" trigger={{ title: title(), subtitle: subtitle() }} forceOpen={running()}>
@@ -1638,6 +1671,20 @@ ToolRegistry.register({
               )}
             </For>
           </div>
+          <Show when={digests().length > 0}>
+            <div data-slot="loca-progress-digests" class="flex flex-col gap-2 border-t border-border-weak pt-2">
+              <div class="text-13-semibold text-text-base">阶段纪要</div>
+              <For each={digests()}>
+                {(note) => <div class="text-13-regular text-text-base whitespace-pre-wrap">{note}</div>}
+              </For>
+              <Show when={typeof meta().summary === "string" && !running()}>
+                <div class="text-13-regular text-text-weak">当前：{meta().summary as string}</div>
+              </Show>
+              <Show when={typeof meta().report === "string"}>
+                <div class="text-13-regular text-text-weak">阶段报告：{meta().report as string}</div>
+              </Show>
+            </div>
+          </Show>
           <Show when={!running() && props.output}>
             <div data-component="tool-output" data-scrollable>
               <Markdown text={props.output!} />

@@ -140,8 +140,12 @@ export default async function loca(input) {
           throw new Error(`Tool ${request.tool} is outside the ${context.role} input boundary`)
         if (request.tool === "bash" && typeof request.input?.command === "string") {
           const cmd = request.input.command
-          if (/\/loca\/\.runtime|\.runtime\/(state\.sqlite|blobs|contexts)/.test(cmd))
-            throw new Error("loca/.runtime is the immutable workflow ledger; write to loca/results instead")
+          // 上下文隔离：.runtime（含 contexts 子会话）对角色完全不可见——
+          // 读访问同样拒绝（实测 vaudit 曾用 ls/sha256sum/cp 穿透到内部上下文做"解码考古"）
+          if (/\.runtime|\/loca\/results\/.*\/\.runtime/.test(cmd))
+            throw new Error(
+              "loca/.runtime 是工作流私有账本与隔离上下文，读写均被拒绝；审计对象请通过 packet 资产与 loca_evidence 访问",
+            )
           const writes = cmd.match(/(?:>>?|tee|cp|mv|rm|touch|sed -i|truncate)\s+(\S+)/g) ?? []
           for (const w of writes) {
             const target = w.split(/\s+/).pop()

@@ -139,6 +139,9 @@ async function refreshAccessToken(refreshToken: string): Promise<TokenResponse> 
       refresh_token: refreshToken,
       client_id: CLIENT_ID,
     }).toString(),
+    // 受限网络下 auth.openai.com 会挂起到 TCP 层超时（实测 5 分钟）——
+    // provider state 初始化被此阻塞会拖住整个项目实例的首次可用时间
+    signal: AbortSignal.timeout(15_000),
   })
   if (!response.ok) {
     throw new Error(`Token refresh failed: ${response.status}`)
@@ -415,7 +418,10 @@ export async function CodexAuthPlugin(input: PluginInput): Promise<Hooks> {
           return next
         }
 
-        function authenticated(init: RequestInit | undefined, current: NonNullable<Awaited<ReturnType<typeof credentials>>>) {
+        function authenticated(
+          init: RequestInit | undefined,
+          current: NonNullable<Awaited<ReturnType<typeof credentials>>>,
+        ) {
           const headers = new Headers(init?.headers)
           headers.delete("authorization")
           headers.set("authorization", `Bearer ${current.access}`)
@@ -424,8 +430,7 @@ export async function CodexAuthPlugin(input: PluginInput): Promise<Hooks> {
         }
 
         const allowed = await CodexModels.activate({
-          identity:
-            (auth as typeof auth & { accountId?: string }).accountId ?? parseJwtClaims(auth.access)?.sub,
+          identity: (auth as typeof auth & { accountId?: string }).accountId ?? parseJwtClaims(auth.access)?.sub,
           seed: auth.refresh,
           async fetcher(requestInput, init) {
             const current = await credentials()
@@ -449,9 +454,7 @@ export async function CodexAuthPlugin(input: PluginInput): Promise<Hooks> {
           "gpt-5.5-pro",
         ])
         for (const [modelId, model] of Object.entries(provider.models)) {
-          const enabled = allowed
-            ? allowed.has(model.api.id)
-            : modelId.includes("codex") || fallback.has(modelId)
+          const enabled = allowed ? allowed.has(model.api.id) : modelId.includes("codex") || fallback.has(modelId)
           if (!enabled) delete provider.models[modelId]
         }
 

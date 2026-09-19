@@ -75,6 +75,9 @@ export const schemas = {
               verification: z.object({ anchor: z.enum(anchors), spec: text }).strict(),
               // 目标抗失效性自检：说明目标陈述为何是结论无关的（或为何必须依赖具体结论）。
               robustness: text,
+              // 语义迁移声明：重排时若本子问题语义上沿用旧计划的某个子问题
+              // （即使 id 改名），填旧子问题 id——引擎据此迁移其里程碑与成果。
+              migratedFrom: text.optional(),
             })
             .strict(),
         )
@@ -118,9 +121,11 @@ export const schemas = {
     .strict(),
   gate: z
     .object({
-      // promote 升格为里程碑进入审核；merge 并入父里程碑作为 semi-e2e 分支；
-      // continue 未逻辑封闭，回到 solve 继续累积。
+      // promote 升格为里程碑进入审核；merge 并入父里程碑作为 semi-e2e 分支
+      // （mergeInto 声明语义正确的父级，从 packet.mergeCandidates 中原样复制 id；
+      //  未声明时折叠到同子问题的主里程碑）；continue 未逻辑封闭，回到 solve 继续累积。
       decision: z.enum(["promote", "merge", "continue"]),
+      mergeInto: text.optional(),
       checks: z.array(check).min(1),
       note: text,
       findings: z.array(issue),

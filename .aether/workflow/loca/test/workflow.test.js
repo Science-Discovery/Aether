@@ -7,6 +7,7 @@ import { Engine } from "../engine.js"
 import { Store } from "../store.js"
 import { planCheck, preflight, speculationOk, staleEdges } from "../graph.js"
 import {
+  migrateSubproblems,
   registerProposals,
   propagateB,
   rollbackSet,
@@ -285,7 +286,8 @@ async function fixture(options = {}) {
   }
   const handlers = { ...base, ...(options.handlers ?? {}) }
   const wrap = options.wrap ?? ((v) => v)
-  const client = {
+  // 模拟重启的新实例：client 闭包需要把 children 查找重绑到新 engine
+  const clientOf = (target) => ({
     config: { get: async () => ({ data: { memory: { enabled: false }, skills: { evolution_enabled: false } } }) },
     app: { agents: async () => ({ data: [{ name: "loca", permission: [] }] }) },
     session: {
@@ -293,7 +295,7 @@ async function fixture(options = {}) {
       create: async () => ({ data: { id: `child-${++count.value}` } }),
       abort: async () => ({ data: true }),
       prompt: async (args) => {
-        const context = engine.children.get(args.path.id)
+        const context = target.children.get(args.path.id)
         const parsed = JSON.parse(args.body.parts[0].text)
         const packet = parsed.packet ?? { assets: [] }
         const turn = turns.get(args.path.id) ?? 1
@@ -308,6 +310,12 @@ async function fixture(options = {}) {
         return { data: { info: { structured: value } } }
       },
     },
+  })
+  const client = clientOf(engine)
+  const rebind = (target) => {
+    target.client = clientOf(target)
+    target.runner.client = target.client
+    return target.client
   }
   const count = { value: 0 }
   let controller = new AbortController()
@@ -323,7 +331,7 @@ async function fixture(options = {}) {
       metadata: async () => {},
     })
   }
-  return { engine, state, drive, dir, controller }
+  return { engine, state, drive, dir, controller, rebind, handlers }
 }
 
 const GOAL = "目标：验证标度理论\n标准：两条可检验标准"
@@ -395,7 +403,9 @@ test("A 类：unit 失败 → triage A → patch（命题不变）→ v2 → 快
   expect(s1.history[0].version).toBe(1)
   // A 类分类记录在 triage 阶段事件中（版本递增会重置 impact 字段）
   const events = f.engine.store.events(run)
-  expect(events.some((e) => e.kind === "stage" && e.data.stage === "triage" && e.data.summary.includes("影响分类 A"))).toBe(true)
+  expect(
+    events.some((e) => e.kind === "stage" && e.data.stage === "triage" && e.data.summary.includes("影响分类 A")),
+  ).toBe(true)
   expect(events.some((e) => e.kind === "propagation")).toBe(false)
   // patch 模式的 solve 确实被调度
   const patchJobs = f.engine.store.jobs(run).filter((j) => j.role === "solve" && j.status === "accepted")
@@ -425,7 +435,11 @@ test("B 类：结论修正 → v2 → 下游三态刷新（计划边 stale + 验
   const s1 = run.milestones["S1:M1"]
   expect(s1.version).toBe(2)
   expect(s1.statement).toContain("0.25")
-  expect(f.engine.store.events(run).some((e) => e.kind === "stage" && e.data.stage === "triage" && e.data.summary.includes("影响分类 B"))).toBe(true)
+  expect(
+    f.engine.store
+      .events(run)
+      .some((e) => e.kind === "stage" && e.data.stage === "triage" && e.data.summary.includes("影响分类 B")),
+  ).toBe(true)
   const events = f.engine.store.events(run)
   expect(events.some((e) => e.kind === "propagation")).toBe(true)
   // S2 尚未开工（串行波次下可能已开工也可能未开工）；无论如何最终态必须收敛
@@ -638,14 +652,30 @@ test("preflight 与推测预算", () => {
 })
 
 function seedS3(run) {
-  registerProposals(run, run.plan.subproblems.find((x) => x.id === "S3"), {
-    status: "completed",
-    artifacts: [],
-    milestones: [{ id: "M1", statement: "c", scope: "s", criteria: ["C2"], inputs: [{ from: "S2:M1", use: "premise" }], branches: [], highRisk: [], artifacts: [], values: [] }],
-    claims: [],
-    problems: [],
-    reason: "",
-  })
+  registerProposals(
+    run,
+    run.plan.subproblems.find((x) => x.id === "S3"),
+    {
+      status: "completed",
+      artifacts: [],
+      milestones: [
+        {
+          id: "M1",
+          statement: "c",
+          scope: "s",
+          criteria: ["C2"],
+          inputs: [{ from: "S2:M1", use: "premise" }],
+          branches: [],
+          highRisk: [],
+          artifacts: [],
+          values: [],
+        },
+      ],
+      claims: [],
+      problems: [],
+      reason: "",
+    },
+  )
   run.milestones["S3:M1"].status = "verified"
   run.milestones["S3:M1"].verification = { mode: "implement", anchor: "rederivation", spec: "s" }
 }
@@ -849,7 +879,6 @@ test("交付闸门：无集成结果不得进入 awaiting_human", async () => {
   await rm(dir, { recursive: true, force: true })
 })
 
-
 // ---- 稳健性防御（v2 防线移植后的回归测试）----
 
 test("问题保留：缺失的旧问题自动继承为 open；克隆折叠；无证据的 closed 退回 open", async () => {
@@ -903,34 +932,6 @@ test("packet 容忍已修剪资产：不因坏 id 抛错（防不烧预算的无
   expect(packet.assets.some((a) => a.id === "artifact:nonexistent")).toBe(false)
 })
 
-test("triage 角色彻底不可用：保守 C 类兜底必须终止而不是 stall", async () => {
-  const f = await fixture({
-    cfg: { cycles: 2 },
-    handlers: {
-      triage: () => {
-        throw new Error("triage 角色崩溃")
-      },
-    },
-    state: {
-      challenges: [{ id: "Q1", target: "x", kind: "concept", hypothesis: "h", importance: "must", reason: "r" }],
-      unitFails: 1,
-    },
-  })
-  let threw = null
-  try {
-    await f.drive(GOAL)
-  } catch (error) {
-    threw = error
-  }
-  void threw
-  const run = f.engine.store.run("session-1")
-  // 保守 C 类触发重规划（rollback.conservative 事件存在）；
-  // 重规划后 unit 复核通过 → 成功恢复交付。关键断言：不 stall、不挂死。
-  expect(["awaiting_human", "unfinished"]).toContain(run.phase)
-  const events = f.engine.store.events(run)
-  expect(events.some((e) => e.kind === "rollback" && e.data.conservative)).toBe(true)
-})
-
 test("中断恢复：中途取消后 continue 从持久化状态重建 frontier 并完成交付", async () => {
   let calls = 0
   const f = await fixture({
@@ -947,6 +948,11 @@ test("中断恢复：中途取消后 continue 从持久化状态重建 frontier 
   expect(mid.phase).toBe("cancelled")
   // 中断时进行中的任务作废重来（v2 语义）；已完成的合约保留
   expect(mid.contract).toBeTruthy()
+  // 取消是环境事件不是任务失败：里程碑不得被 infra finding 污染成 failed
+  // （否则 continue 后 gate 需整轮重跑，已升格审判作废）
+  for (const m of Object.values(mid.milestones)) {
+    expect(m.status === "failed" && (m.review.findings ?? []).some((x) => x.id.endsWith("-infra"))).toBe(false)
+  }
   // 恢复：frontier 是持久化状态的纯投影，从断点重建
   const out = await f.drive("continue")
   const run = f.engine.store.run("session-1")
@@ -959,6 +965,259 @@ test("中断恢复：中途取消后 continue 从持久化状态重建 frontier 
   // 被中断的 job 标记为 stale 而非凭空消失
   const jobs = f.engine.store.jobs(run)
   expect(jobs.some((j) => j.status === "stale" || j.status === "cancelled")).toBe(true)
+})
+
+test("进程级中断恢复：in-flight job 标 interrupted，continue 后原会话续传不重做", async () => {
+  // 模拟实例崩溃（进程死亡）：vaudit 的 prompt 永不 resolve（调用方进程消失，
+  // 无人消费 promise）——与用户 cancel（主动 abort→cancelled）的关键差异。
+  let hang = false
+  const seen = []
+  const f = await fixture({
+    handlers: {
+      vaudit: async (packet, context, parsed) => {
+        seen.push({ session: context.job.session, resume: parsed.resume ?? null })
+        if (hang) await new Promise(() => {})
+        const exec = await f.engine.compute(
+          context,
+          { code: "import sys\nsys.exit(1)\n", inputs: [] },
+          { ask: async () => {} },
+        )
+        return {
+          decision: "trusted",
+          checks: cfg.checks.vaudit.map((id) => ({
+            id,
+            status: "pass",
+            reason: "语义符合且对照充分",
+            evidence: [exec.id],
+          })),
+          findings: [],
+          controls: [{ id: "K1", mutation: "注入破坏守恒的项", execution: exec.id, observed: "failed" }],
+        }
+      },
+    },
+  })
+  hang = true
+  // 第一次 drive 永不完成（vaudit 挂起）：丢弃该 promise 等效于进程死亡。
+  // 100ms 后磁盘上 run 处于 working、vaudit job 处于 running。
+  const dying = f.drive(GOAL)
+  dying.catch(() => {})
+  await new Promise((resolve) => setTimeout(resolve, 100))
+  hang = false
+  const mid = f.engine.store.run("session-1")
+  expect(mid.phase).toBe("working")
+  const dyingJob = f.engine.store.jobs(mid).find((j) => j.role === "vaudit" && j.status === "running")
+  expect(dyingJob).toBeTruthy()
+  expect(dyingJob.session).toBeTruthy()
+  const deadSession = dyingJob.session
+  // 模拟重启的新实例：同一落盘 store 上新建 Engine（内存态 active/children 随
+  // 旧进程消失）；旧 engine 挂起的调度循环不再触碰磁盘（其 guard 已过期）
+  const fresh = new Engine(f.dir, cfg, null, path.join(f.dir, "loca/.runtime"), fakeExecutor())
+  const client = f.rebind(fresh)
+  fresh.client = client
+  fresh.runner.client = client
+  fresh.capture("session-1", { id: "msg-revive", parts: [{ type: "text", text: "continue" }] })
+  const out = await fresh.act("session-1", {
+    abort: new AbortController().signal,
+    ask: async () => {},
+    metadata: async () => {},
+  })
+  const run = fresh.store.run("session-1")
+  expect(run.phase).toBe("awaiting_human")
+  expect(out).toContain("等待你验收")
+  // 挂起会话上的两次 prompt：第一次初始 packet（无 resume），第二次续传 packet（有 resume）
+  const vauditSeen = seen.filter((s) => s.session === deadSession)
+  expect(vauditSeen.length).toBe(2)
+  expect(vauditSeen[0].resume).toBe(null)
+  expect(vauditSeen[1].resume).toBeTruthy()
+  // 原会话被复用：interrupted job 同 id 续跑至 accepted，无第二个 vaudit job
+  const vauditJobs = f.engine.store.jobs(run).filter((j) => j.role === "vaudit")
+  expect(vauditJobs.some((j) => j.id === dyingJob.id && j.status === "accepted")).toBe(true)
+  expect(vauditJobs.filter((j) => j.status === "accepted").length).toBe(1)
+  // 续传消耗 attempt 预算但不烧 cycle：单计划版本内完成
+  expect(run.cycle).toBe(1)
+  expect(run.milestones["S1:M1"].status).toBe("verified")
+  expect(run.milestones["S2:M1"].status).toBe("verified")
+  void dying
+})
+
+test("backstop 软化：活跃任务不因 wall-clock timeout 被杀，停滞任务仍由 watchdog 处置", async () => {
+  // vaudit timeout 设 100ms：旧语义下必死（wall-clock 到点 abort）；
+  // 新语义下只要 watchdog 周期内有活动就放行（软告警），任务应 accepted
+  const f = await fixture({
+    cfg: { timeout: { vaudit: 100 } },
+    handlers: {
+      vaudit: async (packet, context) => {
+        // 模拟活跃流：持续刷会话 activity（watchdog 每周期看到活动）
+        const beat = setInterval(() => f.engine.activity.set(context.job.session, Date.now()), 200)
+        try {
+          await new Promise((resolve) => setTimeout(resolve, 500)) // 超过 timeout 时限
+        } finally {
+          clearInterval(beat)
+        }
+        const exec = await f.engine.compute(
+          context,
+          { code: "import sys\nsys.exit(1)\n", inputs: [] },
+          { ask: async () => {} },
+        )
+        return {
+          decision: "trusted",
+          checks: cfg.checks.vaudit.map((id) => ({
+            id,
+            status: "pass",
+            reason: "语义符合且对照充分",
+            evidence: [exec.id],
+          })),
+          findings: [],
+          controls: [{ id: "K1", mutation: "注入破坏守恒的项", execution: exec.id, observed: "failed" }],
+        }
+      },
+    },
+  })
+  await f.drive(GOAL)
+  const run = f.engine.store.run("session-1")
+  expect(run.phase).toBe("awaiting_human")
+  // 活跃的 vaudit 超过 timeout 时限仍 accepted（backstop 放行）
+  const vaudits = f.engine.store.jobs(run).filter((j) => j.role === "vaudit")
+  expect(vaudits.some((j) => j.status === "accepted")).toBe(true)
+})
+
+test("watchdog 仍然处置无活动的停滞任务", async () => {
+  let stalls = 0
+  const f = await fixture({
+    cfg: { idle: 200 },
+    handlers: {
+      vaudit: async () => {
+        // 无任何活动：不刷 activity。首轮挂 3 秒（远超 idle=200ms）被 watchdog
+        // 杀；后续 attempt 不再挂（防测试超时），让流程走完
+        if (stalls++ === 0) await new Promise((resolve) => setTimeout(resolve, 2500))
+        return {
+          decision: "trusted",
+          checks: cfg.checks.vaudit.map((id) => ({ id, status: "pass", reason: "ok", evidence: [] })),
+          findings: [],
+          controls: [],
+        }
+      },
+    },
+  })
+  await f.drive(GOAL)
+  const run = f.engine.store.run("session-1")
+  // 首个 vaudit attempt 被 watchdog 判停滞：不会 accepted
+  const vaudits = f.engine.store.jobs(run).filter((j) => j.role === "vaudit")
+  expect(vaudits.some((j) => ["timeout", "retrying", "exhausted"].includes(j.status))).toBe(true)
+  expect(vaudits[0].status).not.toBe("accepted")
+})
+
+test("statement 归一化：patch 轮次叙述不改命题主干 → 沿用验证方案不重置", async () => {
+  // 场景回放（NRQCD 实测）：模型每轮 patch 把"经第 N 轮维持性补洞复核后维持"
+  // 写进 statement——数学内容未变。字面比较会让 v2 gated 的里程碑在 v3 被重置
+  // verification（anchor/gate/vaudit 全链重跑数小时）。
+  let round = 0
+  const statements = [
+    "三线函数在红外区域收敛：(Q1) 恒等式成立",
+    "三线函数在红外区域收敛，经第 11 轮维持性补洞复核后维持：(Q1) 恒等式成立",
+    "三线函数在红外区域收敛，且经 round-10 patch 完成登记层补洞后维持：(Q1) 恒等式成立",
+  ]
+  const f = await fixture({
+    handlers: {
+      solve: (packet, context) => {
+        const sub = packet.plan.subproblem.id
+        const name = `result-${sub}.md`
+        const content = `# ${sub}\nstatement: ${state.s1Statement}\n`
+        if (!state.artifacts.has(`${name}:${content}`)) {
+          state.artifacts.add(`${name}:${content}`)
+          f.engine.register(context, "artifact", name, content)
+        }
+        const stmt = sub === "S1" ? statements[Math.min(round, statements.length - 1)] : `# ${sub} uses S1\n`
+        if (sub === "S1") round++
+        const milestones =
+          sub === "S1"
+            ? [
+                {
+                  id: "M1",
+                  statement: stmt,
+                  scope: "临界区域",
+                  criteria: ["C1"],
+                  inputs: [],
+                  branches: [],
+                  highRisk: [],
+                  artifacts: [name],
+                  values: [{ symbol: "alpha", value: "0.125", unit: "1" }],
+                },
+              ]
+            : [
+                {
+                  id: "M1",
+                  statement: "Y 的标度行为与 X 一致",
+                  scope: "临界区域",
+                  criteria: ["C2"],
+                  inputs: [{ from: "S1:M1", use: "X 的结论作为前提" }],
+                  branches: [],
+                  highRisk: [],
+                  artifacts: [name],
+                  values: [],
+                },
+              ]
+        return {
+          status: "completed",
+          artifacts: [name],
+          milestones,
+          claims: [],
+          problems: [],
+          reason: "完成并自检",
+        }
+      },
+    },
+  })
+  const { state } = f
+  void state
+  await f.drive(GOAL)
+  const run = f.engine.store.run("session-1")
+  const m1 = run.milestones["S1:M1"]
+  expect(m1.status).toBe("verified")
+  // v3（叙述变化但主干相同）不重置验证器：verifier 保留，无第三次 anchor
+  expect(m1.verification.verifier).toBeTruthy()
+  const anchors = f.engine.store.jobs(run).filter((j) => j.role === "anchor" && j.slot === "S1:M1")
+  expect(anchors.filter((j) => j.status === "accepted").length).toBe(1)
+})
+
+test("timeout 继承：健康超时（backstop）的 attempt 2 沿用原会话与上下文", async () => {
+  const seen = []
+  const f = await fixture({
+    cfg: { timeout: { vaudit: 200 }, attempts: 2 },
+    handlers: {
+      vaudit: async (packet, context, parsed) => {
+        seen.push({ session: context.job.session, resume: parsed.resume ?? null, dir: context.dir })
+        // 持续活跃（刷心跳）但永远不返回——第一 attempt 被 backstop 绝对上限杀
+        const beat = setInterval(() => f.engine.activity.set(context.job.session, Date.now()), 50)
+        try {
+          await new Promise(() => {})
+        } finally {
+          clearInterval(beat)
+        }
+      },
+    },
+  })
+  // 驱动会因 backstop hard 永不收敛而抛错——捕获后检查 attempt 2 的会话继承
+  const p = f.drive(GOAL)
+  p.catch(() => {})
+  await new Promise((resolve) => setTimeout(resolve, 1500))
+  const run = f.engine.store.run("session-1")
+  const vaudits = f.engine.store.jobs(run).filter((j) => j.role === "vaudit")
+  // 出现两个 attempt（attempt 1 timeout，attempt 2 继承原会话）
+  expect(vaudits.length).toBeGreaterThanOrEqual(2)
+  const first = vaudits.find((j) => j.attempt === 1)
+  const second = vaudits.find((j) => j.attempt === 2)
+  expect(["timeout", "retrying", "exhausted"].includes(first.status)).toBe(true)
+  // 继承核心断言：attempt 2 复用 attempt 1 的会话与目录
+  expect(second.session).toBe(first.session)
+  expect(second.directory).toBe(first.directory)
+  expect(second.resumed).toBe(true)
+  // 续传指令注入（第二次 prompt 带 resume）
+  const inheritSeen = seen.filter((s) => s.session === first.session)
+  expect(inheritSeen.length).toBeGreaterThanOrEqual(2)
+  expect(inheritSeen[1].resume).toBeTruthy()
+  for (const j of f.engine.store.jobs(run).filter((j) => j.role === "vaudit"))
+    console.log("VJOB", j.attempt, j.status, "| sess:", j.session, "| err:", String(j.error).slice(0, 100))
 })
 
 // ---- 之前未覆盖的确定性路径 ----
@@ -1144,23 +1403,223 @@ test("anchorStrength 与 resolveInput 纯函数", async () => {
   expect(resolveInput(run, "不存在", index)).toBeNull()
 })
 
-test("B 类传播不变量：被标 stale 的消费者重跑时必检出漂移或状态退化（吸收分支保守不可达）", async () => {
+test("前提漂移三态：真变化阻断 / 状态退化阻断 / 确认不变语义放行", async () => {
   const { premiseDrift } = await import("../milestone.js")
   const run = seededRun()
   run.verifiers["S2:M1"] = { asset: "verifier:x", status: "trusted", controls: [] }
   seedS3(run)
   const effects = propagateB(run, "S1:M1")
   expect(effects.rerun).toContain("S2:M1")
-  // 场景一：前提版本前进（B 类修正落地）→ 版本漂移阻断吸收
+  // 场景一：前提版本前进且内容变化（B 类真修正）→ 阻断
   run.milestones["S1:M1"].version = 2
+  run.milestones["S1:M1"].statement = "a-修正后的新命题"
   const d1 = premiseDrift(run, run.milestones["S2:M1"])
-  expect(d1).toContain("已更新至 v2")
-  // 场景二：stale 传染链（前提版本未变但状态退化）→ 状态检查阻断吸收
+  expect(d1.ok).toBe(false)
+  expect(d1.reason).toContain("内容已变化")
+  // 场景二：前提状态退化 → 阻断
   run.milestones["S1:M1"].version = 1
+  run.milestones["S1:M1"].statement = "a"
   run.milestones["S1:M1"].status = "stale"
   const d2 = premiseDrift(run, run.milestones["S2:M1"])
-  expect(d2).toContain("状态已退化")
-  // 唯一可吸收形态：前提 verified 且版本与申报一致——传播路径无法构造
+  expect(d2.ok).toBe(false)
+  expect(d2.reason).toContain("状态已退化")
+  // 场景三：版本前进但内容指纹一致（确认不变的刷新）→ 语义放行
   run.milestones["S1:M1"].status = "verified"
-  expect(premiseDrift(run, run.milestones["S2:M1"])).toBeNull()
+  run.milestones["S1:M1"].version = 2
+  const d3 = premiseDrift(run, run.milestones["S2:M1"])
+  expect(d3.ok).toBe(true)
+  expect(d3.semanticBypass).toContain("内容指纹一致")
+  // 场景四：无漂移 → 干净通过
+  run.milestones["S1:M1"].version = 1
+  const d4 = premiseDrift(run, run.milestones["S2:M1"])
+  expect(d4.ok).toBe(true)
+  expect(d4.semanticBypass).toBeUndefined()
+})
+
+test("里程碑 id 多级前缀归一：P1:P1:P1:M2 → P1:M2", () => {
+  const run = seededRun()
+  registerProposals(
+    run,
+    run.plan.subproblems.find((x) => x.id === "S1"),
+    {
+      status: "completed",
+      artifacts: [],
+      milestones: [
+        {
+          id: "S1:S1:M9-multi",
+          statement: "多级前缀",
+          scope: "s",
+          criteria: ["C1"],
+          inputs: [],
+          branches: [],
+          highRisk: [],
+          artifacts: [],
+          values: [],
+        },
+      ],
+      claims: [],
+      problems: [],
+      reason: "",
+    },
+  )
+  expect(run.milestones["S1:M9-multi"]).toBeTruthy()
+  expect(run.milestones["S1:S1:M9-multi"]).toBeUndefined()
+})
+
+test("语义迁移：replan 改 id + migratedFrom → 里程碑/验证器/账本/子结果全保留且引用重写", () => {
+  const run = seededRun()
+  seedS3(run)
+  run.verifiers["S1:M1"] = { asset: "verifier:a", status: "trusted", controls: [] }
+  const out = migrateSubproblems(run, { S1: "X1", S3: "X3" })
+  expect(run.milestones["X1:M1"]).toBeTruthy()
+  expect(run.milestones["X1:M1"].status).toBe("verified")
+  expect(run.milestones["S1:M1"]).toBeUndefined()
+  expect(run.verifiers["X1:M1"].status).toBe("trusted")
+  expect(run.ledger.some((e) => e.consumer === "S2:M1" && e.consumed === "X1:M1")).toBe(true)
+  const s3 = run.milestones["X3:M1"]
+  expect(s3.inputs[0].from).toBe("S2:M1")
+  expect(run.subresults["X1"]?.status).toBe("completed")
+  expect(run.subresults["S1"]).toBeUndefined()
+  expect(out.migrated.length).toBe(2)
+})
+
+test("语义迁移冲突保守放弃：新 key 被占用时跳过该子问题", () => {
+  const run = seededRun()
+  run.milestones["X1:M1"] = {
+    id: "X1:M1",
+    subproblem: "X1",
+    status: "proposed",
+    inputs: [],
+    verification: { mode: "propose" },
+    review: {},
+  }
+  const out = migrateSubproblems(run, { S1: "X1" })
+  expect(out.skipped).toContain("S1")
+  expect(run.milestones["S1:M1"]).toBeTruthy()
+})
+
+test("conservative A 兜底连续两次升级 needs_human（防无限循环）", async () => {
+  const f = await fixture({
+    cfg: { cycles: 3 },
+    handlers: {
+      triage: () => {
+        throw new Error("triage 崩溃")
+      },
+    },
+    state: {
+      challenges: [{ id: "Q1", target: "x", kind: "concept", hypothesis: "h", importance: "must", reason: "r" }],
+      unitFailForever: true,
+    },
+  })
+  let threw = null
+  try {
+    await f.drive(GOAL)
+  } catch (error) {
+    threw = error
+  }
+  void threw
+  const run = f.engine.store.run("session-1")
+  expect(run.phase).toBe("needs_human")
+  const events = f.engine.store.events(run)
+  expect(events.some((e) => e.kind === "conservative_triage" && e.data.escalated)).toBe(true)
+})
+
+test("gate mergeInto：跨子问题语义合并 + 无效目标回退", () => {
+  const run = seededRun()
+  seedS3(run)
+  // S3（邻接计划子问题）下申报一个待合并提案
+  registerProposals(
+    run,
+    run.plan.subproblems.find((x) => x.id === "S3"),
+    {
+      status: "completed",
+      artifacts: [],
+      milestones: [
+        {
+          id: "M9",
+          statement: "本属映射表的独立分支",
+          scope: "s",
+          criteria: ["C2"],
+          inputs: [{ from: "S2:M1", use: "p" }],
+          branches: [],
+          highRisk: [],
+          artifacts: [],
+          values: [],
+        },
+      ],
+      claims: [],
+      problems: [],
+      reason: "",
+    },
+  )
+  // 声明跨子问题目标：折到 S1:M1（计划邻接，语义正确）
+  const out = gateDecision(run, run.milestones["S3:M9"], { decision: "merge", mergeInto: "S1:M1" })
+  expect(out).toBe("merged")
+  expect(run.milestones["S3:M9"].mergedInto).toBe("S1:M1")
+  expect(run.milestones["S1:M1"].branches.some((b) => b.id === "M9")).toBe(true)
+  // 无效目标（未注册）→ 引擎校验层会拒绝；纯函数层回退到同子问题父级
+  registerProposals(
+    run,
+    run.plan.subproblems.find((x) => x.id === "S3"),
+    {
+      status: "completed",
+      artifacts: [],
+      milestones: [
+        {
+          id: "M8",
+          statement: "x",
+          scope: "s",
+          criteria: ["C2"],
+          inputs: [],
+          branches: [],
+          highRisk: [],
+          artifacts: [],
+          values: [],
+        },
+      ],
+      claims: [],
+      problems: [],
+      reason: "",
+    },
+  )
+  const out2 = gateDecision(run, run.milestones["S3:M8"], { decision: "merge", mergeInto: "不存在:id" })
+  expect(out2).toBe("merged")
+  expect(run.milestones["S3:M8"].mergedInto).toBe("S3:M1")
+})
+
+test("执行预算与内嵌 payload 静态拦截", async () => {
+  const f = await fixture()
+  const run = f.engine.store.create("probe-budget")
+  run.model = { providerID: "alibaba-cn", modelID: "glm-5.3" }
+  f.engine.store.put(run, "policy", "workflow.json", "{}")
+  f.engine.active.set(run.id, { controller: new AbortController() })
+  const mkCtx = (role) => ({
+    run,
+    job: { id: "j1", role, round: 1, cycle: 1 },
+    role,
+    epoch: run.epoch,
+    allowed: new Set(),
+    produced: [],
+    controller: new AbortController(),
+  })
+  // C) anchor 预算 6 次：第 7 次拒绝
+  const ctxA = mkCtx("anchor")
+  for (let i = 0; i < 6; i++) await f.engine.compute(ctxA, { code: "print(1)", inputs: [] }, { ask: async () => {} })
+  let threw = null
+  try {
+    await f.engine.compute(ctxA, { code: "print(1)", inputs: [] }, { ask: async () => {} })
+  } catch (e) {
+    threw = e
+  }
+  expect(String(threw)).toContain("沙箱执行预算已用尽")
+  // D) 验证器内嵌 b85 payload 拒绝（走 anchor check 逻辑——直接构造 check 场景太重，用正则同源验证）
+  const decoder = /b85decode|b64decode|zlib\.decompress|lzma\.decompress|a2b_\w+|decodebytes/i
+  const blobLiteral = /["'][A-Za-z0-9+/=]{200,}["']/
+  const isPayload = (code) => decoder.test(code) && blobLiteral.test(code)
+  // 真 payload：解码调用 + 长编码字面量 → 拦
+  expect(isPayload('import base64\nbase64.b85decode("ABCDEFGH' + "X".repeat(300) + '")')).toBe(true)
+  // 功能性 zlib（无常量字面量）→ 放行
+  expect(isPayload("import zlib\nd = zlib.decompress(LOCA_INPUTS_DATA)")).toBe(false)
+  // 普通验证器 → 放行
+  expect(isPayload("import hashlib\nh = hashlib.sha256(x)")).toBe(false)
 })

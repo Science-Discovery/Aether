@@ -166,10 +166,20 @@ export class Store {
   job(run, job, status, data = {}) {
     const edges = {
       queued: ["preparing"],
-      preparing: ["running", "error", "cancelled", "stale"],
-      running: ["checking", "timeout", "error", "cancelled", "stale"],
-      checking: ["accepted", "rejected", "error", "stale", "cancelled", "correcting"],
-      correcting: ["checking", "accepted", "rejected", "timeout", "error", "stale", "cancelled", "exhausted"],
+      preparing: ["running", "error", "cancelled", "stale", "interrupted"],
+      running: ["checking", "timeout", "error", "cancelled", "stale", "interrupted"],
+      checking: ["accepted", "rejected", "error", "stale", "cancelled", "correcting", "interrupted"],
+      correcting: [
+        "checking",
+        "accepted",
+        "rejected",
+        "timeout",
+        "error",
+        "stale",
+        "cancelled",
+        "exhausted",
+        "interrupted",
+      ],
       rejected: ["retrying", "exhausted"],
       timeout: ["retrying", "exhausted"],
       retrying: [],
@@ -178,6 +188,10 @@ export class Store {
       stale: [],
       cancelled: [],
       exhausted: [],
+      // interrupted：实例/进程中断遗留的可续传态——会话与目录保留，
+      // 下次同 packet 调度时原会话续传（runner resume）；packet/epoch 已
+      // 变化的续传候选直接归档为 stale
+      interrupted: ["queued", "preparing", "stale"],
     }
     if (job.status && !edges[job.status]?.includes(status))
       throw new Error(`Illegal supervisor transition ${job.status} -> ${status}`)

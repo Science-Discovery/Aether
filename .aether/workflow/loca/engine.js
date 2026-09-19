@@ -8,6 +8,7 @@ import { exact, review } from "./schema.js"
 import { planCheck, milestonesOf, speculationOk, staleEdges, closure } from "./graph.js"
 import {
   registerProposals,
+  migrateSubproblems,
   resolveInput,
   retainProblems,
   premiseDrift,
@@ -296,10 +297,19 @@ export class Engine {
       this.store.save(run)
       this.store.event(run, "resume", { cycle: run.cycle, phase: run.phase })
     }
+    // lease owner 带 pid 前缀：实例重启后新 pid 与旧 owner 不一致即视为旧进程
+    // 遗留的死 lease，立即接管（否则续传要干等 90 秒租约过期）
+    const owned = (lease) =>
+      String(lease?.owner ?? "").startsWith(`pid-${process.pid}#`) || !lease || !(lease.expires > Date.now())
     const acquired = this.store.db.transaction(() => {
       const lease = this.store.db.query("SELECT * FROM leases WHERE session = ?").get(session)
-      if (lease && lease.expires > Date.now()) return false
-      this.store.db.query("INSERT OR REPLACE INTO leases VALUES (?, ?, ?)").run(session, this.owner, Date.now() + 90000)
+      if (!owned(lease)) return false
+      const dead =
+        lease && String(lease.owner).startsWith("pid-") && !String(lease.owner).startsWith(`pid-${process.pid}#`)
+      this.store.db
+        .query("INSERT OR REPLACE INTO leases VALUES (?, ?, ?)")
+        .run(session, `pid-${process.pid}#${this.owner}`, Date.now() + 90000)
+      if (dead) this.store.event(run, "lease_reclaimed", { previous: lease.owner })
       return true
     })()
     if (!acquired) return "该会话的工作正由另一插件实例执行；请用 /loca-status 查看记录。"
@@ -307,7 +317,7 @@ export class Engine {
       () =>
         this.store.db
           .query("UPDATE leases SET expires = ? WHERE session = ? AND owner = ?")
-          .run(Date.now() + 90000, session, this.owner),
+          .run(Date.now() + 90000, session, `pid-${process.pid}#${this.owner}`),
       20000,
     )
     const controller = new AbortController()
@@ -337,7 +347,9 @@ export class Engine {
         clearInterval(heartbeat)
         ctx.abort?.removeEventListener("abort", stop)
         this.active.delete(run.id)
-        this.store.db.query("DELETE FROM leases WHERE session = ? AND owner = ?").run(session, this.owner)
+        this.store.db
+          .query("DELETE FROM leases WHERE session = ? AND owner = ?")
+          .run(session, `pid-${process.pid}#${this.owner}`)
         this.requests.delete(session)
       })
   }
@@ -349,9 +361,17 @@ export class Engine {
       store.jobs(run).filter((job) => ["preparing", "running", "checking", "correcting"].includes(job.status)),
       this.cfg.concurrency,
       async (job) => {
-        if (job.session)
-          await this.runner.client.session.abort({ path: { id: job.session }, query: { directory: job.directory } })
-        store.job(run, job, "stale", { reason: "Interrupted execution recovered" })
+        // 中断恢复：上次实例遗留的在飞 job 保留 session 与上下文目录，标记
+        // interrupted 等待原会话续传（同 role+slot+packet 才命中；packet 变化的
+        // 调度不会匹配，由重调度自然重做）
+        store.job(run, job, "interrupted", { reason: "Interrupted execution recovered" })
+        store.event(run, "job_resumable", {
+          job: job.id,
+          role: job.role,
+          slot: job.slot,
+          session: job.session,
+          note: "会话保留待续传；continue 后由 runner 原会话恢复",
+        })
       },
     )
     if (run.pending.length) {
@@ -380,10 +400,16 @@ export class Engine {
     void entryPhase
     for (; run.cycle < this.cfg.cycles; ) {
       this.guard(run)
+      // 恢复/取消后重入 frontier：phase 回到 working（原实现只在 taskSolve 里
+      // move，纯 gate/vaudit 调度期 run 会一直显示 cancelled/unfinished）
+      if (!["working", "integrating", "needs_human"].includes(run.phase)) store.move(run, "working")
       run.cycle++
       store.save(run)
       if (!run.plan || run.planInvalid || run.plan.round !== run.round) await this.planPhase(run)
       const outcome = await this.frontier(run)
+      // needs_human 是暂停信号（如 triage 持续不可用升级）：保持暂停态返回，
+      // 不能落入 replan 分支被下一 cycle 的重规划覆盖
+      if (run.phase === "needs_human") return this.status(run)
       if (outcome === "replan") {
         run.planInvalid = true
         store.save(run)
@@ -502,16 +528,36 @@ export class Engine {
         feedback: run.feedback ?? null,
         history: run.history,
       }),
-      (value) => planCheck(value, run.contract),
+      (value) => {
+        planCheck(value, run.contract)
+        if (run.plan)
+          for (const sub of value.subproblems)
+            if (sub.migratedFrom && !run.plan.subproblems.some((old) => old.id === sub.migratedFrom))
+              throw new Error(`Subproblem ${sub.id} declares migratedFrom unknown subproblem ${sub.migratedFrom}`)
+      },
     )
+    // 语义迁移（planner 声明的 oldSub → newSub）：在任何清理之前执行，
+    // 保住已实现验证器与审核状态
+    const previousPlan = run.plan
+    const migration = {}
+    if (previousPlan)
+      for (const sub of plan.value.subproblems)
+        if (sub.migratedFrom && previousPlan.subproblems.some((old) => old.id === sub.migratedFrom))
+          migration[sub.migratedFrom] = sub.id
+    let migrated = { migrated: [], skipped: [] }
+    if (Object.keys(migration).length) {
+      migrated = migrateSubproblems(run, migration)
+      store.event(run, "semantic_migration", { ...migrated, mapping: migration })
+    }
     run.plan = { version: (run.plan?.version ?? 0) + 1, cycle: run.cycle, round: run.round, ...plan.value }
     run.planInvalid = false
-    // 中断恢复残留的回滚标记在此消费：新计划下没有可中止的在飞任务
     run.pendingRollback = null
     // 孤儿里程碑：owner 子问题已不在新计划中。verified 的保留为可复用证据；
     // 未完成审核的 supersede——新计划不再资助它们的审核，否则 assess 永远等不到它们收敛
     const ids = new Set(run.plan.subproblems.map((sub) => sub.id))
     for (const m of Object.values(run.milestones)) {
+      // 迁移冲突放弃的里程碑同样走孤儿清理：owner 已不在新计划，保留只会
+      // 挡住 assess（无人重审无人消费）；冲突详情已在 semantic_migration 事件留痕
       if (!ids.has(m.subproblem) && !["verified", "superseded", "draft"].includes(m.status)) {
         m.history.push({ version: m.version, statement: m.statement, scope: m.scope, status: m.status })
         m.status = "superseded"
@@ -553,6 +599,12 @@ export class Engine {
     // 活锁护栏：确定性失败若绕过一切预算约束，在此强制终止而不是烧干时间
     for (let spin = 0; spin < 5000; spin++) {
       this.guard(run)
+      // needs_human 是 work 级暂停（如 triage 持续不可用升级）：停止调度，
+      // 等在飞任务自然收尾后退出
+      if (run.phase === "needs_human") {
+        while (tasks.size) await Promise.all([...tasks.keys()])
+        return "replan"
+      }
       // C 类回滚已标记：中止依赖闭包内的在飞 solve，等独立任务自然收尾后退出重规划
       if (run.planInvalid) {
         if (run.pendingRollback?.length) {
@@ -575,8 +627,11 @@ export class Engine {
         const promise = this.runTask(run, task, controller)
           .catch((error) => {
             if (String(error).includes("LOCA_TASK_ABORTED")) return
-            if (/Workflow cancelled|STALE/.test(String(error))) throw error
-            // 任务级失败：记录并把失败落到实体上，由 assess 决断
+            if (/Workflow cancelled|STALE|LOCA_TASK_ABORTED|LOCA_CALL_ABORTED/.test(String(error))) throw error
+            // 任务级失败：记录并把失败落到实体上，由 assess 决断。
+            // 取消类错误（runwide/task abort）不算任务失败——job 已标 cancelled，
+            // 里程碑状态不应被 infra finding 污染（否则取消→continue 后 gate
+            // 要整轮重跑，已升格的审判全部作废）
             store.event(run, "task_error", { task, error: String(error).slice(0, 400) })
             this.taskFailed(run, task, error)
           })
@@ -912,7 +967,12 @@ export class Engine {
       const closure = closureOk(run, m, this.nameIndexFor(run))
       if (!closure.ok) {
         m.status = "draft"
-        this.reopen(run, sub.id, "continue", `里程碑 ${m.id} 的前提当前不可用（${closure.reason}）：待前提恢复后重新申报`)
+        this.reopen(
+          run,
+          sub.id,
+          "continue",
+          `里程碑 ${m.id} 的前提当前不可用（${closure.reason}）：待前提恢复后重新申报`,
+        )
         store.event(run, "premise_wait", { milestone: m.id, reason: closure.reason })
       }
     }
@@ -1011,7 +1071,16 @@ export class Engine {
             registered: mode === "implement" ? { anchor: m.verification.anchor, spec: m.verification.spec } : null,
             premises: this.premises(run).filter((p) => p.status === "verified"),
           },
-          m.artifacts,
+          [
+            ...m.artifacts,
+            ...run.assets.filter((id) => {
+              try {
+                return ["input", "source"].includes(this.store.metadata(id).kind)
+              } catch {
+                return false
+              }
+            }),
+          ],
         ),
         (value, context) => {
           if (mode === "implement") {
@@ -1020,13 +1089,33 @@ export class Engine {
           }
           if (value.anchor === "programmatic") {
             if (!value.verifier?.trim()) throw new Error("programmatic 锚必须提供验证器 Python 源码")
-            if (!value.inputs.length) throw new Error("programmatic 锚必须声明验证器消费的里程碑产物名（inputs 非空）")
+            if (!value.inputs.length) throw new Error("programmatic 锚必须声明验证器消费的资产名（inputs 非空）")
+            // 白名单 = 本里程碑产物 ∪ 根资产（input/source）。验证方案常需对照
+            // 源文件（如按 sha256 校验冻结闭环），只许用里程碑产物会堵死合法验证
             const names = new Set(m.artifacts.map((id) => this.store.asset(id).name))
-            for (const name of value.inputs)
-              if (!names.has(name))
-                throw new Error(`验证器输入 "${name}" 不是本里程碑产物；可用产物名：${[...names].join("、")}`)
+            for (const id of run.assets) {
+              try {
+                const asset = this.store.metadata(id)
+                if (["input", "source"].includes(asset.kind)) names.add(asset.name)
+              } catch {}
+            }
+            const missing = value.inputs.filter((name) => !names.has(name))
+            if (missing.length)
+              throw new Error(
+                `验证器输入 ${missing.map((n) => `"${n}"`).join("、")} 不在可用资产中；可用：本里程碑产物 ${m.artifacts.map((id) => this.store.asset(id).name).join("、")} 或根资产（packet 中 kind 为 input/source 的资产名）`,
+              )
           }
           if (value.anchor !== "programmatic" && value.verifier) throw new Error("非程序锚不应提交验证器代码")
+          if (value.anchor === "programmatic" && value.verifier) {
+            // 内嵌压缩 payload 是审计黑洞；但 zlib/lzma 可能是被检验的功能本身——
+            // 只拦真实 payload 特征：解码调用 × 长编码字面量的组合
+            const decoder = /b85decode|b64decode|zlib\.decompress|lzma\.decompress|a2b_\w+|decodebytes/i
+            const blobLiteral = /["'][A-Za-z0-9+/=]{200,}["']/
+            if (decoder.test(value.verifier) && blobLiteral.test(value.verifier))
+              throw new Error(
+                "验证器源码含解码调用+长编码字面量（内嵌压缩 payload）：对照数据请通过 inputs 引用资产、程序生成或明文常量；若解码是被检验功能本身，数据同样应来自 LOCA_INPUTS",
+              )
+          }
           void context
         },
         m.id,
@@ -1081,6 +1170,23 @@ export class Engine {
             verification: m.verification,
           },
           sub: { id: sub.id, goal: sub.goal, criteria: sub.criteria },
+          // merge 候选父级（语义判断的素材）：同子问题或计划邻接的已注册里程碑
+          mergeCandidates: Object.values(run.milestones)
+            .filter(
+              (other) =>
+                other.id !== m.id &&
+                other.status !== "superseded" &&
+                other.status !== "draft" &&
+                (other.subproblem === m.subproblem ||
+                  run.plan.subproblems
+                    .find((item) => item.id === m.subproblem)
+                    ?.expectedRefs.includes(other.subproblem) ||
+                  run.plan.subproblems
+                    .find((item) => item.id === other.subproblem)
+                    ?.expectedRefs.includes(m.subproblem)),
+            )
+            .slice(0, 8)
+            .map((other) => ({ id: other.id, statement: other.statement.slice(0, 160), status: other.status })),
           engineChecks: {
             closure: { ok: closure.ok, reason: closure.reason ?? null },
             reference: ref,
@@ -1095,6 +1201,12 @@ export class Engine {
           this.cfg.checks.gate,
           "gate checks",
         )
+        if (value.mergeInto && !run.milestones[value.mergeInto])
+          throw new Error(
+            `mergeInto 指向未注册里程碑 ${value.mergeInto}；可用候选见 packet.mergeCandidates，原样复制其 id`,
+          )
+        if (value.mergeInto && (value.mergeInto === m.id || run.milestones[value.mergeInto]?.status === "superseded"))
+          throw new Error("mergeInto 不能指向自身或已归档里程碑")
         if (value.decision === "promote") {
           if (value.checks.some((check) => check.status !== "pass"))
             throw new Error("升格要求三项判据（statement/anchor/mass）检查全部通过")
@@ -1132,6 +1244,17 @@ export class Engine {
   async taskVaudit(run, m, controller) {
     const version = m.version
     const verifier = this.store.asset(run.verifiers[m.id].asset)
+    // 根资产（验证器可能声明为输入）对 vaudit 可见：阴性对照需要真实注入这些资产
+    const vRootNames = new Set(m.verification.verifierInputs ?? [])
+    const vRoots = run.assets.filter((id) => {
+      if (m.artifacts.includes(id)) return false
+      try {
+        const asset = this.store.metadata(id)
+        return ["input", "source"].includes(asset.kind) && vRootNames.has(asset.name)
+      } catch {
+        return false
+      }
+    })
     const audited = await this.runner.call(
       run,
       "vaudit",
@@ -1140,9 +1263,9 @@ export class Engine {
         {
           milestone: { id: m.id, statement: m.statement, scope: m.scope, values: m.values },
           verifier: { code: verifier.content, spec: m.verification.spec, inputs: m.verification.verifierInputs },
-          artifacts: m.artifacts,
+          artifacts: [...m.artifacts, ...vRoots],
         },
-        m.artifacts,
+        [...m.artifacts, ...vRoots],
       ),
       (value, context) => {
         exact(
@@ -1178,6 +1301,16 @@ export class Engine {
     if (this.staleResult(run, m, version, "vaudit")) return
     if (!run.verifiers[m.id]) return
     const value = audited.value
+    this.store.event(run, "stage", {
+      stage: "vaudit",
+      round: run.round,
+      cycle: run.cycle,
+      detail: m.id,
+      summary:
+        value.decision === "trusted"
+          ? `里程碑 ${m.id} 验证器审计通过（阴性对照 ${value.controls.length} 条），进入快检`
+          : `里程碑 ${m.id} 验证器审计被拒（第 ${m.verification.rejections ?? 0} 次）：${(value.findings[0]?.detail ?? value.checks.find((c) => c.status !== "pass")?.reason ?? "").slice(0, 120)}`,
+    })
     run.verifiers[m.id].status = value.decision === "trusted" ? "trusted" : "rejected"
     run.verifiers[m.id].controls = value.controls
     if (value.decision !== "trusted") {
@@ -1208,7 +1341,18 @@ export class Engine {
   async taskQuick(run, m, rerun, controller) {
     const version = m.version
     const verifier = this.store.asset(run.verifiers[m.id].asset)
-    const inputs = m.artifacts.map((id) => this.store.asset(id))
+    // 验证器输入 = 里程碑产物 + anchor 声明的根资产（input/source，按名解析）
+    const rootNames = new Set(m.verification.verifierInputs ?? [])
+    const extra = run.assets.filter((id) => {
+      if (m.artifacts.includes(id)) return false
+      try {
+        const asset = this.store.metadata(id)
+        return ["input", "source"].includes(asset.kind) && rootNames.has(asset.name)
+      } catch {
+        return false
+      }
+    })
+    const inputs = [...m.artifacts, ...extra].map((id) => this.store.asset(id))
     let result
     try {
       result = await this.executor(verifier.content, inputs, this.cfg.execution, controller.signal)
@@ -1241,9 +1385,12 @@ export class Engine {
     if (rerun) {
       m.review.reruns = [...(m.review.reruns ?? []), { execution: asset.id, exit: result.exit, pass }]
       // 漂移复查：重跑通过不等于结论存活——验证器只消费本里程碑产物，
-      // 检测不到前提值变化；pv 漂移或前提状态退化时必须走 refine 重新申报
+      // 检测不到前提值变化；前提真变化（指纹不一致）或状态退化时必须走 refine 重新申报。
+      // 版本漂移但内容指纹一致（确认不变的刷新）→ 语义放行
       const drift = premiseDrift(run, m)
-      if (pass && !drift) {
+      if (drift.ok && drift.semanticBypass)
+        this.store.event(run, "drift_bypass", { milestone: m.id, note: drift.semanticBypass })
+      if (pass && drift.ok) {
         m.status = "verified"
         m.strength = strengthName(chainStrength(run, m))
         this.store.event(run, "stage", {
@@ -1404,6 +1551,13 @@ export class Engine {
     if (this.staleResult(run, m, version, "e2e")) return
     m.review.e2e = value.value
     this.store.save(run)
+    this.store.event(run, "stage", {
+      stage: "e2e",
+      round: run.round,
+      cycle: run.cycle,
+      detail: m.id,
+      summary: `里程碑 ${m.id} 端到端验证（${m.verification.anchor === "rederivation" ? "独立重推导" : m.verification.anchor === "limit" ? "极限/特例" : "文献基准"}）判定 ${value.value.verdict}`,
+    })
     this.checkComplete(run, m)
   }
 
@@ -1431,6 +1585,13 @@ export class Engine {
     if (this.staleResult(run, m, version, "branch")) return
     m.review.branches = [...(m.review.branches ?? []), { id: branch.id, report: value.value }]
     this.store.save(run)
+    this.store.event(run, "stage", {
+      stage: "branch",
+      round: run.round,
+      cycle: run.cycle,
+      detail: `${m.id}#${branch.id}`,
+      summary: `里程碑 ${m.id} 分支 ${branch.id} 独立验证判定 ${value.value.verdict}`,
+    })
     this.checkComplete(run, m)
   }
 
@@ -1468,6 +1629,13 @@ export class Engine {
     if (this.staleResult(run, m, version, "unit")) return
     m.review.units = [...(m.review.units ?? []), { id: unitId, report: value.value }]
     this.store.save(run)
+    this.store.event(run, "stage", {
+      stage: "unit",
+      round: run.round,
+      cycle: run.cycle,
+      detail: `${m.id}@${unitId}`,
+      summary: `里程碑 ${m.id} 重点步骤复核（${unitId}）判定 ${value.value.verdict}`,
+    })
     this.checkComplete(run, m)
   }
 
@@ -1502,7 +1670,7 @@ export class Engine {
           instruction:
             "审查新里程碑与注册表的语义相容性。宁可过敏：发现矛盾嫌疑时作为阻断 finding 报告（不裁决对错），由后续复核收口。",
         },
-        [],
+        m.artifacts,
       ),
       (value) => review(value, this.cfg.checks.compat),
       m.id,
@@ -1511,6 +1679,16 @@ export class Engine {
     if (this.staleResult(run, m, version, "compat")) return
     m.review.compat = value.value
     this.store.save(run)
+    this.store.event(run, "stage", {
+      stage: "compat",
+      round: run.round,
+      cycle: run.cycle,
+      detail: m.id,
+      summary:
+        value.value.verdict === "pass"
+          ? `里程碑 ${m.id} 相容性审查通过（与注册表无矛盾）`
+          : `里程碑 ${m.id} 相容性审查发现矛盾嫌疑：${(value.value.findings[0]?.detail ?? "").slice(0, 120)}`,
+    })
     this.checkComplete(run, m)
   }
 
@@ -1519,6 +1697,7 @@ export class Engine {
     if (!reviewComplete(run, m)) return
     const result = aggregate(run, m)
     if (!result.done) return
+    if (result.bypasses?.length) this.store.event(run, "drift_bypass", { milestone: m.id, notes: result.bypasses })
     this.store.event(run, "stage", {
       stage: m.status === "verified" ? "verified" : "failed",
       round: run.round,
@@ -1595,32 +1774,51 @@ export class Engine {
       )
       .catch((error) => {
         if (/Workflow cancelled|STALE|LOCA_TASK_ABORTED/.test(String(error))) throw error
-        // triage 失败兜底：按最保守的 C 类完整处置（重规划）而不是只记录后抛出——
-        // 只抛出会让里程碑停在 failed+impact 态，triage 不再调度、owner 不重开，frontier stall
+        // triage 失败兜底：按破坏最小的 A 类处置（补洞重审）。此前用 C 类会
+        // replan+回滚已完成结构——triage 不可用时选 C 反而是最大破坏；A 处置
+        // 错了，后续审核与 triage 恢复后仍会抓
         m.impact = {
           impacts: [
-            { finding: "triage-infra", class: "C", affected: [], goalChange: true, note: String(error).slice(0, 200) },
+            { finding: "triage-infra", class: "A", affected: [], goalChange: false, note: String(error).slice(0, 200) },
           ],
-          reason: "triage 角色调用失败，保守按 C 类处理",
-          class: "C",
+          reason: "triage 角色调用失败，保守按 A 类补洞处理",
+          class: "A",
         }
-        run.planInvalid = true
-        run.pendingRollback = []
-        run.feedback = {
-          verdict: "fail",
-          milestone: m.id,
-          klass: "C",
-          impacts: m.impact.impacts,
-          findings: (m.review.findings ?? []).filter((f) => f.blocking),
+        m.conservativeCount = (m.conservativeCount ?? 0) + 1
+        if (m.conservativeCount >= 2) {
+          m.review.findings = [
+            ...(m.review.findings ?? []),
+            {
+              id: `${m.id}-triage-unavailable`,
+              target: m.id,
+              detail: `triage 连续 ${m.conservativeCount} 次不可用，无法自动分类审核失败`,
+              evidence: m.artifacts.slice(0, 4),
+              repair: "human",
+              blocking: true,
+            },
+          ]
+          this.store.save(run)
+          this.store.move(run, "needs_human", { milestone: m.id, reason: "triage-unavailable" })
+          this.store.event(run, "conservative_triage", { milestone: m.id, class: "A", escalated: true })
+          return null
         }
-        this.reopen(run, m.subproblem, "continue", `里程碑 ${m.id} 审核失败且 triage 不可用，保守重规划`)
+        // 清空 impact：允许下一轮审核失败再次进入 triage（若其恢复可用则正确分类）
+        m.impact = null
+        this.reopen(
+          run,
+          m.subproblem,
+          "patch",
+          `里程碑 ${m.id} 审核失败且 triage 不可用，按 A 类补洞重审（第 ${m.conservativeCount} 次）`,
+        )
         this.store.save(run)
-        this.store.event(run, "rollback", { milestone: m.id, subs: [], milestones: [], conservative: true })
+        this.store.event(run, "conservative_triage", { milestone: m.id, class: "A" })
         return null
       })
     // 兜底路径已自行处置（返回 null）：直接返回，不走正常分类流程
     if (!value) return
     m.impact = value.value
+    // triage 正常完成：连续不可用计数归零（"连续"语义）
+    m.conservativeCount = 0
     const klass = value.value.impacts.some((i) => i.class === "C")
       ? "C"
       : value.value.impacts.some((i) => i.class === "B")
@@ -2114,6 +2312,14 @@ export class Engine {
     this.guard(context.run, context.epoch)
     if (!["solve", "verify", "vaudit", "anchor"].includes(context.role))
       throw new Error("This role cannot execute code")
+    // 角色级沙箱执行预算（防对照实验失控）：超限即拒绝并引导交卷
+    const budgets = { anchor: 6, vaudit: 8, verify: 10, solve: 20 }
+    context.execCount = (context.execCount ?? 0) + 1
+    const cap = budgets[context.role] ?? 8
+    if (context.execCount > cap)
+      throw new Error(
+        `沙箱执行预算已用尽（${context.role} 上限 ${cap} 次）：停止新实验，整理已有结果并立即调用 StructuredOutput 提交——审计发现缺陷就直接 rejected，不要继续验证`,
+      )
     const frozen = args.inputs.map((id) => {
       try {
         return this.store.asset(id)
@@ -2135,7 +2341,18 @@ export class Engine {
       metadata: { code: args.code, inputs: args.inputs },
     })
     const code = this.register(context, "code", "verification.py", args.code)
-    const result = await this.executor(args.code, frozen, this.cfg.execution, ctx.abort)
+    // 执行心跳：watchdog 的 executing ceiling 依赖 activity[:exec] 判活；
+    // 工具启动只 set 一次，长时健康执行（如大工况对照）会被误判 stall 杀掉。
+    // 沙盒进程存活期间定期续期心跳。
+    const beat = context.job.session
+      ? setInterval(() => this.activity.set(`${context.job.session}:exec`, Date.now()), 30000)
+      : null
+    let result
+    try {
+      result = await this.executor(args.code, frozen, this.cfg.execution, ctx.abort)
+    } finally {
+      if (beat) clearInterval(beat)
+    }
     return this.register(
       context,
       "execution",
