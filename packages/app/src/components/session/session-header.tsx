@@ -349,7 +349,7 @@ export function SessionHeader() {
             <div class="flex items-center gap-2">
               <PdfConvertProgressBar />
               <Show when={projectDirectory()}>
-                <div class="hidden xl:flex items-center">
+                <div class="flex items-center shrink-0">
                   <Show
                     when={canOpen()}
                     fallback={
