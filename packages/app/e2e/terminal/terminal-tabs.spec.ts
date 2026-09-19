@@ -111,6 +111,7 @@ test("closing the active terminal tab falls back to the previous tab", async ({ 
 
     await second.hover()
     await page
+      .locator("#terminal-panel")
       .getByRole("button", { name: /close terminal/i })
       .nth(1)
       .click({ force: true })
