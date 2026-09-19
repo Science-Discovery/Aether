@@ -707,9 +707,9 @@ export namespace SessionPrompt {
               ]
             : []),
         ],
-        tools,
+        tools: isLastStep && format.type !== "json_schema" ? {} : tools,
         model,
-        toolChoice: format.type === "json_schema" ? "required" : undefined,
+        toolChoice: format.type === "json_schema" ? "required" : isLastStep ? "none" : undefined,
       })
 
       // If structured output was captured, save it and exit immediately
@@ -753,6 +753,9 @@ export namespace SessionPrompt {
           overflow: !processor.message.finish,
         })
       }
+      // Hard step limit: the last step runs without tools, so a tool-calls
+      // finish here can only be hallucinated calls — end the turn instead of looping.
+      if (isLastStep && processor.message.finish === "tool-calls") break
       continue
     }
     SessionCompaction.prune({ sessionID })
