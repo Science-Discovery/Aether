@@ -14,6 +14,9 @@ import { ServerConnection } from "./context/server"
 const DEFAULT_SERVER_URL_KEY = "opencode.settings.dat:defaultServerUrl"
 const PROXY_KEY = "opencode.settings.dat:proxy"
 
+const channel = import.meta.env.VITE_AETHER_CHANNEL?.trim()
+if (channel) document.title += ` ${channel}`
+
 const getLocale = () => {
   if (typeof navigator !== "object") return "en" as const
   const languages = navigator.languages?.length ? navigator.languages : [navigator.language]
