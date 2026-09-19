@@ -457,8 +457,8 @@ export namespace Project {
         if (data.kind === "subdirectory") {
           const root = norm(result.worktree)
           result.sandboxes = result.sandboxes.filter((s) => {
-            const box = norm(s)
-            return box !== root && !root.startsWith(box + "/")
+            const box = norm(s).replace(/[\\/]+$/, "")
+            return box !== root && !root.startsWith(box + "/") && !root.startsWith(box + "\\")
           })
         } else if (
           norm(data.sandbox) !== norm(result.worktree) &&

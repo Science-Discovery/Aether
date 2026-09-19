@@ -48,7 +48,7 @@ describe("Project.fromDirectory subdirectory isolation", () => {
     Database.useProject(project.id, (d) =>
       d
         .update(ProjectTable)
-        .set({ sandboxes: [tmp.path, sub, keep] })
+        .set({ sandboxes: [tmp.path, tmp.path.replace(/\\/g, "/"), sub, keep] })
         .where(eq(ProjectTable.id, project.id))
         .run(),
     )
