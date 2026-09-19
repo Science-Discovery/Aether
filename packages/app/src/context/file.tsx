@@ -498,14 +498,16 @@ export const { use: useFile, provider: FileProvider } = createSimpleContext({
 
     // File search fires on every keystroke (picker + @-mention); debounce and
     // drop superseded responses so fast typing doesn't flood the server.
-    let seq = 0
+    // Separate counters per mode so the picker and @-mention never cancel
+    // each other when used in quick succession.
+    const seq: Record<"true" | "false", number> = { true: 0, false: 0 }
     const search = (query: string, dirs: "true" | "false") => {
-      const id = ++seq
+      const id = ++seq[dirs]
       return new Promise<string[]>((resolve) => {
         setTimeout(() => {
-          if (id !== seq) return resolve([])
+          if (id !== seq[dirs]) return resolve([])
           sdk.client.find.files({ query, dirs }).then(
-            (x) => resolve(id === seq ? (x.data ?? []).map(path.normalize) : []),
+            (x) => resolve(id === seq[dirs] ? (x.data ?? []).map(path.normalize) : []),
             () => resolve([]),
           )
         }, 150)

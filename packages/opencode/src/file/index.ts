@@ -376,6 +376,8 @@ export namespace File {
     gen: number
     /** directory paths already in cache.dirs, for incremental merges */
     seen: Set<string>
+    /** duration of the last untracked enumeration; above SLOW_MS it moves to the background */
+    walkMs: number
   }
 
   const clean = (input: string) => {
@@ -677,6 +679,7 @@ export namespace File {
             at: 0,
             gen: 0,
             seen: new Set<string>(),
+            walkMs: 0,
           }),
         ),
       )
@@ -701,6 +704,8 @@ export namespace File {
       // trees stay one directory entry instead of a full walk.
       const UNTRACKED_MAX = 20_000
       const DIRS_MAX = 100
+      // above this measured cost, untracked enumeration runs in background
+      const SLOW_MS = 500
 
       const lsCached = async () => {
         const result = await Git.run(["ls-files", "--cached", "-z", "--", "."], { cwd: Instance.directory })
@@ -768,16 +773,30 @@ export namespace File {
       const scan = Effect.fn("File.scan")(function* () {
         if (Instance.directory === path.parse(Instance.directory).root) return
         const isGlobalHome = Instance.directory === Global.Path.home && Instance.project.id === "global"
-        const s = yield* InstanceState.get(state)
-        s.gen++
-        const gen = s.gen
-        s.cache = { files: [], dirs: [] }
-        s.seen = new Set()
 
-        const commit = function* () {
-          s.at = Date.now()
-          s.key = yield* Effect.promise(() => stamp(s))
+        // Build into locals and assign once at the end: concurrent scans (the
+        // single-flight window in ensure() is narrow) must never interleave
+        // appends into a shared cache.
+        const next: Entry = { files: [], dirs: [] }
+        const seen = new Set<string>()
+        const put = (file: string) => {
+          next.files.push(file)
+          let current = file
+          while (true) {
+            const dir = path.dirname(current)
+            if (dir === "." || dir === current) break
+            current = dir
+            if (seen.has(dir)) continue
+            seen.add(dir)
+            next.dirs.push(dir + "/")
+          }
         }
+        const place = (dir: string) => {
+          if (seen.has(dir)) return
+          seen.add(dir)
+          next.dirs.push(dir + "/")
+        }
+        let defer = false
 
         if (isGlobalHome) {
           yield* Effect.promise(async () => {
@@ -804,37 +823,58 @@ export namespace File {
               }
             }
 
-            s.cache.dirs = Array.from(dirs).toSorted()
+            next.dirs = Array.from(dirs).toSorted()
           })
-          yield* commit()
-          return
-        }
+        } else {
+          // Fast phase: tracked files come straight from the git index
+          // without touching the filesystem.
+          const tracked = Instance.project.vcs === "git" ? yield* Effect.promise(() => lsCached()) : undefined
+          if (tracked) {
+            for (const file of tracked) put(file)
 
-        // Fast phase: tracked files come straight from the git index without
-        // touching the filesystem.
-        const tracked = Instance.project.vcs === "git" ? yield* Effect.promise(() => lsCached()) : undefined
-        if (tracked) {
-          for (const file of tracked) add(s, file)
-          yield* commit()
-
-          // Background top-up: untracked enumeration can cost seconds on huge
-          // trees; drop the merge if a newer scan started meanwhile.
-          if (!s.merging) {
-            s.merging = (async () => {
-              const others = await lsOthers()
-              if (!others || s.gen !== gen) return
-              for (const file of others.files) add(s, file)
-              for (const dir of others.idle) merge(s, dir)
-            })().finally(() => (s.merging = undefined))
+            // Untracked enumeration walks the tree; when it measures cheap
+            // (normal repositories) it runs inline so search results are
+            // always fresh, on huge repositories it moves to the background.
+            const pre = yield* InstanceState.get(state)
+            if (pre.walkMs > SLOW_MS) {
+              defer = true
+            } else {
+              const began = Date.now()
+              const others = yield* Effect.promise(() => lsOthers())
+              pre.walkMs = Date.now() - began
+              if (others) {
+                for (const file of others.files) put(file)
+                for (const dir of others.idle) place(dir)
+              }
+            }
+          } else {
+            // Non-git fallback: full ripgrep walk.
+            yield* Effect.promise(async () => {
+              for await (const file of Ripgrep.files({ cwd: Instance.directory })) put(file)
+            })
           }
-          return
         }
 
-        // Non-git fallback: full ripgrep walk.
-        yield* Effect.promise(async () => {
-          for await (const file of Ripgrep.files({ cwd: Instance.directory })) add(s, file)
-        })
-        yield* commit()
+        const s = yield* InstanceState.get(state)
+        s.gen++
+        const gen = s.gen
+        s.cache = next
+        s.seen = seen
+        s.at = Date.now()
+        s.key = yield* Effect.promise(() => stamp(s))
+
+        // Background top-up for slow repositories: untracked enumeration can
+        // cost seconds on huge trees; drop the merge if a newer scan started.
+        if (defer && !s.merging) {
+          s.merging = (async () => {
+            const began = Date.now()
+            const others = await lsOthers()
+            s.walkMs = Date.now() - began
+            if (!others || s.gen !== gen) return
+            for (const file of others.files) add(s, file)
+            for (const dir of others.idle) merge(s, dir)
+          })().finally(() => (s.merging = undefined))
+        }
       })
 
       const ensure = Effect.fn("File.ensure")(function* () {
