@@ -11,8 +11,6 @@ export namespace Git {
     "-c",
     "core.autocrlf=false",
     "-c",
-    "core.fsmonitor=false",
-    "-c",
     "core.longpaths=true",
     ...(process.platform !== "win32" ? ["-c", "core.symlinks=true"] : []),
     "-c",
@@ -21,8 +19,6 @@ export namespace Git {
 
   const statusCfg = [
     "--no-optional-locks",
-    "-c",
-    "core.fsmonitor=false",
     "-c",
     "core.longpaths=true",
     ...(process.platform !== "win32" ? ["-c", "core.symlinks=true"] : []),
@@ -257,7 +253,9 @@ export namespace Git {
 
       const status = Effect.fn("Git.status")(function* (cwd: string) {
         return nuls(
-          yield* text(["status", "--porcelain=v1", "--untracked-files=all", "--no-renames", "-z", "--", "."], {
+          // Untracked directories stay collapsed (git default) so the walk does
+          // not descend into them; callers expand directories on demand.
+          yield* text(["status", "--porcelain=v1", "--untracked-files=normal", "--no-renames", "-z", "--", "."], {
             cwd,
             config: statusCfg,
           }),
