@@ -1288,6 +1288,7 @@ export const SortableWorkspace = (props: {
             <div class="flex items-center gap-1 pl-2 pr-3">
               <NewSessionItem
                 slug={slug()}
+                directory={props.directory}
                 clearHoverProjectSoon={props.ctx.clearHoverProjectSoon}
                 setHoverSession={props.ctx.setHoverSession}
               />
