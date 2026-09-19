@@ -930,6 +930,7 @@ export namespace Database {
     const existingDbIds = new Map<string, string>()
     const worktreeByPid = new Map<string, string>()
     const workspaceDirsByPid = new Map<string, Set<string>>()
+    const sessionCountByPid = new Map<string, number>()
     const corruptedIds = new Set<string>()
     if (existsSync(chDir)) {
       const pattern = /^aether-(.+)\.db$/
@@ -1009,6 +1010,7 @@ export namespace Database {
           validateDirectoryMeta(pSqlite, pid, recentLookup)
           syncProjectSandboxes(pSqlite, pid)
           syncDirectoryMetaToGlobal(sqlite, pSqlite, pid)
+          sessionCountByPid.set(pid, sessionCount)
           if (projectRow?.worktree && projectRow.worktree !== "/") {
             worktreeByPid.set(pid, projectRow.worktree)
           }
@@ -1110,9 +1112,12 @@ export namespace Database {
     if (recentCorrected > 0) log.info("corrected stale project_recent entries", { recentCorrected })
 
     // Phase 3: Delete project_recent entries whose project_id has no corresponding DB
-    //          (covers corrupted/orphaned project DBs), plus rows pointing INTO a
+    //          (covers corrupted/orphaned project DBs), rows pointing INTO a
     //          known project without being its worktree — sandbox/alias rows are
-    //          internal and must never live in the user-activity feed.
+    //          internal and must never live in the user-activity feed — and rows
+    //          for projects with zero sessions in this channel: the feed records
+    //          activity, not registration. A project re-earns its row the moment
+    //          a session is created in it (fromDirectory touches on boot).
     const staleRows = sqlite
       .prepare("SELECT key, project_id, directory FROM project_recent WHERE project_id IS NOT NULL")
       .all() as { key: string; project_id: string; directory: string }[]
@@ -1122,7 +1127,8 @@ export namespace Database {
       const wt = worktreeByPid.get(row.project_id)
       const wsDirs = workspaceDirsByPid.get(row.project_id)
       const internal = wt !== undefined && norm(row.directory) !== norm(wt) && !wsDirs?.has(norm(row.directory))
-      if (noDb || internal) {
+      const inactive = (sessionCountByPid.get(row.project_id) ?? 0) === 0
+      if (noDb || internal || inactive) {
         sqlite.prepare("DELETE FROM project_recent WHERE key = ?").run(row.key)
         removed++
       }

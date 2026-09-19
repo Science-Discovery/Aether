@@ -5,9 +5,11 @@ import { existsSync } from "fs"
 import { Project } from "../../src/project/project"
 import { ProjectID } from "../../src/project/schema"
 import { ProjectIdentity } from "../../src/project/identity"
-import { Global } from "../../src/global"
 import { ProjectTable } from "../../src/project/project.sql"
+import { Instance } from "../../src/project/instance"
+import { Session } from "../../src/session"
 import { Database } from "../../src/storage/db"
+import { Global } from "../../src/global"
 import { cleanupQuarantinedOriginals } from "../../src/storage/db-recovery"
 import { Database as BunSqlite } from "bun:sqlite"
 import { Log } from "../../src/util/log"
@@ -64,6 +66,8 @@ describe("startup reconciliation removes ghost sandbox projects", () => {
   test("empty project db whose worktree resolves to another project is quarantined", async () => {
     await using tmp = await tmpdir({ git: true })
     const { project: parent } = await Project.fromDirectory(tmp.path)
+    // The parent is an active project: its feed row must survive reconciliation.
+    await Instance.provide({ directory: tmp.path, fn: async () => Session.create({}) })
 
     const wtPath = path.join(tmp.path, "..", `ghost-wt-${Date.now().toString(36)}`)
     await $`git worktree add ${wtPath} -b ghost-branch-${Date.now().toString(36)}`.cwd(tmp.path).quiet()
@@ -136,6 +140,8 @@ describe("startup reconciliation removes ghost sandbox projects", () => {
   test("sandbox rows of a real project are purged from the feed, project entry kept", async () => {
     await using tmp = await tmpdir({ git: true })
     const { project } = await Project.fromDirectory(tmp.path)
+    // Active project: its own feed row must survive reconciliation.
+    await Instance.provide({ directory: tmp.path, fn: async () => Session.create({}) })
     const sandboxDir = path.join(tmp.path, "sandbox-purge")
 
     await Project.addSandbox(project.id, sandboxDir)
@@ -204,5 +210,28 @@ describe("startup reconciliation removes ghost sandbox projects", () => {
     expect(
       mainSqlite().prepare("SELECT directory FROM global_project_map WHERE project_id = ?").get(ghostId),
     ).toBeFalsy()
+  })
+
+  test("projects without sessions in this channel do not keep a feed row, and re-earn it on activity", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Project.fromDirectory(tmp.path)
+    expect(mainSqlite().prepare("SELECT key FROM project_recent WHERE directory = ?").get(norm(tmp.path))).toBeDefined()
+
+    Database.registerUntrackedProjects(Database.Client())
+
+    // Registration alone is not activity: the feed row is dropped.
+    expect(mainSqlite().prepare("SELECT key FROM project_recent WHERE directory = ?").get(norm(tmp.path))).toBeFalsy()
+    expect(Project.recentList().some((i) => Project.norm(i.directory) === norm(tmp.path))).toBe(false)
+
+    // Real activity re-earns the row and survives reconciliation.
+    const { Instance } = await import("../../src/project/instance")
+    const { Session } = await import("../../src/session")
+    await Instance.provide({ directory: tmp.path, fn: async () => Session.create({}) })
+    await Project.fromDirectory(tmp.path)
+    Database.registerUntrackedProjects(Database.Client())
+
+    expect(mainSqlite().prepare("SELECT key FROM project_recent WHERE directory = ?").get(norm(tmp.path))).toBeDefined()
+    const item = Project.recentList().find((i) => Project.norm(i.directory) === norm(tmp.path))
+    expect(item?.kind).toBe("project")
   })
 })
