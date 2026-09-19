@@ -16,6 +16,7 @@ import { useCommand } from "@/context/command"
 import { useLanguage } from "@/context/language"
 import { useLayout } from "@/context/layout"
 import { usePlatform } from "@/context/platform"
+import { resolveProject } from "@/context/global-sync/bootstrap"
 import { useSDK } from "@/context/sdk"
 import { useServer } from "@/context/server"
 import { useSync } from "@/context/sync"
@@ -140,9 +141,7 @@ export function SessionSearchFiles() {
   const projectDirectory = createMemo(() => decode64(params.dir) ?? "")
   const name = createMemo(() => {
     const directory = projectDirectory()
-    const projects = layout.projects.list()
-    const project =
-      projects.find((p) => p.worktree === directory) ?? projects.find((p) => p.sandboxes?.includes(directory))
+    const project = resolveProject(directory, layout.projects.list())
     if (project) return project.name || getFilename(project.worktree)
     return getFilename(directory)
   })

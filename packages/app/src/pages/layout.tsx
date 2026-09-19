@@ -15,6 +15,7 @@ import {
 import { useNavigate, useParams } from "@solidjs/router"
 import { useLayout, LocalProject } from "@/context/layout"
 import { useGlobalSync } from "@/context/global-sync"
+import { resolveProject } from "@/context/global-sync/bootstrap"
 import { Persist, persisted } from "@/utils/persist"
 import { ActiveDirectory } from "@/utils/active"
 import { base64Encode } from "@opencode-ai/util/encode"
@@ -741,13 +742,8 @@ export default function Layout(props: ParentProps) {
     if (!directory) return
 
     const projects = layout.projects.list()
-    const dirKey = workspaceKey(directory)
-
-    const direct = projects.find((p) => workspaceKey(p.worktree) === dirKey)
+    const direct = resolveProject(directory, projects)
     if (direct) return direct
-
-    const sandbox = projects.find((p) => p.sandboxes?.some((s) => workspaceKey(s) === dirKey))
-    if (sandbox) return sandbox
 
     const [child] = globalSync.child(directory, { bootstrap: false })
     const id = child.project
@@ -842,9 +838,7 @@ export default function Layout(props: ParentProps) {
     const projects = layout.projects.list()
     for (const [directory, expanded] of Object.entries(store.workspaceExpanded)) {
       if (!expanded) continue
-      const project =
-        projects.find((item) => item.worktree === directory) ??
-        projects.find((item) => item.sandboxes?.includes(directory))
+      const project = resolveProject(directory, projects)
       if (!project) continue
       if (project.vcs === "git" && layout.sidebar.workspaces(project.worktree)()) continue
       setStore("workspaceExpanded", directory, false)
@@ -1504,16 +1498,13 @@ export default function Layout(props: ParentProps) {
   }
 
   function projectRoot(directory: string) {
-    const dirKey = workspaceKey(directory)
     const projects = layout.projects.list()
-    const direct = projects.find((item) => workspaceKey(item.worktree) === dirKey)
+    const direct = resolveProject(directory, projects)
     if (direct) return direct.worktree
 
-    const sandbox = projects.find((item) => item.sandboxes?.some((s) => workspaceKey(s) === dirKey))
-    if (sandbox) return sandbox.worktree
-
+    const key = workspaceKey(directory)
     const known = Object.entries(store.workspaceOrder).find(
-      ([root, dirs]) => workspaceKey(root) === dirKey || dirs.some((d) => workspaceKey(d) === dirKey),
+      ([root, dirs]) => workspaceKey(root) === key || dirs.some((d) => workspaceKey(d) === key),
     )
     if (known) return known[0]
 
