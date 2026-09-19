@@ -679,7 +679,8 @@ export namespace Database {
     if (existingCount > 0) return
 
     const projectRow = pSqlite.prepare("SELECT worktree, vcs FROM project WHERE id = ?").get(pid) as
-      { worktree: string; vcs: string | null } | undefined
+      | { worktree: string; vcs: string | null }
+      | undefined
     if (!projectRow) return
 
     const worktree = projectRow.worktree
@@ -711,16 +712,17 @@ export namespace Database {
     }
   }
 
-  function gitWorktreeDirectories(worktree: string): string[] {
+  async function gitWorktreeDirectories(worktree: string): Promise<string[]> {
     if (!existsSync(worktree)) return []
     try {
-      const proc = Bun.spawnSync(["git", "worktree", "list", "--porcelain"], {
+      const proc = Bun.spawn(["git", "worktree", "list", "--porcelain"], {
         cwd: worktree,
         stderr: "pipe",
         stdout: "pipe",
       })
-      if (proc.exitCode !== 0) return []
-      const text = proc.stdout?.toString() ?? ""
+      const exitCode = await proc.exited
+      if (exitCode !== 0) return []
+      const text = await new Response(proc.stdout).text()
       const dirs: string[] = []
       for (const line of text.split("\n")) {
         const trimmed = line.trim()
@@ -734,14 +736,15 @@ export namespace Database {
     }
   }
 
-  function validateDirectoryMeta(pSqlite: BunSqlite, pid: string, recentLookup: Map<string, any>) {
+  async function validateDirectoryMeta(pSqlite: BunSqlite, pid: string, recentLookup: Map<string, any>) {
     const hasTable = pSqlite
       .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='directory_meta'")
       .get()
     if (!hasTable) return
 
     const projectRow = pSqlite.prepare("SELECT worktree, vcs FROM project WHERE id = ?").get(pid) as
-      { worktree: string; vcs: string | null } | undefined
+      | { worktree: string; vcs: string | null }
+      | undefined
     if (!projectRow) return
 
     const worktree = projectRow.worktree
@@ -755,7 +758,7 @@ export namespace Database {
 
     const setB = new Set<string>()
     if (projectRow.vcs === "git" && worktree !== "/") {
-      for (const dir of gitWorktreeDirectories(worktree)) {
+      for (const dir of await gitWorktreeDirectories(worktree)) {
         setB.add(norm(dir))
       }
     }
@@ -856,7 +859,8 @@ export namespace Database {
     if (!hasTable) return
 
     const projectRow = pSqlite.prepare("SELECT worktree FROM project WHERE id = ?").get(pid) as
-      { worktree: string } | undefined
+      | { worktree: string }
+      | undefined
     if (!projectRow) return
 
     const worktree = norm(projectRow.worktree)
@@ -874,7 +878,8 @@ export namespace Database {
     if (!hasTable) return
 
     const projectRow = pSqlite.prepare("SELECT worktree FROM project WHERE id = ?").get(pid) as
-      { worktree: string } | undefined
+      | { worktree: string }
+      | undefined
     const canonicalWorktree = projectRow?.worktree ?? "/"
 
     const metaRows = pSqlite.prepare("SELECT * FROM directory_meta").all() as {
@@ -898,7 +903,8 @@ export namespace Database {
 
     // Also pick up icon from ProjectTable as authoritative source
     const projectIcon = pSqlite.prepare("SELECT icon_url, icon_color FROM project WHERE id = ?").get(pid) as
-      { icon_url: string | null; icon_color: string | null } | undefined
+      | { icon_url: string | null; icon_color: string | null }
+      | undefined
 
     const insertMap = sqlite.prepare(
       `INSERT INTO global_project_map (directory, project_id, time_created, time_updated)
@@ -954,10 +960,30 @@ export namespace Database {
     }
   }
 
+  let reconcilingProjects = false
+
+  /**
+   * Reconcile every project DB against the main DB (directory_meta
+   * backfill, stale-row cleanup, identity re-resolution). With hundreds of
+   * project DBs this opens and integrity-checks each one, so it must never
+   * block the first project open: it runs in the background and yields to
+   * the event loop between chunks. Idempotent — a killed run is completed
+   * by the next process start.
+   */
   export function registerUntrackedProjects(db: DrizzleClient) {
+    if (reconcilingProjects) return
+    reconcilingProjects = true
+    void reconcileProjects(db)
+      .catch((error) => log.error("project reconciliation failed", { error: String(error) }))
+      .finally(() => (reconcilingProjects = false))
+  }
+
+  async function reconcileProjects(db: DrizzleClient) {
     const sqlite = db.$client
 
     cleanupQuarantinedOriginals()
+
+    const breathe = () => new Promise<void>((resolve) => setImmediate(resolve))
 
     const recentLookup = new Map<string, any>()
     const recentRows = sqlite.prepare("SELECT * FROM project_recent").all() as any[]
@@ -1007,7 +1033,8 @@ export namespace Database {
         let closed = false
         try {
           const projectRow = pSqlite.prepare("SELECT worktree FROM project WHERE id = ?").get(pid) as
-            { worktree: string } | undefined
+            | { worktree: string }
+            | undefined
           const sessionCount = (pSqlite.prepare("SELECT COUNT(*) as cnt FROM session").get() as { cnt: number }).cnt
           if (!projectRow && sessionCount === 0) {
             pSqlite.close()
@@ -1019,7 +1046,7 @@ export namespace Database {
           }
 
           ensureDirectoryMeta(pSqlite, pid, recentLookup)
-          validateDirectoryMeta(pSqlite, pid, recentLookup)
+          await validateDirectoryMeta(pSqlite, pid, recentLookup)
           syncProjectSandboxes(pSqlite, pid)
           syncDirectoryMetaToGlobal(sqlite, pSqlite, pid)
           if (projectRow?.worktree && projectRow.worktree !== "/")
@@ -1049,6 +1076,8 @@ export namespace Database {
         quarantine(fullPath, "project", pid)
         corruptedIds.add(pid)
       }
+      // yield to the event loop so pending requests are not starved
+      if (synced > 0 && synced % 8 === 0) await breathe()
     }
     if (synced > 0) log.info("directory_meta sync complete", { synced })
 
@@ -1157,10 +1186,14 @@ export namespace Database {
       return true
     }
 
-    for (const row of mapRows) fixEntry(row.directory, row.project_id, false)
-    for (const row of recentPidRows) {
+    for (const [i, row] of mapRows.entries()) {
+      fixEntry(row.directory, row.project_id, false)
+      if (i % 200 === 199) await breathe()
+    }
+    for (const [i, row] of recentPidRows.entries()) {
       const mapPid = mapPidByDir.get(row.directory)
       if (mapPid && mapPid !== row.project_id) fixEntry(row.directory, row.project_id, true)
+      if (i % 200 === 199) await breathe()
     }
     if (mapCorrected > 0) log.info("corrected stale global_project_map entries", { mapCorrected })
     if (recentCorrected > 0) log.info("corrected stale project_recent entries", { recentCorrected })
