@@ -2398,10 +2398,10 @@ export default function Layout(props: ParentProps) {
     if (demand <= 0) return stored
     return Math.max(SIDEBAR_MIN, Math.min(stored, viewport() - demand))
   })
-  const panel = createMemo(() => Math.max(side() - 64, 0))
+  const panel = createMemo(() => Math.max(side() - 45, 0))
 
   createEffect(() => {
-    const sidebarWidth = layout.sidebar.opened() ? side() : 48
+    const sidebarWidth = layout.sidebar.opened() ? side() : 45
     document.documentElement.style.setProperty("--dialog-left-margin", `${sidebarWidth}px`)
   })
 
@@ -3044,7 +3044,7 @@ export default function Layout(props: ParentProps) {
 
             <div
               class="pointer-events-none absolute top-0 right-0 z-0 border-t border-border-weaker-base"
-              style={{ left: "calc(4rem + 12px)" }}
+              style={{ left: "calc(45px + 12px)" }}
             />
 
             <div
@@ -3056,7 +3056,7 @@ export default function Layout(props: ParentProps) {
                   !state.sizing,
               }}
               style={{
-                "--main-left": layout.sidebar.opened() ? `${side()}px` : "4rem",
+                "--main-left": layout.sidebar.opened() ? `${side()}px` : "45px",
               }}
             >
               <main
@@ -3072,7 +3072,7 @@ export default function Layout(props: ParentProps) {
 
             <div
               classList={{
-                "flex absolute inset-y-0 left-16 z-30": true,
+                "flex absolute inset-y-0 left-[45px] z-30": true,
                 "opacity-100 translate-x-0 pointer-events-auto": state.peeked && !layout.sidebar.opened(),
                 "opacity-0 -translate-x-2 pointer-events-none": !state.peeked || layout.sidebar.opened(),
                 "transition-[opacity,transform] motion-reduce:transition-none": true,
@@ -3103,7 +3103,7 @@ export default function Layout(props: ParentProps) {
                 "duration-180 ease-out": state.peeked && !layout.sidebar.opened(),
                 "duration-120 ease-in": !state.peeked || layout.sidebar.opened(),
               }}
-              style={{ left: `calc(4rem + ${panel()}px)` }}
+              style={{ left: `calc(45px + ${panel()}px)` }}
             >
               <div class="h-full w-px" style={{ "box-shadow": "var(--shadow-sidebar-overlay)" }} />
             </div>
