@@ -1059,4 +1059,13 @@ export const dict = {
     "Este espacio de trabajo tiene {{count}} sesiones. Al fusionarlas se trasladan al espacio de trabajo principal y no se pierde nada; eliminarlas no se puede deshacer.",
   "workspace.delete.mergeSessions": "Fusionar sesiones y eliminar el espacio de trabajo",
   "workspace.delete.alsoDeleteSessions": "Eliminar sesiones y espacio de trabajo",
+  "dialog.project.delete.title": "Eliminar proyecto",
+  "dialog.project.delete.confirm": "{{name}} se eliminará permanentemente. Esto no se puede deshacer.",
+  "dialog.project.delete.deleted": "{{name}} se ha eliminado.",
+  "dialog.project.delete.hasSessions": "{{name}} tiene {{count}} sesiones:",
+  "dialog.project.delete.cascade": "Eliminar proyecto y sesiones",
+  "dialog.project.delete.cascadeConfirm": "Eliminar permanentemente",
+  "dialog.project.delete.cascadeHint":
+    "Eliminar el proyecto borra permanentemente estas sesiones, incluidas las archivadas. Esto no se puede deshacer.",
+  "dialog.project.delete.sessionArchived": "archivada",
 }

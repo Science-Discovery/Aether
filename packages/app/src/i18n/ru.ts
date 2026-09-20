@@ -1055,4 +1055,13 @@ export const dict = {
     "В этой рабочей области {{count}} сеансов. При объединении они будут перемещены в основную рабочую область — ничего не потеряется. Удаление необратимо.",
   "workspace.delete.mergeSessions": "Объединить сеансы и удалить рабочую область",
   "workspace.delete.alsoDeleteSessions": "Удалить сеансы и рабочую область",
+  "dialog.project.delete.title": "Удалить проект",
+  "dialog.project.delete.confirm": "{{name}} будет удален безвозвратно. Это действие нельзя отменить.",
+  "dialog.project.delete.deleted": "{{name}} удален.",
+  "dialog.project.delete.hasSessions": "В проекте {{name}} {{count}} сеансов:",
+  "dialog.project.delete.cascade": "Удалить проект и сеансы",
+  "dialog.project.delete.cascadeConfirm": "Удалить безвозвратно",
+  "dialog.project.delete.cascadeHint":
+    "Удаление проекта безвозвратно удаляет эти сеансы, включая архивированные. Отменить нельзя.",
+  "dialog.project.delete.sessionArchived": "в архиве",
 }

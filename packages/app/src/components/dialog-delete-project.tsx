@@ -2,7 +2,7 @@ import { Button } from "@opencode-ai/ui/button"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { Dialog } from "@opencode-ai/ui/dialog"
 import { useQuery, useMutation } from "@tanstack/solid-query"
-import { Show } from "solid-js"
+import { For, Show, createSignal } from "solid-js"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { type LocalProject } from "@/context/layout"
 import { useLanguage } from "@/context/language"
@@ -12,6 +12,7 @@ export function DialogDeleteProject(props: { project: LocalProject; onConfirm?: 
   const dialog = useDialog()
   const globalSDK = useGlobalSDK()
   const language = useLanguage()
+  const [confirmCascade, setConfirmCascade] = createSignal(false)
 
   const folderName = () => props.project.name || getFilename(props.project.worktree)
 
@@ -23,14 +24,25 @@ export function DialogDeleteProject(props: { project: LocalProject; onConfirm?: 
     },
   }))
 
+  const sessions = useQuery(() => ({
+    queryKey: ["project-sessions-preview", props.project.id],
+    queryFn: async () => {
+      const result = await globalSDK.client.project.sessionsPreview({ projectID: props.project.id! })
+      return result.data?.sessions ?? []
+    },
+  }))
+
   const deleteMutation = useMutation(() => ({
-    mutationFn: async () => {
-      const result = await globalSDK.client.project.delete({ projectID: props.project.id! })
+    mutationFn: async (cascade: boolean) => {
+      const result = await globalSDK.client.project.delete({ projectID: props.project.id!, cascade })
       return result.data!
     },
   }))
 
   const close = () => dialog.close()
+
+  const dateLabel = (time: number) =>
+    new Date(time).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" })
 
   return (
     <Dialog title={language.t("dialog.project.delete.title")} fit persistent class="w-full max-w-[480px] mx-auto">
@@ -58,7 +70,7 @@ export function DialogDeleteProject(props: { project: LocalProject; onConfirm?: 
                         disabled={deleteMutation.isPending}
                         onClick={() => {
                           props.onConfirm?.()
-                          deleteMutation.mutate()
+                          deleteMutation.mutate(false)
                         }}
                       >
                         {deleteMutation.isPending ? language.t("common.deleting") : language.t("common.delete")}
@@ -74,10 +86,46 @@ export function DialogDeleteProject(props: { project: LocalProject; onConfirm?: 
                       name: folderName(),
                     })}
                   </p>
+                  <div class="flex max-h-48 flex-col gap-1 overflow-y-auto">
+                    <For each={sessions.data ?? []}>
+                      {(session) => (
+                        <div class="flex items-baseline justify-between gap-2 rounded px-2 py-1 text-12-regular text-text-weak">
+                          <span class="truncate">{session.title || session.id}</span>
+                          <span class="shrink-0">
+                            {session.time_archived
+                              ? language.t("dialog.project.delete.sessionArchived")
+                              : dateLabel(session.time_created)}
+                          </span>
+                        </div>
+                      )}
+                    </For>
+                  </div>
+                  <p class="text-12-regular text-text-weak">{language.t("dialog.project.delete.cascadeHint")}</p>
                   <div class="flex justify-end gap-2">
                     <Button variant="ghost" onClick={close}>
-                      {language.t("common.ok")}
+                      {language.t("common.cancel")}
                     </Button>
+                    <Show
+                      when={confirmCascade()}
+                      fallback={
+                        <Button variant="secondary" onClick={() => setConfirmCascade(true)}>
+                          {language.t("dialog.project.delete.cascade")}
+                        </Button>
+                      }
+                    >
+                      <Button
+                        variant="primary"
+                        disabled={deleteMutation.isPending}
+                        onClick={() => {
+                          props.onConfirm?.()
+                          deleteMutation.mutate(true)
+                        }}
+                      >
+                        {deleteMutation.isPending
+                          ? language.t("common.deleting")
+                          : language.t("dialog.project.delete.cascadeConfirm")}
+                      </Button>
+                    </Show>
                   </div>
                 </div>
               </Show>

@@ -209,6 +209,8 @@ import type {
   ProjectRecentResponses,
   ProjectSessionCountErrors,
   ProjectSessionCountResponses,
+  ProjectSessionsPreviewErrors,
+  ProjectSessionsPreviewResponses,
   ProjectUpdateDirectoryMetaErrors,
   ProjectUpdateDirectoryMetaResponses,
   ProjectUpdateErrors,
@@ -1078,13 +1080,14 @@ export class Project extends HeyApiClient {
   /**
    * Delete project
    *
-   * Remove a project and its database. Fails if the project has sessions — delete those first.
+   * Remove a project and its database. Fails with the blocking sessions if the project has any — pass cascade to delete them together with the project.
    */
   public delete<ThrowOnError extends boolean = false>(
     parameters: {
       projectID: string
       directory?: string
       workspace?: string
+      cascade?: boolean
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -1096,6 +1099,7 @@ export class Project extends HeyApiClient {
             { in: "path", key: "projectID" },
             { in: "query", key: "directory" },
             { in: "query", key: "workspace" },
+            { in: "body", key: "cascade" },
           ],
         },
       ],
@@ -1104,6 +1108,11 @@ export class Project extends HeyApiClient {
       url: "/project/{projectID}",
       ...options,
       ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
     })
   }
 
@@ -1156,6 +1165,42 @@ export class Project extends HeyApiClient {
         ...options?.headers,
         ...params.headers,
       },
+    })
+  }
+
+  /**
+   * Preview project sessions
+   *
+   * List the sessions a project removal would delete, read directly from the project database. Sessions here may not be visible in the UI when the workspace directory no longer exists.
+   */
+  public sessionsPreview<ThrowOnError extends boolean = false>(
+    parameters: {
+      projectID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "projectID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<
+      ProjectSessionsPreviewResponses,
+      ProjectSessionsPreviewErrors,
+      ThrowOnError
+    >({
+      url: "/project/{projectID}/sessions-preview",
+      ...options,
+      ...params,
     })
   }
 

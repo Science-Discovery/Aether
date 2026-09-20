@@ -987,4 +987,13 @@ export const dict = {
     "Dieser Workspace hat {{count}} Sitzungen. Beim Zusammenführen werden sie in den Haupt-Workspace verschoben – nichts geht verloren. Löschen kann nicht rückgängig gemacht werden.",
   "workspace.delete.mergeSessions": "Sitzungen zusammenführen und Workspace löschen",
   "workspace.delete.alsoDeleteSessions": "Sitzungen und Workspace löschen",
+  "dialog.project.delete.title": "Projekt löschen",
+  "dialog.project.delete.confirm": "{{name}} wird endgültig entfernt. Dies kann nicht rückgängig gemacht werden.",
+  "dialog.project.delete.deleted": "{{name}} wurde entfernt.",
+  "dialog.project.delete.hasSessions": "{{name}} hat {{count}} Sitzungen:",
+  "dialog.project.delete.cascade": "Projekt und Sitzungen löschen",
+  "dialog.project.delete.cascadeConfirm": "Endgültig löschen",
+  "dialog.project.delete.cascadeHint":
+    "Beim Löschen des Projekts werden diese Sitzungen einschließlich archivierter endgültig gelöscht. Dies kann nicht rückgängig gemacht werden.",
+  "dialog.project.delete.sessionArchived": "archiviert",
 } satisfies Partial<Record<Keys, string>>

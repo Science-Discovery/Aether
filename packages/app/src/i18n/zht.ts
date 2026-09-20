@@ -1143,4 +1143,12 @@ export const dict = {
   "workspace.delete.hasSessions": "檢測到 {{count}} 個會話：合併後會轉移到主工作區，不會遺失；直接刪除則無法復原。",
   "workspace.delete.mergeSessions": "合併會話到主工作區，並刪除工作區",
   "workspace.delete.alsoDeleteSessions": "刪除會話和工作區",
+  "dialog.project.delete.title": "刪除項目",
+  "dialog.project.delete.confirm": "{{name}} 將被永久移除，此操作不可撤銷。",
+  "dialog.project.delete.deleted": "{{name}} 已移除。",
+  "dialog.project.delete.hasSessions": "{{name}} 有 {{count}} 個會話：",
+  "dialog.project.delete.cascade": "刪除項目和會話",
+  "dialog.project.delete.cascadeConfirm": "確認永久刪除",
+  "dialog.project.delete.cascadeHint": "刪除項目將永久刪除以上會話（包括已歸檔），且無法復原。",
+  "dialog.project.delete.sessionArchived": "已歸檔",
 } satisfies Partial<Record<Keys, string>>

@@ -1114,14 +1114,47 @@ export namespace Project {
       status: z.literal("has_sessions"),
       projectID: ProjectID.zod,
       sessionCount: z.number(),
+      sessions: z.array(
+        z.object({
+          id: z.string(),
+          title: z.string().nullable(),
+          time_created: z.number(),
+          time_archived: z.number().nullable(),
+        }),
+      ),
     }),
   ])
   export type RemoveResult = z.infer<typeof RemoveResult>
 
-  export function remove(id: ProjectID): RemoveResult {
+  // Read straight from the project db: the removal guard must never point at
+  // data the user cannot see, and the instance may not even boot when the
+  // workspace directory is gone.
+  function sessionsPreview(id: ProjectID) {
+    const dbPath = Database.projectPath(id)
+    if (!existsSync(dbPath)) return []
+    const raw = new BunSqlite(dbPath)
+    try {
+      return raw
+        .prepare("SELECT id, title, time_created, time_archived FROM session ORDER BY time_updated DESC LIMIT 100")
+        .all() as { id: string; title: string | null; time_created: number; time_archived: number | null }[]
+    } finally {
+      raw.close()
+    }
+  }
+
+  export function sessions(id: ProjectID) {
+    return sessionsPreview(id)
+  }
+
+  export function remove(id: ProjectID, input: { cascade?: boolean } = {}): RemoveResult {
     const cnt = sessionCount(id)
+    if (cnt > 0 && !input.cascade) {
+      return { status: "has_sessions", projectID: id, sessionCount: cnt, sessions: sessionsPreview(id) }
+    }
     if (cnt > 0) {
-      return { status: "has_sessions", projectID: id, sessionCount: cnt }
+      // Session rows carry the conversation history; messages and parts are
+      // removed by the foreign-key cascade.
+      Database.useProject(id, (d) => d.delete(SessionTable).run())
     }
 
     Database.detach(id)

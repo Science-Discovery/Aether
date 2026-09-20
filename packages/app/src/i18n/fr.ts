@@ -986,4 +986,13 @@ export const dict = {
     "Cet espace de travail contient {{count}} sessions. La fusion les déplace vers l'espace de travail principal : rien n'est perdu. La suppression est irréversible.",
   "workspace.delete.mergeSessions": "Fusionner les sessions et supprimer l'espace de travail",
   "workspace.delete.alsoDeleteSessions": "Supprimer les sessions et l'espace de travail",
+  "dialog.project.delete.title": "Supprimer le projet",
+  "dialog.project.delete.confirm": "{{name}} sera définitivement supprimé. Cette action est irréversible.",
+  "dialog.project.delete.deleted": "{{name}} a été supprimé.",
+  "dialog.project.delete.hasSessions": "{{name}} contient {{count}} sessions :",
+  "dialog.project.delete.cascade": "Supprimer le projet et les sessions",
+  "dialog.project.delete.cascadeConfirm": "Supprimer définitivement",
+  "dialog.project.delete.cascadeHint":
+    "Supprimer le projet supprime définitivement ces sessions, y compris les archivées. C'est irréversible.",
+  "dialog.project.delete.sessionArchived": "archivée",
 }
