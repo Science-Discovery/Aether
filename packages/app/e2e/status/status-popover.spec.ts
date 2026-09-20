@@ -88,7 +88,8 @@ test("status popover closes when clicking outside", async ({ page, gotoSession }
   const { popoverBody } = await openStatusPopover(page)
   await expect(popoverBody).toBeVisible()
 
-  await page.getByRole("main").click({ position: { x: 5, y: 5 } })
+  // the popover follows its trigger on the titlebar left; click main well clear of it
+  await page.getByRole("main").click({ position: { x: 700, y: 500 } })
 
   await expect(popoverBody).toHaveCount(0)
 })

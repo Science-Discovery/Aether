@@ -268,7 +268,16 @@ export function Titlebar() {
             </Show>
           </div>
         </div>
-        <div id="opencode-titlebar-left" class="flex items-center gap-3 min-w-0 px-2" />
+        <div
+          id="opencode-titlebar-left"
+          class="flex items-center gap-1 min-w-0 pl-1 pr-2 transition-transform"
+          classList={{
+            "translate-x-0": !layout.sidebar.opened() || !hasProjects(),
+            "-translate-x-[36px]": layout.sidebar.opened() && hasProjects(),
+            "duration-180 ease-out": !layout.sidebar.opened(),
+            "duration-180 ease-in": layout.sidebar.opened(),
+          }}
+        />
       </div>
 
       <div class="min-w-0 flex items-center justify-center pointer-events-none">

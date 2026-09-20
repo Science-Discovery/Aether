@@ -13,6 +13,7 @@ import {
   projectMenuTriggerSelector,
   projectCloseMenuSelector,
   projectWorkspacesToggleSelector,
+  titlebarLeftSelector,
   titlebarRightSelector,
   popoverBodySelector,
   listItemSelector,
@@ -924,8 +925,8 @@ export async function clearSessionDockSeed(sdk: ReturnType<typeof createSdk>, se
 export async function openStatusPopover(page: Page) {
   await defocus(page)
 
-  const rightSection = page.locator(titlebarRightSelector)
-  const trigger = rightSection.getByRole("button", { name: /status/i }).first()
+  const leftSection = page.locator(titlebarLeftSelector)
+  const trigger = leftSection.getByRole("button", { name: /status/i }).first()
 
   const popoverBody = page.locator(popoverBodySelector).filter({ has: page.locator('[data-component="tabs"]') })
 
@@ -940,7 +941,7 @@ export async function openStatusPopover(page: Page) {
     await expect(popoverBody).toBeVisible()
   }
 
-  return { rightSection, popoverBody }
+  return { leftSection, popoverBody }
 }
 
 export async function openProjectMenu(page: Page, projectSlug: string) {

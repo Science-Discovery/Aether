@@ -339,10 +339,80 @@ export function SessionHeader() {
     openFileTab(file.tab(node.path))
   }
 
+  const leftMount = createMemo(() => document.getElementById("opencode-titlebar-left"))
   const rightMount = createMemo(() => document.getElementById("opencode-titlebar-right"))
 
   return (
     <>
+      <Show when={leftMount()}>
+        {(mount) => (
+          <Portal mount={mount()}>
+            <div class="flex items-center gap-1">
+              <Tooltip placement="bottom" value={language.t("status.popover.trigger")}>
+                <StatusPopover />
+              </Tooltip>
+              <TooltipKeybind
+                placement="bottom"
+                hideOnExpand={false}
+                title={terminalTitle()}
+                keybind={command.keybind("terminal.toggle")}
+              >
+                <Button
+                  variant="ghost"
+                  class="group/terminal-toggle titlebar-icon w-8 h-6 p-0 box-border shrink-0"
+                  onClick={toggleTerminal}
+                  aria-label={terminalTitle()}
+                  aria-expanded={view().terminal.opened()}
+                  aria-controls="terminal-panel"
+                >
+                  <Icon size="small" name={view().terminal.opened() ? "terminal-active" : "terminal"} />
+                </Button>
+              </TooltipKeybind>
+
+              <div class="hidden md:flex items-center gap-1 shrink-0">
+                <TooltipKeybind hideOnExpand={false} title={reviewTitle()} keybind={command.keybind("review.toggle")}>
+                  <Button
+                    variant="ghost"
+                    class="group/review-toggle titlebar-icon w-8 h-6 p-0 box-border"
+                    onClick={() => view().reviewPanel.toggle()}
+                    aria-label={reviewTitle()}
+                    aria-expanded={view().reviewPanel.opened()}
+                    aria-controls="review-panel"
+                  >
+                    <Icon size="small" name={view().reviewPanel.opened() ? "review-active" : "review"} />
+                  </Button>
+                </TooltipKeybind>
+
+                <TooltipKeybind
+                  hideOnExpand={false}
+                  title={fileTreeTitle()}
+                  keybind={command.keybind("fileTree.toggle")}
+                >
+                  <Button
+                    variant="ghost"
+                    class="titlebar-icon w-8 h-6 p-0 box-border"
+                    onClick={() => layout.fileTree.toggle()}
+                    aria-label={fileTreeTitle()}
+                    aria-expanded={layout.fileTree.opened()}
+                    aria-controls="file-tree-panel"
+                  >
+                    <div class="relative flex items-center justify-center size-4">
+                      <Icon
+                        size="small"
+                        name={layout.fileTree.opened() ? "file-tree-active" : "file-tree"}
+                        classList={{
+                          "text-icon-strong": layout.fileTree.opened(),
+                          "text-icon-weak": !layout.fileTree.opened(),
+                        }}
+                      />
+                    </div>
+                  </Button>
+                </TooltipKeybind>
+              </div>
+            </div>
+          </Portal>
+        )}
+      </Show>
       <Show when={rightMount()}>
         {(mount) => (
           <Portal mount={mount()}>
@@ -437,69 +507,6 @@ export function SessionHeader() {
                   </Show>
                 </div>
               </Show>
-              <div class="flex items-center gap-1">
-                <Tooltip placement="bottom" value={language.t("status.popover.trigger")}>
-                  <StatusPopover />
-                </Tooltip>
-                <TooltipKeybind
-                  placement="bottom"
-                  hideOnExpand={false}
-                  title={terminalTitle()}
-                  keybind={command.keybind("terminal.toggle")}
-                >
-                  <Button
-                    variant="ghost"
-                    class="group/terminal-toggle titlebar-icon w-8 h-6 p-0 box-border shrink-0"
-                    onClick={toggleTerminal}
-                    aria-label={terminalTitle()}
-                    aria-expanded={view().terminal.opened()}
-                    aria-controls="terminal-panel"
-                  >
-                    <Icon size="small" name={view().terminal.opened() ? "terminal-active" : "terminal"} />
-                  </Button>
-                </TooltipKeybind>
-
-                <div class="hidden md:flex items-center gap-1 shrink-0">
-                  <TooltipKeybind hideOnExpand={false} title={reviewTitle()} keybind={command.keybind("review.toggle")}>
-                    <Button
-                      variant="ghost"
-                      class="group/review-toggle titlebar-icon w-8 h-6 p-0 box-border"
-                      onClick={() => view().reviewPanel.toggle()}
-                      aria-label={reviewTitle()}
-                      aria-expanded={view().reviewPanel.opened()}
-                      aria-controls="review-panel"
-                    >
-                      <Icon size="small" name={view().reviewPanel.opened() ? "review-active" : "review"} />
-                    </Button>
-                  </TooltipKeybind>
-
-                  <TooltipKeybind
-                    hideOnExpand={false}
-                    title={fileTreeTitle()}
-                    keybind={command.keybind("fileTree.toggle")}
-                  >
-                    <Button
-                      variant="ghost"
-                      class="titlebar-icon w-8 h-6 p-0 box-border"
-                      onClick={() => layout.fileTree.toggle()}
-                      aria-label={fileTreeTitle()}
-                      aria-expanded={layout.fileTree.opened()}
-                      aria-controls="file-tree-panel"
-                    >
-                      <div class="relative flex items-center justify-center size-4">
-                        <Icon
-                          size="small"
-                          name={layout.fileTree.opened() ? "file-tree-active" : "file-tree"}
-                          classList={{
-                            "text-icon-strong": layout.fileTree.opened(),
-                            "text-icon-weak": !layout.fileTree.opened(),
-                          }}
-                        />
-                      </div>
-                    </Button>
-                  </TooltipKeybind>
-                </div>
-              </div>
             </div>
           </Portal>
         )}
