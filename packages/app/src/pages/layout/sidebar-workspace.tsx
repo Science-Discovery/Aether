@@ -5,7 +5,6 @@ import {
   createSignal,
   For,
   on,
-  onCleanup,
   onMount,
   Show,
   type Accessor,
@@ -46,6 +45,12 @@ import { SessionImportInput } from "@/components/session-import-input"
 import { SidebarBranchView } from "@/pages/session/branch/sidebar-branch-view"
 
 const BATCH_CHUNK = 8
+
+const [selectRequest, setSelectRequest] = createSignal<string>()
+
+export function requestSessionSelect(directory: string) {
+  setSelectRequest(directory)
+}
 
 async function listRootSessions(
   client: ReturnType<typeof useGlobalSDK>["client"],
@@ -268,9 +273,6 @@ export type WorkspaceSidebarContext = {
   setConversationTreeLastFocus: (rootSessionID: string, sessionID: string) => void
   showResetWorkspaceDialog: (root: string, directory: string) => void
   showDeleteWorkspaceDialog: (root: string, directory: string, branch?: string) => void
-  registerSessionSelect: (directory: string, trigger: () => void) => void
-  unregisterSessionSelect: (directory: string, trigger: () => void) => void
-  requestSessionSelect: (directory: string) => void
   setScrollContainerRef: (el: HTMLDivElement | undefined) => void
 }
 
@@ -1541,9 +1543,11 @@ export const LocalWorkspace = (props: {
     dialog,
     language,
   )
-  onMount(() => {
-    props.ctx.registerSessionSelect(props.project.worktree, enterSelect)
-    onCleanup(() => props.ctx.unregisterSessionSelect(props.project.worktree, enterSelect))
+  createEffect(() => {
+    const dir = selectRequest()
+    if (dir !== props.project.worktree) return
+    setSelectRequest(undefined)
+    enterSelect()
   })
 
   return (

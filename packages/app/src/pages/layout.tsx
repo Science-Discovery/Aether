@@ -100,6 +100,7 @@ import {
 } from "./layout/sidebar-workspace"
 import { ProjectDragOverlay, SortableProject, type ProjectSidebarContext } from "./layout/sidebar-project"
 import { SidebarContent } from "./layout/sidebar-shell"
+import { requestSessionSelect } from "./layout/sidebar-workspace"
 
 export default function Layout(props: ParentProps) {
   const [store, setStore, , ready] = persisted(
@@ -1601,7 +1602,14 @@ export default function Layout(props: ParentProps) {
       if (data.session.some((item) => item.id === target.id)) {
         setStore("lastProjectSession", directory, { directory: target.directory, id: target.id, at: Date.now() })
         OpenIntent.mark(server.key, target.directory)
-        navigateWithSidebarReset(projectSessionHref({ slug: params.dir, currentDirectory: currentDir(), directory: target.directory, suffix: `/session/${target.id}` }))
+        navigateWithSidebarReset(
+          projectSessionHref({
+            slug: params.dir,
+            currentDirectory: currentDir(),
+            directory: target.directory,
+            suffix: `/session/${target.id}`,
+          }),
+        )
         return true
       }
       const resolved = await globalSDK.client.session
@@ -1612,7 +1620,14 @@ export default function Layout(props: ParentProps) {
       if (!canOpen(resolved.directory)) return false
       setStore("lastProjectSession", directory, { directory: resolved.directory, id: resolved.id, at: Date.now() })
       OpenIntent.mark(server.key, resolved.directory)
-      navigateWithSidebarReset(projectSessionHref({ slug: params.dir, currentDirectory: currentDir(), directory: resolved.directory, suffix: `/session/${resolved.id}` }))
+      navigateWithSidebarReset(
+        projectSessionHref({
+          slug: params.dir,
+          currentDirectory: currentDir(),
+          directory: resolved.directory,
+          suffix: `/session/${resolved.id}`,
+        }),
+      )
       return true
     }
 
@@ -2562,8 +2577,6 @@ export default function Layout(props: ParentProps) {
     }
   }
 
-  const [sessionSelectTriggers, setSessionSelectTriggers] = createStore<Record<string, (() => void)[]>>({})
-
   const workspaceSidebarCtx: WorkspaceSidebarContext = {
     currentDir,
     navList: currentSessions,
@@ -2584,13 +2597,6 @@ export default function Layout(props: ParentProps) {
     setEditor,
     InlineEditor,
     isBusy,
-    registerSessionSelect: (directory, trigger) =>
-      setSessionSelectTriggers(directory, (list) => [...(list ?? []), trigger]),
-    unregisterSessionSelect: (directory, trigger) =>
-      setSessionSelectTriggers(directory, (list) => (list ?? []).filter((fn) => fn !== trigger)),
-    requestSessionSelect: (directory) => {
-      for (const trigger of sessionSelectTriggers[directory] ?? []) trigger()
-    },
     workspaceExpanded: (directory, local) => store.workspaceExpanded[directory] ?? local,
     setWorkspaceExpanded: (directory, value) => setStore("workspaceExpanded", directory, value),
     sessionExpanded: (sessionID) => store.sessionExpanded[sessionID] ?? true,
@@ -2825,7 +2831,7 @@ export default function Layout(props: ParentProps) {
                             onSelect={() => {
                               const dir = worktree()
                               if (!dir) return
-                              workspaceSidebarCtx.requestSessionSelect(dir)
+                              requestSessionSelect(dir)
                             }}
                           >
                             <DropdownMenu.ItemLabel>{language.t("session.select")}</DropdownMenu.ItemLabel>
