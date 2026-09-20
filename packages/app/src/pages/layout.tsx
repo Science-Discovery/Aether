@@ -2824,19 +2824,7 @@ export default function Layout(props: ParentProps) {
                         <DropdownMenu.Item data-action="project-import-session" onSelect={() => pick()}>
                           <DropdownMenu.ItemLabel>{language.t("session.import.action.import")}</DropdownMenu.ItemLabel>
                         </DropdownMenu.Item>
-                        <Show when={!workspacesEnabled()}>
-                          <DropdownMenu.Item
-                            data-action="project-select-sessions"
-                            data-project={slug()}
-                            onSelect={() => {
-                              const dir = worktree()
-                              if (!dir) return
-                              requestSessionSelect(dir)
-                            }}
-                          >
-                            <DropdownMenu.ItemLabel>{language.t("session.select")}</DropdownMenu.ItemLabel>
-                          </DropdownMenu.Item>
-                        </Show>
+                        {/* TEMP-DIAG: conditional menu item removed for e2e bisect */}
                         <DropdownMenu.Separator />
                         <DropdownMenu.Item
                           data-action="project-close-menu"
