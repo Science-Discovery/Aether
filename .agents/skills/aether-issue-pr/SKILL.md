@@ -1,142 +1,98 @@
 ---
 name: aether-issue-pr
-description: 面向 Science-Discovery/Aether 仓库的 issue 与 PR 工作流。用户要求“提 issue”“创建 issue”“开 PR”“提交 PR”“用 gh 发 issue/PR”“往 Aether 仓库提单并发 PR”时触发。若用户已指定 issue 则直接关联；否则按仓库模板自动起草并直接创建 issue，无需用户确认。PR 默认提交到 dev 分支并直接创建，无需草稿确认；仅当目标为 beta、main 等敏感分支时提醒用户谨慎并等待确认。PR 默认只推送当前会话产生的修改；PR 创建后默认主动监控 GitHub 报错并及时修复（cicd-guard 报错除外），除非用户特别说明。
+description: 用于处理 Science-Discovery/Aether 协作提交；当用户请求创建 issue/PR、恢复既有 PR、监控修复 CI、审查 cicd-guard 失败或评价受保护路径改动时使用。
 ---
 
-# Aether Issue And PR Flow
+# 协作提交流程
 
-适用于 `Science-Discovery/Aether` 仓库的 GitHub issue 与 PR 操作。
+## 确认范围
 
-## 核心规则
+- 默认仓库 `Science-Discovery/Aether`，默认 base 为 `dev`；GitHub 操作统一用 `gh`，显式指定 `--repo Science-Discovery/Aether`。
+- 普通 issue/PR 按模板直接创建，不等待草稿确认，除非用户要求预览或 draft；仅提 issue 不自动扩展为提交代码或开 PR。
+- 用户指定 `beta`、`main` 等敏感目标时，先提醒风险并等待确认，确认前不为该目标推送或创建 PR。
+- 提交、推送及后续修复须符合用户授权和环境权限；只写文档、只调研、禁止提交等限制优先于自动执行流程。
 
-- 默认目标仓库始终是 `Science-Discovery/Aether`。
-- 除用户明确要求确认草稿外，issue 与 PR 均直接创建，不暂停等待用户确认。
-- issue 关联：以用户在会话中明确给出的 issue 编号为准；若用户未指定，则直接自动创建相关 issue。
-- PR 目标分支：用户明确指定分支时使用该分支；未指定时默认 `dev`，不要为此询问用户。
-- PR 提交范围：除非用户特别说明，默认只提交并推送当前会话产生的修改内容，不要把工作区里与本任务无关的既有改动（包括其他会话遗留的未提交文件）一并提交。
-- PR 后监控：除非用户特别说明，PR 创建后默认主动监控该 PR 的 GitHub 检查状态；发现报错要及时定位并主动修复、推送修复，其中 `cicd-guard` 工作流的报错不处理、不修复。
-- 若用户要求向 `beta` 或 `main` 分支提交 PR，必须先明确提醒用户需要谨慎，并等待用户确认后才继续。
-- 不要跳过模板：issue 与 PR 正文仍必须严格按仓库模板生成。
-- 凡是涉及 `gh` 认证校验、`gh api`、`gh issue create`、`gh pr create`、`git push` 这类依赖 GitHub 网络或写入 `.git` 的步骤，不要先根据沙箱内失败结果认定为“用户未登录”或“命令本身失败”。
-- 若沙箱内出现 `gh auth status` 失败、GitHub API 失败、`.git/index.lock` 无法写入、网络受限等情况，应优先立即用提权方式重试并复核；只有在提权后仍失败，才能把问题归因到用户认证或真实命令错误。
+---
 
-## Issue 流程
+## 核实状态
 
-### 1. 确定 issue
+1. 读取适用目录指令，用 `git status --short`、`git remote -v`、`git branch -vv` 确认工作区、远端、当前分支及跟踪关系。
+2. 查看 `git diff`、`git diff --cached` 并读取未跟踪文件，记录既有改动；更新相关远端引用后查看 `git log <base>..HEAD`、`git diff <base>...HEAD`，核验全部提交及完整差异，不只看最后一次提交或文件名。
+3. 查当前任务记录、用户指定 issue 和已有 PR 的明确关联；用 `gh pr list --state open --head <head> --base <base>` 查重，再用 `gh pr view <number>` 核实 head 仓库、分支、base、正文和关联 issue。
+4. 恢复任务时复用已确认属于本任务的 issue/PR；不可仅凭主题相似关联，跨 fork 的同名 head 也不是同一分支。
+5. 默认只纳入当前任务改动，包括已提交历史；若混有无关修改或提交，从正确 base 整理专用分支或 worktree，只迁移已确认的任务差异，并重新核验完整 diff。
 
-- 若用户已明确提供 issue 编号，直接使用该 issue，进入 PR 流程。
-- 若用户未提供 issue 编号，不要询问用户，直接按下面步骤自动创建。
+保留用户工作区、暂存内容及既有历史，不擅自 reset、清理或覆盖；混合文件按差异隔离，无法安全区分时说明阻塞并询问。
+检查新增内容不含密钥、凭据等秘密，避免整库暂存或夹带既有提交。
 
-### 2. 自动创建 issue
+---
 
-按下面顺序执行：
+## 复用或创建
 
-1. 读取 `.github/ISSUE_TEMPLATE/` 下的模板。
-2. 根据任务性质选择最合适的模板，通常是：
-   - 功能或重构类：`feature-request.yml`
-   - 缺陷修复类：`bug-report.yml`
-   - 单纯提问：`question.yml`
-3. 严格依据模板字段草拟 issue 标题与正文。
-4. 直接用本地 `gh` 在 `Science-Discovery/Aether` 创建 issue，无需先把草稿发给用户确认（除非用户明确要求先看草稿）。
-5. 创建完成后，记录并回报：
-   - issue 编号
-   - issue 链接
+1. 用户给定 issue 时核实并复用；否则优先复用本任务已明确关联的 issue，没有才自动创建，不按相似标题选单。
+2. 读取仓库实际 `.github/ISSUE_TEMPLATE/` 和适用 PR 模板，按任务类型填写真实字段与必填项，不硬编码旧模板；本地缺失或过时时用 `gh` 核对目标仓库版本。
+3. 用 `gh issue create` 创建缺少的 issue，记录返回编号和链接；请求超时或结果不明时先查询是否已创建，再决定重试，PR 同理。
+4. PR 正文描述需求、完整改动和实际验证；真正解决 issue 才用 `Closes #<number>`，部分工作用 `Refs #<number>`，未运行检查和不适用项如实标注。
+5. 对授权范围内的改动运行适用检查，只暂存确认过的任务差异，复核暂存区后按仓库规范提交；推送前再次检查 `<base>...HEAD` 全部差异及提交。
+6. 确认推送目的仓库和 head 分支后普通推送；非快进拒绝先分析分歧，不自动 force push、改写共享历史或绕过 hooks。
+7. 推送后再次查重：已有本任务 PR 则更新，否则用 `gh pr create --base <base> --head <head>` 创建；fork head 使用正确的 owner 限定，记录 PR、head SHA 和 base SHA。
 
-补充注意：
+---
 
-- 若 `gh auth status` 在沙箱内失败，不要直接要求用户重新登录；先用提权命令检查一次，因为沙箱网络限制可能导致假阴性。
-- 创建 issue 时，默认直接使用提权方式执行 `gh issue create`，避免重复卡在沙箱网络问题上。
+## 分类处理失败
 
-## PR 流程
+- 保留命令、退出码和脱敏错误证据，区分网络/DNS/代理、认证、仓库权限、环境限制和 Git 锁；单次 `gh auth status` 失败不等于未登录。
+- 仅在证据指向环境限制、工具支持且环境规则允许时申请相应权限；认证问题核实凭据，授权问题交由权限持有人处理，不默认提权。
+- 锁失败先查占用进程、并发操作和目录权限，不盲删锁；瞬时网络错误可有限重试，持续失败报告原因与下一步。
 
-### 1. 起草前检查
+---
 
-在准备 PR 前：
+## 审查门禁
 
-1. 读取 `.github/pull_request_template.md`。
-2. 确认本次 PR 对应的 issue 编号。
-3. 检查当前改动范围：除非用户特别说明，只提交并推送当前会话产生的修改内容，不要把仓库里既有的、与本任务无关的改动一并加入 commit；如果用户明确要求“全部提交”，则按用户要求执行。
-4. 形成规范的 commit message，优先使用 Conventional Commits 风格，如：
-   - `fix: ...`
-   - `feat: ...`
-   - `refactor: ...`
-   - `docs: ...`
+先区分路径策略命中与脚本/API 错误，不把所有 `cicd-guard` 失败都当政策拦截。
+不得仅为变绿禁用 guard、跳过测试、放宽断言/阈值、吞掉错误、删除合理回归测试、把修改藏到未保护路径或修改白名单/保护名单。
 
-### 2. 起草 PR 内容
+1. 用 `gh run view <run-id> --log-failed` 获取实际 guard run 日志，必要时用 `gh run view <run-id> --log` 读完整日志，不以机器人评论代替日志；记录 run/attempt、事件类型、事件 base SHA 与来源 head，以及当前 PR head SHA 和 base 分支/SHA，GraphQL EOF 可用 `gh api` REST 回退。
+2. 从该 run 的事件 base SHA 读取 `.github/workflows/cicd-guard.yml`、`.github/cicd-admins.txt` 和 `.github/cicd-protected-files.txt`，不要用当前工作区或最新 base 代替；可对每个路径执行 `gh api "repos/Science-Discovery/Aether/contents/<path>?ref=<event-base-sha>" -H "Accept: application/vnd.github.raw+json"`。
+3. 每次核对 workflow 的触发事件、目标分支、checkout ref、配置来源及实际执行逻辑；当前实现由 `pull_request_target` 的 `opened/reopened/synchronize/ready_for_review` 对 `main/beta/dev` 触发，checkout 事件 `base.sha` 读取两份名单，逻辑内嵌 `github-script`。若实际版本改变，沿真实引用读取脚本或配置并以实际实现为准，不猜测不存在的仓库脚本、批准命令或放行机制。
+4. 按实际代码逐项核对作者与路径：当前豁免只看 PR 作者 `pr.user.login` 是否在白名单，不看 reviewer、重跑者或管理员角色；否则分页 `pulls.listFiles`，对 `filename` 和 `previous_filename` 精确匹配保护名单。检查新增、修改、删除及重命名的新旧路径，范围包含普通单测/E2E，不仅是 workflow，不擅自按 glob 或目录前缀解释名单。
+5. 分别记录路径策略与质量检查结果：当前 guard 不执行测试、不评估内容合理性，正常通过条件是作者白名单或 PR 不再命中保护路径；测试和 typecheck 通过可以与路径策略失败并存，不能互相替代。
+6. 核实放行机制再提出下一步：当前实现无批准评论、标签、SHA 授权或 TTL 机制，评论批准、Approve review、fork workflow approval 和管理员重跑均不等于 guard 放行；若版本发生变化，仅按已核实实现解释其效果。
 
-PR 草稿必须遵循仓库模板，至少包含：
+---
 
-- `Issue for this PR`
-- `Type of change`
-- `What does this PR do?`
-- `How did you verify your code works?`
-- `Screenshots / recordings`
-- `Checklist`
+## 评价改动
 
-规则：
+1. 核对当前 head/base 后审阅 `git diff <base>...<head>` 完整 PR 差异及关联 fixture/setup、helper、脚本和测试配置，追踪原约束与调用，不限于命中文件、最新 commit 或评论。
+2. 对比修改前后的输入、初始化状态、执行分支与失败条件；fixture/setup/helper 即使不改断言，也能改变实际覆盖或使回归场景消失。用具体场景和实际验证证明原有保障仍有效，不能以断言未变或测试通过证明安全。
+3. 逐项区分**必要语义更新**与**仅为绕过失败的修改**：必要更新须有需求依据、原约束问题、修改必要性、保留或替代保障及实际验证，不以“新实现过不了旧检查”为理由；仅绕过检查的修改须撤回，修复实现或根因并恢复有效验证。
+4. 对混合变更分别列出应保留、应撤回和待裁定部分，不整包认可或否决；证据不足时列明缺口和补充验证，交维护者裁定。确需降低保障时披露损失、替代措施和残余风险，不自行放行。
+5. 在授权范围内用 `gh pr comment <number> --body <review>` 发布必要改动的证据评价并记录评论链接，请维护者决定符合政策的集成方式；不承诺审查批准后重跑会绿，必要修复仍推送同一 PR 并重新检查。
 
-- 若已有 issue 编号，优先写 `Closes #<编号>`。
-- `What does this PR do?` 要简洁、具体，避免大段空泛 AI 文案。
-- 验证部分只写真实执行过的检查或测试。
-- 若无截图，`Screenshots / recordings` 可写 `Not applicable.`。
+用紧凑列表或表格保留以下人工评价字段：
 
-### 3. 直接提交
+- **范围**：PR、head SHA、base 分支与 base SHA。
+- **逐项证据**：需求依据、原约束问题、修改必要性、文件行或 diff 链接及相关日志链接。
+- **验证与影响**：实际执行结果、保留/替代的质量安全覆盖、影响与残余风险。
+- **结论**：各项保留/撤回/待裁定、理由及维护者待办；交付时附审查评论链接。
 
-按下面顺序执行：
+后续 head/base 相关变化须更新审查并标明新 SHA；评论绑定 SHA 仅作可追溯记录，不是 guard 授权机制，也不等于批准或通过。
 
-1. 按模板生成 PR 正文后，直接执行 commit、push、`gh pr create`，无需先把草稿发给用户确认（除非用户明确要求先确认草稿）；commit 只包含当前会话产生的修改，除非用户特别说明。
-2. 默认 PR 目标仓库是 `Science-Discovery/Aether`。
-3. 目标分支规则：
-   - 用户明确指定分支时，使用用户指定的分支。
-   - 用户未指定时，直接使用 `dev`，不要询问。
-   - 用户要求 `beta` 或 `main` 时，先明确提醒用户向该分支发起 PR 需要谨慎，并等待用户确认；确认前不得执行 push 和 `gh pr create`。
-4. 创建完成后，记录并回报：
-   - 分支名
-   - commit hash
-   - commit message
-   - PR 编号
-   - PR 链接
+---
 
-补充注意：
+## 跟踪结果
 
-- `git commit` 可能因沙箱无法写入 `.git/index.lock` 而失败；这种情况应直接改用提权方式继续，不要把它误判成仓库状态异常。
-- `git push` 和 `gh pr create` 默认优先使用提权方式执行，因为它们通常依赖沙箱外网络。
-- `git add` 只暂存当前会话修改过的文件，不要直接 `git add .` 或 `git add -A` 把无关改动带进去（用户明确要求全部提交时除外）。
+1. 除非用户明确不需要，创建或恢复 PR 后主动用 `gh pr checks <number>`、`gh pr view <number> --json headRefOid,baseRefName,statusCheckRollup` 跟踪，并核对 run 的事件与来源 head（合并测试核对来源 head，`pull_request_target` 核对事件 base 与实际被检 PR）。
+2. 最新 head 有新提交就重新确认检查，不用旧 head 的绿灯作结论；失败读取日志、定位并修复，在授权范围内提交推送原 PR，guard 按上节处理。
+3. 只有瞬时故障证据或已修复原因才有限重跑，记录原因、次数和结果；按运行耗时设置有限观察窗口，合理间隔查询，不无限等待或反复刷绿。
+   核对重跑使用的事件与配置：当前 guard 重跑旧 run 沿用原事件 base 配置，却查询当前 PR 文件列表；不得凭旧 run 绿灯证明最新 head 已通过，也不得假定重跑会加载更新后的 base 配置，版本变化时重新核实。
+4. 排队、基础设施故障、人工批准等阻塞，经合理观察后报告状态、原因、run/检查链接、责任方和下一步；必要时等待管理员，不扩大权限或绕过质量门禁。
+5. 声称外部或已有失败须附 base/历史运行、日志等对照证据；归因不代表解决，证据不足标为未定，跳过/取消/未运行也不能冒充通过。
+6. guard 标红不一定是 required 合并阻塞项，须查询目标分支的 branch protection、适用 rulesets/effective rules，核对 required 检查名称、来源与对应结果；无权限则明示未知，不凭 `mergeable_state: blocked` 认定 guard 是阻塞原因，也不把非 required 失败描述成已通过。
 
-### 4. PR 后监控与修复
+---
 
-除非用户特别说明，PR 创建后默认进入监控流程：
+## 汇总交付
 
-1. 用 `gh pr checks <PR编号> --repo Science-Discovery/Aether`（必要时配合 `gh run watch` 或 `gh pr view --json statusCheckRollup`）跟踪 PR 的 CI 状态；沙箱内网络受限时改用提权方式执行。
-2. 发现检查失败或报错时，主动定位原因并及时修复，修复后以新的 commit 推送到同一分支，不要重新开 PR；持续跟踪直到检查通过，或确认问题不在本 PR 的改动范围内。
-3. 例外：`cicd-guard` 工作流的报错（如提示 CI/CD 保护文件被修改）不处理、不修复，也不必反复向用户解释；除非用户明确要求处理它。
-4. 如果用户明确表示不需要监控，则跳过本步骤。
-
-监控结果要在最终回报中简要说明（通过 / 已修复 / 按规则忽略的报错）。
-
-## 输出要求
-
-每次执行该工作流时，输出要清楚分成两个阶段：
-
-1. issue 创建结果（或用户指定 issue 的关联结果）
-2. PR 创建结果
-
-如果 issue 和 PR 都已创建，最终回复中应明确给出：
-
-- 目标仓库
-- issue 编号与链接
-- 分支名
-- commit hash
-- commit message
-- PR 编号与链接
-- CI 监控结果（通过 / 已修复的问题 / 按规则忽略的报错）
-
-## 禁止事项
-
-- 不要在没有 issue 编号的情况下假装已经关联 issue。
-- 不要在未创建 issue 的情况下直接创建 PR（用户明确指定 issue 的除外）。
-- 不要在用户未特别说明时，把当前会话之外的改动混进 PR 的 commit。
-- 不要在 PR 创建后对 CI 报错不闻不问（`cicd-guard` 报错除外）。
-- 不要在目标分支为 `beta` 或 `main` 且未经用户确认时执行 push 或创建 PR。
-- 不要忽略 `Science-Discovery/Aether` 的模板。
-- 不要把未实际运行的测试写进 PR。
+用一份简短汇报给出 issue/PR 链接、branch/head SHA、目标 base 和真实检查状态；仅做 issue 时省略不适用项，不强制分两阶段。
+适用时附 guard 逐项结论、审查评论链接、未解决原因及待办责任方；未执行、待批准、待复查须明示，不伪造测试、批准或成功状态。
