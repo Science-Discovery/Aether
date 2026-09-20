@@ -443,9 +443,12 @@ export const dict = {
   "dialog.project.edit.worktree.startup.placeholder": "e.g. bun install",
   "dialog.project.delete.title": "Delete project",
   "dialog.project.delete.confirm": "{{name}} will be permanently removed. This cannot be undone.",
-  "dialog.project.delete.deleted": "{{name}} has been removed.",
-  "dialog.project.delete.hasSessions":
-    "{{name}} has {{count}} sessions. Delete all sessions first before removing this project.",
+  "dialog.project.delete.hasSessions": "{{name}} has {{count}} sessions (earliest and newest shown below):",
+  "dialog.project.delete.cascadeConfirm": "Delete permanently",
+  "dialog.project.delete.cascadeHint":
+    "Deleting the project permanently deletes these sessions, including archived ones. This cannot be undone.",
+  "dialog.project.delete.failed": "Failed to delete project",
+  "dialog.project.delete.sessionArchived": "archived",
 
   "dialog.releaseNotes.action.getStarted": "Get started",
   "dialog.releaseNotes.action.next": "Next",
@@ -1567,9 +1570,10 @@ export const dict = {
   "workspace.delete.confirm": 'Delete workspace "{{name}}"?',
   "workspace.delete.button": "Delete workspace",
   "workspace.delete.cancel": "Cancel",
-  "workspace.delete.hasSessions": "This workspace has sessions. How would you like to proceed?",
-  "workspace.delete.mergeSessions": "Merge to main workspace",
-  "workspace.delete.alsoDeleteSessions": "Delete sessions too",
+  "workspace.delete.hasSessions":
+    "This workspace has {{count}} sessions. Merging moves them to the main workspace so nothing is lost; deleting them cannot be undone.",
+  "workspace.delete.mergeSessions": "Merge sessions to main workspace, then delete",
+  "workspace.delete.alsoDeleteSessions": "Delete sessions and workspace",
   "workspace.delete.mergeFailed": "Failed to merge sessions. Workspace was not deleted.",
   "workspace.delete.stale.title": "Stale workspace",
   "workspace.delete.stale.confirm":

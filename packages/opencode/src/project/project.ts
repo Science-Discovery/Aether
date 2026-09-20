@@ -1114,15 +1114,57 @@ export namespace Project {
       status: z.literal("has_sessions"),
       projectID: ProjectID.zod,
       sessionCount: z.number(),
+      sessions: z.array(
+        z.object({
+          id: z.string(),
+          title: z.string().nullable(),
+          time_created: z.number(),
+          time_archived: z.number().nullable(),
+        }),
+      ),
     }),
   ])
   export type RemoveResult = z.infer<typeof RemoveResult>
 
-  export function remove(id: ProjectID): RemoveResult {
-    const cnt = sessionCount(id)
-    if (cnt > 0) {
-      return { status: "has_sessions", projectID: id, sessionCount: cnt }
+  // Read straight from the project db: the removal guard must never point at
+  // data the user cannot see, and the instance may not even boot when the
+  // workspace directory is gone. Long histories are sampled to the earliest
+  // and newest conversation — with the count shown alongside, that is the
+  // cheapest honest summary of what removal would delete.
+  function sessionsPreview(id: ProjectID) {
+    const dbPath = Database.projectPath(id)
+    if (!existsSync(dbPath)) return []
+    const raw = new BunSqlite(dbPath)
+    try {
+      // Select * and map defensively: legacy schemas may lack columns the
+      // current schema has (e.g. time_archived).
+      const rows = raw.prepare("SELECT * FROM session ORDER BY rowid").all() as Record<string, unknown>[]
+      const mapped = rows.map((r) => ({
+        id: String(r.id),
+        title: typeof r.title === "string" ? r.title : null,
+        time_created: typeof r.time_created === "number" ? r.time_created : 0,
+        time_archived: typeof r.time_archived === "number" ? r.time_archived : null,
+      }))
+      if (mapped.length <= 2) return mapped
+      return [mapped[0]!, mapped[mapped.length - 1]!]
+    } finally {
+      raw.close()
     }
+  }
+
+  export function sessions(id: ProjectID) {
+    return sessionsPreview(id)
+  }
+
+  export function remove(id: ProjectID, input: { cascade?: boolean } = {}): RemoveResult {
+    const cnt = sessionCount(id)
+    if (cnt > 0 && !input.cascade) {
+      return { status: "has_sessions", projectID: id, sessionCount: cnt, sessions: sessionsPreview(id) }
+    }
+    // No attach here on purpose: legacy project dbs can fail schema-ensure on
+    // attach, which would make removal impossible for exactly the projects
+    // users most want to delete. The table wipe below removes sessions,
+    // messages and parts with them.
 
     Database.detach(id)
 

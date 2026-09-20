@@ -983,4 +983,16 @@ export const dict = {
   "error.childStore.persistedProjectIconCreateFailed": "Dauerhaftes Projekticon konnte nicht erstellt werden",
   "error.childStore.storeCreateFailed": "Speicher konnte nicht erstellt werden",
   "terminal.connectionLost.abnormalClose": "WebSocket abnormal geschlossen: {{code}}",
+  "workspace.delete.hasSessions":
+    "Dieser Workspace hat {{count}} Sitzungen. Beim Zusammenführen werden sie in den Haupt-Workspace verschoben – nichts geht verloren. Löschen kann nicht rückgängig gemacht werden.",
+  "workspace.delete.mergeSessions": "Sitzungen zusammenführen und Workspace löschen",
+  "workspace.delete.alsoDeleteSessions": "Sitzungen und Workspace löschen",
+  "dialog.project.delete.title": "Projekt löschen",
+  "dialog.project.delete.confirm": "{{name}} wird endgültig entfernt. Dies kann nicht rückgängig gemacht werden.",
+  "dialog.project.delete.hasSessions": "{{name}} hat {{count}} Sitzungen (älteste und neueste unten):",
+  "dialog.project.delete.cascadeConfirm": "Endgültig löschen",
+  "dialog.project.delete.cascadeHint":
+    "Beim Löschen des Projekts werden diese Sitzungen einschließlich archivierter endgültig gelöscht. Dies kann nicht rückgängig gemacht werden.",
+  "dialog.project.delete.failed": "Projekt konnte nicht gelöscht werden",
+  "dialog.project.delete.sessionArchived": "archiviert",
 } satisfies Partial<Record<Keys, string>>

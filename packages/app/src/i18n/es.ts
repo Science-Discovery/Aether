@@ -1055,4 +1055,17 @@ export const dict = {
   "error.childStore.persistedProjectIconCreateFailed": "Error al crear icono de proyecto persistente",
   "error.childStore.storeCreateFailed": "Error al crear almacén",
   "terminal.connectionLost.abnormalClose": "WebSocket cerrado anormalmente: {{code}}",
+  "workspace.delete.hasSessions":
+    "Este espacio de trabajo tiene {{count}} sesiones. Al fusionarlas se trasladan al espacio de trabajo principal y no se pierde nada; eliminarlas no se puede deshacer.",
+  "workspace.delete.mergeSessions": "Fusionar sesiones y eliminar el espacio de trabajo",
+  "workspace.delete.alsoDeleteSessions": "Eliminar sesiones y espacio de trabajo",
+  "dialog.project.delete.title": "Eliminar proyecto",
+  "dialog.project.delete.confirm": "{{name}} se eliminará permanentemente. Esto no se puede deshacer.",
+  "dialog.project.delete.hasSessions":
+    "{{name}} tiene {{count}} sesiones (se muestran la más antigua y la más reciente):",
+  "dialog.project.delete.cascadeConfirm": "Eliminar permanentemente",
+  "dialog.project.delete.cascadeHint":
+    "Eliminar el proyecto borra permanentemente estas sesiones, incluidas las archivadas. Esto no se puede deshacer.",
+  "dialog.project.delete.failed": "Error al eliminar el proyecto",
+  "dialog.project.delete.sessionArchived": "archivada",
 }

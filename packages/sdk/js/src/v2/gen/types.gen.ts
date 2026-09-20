@@ -3244,6 +3244,12 @@ export type ProjectDeleteResponses = {
         status: "has_sessions"
         projectID: string
         sessionCount: number
+        sessions: Array<{
+          id: string
+          title: string | null
+          time_created: number
+          time_archived: number | null
+        }>
       }
 }
 
@@ -3295,6 +3301,47 @@ export type ProjectUpdateResponses = {
 }
 
 export type ProjectUpdateResponse = ProjectUpdateResponses[keyof ProjectUpdateResponses]
+
+export type ProjectSessionsPreviewData = {
+  body?: never
+  path: {
+    projectID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/project/{projectID}/sessions-preview"
+}
+
+export type ProjectSessionsPreviewErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type ProjectSessionsPreviewError = ProjectSessionsPreviewErrors[keyof ProjectSessionsPreviewErrors]
+
+export type ProjectSessionsPreviewResponses = {
+  /**
+   * Session preview
+   */
+  200: {
+    sessions: Array<{
+      id: string
+      title: string | null
+      time_created: number
+      time_archived: number | null
+    }>
+  }
+}
+
+export type ProjectSessionsPreviewResponse = ProjectSessionsPreviewResponses[keyof ProjectSessionsPreviewResponses]
 
 export type ProjectSessionCountData = {
   body?: never

@@ -1051,4 +1051,16 @@ export const dict = {
   "error.childStore.persistedProjectIconCreateFailed": "Не удалось создать постоянный значок проекта",
   "error.childStore.storeCreateFailed": "Не удалось создать хранилище",
   "terminal.connectionLost.abnormalClose": "WebSocket закрыт аварийно: {{code}}",
+  "workspace.delete.hasSessions":
+    "В этой рабочей области {{count}} сеансов. При объединении они будут перемещены в основную рабочую область — ничего не потеряется. Удаление необратимо.",
+  "workspace.delete.mergeSessions": "Объединить сеансы и удалить рабочую область",
+  "workspace.delete.alsoDeleteSessions": "Удалить сеансы и рабочую область",
+  "dialog.project.delete.title": "Удалить проект",
+  "dialog.project.delete.confirm": "{{name}} будет удален безвозвратно. Это действие нельзя отменить.",
+  "dialog.project.delete.hasSessions": "В проекте {{name}} {{count}} сеансов (ниже — самый ранний и самый поздний):",
+  "dialog.project.delete.cascadeConfirm": "Удалить безвозвратно",
+  "dialog.project.delete.cascadeHint":
+    "Удаление проекта безвозвратно удаляет эти сеансы, включая архивированные. Отменить нельзя.",
+  "dialog.project.delete.failed": "Не удалось удалить проект",
+  "dialog.project.delete.sessionArchived": "в архиве",
 }

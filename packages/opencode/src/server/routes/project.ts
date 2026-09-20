@@ -158,7 +158,8 @@ export const ProjectRoutes = lazy(() =>
       "/:projectID",
       describeRoute({
         summary: "Delete project",
-        description: "Remove a project and its database. Fails if the project has sessions — delete those first.",
+        description:
+          "Remove a project and its database. Fails with the blocking sessions if the project has any — pass cascade to delete them together with the project.",
         operationId: "project.delete",
         responses: {
           200: {
@@ -175,8 +176,50 @@ export const ProjectRoutes = lazy(() =>
       validator("param", z.object({ projectID: ProjectID.zod })),
       async (c) => {
         const projectID = c.req.valid("param").projectID
-        const result = Project.remove(projectID)
+        // Legacy clients delete with no body at all — treat missing or
+        // unparseable JSON as non-cascade instead of rejecting.
+        const body = z
+          .object({ cascade: z.boolean().optional() })
+          .catch({})
+          .parse(await c.req.json().catch(() => undefined))
+        const result = Project.remove(projectID, body)
         return c.json(result)
+      },
+    )
+    .get(
+      "/:projectID/sessions-preview",
+      describeRoute({
+        summary: "Preview project sessions",
+        description:
+          "List the sessions a project removal would delete, read directly from the project database. Sessions here may not be visible in the UI when the workspace directory no longer exists.",
+        operationId: "project.sessionsPreview",
+        responses: {
+          200: {
+            description: "Session preview",
+            content: {
+              "application/json": {
+                schema: resolver(
+                  z.object({
+                    sessions: z.array(
+                      z.object({
+                        id: z.string(),
+                        title: z.string().nullable(),
+                        time_created: z.number(),
+                        time_archived: z.number().nullable(),
+                      }),
+                    ),
+                  }),
+                ),
+              },
+            },
+          },
+          ...errors(400, 404),
+        },
+      }),
+      validator("param", z.object({ projectID: ProjectID.zod })),
+      async (c) => {
+        const projectID = c.req.valid("param").projectID
+        return c.json({ sessions: Project.sessions(projectID) })
       },
     )
     .get(

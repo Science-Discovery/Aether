@@ -966,4 +966,16 @@ export const dict = {
   "error.childStore.persistedProjectIconCreateFailed": "永続プロジェクトアイコンの作成に失敗しました",
   "error.childStore.storeCreateFailed": "ストアの作成に失敗しました",
   "terminal.connectionLost.abnormalClose": "WebSocket が異常終了しました: {{code}}",
+  "workspace.delete.hasSessions":
+    "このワークスペースには {{count}} 件のセッションがあります。マージするとメインワークスペースに移動され、失われることはありません。削除した場合は元に戻せません。",
+  "workspace.delete.mergeSessions": "セッションをマージしてワークスペースを削除",
+  "workspace.delete.alsoDeleteSessions": "セッションとワークスペースを削除",
+  "dialog.project.delete.title": "プロジェクトを削除",
+  "dialog.project.delete.confirm": "{{name}} は完全に削除されます。この操作は元に戻せません。",
+  "dialog.project.delete.hasSessions": "{{name}} には {{count}} 件のセッションがあります（最新と最古を表示）:",
+  "dialog.project.delete.cascadeConfirm": "完全に削除する",
+  "dialog.project.delete.cascadeHint":
+    "プロジェクトを削除すると、上記のセッション（アーカイブ済みを含む）も完全に削除されます。この操作は元に戻せません。",
+  "dialog.project.delete.failed": "プロジェクトの削除に失敗しました",
+  "dialog.project.delete.sessionArchived": "アーカイブ済み",
 }

@@ -982,4 +982,17 @@ export const dict = {
   "error.childStore.persistedProjectIconCreateFailed": "Échec de la création de l'icône de projet persistante",
   "error.childStore.storeCreateFailed": "Échec de la création du stockage",
   "terminal.connectionLost.abnormalClose": "WebSocket fermé anormalement : {{code}}",
+  "workspace.delete.hasSessions":
+    "Cet espace de travail contient {{count}} sessions. La fusion les déplace vers l'espace de travail principal : rien n'est perdu. La suppression est irréversible.",
+  "workspace.delete.mergeSessions": "Fusionner les sessions et supprimer l'espace de travail",
+  "workspace.delete.alsoDeleteSessions": "Supprimer les sessions et l'espace de travail",
+  "dialog.project.delete.title": "Supprimer le projet",
+  "dialog.project.delete.confirm": "{{name}} sera définitivement supprimé. Cette action est irréversible.",
+  "dialog.project.delete.hasSessions":
+    "{{name}} contient {{count}} sessions (la plus ancienne et la plus récente ci-dessous) :",
+  "dialog.project.delete.cascadeConfirm": "Supprimer définitivement",
+  "dialog.project.delete.cascadeHint":
+    "Supprimer le projet supprime définitivement ces sessions, y compris les archivées. C'est irréversible.",
+  "dialog.project.delete.failed": "Échec de la suppression du projet",
+  "dialog.project.delete.sessionArchived": "archivée",
 }

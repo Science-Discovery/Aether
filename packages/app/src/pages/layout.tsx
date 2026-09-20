@@ -2107,7 +2107,7 @@ export default function Layout(props: ParentProps) {
       if (data.status === "loading") return language.t("workspace.status.checking")
       if (data.status === "error") return language.t("workspace.status.error")
       if (data.dirty) return language.t("workspace.status.dirty")
-      if (data.sessionCount > 0) return language.t("workspace.delete.hasSessions")
+      if (data.sessionCount > 0) return language.t("workspace.delete.hasSessions", { count: data.sessionCount })
       return language.t("workspace.status.clean")
     }
 
