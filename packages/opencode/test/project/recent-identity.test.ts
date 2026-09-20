@@ -18,7 +18,7 @@ import { Global } from "../../src/global"
 import { cleanupQuarantinedOriginals } from "../../src/storage/db-recovery"
 import { Database as BunSqlite } from "bun:sqlite"
 import { Log } from "../../src/util/log"
-import { tmpdir } from "../fixture/fixture"
+import { converse, tmpdir } from "../fixture/fixture"
 
 const { norm } = ProjectIdentity
 
@@ -28,24 +28,15 @@ function mainSqlite() {
   return Database.Client().$client
 }
 
-// A conversation is the unit of feed activity: one session plus one persisted
-// user message, written through the production path (Session.updateMessage).
-async function converse(directory: string) {
-  await Instance.provide({
-    directory,
-    fn: async () => {
-      const session = await Session.create({})
-      const msg: MessageV2.User = {
-        id: MessageID.ascending(),
-        sessionID: session.id,
-        time: { created: Date.now() },
-        role: "user",
-        agent: "build",
-        model: { providerID: ProviderID.make("test"), modelID: ModelID.make("test") },
-      }
-      await Session.updateMessage(msg)
-    },
-  })
+// Seed a fresh feed row without conversation activity (the residue a legacy
+// writer or a rename would have left behind).
+function seedRecent(directory: string, pid: ProjectID) {
+  const now = Date.now()
+  mainSqlite()
+    .prepare(
+      "INSERT INTO project_recent (key, kind, project_id, directory, activity_at, time_created, time_updated) VALUES (?, 'project', ?, ?, ?, ?, ?) ON CONFLICT(key) DO UPDATE SET time_updated = excluded.time_updated",
+    )
+    .run(`dir:${norm(directory)}`, pid, norm(directory), now, now, now)
 }
 
 // Real app-managed worktree storage: <data>/worktree/<pid>/<sandbox>, with the
@@ -70,6 +61,7 @@ describe("recent feed kind is derived from project identity", () => {
   test("stored kind column is ignored: corrupted kinds cannot surface sandbox entries", async () => {
     await using tmp = await tmpdir({ git: true })
     const { project } = await Project.fromDirectory(tmp.path)
+    await converse(tmp.path)
     const sandboxDir = path.join(tmp.path, "sandbox-kind")
 
     await Project.addSandbox(project.id, sandboxDir)
@@ -98,6 +90,7 @@ describe("recent feed kind is derived from project identity", () => {
   test("recentFromDir derives project kind for the worktree directory", async () => {
     await using tmp = await tmpdir({ git: true })
     await Project.fromDirectory(tmp.path)
+    await converse(tmp.path)
 
     const info = Project.recentFromDir(tmp.path)
     expect(info?.kind).toBe("project")
@@ -336,9 +329,11 @@ describe("startup reconciliation removes ghost sandbox projects", () => {
     expect(Project.recentFromDir(tmp.path)?.name).toBe("my-rename")
   })
 
-  test("cutoff window: a re-touched row re-earns exactly one reconcile exemption pass", async () => {
+  test("cutoff window: a re-seeded row re-earns exactly one reconcile exemption pass", async () => {
     await using tmp = await tmpdir({ git: true })
+    const pid = ProjectID.fromDirectory(norm(tmp.path))
     await Project.fromDirectory(tmp.path)
+    seedRecent(tmp.path, pid)
     const rowHere = () => mainSqlite().prepare("SELECT key FROM project_recent WHERE directory = ?").get(norm(tmp.path))
 
     Database.registerUntrackedProjects(Database.Client())
@@ -347,59 +342,79 @@ describe("startup reconciliation removes ghost sandbox projects", () => {
     Database.registerUntrackedProjects(Database.Client())
     expect(rowHere()).toBeFalsy()
 
-    await Bun.sleep(2)
+    await converse(tmp.path)
     await Project.fromDirectory(tmp.path)
     Database.registerUntrackedProjects(Database.Client())
     expect(rowHere()).toBeDefined()
 
+    // An active project is cutoff-exempt-proof: no pass can take its row.
     Database.registerUntrackedProjects(Database.Client())
-    expect(rowHere()).toBeFalsy()
+    expect(rowHere()).toBeDefined()
   })
 
-  test("projects without sessions in this channel do not keep a feed row, and re-earn it on activity", async () => {
+  test("projects without conversations do not keep a feed row, and re-earn it on activity", async () => {
     await using tmp = await tmpdir({ git: true })
+    const pid = ProjectID.fromDirectory(norm(tmp.path))
     await Project.fromDirectory(tmp.path)
-    expect(mainSqlite().prepare("SELECT key FROM project_recent WHERE directory = ?").get(norm(tmp.path))).toBeDefined()
+    seedRecent(tmp.path, pid)
+    const rowHere = () => mainSqlite().prepare("SELECT key FROM project_recent WHERE directory = ?").get(norm(tmp.path))
+    expect(rowHere()).toBeDefined()
 
-    // First pass: the row was touched after the previous pass, so a fresh boot
+    // First pass: the row was seeded after the previous pass, so a fresh boot
     // registration is presumed live and survives (same-process recovery safety).
     Database.registerUntrackedProjects(Database.Client())
-    expect(mainSqlite().prepare("SELECT key FROM project_recent WHERE directory = ?").get(norm(tmp.path))).toBeDefined()
+    expect(rowHere()).toBeDefined()
 
-    // Second pass: nothing re-touched it — registration alone is not activity.
+    // Second pass: nothing refreshed it — registration alone is not activity.
     Database.registerUntrackedProjects(Database.Client())
-    expect(mainSqlite().prepare("SELECT key FROM project_recent WHERE directory = ?").get(norm(tmp.path))).toBeFalsy()
+    expect(rowHere()).toBeFalsy()
     expect(Project.recentList().some((i) => Project.norm(i.directory) === norm(tmp.path))).toBe(false)
 
-    // Real activity re-earns the row: touch refreshes it again, and once the
-    // project has a message-bearing session no reconcile can take the row.
+    // Real activity re-earns the row: touch mints it while active, and no
+    // reconcile can take it afterwards.
     await converse(tmp.path)
     await Project.fromDirectory(tmp.path)
     Database.registerUntrackedProjects(Database.Client())
     Database.registerUntrackedProjects(Database.Client())
 
-    expect(mainSqlite().prepare("SELECT key FROM project_recent WHERE directory = ?").get(norm(tmp.path))).toBeDefined()
+    expect(rowHere()).toBeDefined()
     const item = Project.recentList().find((i) => Project.norm(i.directory) === norm(tmp.path))
     expect(item?.kind).toBe("project")
   })
 
   test("sessions without messages are not activity: an empty session never re-earns the feed row", async () => {
     await using tmp = await tmpdir({ git: true })
+    const pid = ProjectID.fromDirectory(norm(tmp.path))
     await Project.fromDirectory(tmp.path)
     // The optimistic-UI shape: a session row exists, but no conversation.
     await Instance.provide({ directory: tmp.path, fn: async () => Session.create({}) })
-    await Project.fromDirectory(tmp.path)
+    seedRecent(tmp.path, pid)
     const rowHere = () => mainSqlite().prepare("SELECT key FROM project_recent WHERE directory = ?").get(norm(tmp.path))
     expect(rowHere()).toBeDefined()
 
-    // Freshly re-touched rows survive exactly one pass (same-process safety)...
+    // Freshly seeded rows survive exactly one pass (same-process safety)...
     Database.registerUntrackedProjects(Database.Client())
     expect(rowHere()).toBeDefined()
-    // ...but touch no longer refreshes inactive rows, so the row freezes and
-    // the next reconcile collects it even though sessionCount > 0.
+    // ...and an empty session never refreshes the row, so the next reconcile
+    // collects it even though sessionCount > 0.
     Database.registerUntrackedProjects(Database.Client())
     expect(rowHere()).toBeFalsy()
     expect(Project.recentList().some((i) => Project.norm(i.directory) === norm(tmp.path))).toBe(false)
+
+    // The app itself re-opens feed directories (project restore churn): that
+    // must not resurrect the purged row — reopening is never activity.
+    await Project.fromDirectory(tmp.path)
+    expect(rowHere()).toBeFalsy()
+  })
+
+  test("opening a directory never mints a feed row; the first conversation does", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Project.fromDirectory(tmp.path)
+    const rowHere = () => mainSqlite().prepare("SELECT key FROM project_recent WHERE directory = ?").get(norm(tmp.path))
+    expect(rowHere()).toBeFalsy()
+
+    await converse(tmp.path)
+    expect(rowHere()).toBeDefined()
   })
 })
 
@@ -437,6 +452,7 @@ describe("managed worktree storage folds into the owning project", () => {
     await using tmp = await tmpdir({ git: true })
     const pid = ProjectID.fromDirectory(norm(tmp.path))
     await Project.fromDirectory(tmp.path)
+    await converse(tmp.path)
     const container = await managedSandbox(tmp.path, "legacy")
     const sub = path.join(container, "packages", "sub")
     await fs.mkdir(sub, { recursive: true })

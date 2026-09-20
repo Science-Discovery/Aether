@@ -4,6 +4,7 @@ import { Session } from "./index"
 import { MessageV2 } from "./message-v2"
 import { SessionTable, MessageTable, PartTable } from "./session.sql"
 import { Instance } from "../project/instance"
+import { Project } from "../project/project"
 import { Log } from "../util/log"
 
 const log = Log.create({ service: "session.projector" })
@@ -12,6 +13,22 @@ function foreign(err: unknown) {
   if (typeof err !== "object" || err === null) return false
   if ("code" in err && err.code === "SQLITE_CONSTRAINT_FOREIGNKEY") return true
   return "message" in err && typeof err.message === "string" && err.message.includes("FOREIGN KEY constraint failed")
+}
+
+// A persisted message is the moment a project earns its feed row: the row is
+// minted here (never on open) and refreshed while conversations keep happening.
+// Throttled because streaming turns publish several message updates.
+const activityTouchedAt = new Map<string, number>()
+
+function touchActivity() {
+  const pid = Instance.project.id
+  const now = Date.now()
+  if (now - (activityTouchedAt.get(pid) ?? 0) < 30_000) return
+  activityTouchedAt.set(pid, now)
+  Project.touchActivity(Instance.project).catch((err) => {
+    activityTouchedAt.delete(pid)
+    log.warn("failed to record conversation activity", { pid, error: String(err) })
+  })
 }
 
 export type DeepPartial<T> = T extends object ? { [K in keyof T]?: DeepPartial<T[K]> | null } : T
@@ -113,6 +130,7 @@ export default [
         log.warn("ignored late message update", { messageID: id, sessionID })
       }
     })
+    touchActivity()
   }),
 
   SyncEvent.project(MessageV2.Event.Removed, (db, data) => {

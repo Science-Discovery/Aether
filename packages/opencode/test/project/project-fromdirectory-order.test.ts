@@ -3,7 +3,7 @@ import { Project } from "../../src/project/project"
 import { Instance } from "../../src/project/instance"
 import { Database } from "../../src/storage/db"
 import { Log } from "../../src/util/log"
-import { tmpdir } from "../fixture/fixture"
+import { tmpdir, converse } from "../fixture/fixture"
 import { existsSync } from "fs"
 import { ProjectTable } from "../../src/project/project.sql"
 import { ProjectIdentity } from "../../src/project/identity"
@@ -18,6 +18,7 @@ describe("Project.fromDirectory ordering", () => {
   test("writes global_project_map, project_recent, and creates per-project DB", async () => {
     await using tmp = await tmpdir()
     const { project } = await Project.fromDirectory(tmp.path)
+    await converse(tmp.path)
 
     const mainSqlite = Database.Client().$client
 
@@ -59,6 +60,7 @@ describe("Project.fromDirectory ordering", () => {
   test("project_recent entry has matching directory", async () => {
     await using tmp = await tmpdir()
     const { project } = await Project.fromDirectory(tmp.path)
+    await converse(tmp.path)
 
     const recent = Database.Client()
       .$client.prepare("SELECT directory FROM project_recent WHERE project_id = ?")

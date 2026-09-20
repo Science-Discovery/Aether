@@ -324,6 +324,7 @@ export namespace Project {
     readonly removeSandbox: (id: ProjectID, directory: string) => Effect.Effect<void>
     readonly mergeSandboxSessions: (id: ProjectID, directory: string) => Effect.Effect<number>
     readonly syncWorktrees: (id: ProjectID, worktree: string) => Effect.Effect<void>
+    readonly touchActivity: (project: Info) => Effect.Effect<void>
   }
 
   export class Service extends ServiceMap.Service<Service, Interface>()("@opencode/Project") {}
@@ -395,45 +396,6 @@ export namespace Project {
         const kind = isProject ? "project" : "directory"
         const directory = norm(input.directory)
 
-        // The feed records conversation activity. Opening a directory may seed
-        // a row so an in-use workspace is visible immediately, but an existing
-        // row only stays fresh while the project is active — registration and
-        // boot churn alone must never keep a row alive across reconciliations.
-        const existingRow = yield* db((d) =>
-          d
-            .select({ key: ProjectRecentTable.key })
-            .from(ProjectRecentTable)
-            .where(eq(ProjectRecentTable.key, key))
-            .get(),
-        )
-        if (!existingRow || active(input.project.id)) {
-          yield* db((d) =>
-            d
-              .insert(ProjectRecentTable)
-              .values({
-                key,
-                kind,
-                project_id: isProject ? input.project.id : null,
-                directory,
-                activity_at: now,
-                time_created: now,
-                time_updated: now,
-              })
-              .onConflictDoUpdate({
-                target: ProjectRecentTable.key,
-                set: {
-                  kind,
-                  project_id: isProject ? input.project.id : null,
-                  directory,
-                  activity_at: now,
-                  time_updated: now,
-                },
-              })
-              .run(),
-          )
-          yield* emitRecentUpdated
-        }
-
         if (isProject) {
           yield* dbProject(input.project.id, (d) =>
             d
@@ -460,6 +422,44 @@ export namespace Project {
               .run(),
           )
         }
+
+        // The feed records conversation activity, and touch never creates a
+        // row: the app itself boots instances for feed projects, so seeding on
+        // open would resurrect exactly the registration junk this feed must
+        // not hold. Rows are minted when a project's first message lands
+        // (Project.touchActivity from the message projector) and refreshed
+        // here while the project stays active.
+        if (!active(input.project.id)) return
+        yield* db((d) =>
+          d
+            .insert(ProjectRecentTable)
+            .values({
+              key,
+              kind,
+              project_id: isProject ? input.project.id : null,
+              directory,
+              activity_at: now,
+              time_created: now,
+              time_updated: now,
+            })
+            .onConflictDoUpdate({
+              target: ProjectRecentTable.key,
+              set: {
+                kind,
+                project_id: isProject ? input.project.id : null,
+                directory,
+                activity_at: now,
+                time_updated: now,
+              },
+            })
+            .run(),
+        )
+        yield* emitRecentUpdated
+      })
+
+      const touchActivity = Effect.fn("Project.touchActivity")(function* (project: Info) {
+        if (project.worktree === "/") return
+        yield* touch({ project, directory: project.worktree })
       })
 
       const fromDirectory = Effect.fn("Project.fromDirectory")(function* (directory: string) {
@@ -973,6 +973,7 @@ export namespace Project {
         addSandbox,
         removeSandbox,
         mergeSandboxSessions,
+        touchActivity,
       })
     }),
   )
@@ -1003,6 +1004,11 @@ export namespace Project {
 
   export function recentList() {
     return recent()
+  }
+
+  /** Mint or refresh the project's feed row from conversation activity. */
+  export function touchActivity(project: Info) {
+    return runPromise((svc) => svc.touchActivity(project))
   }
 
   export function recentFromDir(directory: string): RecentInfo | undefined {
