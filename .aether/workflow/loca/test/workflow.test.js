@@ -1180,6 +1180,48 @@ test("statement 归一化：patch 轮次叙述不改命题主干 → 沿用验�
   expect(anchors.filter((j) => j.status === "accepted").length).toBe(1)
 })
 
+test("终态清理：correction 轮的 error 不残留在 accepted job 上", async () => {
+  // 场景回放（NRQCD 实测）：vaudit 经 correction 循环后 accepted，但 job 记录
+  // 残留 "Structured output missing" 的 error——accepted+error 并存误导
+  // 监控与取证诊断
+  let once = 0
+  const f = await fixture({
+    handlers: {
+      vaudit: async () => {
+        // 第一轮触发一次 schema 纠错（correction 写 error 字段），第二轮合格交卷
+        if (once++ === 0) return { decision: "trusted" }
+        const exec = await f.engine
+          .compute(
+            undefined === null ? undefined : undefined,
+            { code: "import sys\nsys.exit(1)\n", inputs: [] },
+            { ask: async () => {} },
+          )
+          .catch(() => null)
+        void exec
+        return {
+          decision: "trusted",
+          checks: cfg.checks.vaudit.map((id) => ({ id, status: "pass", reason: "ok", evidence: [] })),
+          findings: [],
+          controls: [{ id: "K1", mutation: "注入破坏项", execution: "x", observed: "failed" }],
+        }
+      },
+    },
+    wrap: (value, _packet, context, _parsed, turn) => {
+      // turn 1 返回缺字段的坏结构（触发 correction），turn 2 好结构
+      if (context.role === "vaudit" && turn === 1)
+        return { decision: "trusted", checks: [], findings: [], controls: [] }
+      return value
+    },
+  })
+  await f.drive(GOAL)
+  const run = f.engine.store.run("session-1")
+  const vaudits = f.engine.store.jobs(run).filter((j) => j.role === "vaudit")
+  for (const j of vaudits) {
+    if (j.status === "accepted") expect(j.error).toBeUndefined()
+    if (j.status === "correcting") expect(j.error).toBeTruthy()
+  }
+})
+
 test("timeout 继承：健康超时（backstop）的 attempt 2 沿用原会话与上下文", async () => {
   const seen = []
   const f = await fixture({

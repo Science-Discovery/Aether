@@ -196,6 +196,12 @@ export class Store {
     if (job.status && !edges[job.status]?.includes(status))
       throw new Error(`Illegal supervisor transition ${job.status} -> ${status}`)
     if (!job.status && status !== "queued") throw new Error("Job must start queued")
+    // 终态清理：correction 期的 error 字段不得残留在 accepted/rejected/exhausted
+    // 后继状态里（字面残留会污染监控与取证诊断——accepted job 顶着
+    // "Structured output missing" 的 error 误导判读）。retrying 保留 error：
+    // timeout 继承判定（健康超时 vs stall 挂死）依赖它。data 显式携带时不覆盖
+    const clears = ["accepted", "rejected", "exhausted"].includes(status) ? ["error", "turn"] : []
+    for (const key of clears) if (!(key in data)) delete job[key]
     Object.assign(job, data, { status })
     this.db.transaction(() => {
       this.db
