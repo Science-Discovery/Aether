@@ -965,4 +965,8 @@ export const dict = {
   "error.childStore.persistedProjectIconCreateFailed": "영구 프로젝트 아이콘 생성 실패",
   "error.childStore.storeCreateFailed": "저장소 생성 실패",
   "terminal.connectionLost.abnormalClose": "WebSocket이 비정상적으로 닫힘: {{code}}",
+  "workspace.delete.hasSessions":
+    "이 워크스페이스에 {{count}}개의 세션이 있습니다. 병합하면 메인 워크스페이스로 이동되어 손실되지 않습니다. 삭제하면 되돌릴 수 없습니다.",
+  "workspace.delete.mergeSessions": "세션을 병합하고 워크스페이스 삭제",
+  "workspace.delete.alsoDeleteSessions": "세션과 워크스페이스 삭제",
 }

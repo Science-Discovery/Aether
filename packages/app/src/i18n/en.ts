@@ -1567,9 +1567,10 @@ export const dict = {
   "workspace.delete.confirm": 'Delete workspace "{{name}}"?',
   "workspace.delete.button": "Delete workspace",
   "workspace.delete.cancel": "Cancel",
-  "workspace.delete.hasSessions": "This workspace has sessions. How would you like to proceed?",
-  "workspace.delete.mergeSessions": "Merge to main workspace",
-  "workspace.delete.alsoDeleteSessions": "Delete sessions too",
+  "workspace.delete.hasSessions":
+    "This workspace has {{count}} sessions. Merging moves them to the main workspace so nothing is lost; deleting them cannot be undone.",
+  "workspace.delete.mergeSessions": "Merge sessions to main workspace, then delete",
+  "workspace.delete.alsoDeleteSessions": "Delete sessions and workspace",
   "workspace.delete.mergeFailed": "Failed to merge sessions. Workspace was not deleted.",
   "workspace.delete.stale.title": "Stale workspace",
   "workspace.delete.stale.confirm":

@@ -983,4 +983,8 @@ export const dict = {
   "error.childStore.persistedProjectIconCreateFailed": "Dauerhaftes Projekticon konnte nicht erstellt werden",
   "error.childStore.storeCreateFailed": "Speicher konnte nicht erstellt werden",
   "terminal.connectionLost.abnormalClose": "WebSocket abnormal geschlossen: {{code}}",
+  "workspace.delete.hasSessions":
+    "Dieser Workspace hat {{count}} Sitzungen. Beim Zusammenführen werden sie in den Haupt-Workspace verschoben – nichts geht verloren. Löschen kann nicht rückgängig gemacht werden.",
+  "workspace.delete.mergeSessions": "Sitzungen zusammenführen und Workspace löschen",
+  "workspace.delete.alsoDeleteSessions": "Sitzungen und Workspace löschen",
 } satisfies Partial<Record<Keys, string>>

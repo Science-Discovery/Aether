@@ -1055,4 +1055,8 @@ export const dict = {
   "error.childStore.persistedProjectIconCreateFailed": "Error al crear icono de proyecto persistente",
   "error.childStore.storeCreateFailed": "Error al crear almacén",
   "terminal.connectionLost.abnormalClose": "WebSocket cerrado anormalmente: {{code}}",
+  "workspace.delete.hasSessions":
+    "Este espacio de trabajo tiene {{count}} sesiones. Al fusionarlas se trasladan al espacio de trabajo principal y no se pierde nada; eliminarlas no se puede deshacer.",
+  "workspace.delete.mergeSessions": "Fusionar sesiones y eliminar el espacio de trabajo",
+  "workspace.delete.alsoDeleteSessions": "Eliminar sesiones y espacio de trabajo",
 }

@@ -966,4 +966,8 @@ export const dict = {
   "error.childStore.persistedProjectIconCreateFailed": "永続プロジェクトアイコンの作成に失敗しました",
   "error.childStore.storeCreateFailed": "ストアの作成に失敗しました",
   "terminal.connectionLost.abnormalClose": "WebSocket が異常終了しました: {{code}}",
+  "workspace.delete.hasSessions":
+    "このワークスペースには {{count}} 件のセッションがあります。マージするとメインワークスペースに移動され、失われることはありません。削除した場合は元に戻せません。",
+  "workspace.delete.mergeSessions": "セッションをマージしてワークスペースを削除",
+  "workspace.delete.alsoDeleteSessions": "セッションとワークスペースを削除",
 }

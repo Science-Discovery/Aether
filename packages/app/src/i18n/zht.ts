@@ -1140,4 +1140,7 @@ export const dict = {
   "draft.stale.description": "目前檔案已發生變化，對比中顯示的是目前真實檔案。",
   "draft.stale.discard": "放棄草稿",
   "draft.stale.restore": "恢復舊草稿",
+  "workspace.delete.hasSessions": "檢測到 {{count}} 個會話：合併後會轉移到主工作區，不會遺失；直接刪除則無法復原。",
+  "workspace.delete.mergeSessions": "合併會話到主工作區，並刪除工作區",
+  "workspace.delete.alsoDeleteSessions": "刪除會話和工作區",
 } satisfies Partial<Record<Keys, string>>

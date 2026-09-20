@@ -1051,4 +1051,8 @@ export const dict = {
   "error.childStore.persistedProjectIconCreateFailed": "Не удалось создать постоянный значок проекта",
   "error.childStore.storeCreateFailed": "Не удалось создать хранилище",
   "terminal.connectionLost.abnormalClose": "WebSocket закрыт аварийно: {{code}}",
+  "workspace.delete.hasSessions":
+    "В этой рабочей области {{count}} сеансов. При объединении они будут перемещены в основную рабочую область — ничего не потеряется. Удаление необратимо.",
+  "workspace.delete.mergeSessions": "Объединить сеансы и удалить рабочую область",
+  "workspace.delete.alsoDeleteSessions": "Удалить сеансы и рабочую область",
 }
