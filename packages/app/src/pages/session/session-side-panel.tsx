@@ -981,7 +981,7 @@ export function SessionSidePanel(props: {
                         class="ml-auto flex items-center gap-1 px-2 py-1 rounded text-12-regular text-text-weak hover:text-text-base hover:bg-surface-raised-base-hover transition-colors"
                         onClick={handleRefresh}
                       >
-                        <Icon name="arrow-down-to-line" size="small" />
+                        <Icon name="refresh" size="small" />
                         <span class="hidden @sm:block">{language.t("filePanel.refresh")}</span>
                       </button>
                     </Tooltip>
