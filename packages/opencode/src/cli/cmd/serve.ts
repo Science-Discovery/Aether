@@ -19,6 +19,8 @@ export const ServeCommand = cmd({
       console.log("Warning: OPENCODE_SERVER_PASSWORD is not set; server is unsecured.")
     }
     const opts = await resolveNetworkOptions(args)
+    const prev = await Server.takeover(opts)
+    if (prev) console.log(`stopped previous server (pid=${prev.pid}) on port ${opts.port}`)
     const server = Server.listen(opts)
     const portfile = path.join(Database.ensureChannelDir(), "serve-port")
     await Bun.write(portfile, String(server.port))

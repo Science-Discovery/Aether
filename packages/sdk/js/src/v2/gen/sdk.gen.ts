@@ -127,6 +127,8 @@ import type {
   GlobalProxyUpdateErrors,
   GlobalProxyUpdateResponses,
   GlobalScriptsResponses,
+  GlobalShutdownErrors,
+  GlobalShutdownResponses,
   GlobalSyncEventSubscribeResponses,
   GlobalUpgradeErrors,
   GlobalUpgradeResponses,
@@ -701,6 +703,18 @@ export class Global extends HeyApiClient {
   public health<ThrowOnError extends boolean = false>(options?: Options<never, ThrowOnError>) {
     return (options?.client ?? this.client).get<GlobalHealthResponses, unknown, ThrowOnError>({
       url: "/global/health",
+      ...options,
+    })
+  }
+
+  /**
+   * Shutdown server
+   *
+   * Gracefully stop the server process. Used by port takeover: a new server on the same port stops the old instance first.
+   */
+  public shutdown<ThrowOnError extends boolean = false>(options?: Options<never, ThrowOnError>) {
+    return (options?.client ?? this.client).post<GlobalShutdownResponses, GlobalShutdownErrors, ThrowOnError>({
+      url: "/global/shutdown",
       ...options,
     })
   }

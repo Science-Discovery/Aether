@@ -2693,10 +2693,40 @@ export type GlobalHealthResponses = {
   200: {
     healthy: true
     version: string
+    pid: number
+    channel: string
   }
 }
 
 export type GlobalHealthResponse = GlobalHealthResponses[keyof GlobalHealthResponses]
+
+export type GlobalShutdownData = {
+  body?: never
+  path?: never
+  query?: never
+  url: "/global/shutdown"
+}
+
+export type GlobalShutdownErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type GlobalShutdownError = GlobalShutdownErrors[keyof GlobalShutdownErrors]
+
+export type GlobalShutdownResponses = {
+  /**
+   * Server is shutting down
+   */
+  200: {
+    ok: true
+    pid: number
+  }
+}
+
+export type GlobalShutdownResponse = GlobalShutdownResponses[keyof GlobalShutdownResponses]
 
 export type GlobalWebUpdateCurrentData = {
   body?: never
