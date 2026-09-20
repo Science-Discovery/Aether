@@ -165,6 +165,9 @@ import { SessionPreference } from "@/session/preference"
 import { Cron } from "@/cron"
 import { Memory } from "@/memory"
 import { installMemory, registerMemoryDirectActions } from "@/memory/installer"
+import { channelSlug } from "../persist/naming"
+import net from "node:net"
+import { onShutdown } from "./lifecycle"
 
 // @ts-ignore This global is needed to prevent ai-sdk from logging warnings to stdout https://github.com/vercel/ai/blob/2dc67e0ef538307f21368db32d5a12345d98831b/packages/ai/src/logger/log-warnings.ts#L85
 globalThis.AI_SDK_LOG_WARNINGS = false
@@ -971,6 +974,59 @@ export namespace Server {
   /** @deprecated do not use this dumb shit */
   export let url: URL
 
+  async function portFree(host: string, port: number) {
+    return new Promise<boolean>((resolve) => {
+      const socket = net.connect({ host, port })
+      socket.setTimeout(500)
+      socket.once("connect", () => {
+        socket.destroy()
+        resolve(false)
+      })
+      socket.once("timeout", () => {
+        socket.destroy()
+        resolve(false)
+      })
+      socket.once("error", () => resolve(true))
+    })
+  }
+
+  // Stop a previous Aether server (same channel) listening on the target port,
+  // then wait for the port to be released. No-op when the port is free or the
+  // caller asked for an ephemeral port. Throws when the port is held by an
+  // instance we must not kill (different channel) or one that refuses to exit.
+  export async function takeover(opts: { port: number; hostname: string }) {
+    if (opts.port === 0) return undefined
+    const loopback = opts.hostname === "::1" ? "[::1]" : "127.0.0.1"
+    const base = basePath()
+    const url = `http://${loopback}:${opts.port}${base === "/" ? "" : base}`
+    const token = Flag.OPENCODE_SERVER_PASSWORD
+    const headers: Record<string, string> = token
+      ? {
+          authorization: `Basic ${Buffer.from(`${Flag.OPENCODE_SERVER_USERNAME ?? "opencode"}:${token}`).toString("base64")}`,
+        }
+      : {}
+    const health = await fetch(`${url}/global/health`, { headers, signal: AbortSignal.timeout(2_000) })
+      .then((r) => (r.ok ? r.json() : undefined))
+      .catch(() => undefined)
+    if (!health?.healthy) return undefined
+    if (health.channel !== channelSlug()) {
+      throw new Error(
+        `Port ${opts.port} is used by another Aether server (channel=${health.channel ?? "unknown"}, pid=${health.pid ?? "?"}). Use a different port.`,
+      )
+    }
+    await fetch(`${url}/global/shutdown`, {
+      method: "POST",
+      headers: { ...headers, "x-aether-shutdown": "1" },
+      signal: AbortSignal.timeout(5_000),
+    }).catch(() => {})
+    const deadline = Date.now() + 15_000
+    while (Date.now() < deadline) {
+      if (await portFree(loopback === "[::1]" ? "::1" : "127.0.0.1", opts.port)) return { pid: health.pid as number }
+      await new Promise((resolve) => setTimeout(resolve, 250))
+    }
+    throw new Error(`Previous Aether server (pid=${health.pid}) on port ${opts.port} did not exit`)
+  }
+
   export function listen(opts: {
     port: number
     hostname: string
@@ -993,7 +1049,10 @@ export namespace Server {
     const AETHER_PORT = 19527
     const tryServe = (port: number) => {
       try {
-        return Bun.serve({ ...args, port, reusePort: true })
+        // win32 maps reusePort to SO_REUSEADDR, which silently lets multiple
+        // processes bind the same port; the extras become port-less zombies
+        // that still run bridges. Takeover (see `takeover`) replaces it.
+        return Bun.serve({ ...args, port, reusePort: process.platform !== "win32" })
       } catch {
         return undefined
       }
@@ -1029,24 +1088,29 @@ export namespace Server {
       return originalStop(closeActiveConnections)
     }
 
-    for (const signal of ["SIGINT", "SIGTERM"] as const) {
-      process.on(signal, () => {
-        setTimeout(() => process.exit(0), 10_000).unref()
-        Promise.all(
-          [
-            Instance.disposeAll(),
-            Cron.stop(),
-            Memory.stop(),
-            FeishuManager.stop(),
-            QQManager.stop(),
-            WeChatManager.stop(),
-            MobileSupervisor.stop(),
-          ].map((p) => p.catch(() => {})),
-        )
-          .then(() => server.stop(true).catch(() => {}))
-          .then(() => process.exit(0))
-      })
+    let stopping = false
+    const graceful = () => {
+      if (stopping) return
+      stopping = true
+      setTimeout(() => process.exit(0), 10_000).unref()
+      Promise.all(
+        [
+          Instance.disposeAll(),
+          Cron.stop(),
+          Memory.stop(),
+          FeishuManager.stop(),
+          QQManager.stop(),
+          WeChatManager.stop(),
+          MobileSupervisor.stop(),
+        ].map((p) => p.catch(() => {})),
+      )
+        .then(() => server.stop(true).catch(() => {}))
+        .then(() => process.exit(0))
     }
+    for (const signal of ["SIGINT", "SIGTERM"] as const) {
+      process.on(signal, graceful)
+    }
+    onShutdown(graceful)
 
     MobileSupervisor.start()
 

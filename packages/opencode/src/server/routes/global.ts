@@ -19,6 +19,8 @@ import { Config } from "../../config/config"
 import { Global } from "../../global"
 import { errors } from "../error"
 import { Lease } from "../lease"
+import { requestShutdown } from "../lifecycle"
+import { channelSlug } from "../../persist/naming"
 import {
   downloadWebUpdate,
   installWebUpdate,
@@ -273,14 +275,56 @@ export const GlobalRoutes = lazy(() =>
             description: "Health information",
             content: {
               "application/json": {
-                schema: resolver(z.object({ healthy: z.literal(true), version: z.string() })),
+                schema: resolver(
+                  z.object({
+                    healthy: z.literal(true),
+                    version: z.string(),
+                    pid: z.number(),
+                    channel: z.string(),
+                  }),
+                ),
               },
             },
           },
         },
       }),
       async (c) => {
-        return c.json({ healthy: true, version: await readWebCurrentVersion() })
+        return c.json({
+          healthy: true as const,
+          version: await readWebCurrentVersion(),
+          pid: process.pid,
+          channel: channelSlug(),
+        })
+      },
+    )
+    .post(
+      "/shutdown",
+      describeRoute({
+        summary: "Shutdown server",
+        description:
+          "Gracefully stop the server process. Used by port takeover: a new server on the same port stops the old instance first.",
+        operationId: "global.shutdown",
+        responses: {
+          200: {
+            description: "Server is shutting down",
+            content: {
+              "application/json": {
+                schema: resolver(z.object({ ok: z.literal(true), pid: z.number() })),
+              },
+            },
+          },
+          ...errors(400),
+        },
+      }),
+      async (c) => {
+        // Custom header: browsers cannot send it cross-origin without passing
+        // preflight, so a random webpage cannot shut the server down.
+        if (c.req.header("x-aether-shutdown") !== "1") {
+          return c.json({ error: "Missing x-aether-shutdown header" }, 400)
+        }
+        const pid = process.pid
+        setTimeout(() => requestShutdown(), 100)
+        return c.json({ ok: true as const, pid })
       },
     )
     .get(
