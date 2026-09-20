@@ -1,5 +1,6 @@
-import { existsSync, readFileSync, statSync } from "fs"
+import { existsSync, readFileSync, realpathSync, statSync } from "fs"
 import path from "path"
+import { Global } from "../global"
 import { ProjectID } from "./schema"
 
 export namespace ProjectIdentity {
@@ -47,6 +48,25 @@ export namespace ProjectIdentity {
     }
   }
 
+  // Directories inside the app's own worktree storage are not user workspace
+  // territory: whatever sits there belongs to the project that owns the
+  // container, so usage in managed storage can never mint a standalone project.
+  // Both sides go through realpath so a relocated data home (test replay) whose
+  // worktree dir is a junction to the real one still matches by string prefix.
+  export function managed(dir: string) {
+    const ci = (s: string) => (process.platform === "win32" ? s.toLowerCase() : s)
+    const under = (next: string, root: string) =>
+      next === root || next.startsWith(root + "\\") || next.startsWith(root + "/")
+    const root = ci(norm(path.join(Global.Path.data, "worktree")))
+    const next = ci(norm(dir))
+    if (under(next, root)) return true
+    try {
+      return under(ci(norm(realpathSync(next))), ci(norm(realpathSync(root))))
+    } catch {
+      return false
+    }
+  }
+
   export function resolve(dir: string): Info {
     const git = marker(dir)
     if (!git) {
@@ -60,7 +80,7 @@ export namespace ProjectIdentity {
 
     const sandbox = path.dirname(git)
 
-    if (norm(path.resolve(dir)) !== norm(sandbox)) {
+    if (norm(path.resolve(dir)) !== norm(sandbox) && !managed(sandbox)) {
       const root = path.resolve(dir)
       return {
         id: ProjectID.fromDirectory(norm(root)),

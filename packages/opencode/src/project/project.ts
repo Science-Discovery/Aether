@@ -5,7 +5,7 @@ import { ProjectRecentTable } from "./project.sql"
 import { GlobalProjectMapTable } from "./global-project-map.sql"
 import { ProjectTable } from "./project.sql"
 import { DirectoryMetaTable } from "./project.sql"
-import { SessionTable } from "../session/session.sql"
+import { SessionTable, MessageTable } from "../session/session.sql"
 import { Log } from "../util/log"
 import { Flag } from "@/flag/flag"
 import { BusEvent } from "@/bus/bus-event"
@@ -128,6 +128,14 @@ export namespace Project {
     if (!row.commands) return
     if (typeof row.commands === "string") return JSON.parse(row.commands) as Info["commands"]
     return row.commands
+  }
+
+  // A project is active only once a conversation actually happened in it: a
+  // bare session.create (optimistic UI, API calls, test probes) is not user
+  // activity and must never keep a feed entry alive.
+  function active(pid: ProjectID) {
+    if (!Database.hasProject(pid)) return false
+    return !!Database.useProject(pid, (d) => d.select({ id: MessageTable.id }).from(MessageTable).limit(1).get())
   }
 
   function canonical() {
@@ -387,30 +395,44 @@ export namespace Project {
         const kind = isProject ? "project" : "directory"
         const directory = norm(input.directory)
 
-        yield* db((d) =>
+        // The feed records conversation activity. Opening a directory may seed
+        // a row so an in-use workspace is visible immediately, but an existing
+        // row only stays fresh while the project is active — registration and
+        // boot churn alone must never keep a row alive across reconciliations.
+        const existingRow = yield* db((d) =>
           d
-            .insert(ProjectRecentTable)
-            .values({
-              key,
-              kind,
-              project_id: isProject ? input.project.id : null,
-              directory,
-              activity_at: now,
-              time_created: now,
-              time_updated: now,
-            })
-            .onConflictDoUpdate({
-              target: ProjectRecentTable.key,
-              set: {
+            .select({ key: ProjectRecentTable.key })
+            .from(ProjectRecentTable)
+            .where(eq(ProjectRecentTable.key, key))
+            .get(),
+        )
+        if (!existingRow || active(input.project.id)) {
+          yield* db((d) =>
+            d
+              .insert(ProjectRecentTable)
+              .values({
+                key,
                 kind,
                 project_id: isProject ? input.project.id : null,
                 directory,
                 activity_at: now,
+                time_created: now,
                 time_updated: now,
-              },
-            })
-            .run(),
-        )
+              })
+              .onConflictDoUpdate({
+                target: ProjectRecentTable.key,
+                set: {
+                  kind,
+                  project_id: isProject ? input.project.id : null,
+                  directory,
+                  activity_at: now,
+                  time_updated: now,
+                },
+              })
+              .run(),
+          )
+          yield* emitRecentUpdated
+        }
 
         if (isProject) {
           yield* dbProject(input.project.id, (d) =>
@@ -438,8 +460,6 @@ export namespace Project {
               .run(),
           )
         }
-
-        yield* emitRecentUpdated
       })
 
       const fromDirectory = Effect.fn("Project.fromDirectory")(function* (directory: string) {

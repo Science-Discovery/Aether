@@ -935,7 +935,7 @@ export namespace Database {
     const existingDbIds = new Map<string, string>()
     const worktreeByPid = new Map<string, string>()
     const workspaceDirsByPid = new Map<string, Set<string>>()
-    const sessionCountByPid = new Map<string, number>()
+    const activeByPid = new Map<string, boolean>()
     const corruptedIds = new Set<string>()
     if (existsSync(chDir)) {
       const pattern = /^aether-(.+)\.db$/
@@ -972,41 +972,42 @@ export namespace Database {
           const projectRow = pSqlite.prepare("SELECT worktree FROM project WHERE id = ?").get(pid) as
             | { worktree: string }
             | undefined
-          const sessionCount = (pSqlite.prepare("SELECT COUNT(*) as cnt FROM session").get() as { cnt: number }).cnt
-          if (!projectRow && sessionCount === 0) {
+          // Activity means a conversation happened: only message-bearing
+          // sessions count. A db holding nothing but empty session rows is
+          // registration residue (optimistic UI, API probes, test noise).
+          // Legacy dbs may predate the message table entirely.
+          const hasMessage =
+            !!pSqlite.prepare("SELECT 1 FROM sqlite_master WHERE name = 'message'").get() &&
+            !!pSqlite.prepare("SELECT 1 FROM message LIMIT 1").get()
+          if (!projectRow && !hasMessage) {
             pSqlite.close()
             closed = true
             quarantine(fullPath, "project", pid)
             corruptedIds.add(pid)
-            log.info("project db has no sessions and no project row, quarantining", { pid })
+            log.info("project db has no messages and no project row, quarantining", { pid })
             continue
           }
 
-          // Identity invariants for empty project DBs (no sessions — user data
-          // can never be destroyed). Legacy bugs registered sandbox directories
-          // as standalone projects ("ghost" projects):
+          // Identity invariants for project dbs without conversations (no
+          // messages — user data can never be destroyed). Legacy bugs
+          // registered sandbox directories as standalone projects ("ghost"
+          // projects):
           //  a) a claimed worktree must re-resolve to the project's own id —
-          //     resolve() maps a live sandbox back to its parent, so ghosts fail;
+          //     resolve() folds managed sandboxes and their subdirectories back
+          //     to the owning project, so ghosts fail;
           //  b) the app's own worktree storage under <data>/worktree/ is not a
           //     user workspace — an empty project claiming a home there is
-          //     registration residue (covers sandboxes already deleted from disk,
-          //     where re-resolution can no longer see the parent).
-          if (projectRow?.worktree && projectRow.worktree !== "/" && sessionCount === 0) {
-            // Managed comparison is case-insensitive on win32: stored worktree
-            // strings can drift in drive-letter/path casing and norm does not
-            // fold case.
-            const ci = (s: string) => (process.platform === "win32" ? s.toLowerCase() : s)
-            const managedRoot = ci(norm(path.join(Global.Path.data, "worktree")))
-            const wtNorm = ci(norm(projectRow.worktree))
-            const managed =
-              wtNorm === managedRoot || wtNorm.startsWith(managedRoot + "\\") || wtNorm.startsWith(managedRoot + "/")
+          //     registration residue (covers sandboxes already deleted from
+          //     disk, where re-resolution can no longer see the parent).
+          if (projectRow?.worktree && projectRow.worktree !== "/" && !hasMessage) {
+            const managed = ProjectIdentity.managed(projectRow.worktree)
             const orphaned = managed || ProjectIdentity.resolve(projectRow.worktree).id !== pid
             if (orphaned) {
               pSqlite.close()
               closed = true
               quarantine(fullPath, "project", pid)
               corruptedIds.add(pid)
-              log.info("empty project db claims an orphaned worktree, quarantining", {
+              log.info("project db without messages claims an orphaned worktree, quarantining", {
                 pid,
                 worktree: projectRow.worktree,
                 managed,
@@ -1019,7 +1020,7 @@ export namespace Database {
           validateDirectoryMeta(pSqlite, pid, recentLookup)
           syncProjectSandboxes(pSqlite, pid)
           syncDirectoryMetaToGlobal(sqlite, pSqlite, pid)
-          sessionCountByPid.set(pid, sessionCount)
+          activeByPid.set(pid, hasMessage)
           if (projectRow?.worktree && projectRow.worktree !== "/") {
             worktreeByPid.set(pid, projectRow.worktree)
           }
@@ -1125,9 +1126,10 @@ export namespace Database {
     //          (covers corrupted/orphaned project DBs), rows pointing INTO a
     //          known project without being its worktree — sandbox/alias rows are
     //          internal and must never live in the user-activity feed — and rows
-    //          for projects with zero sessions in this channel: the feed records
-    //          activity, not registration. A project re-earns its row the moment
-    //          a session is created in it (fromDirectory touches on boot).
+    //          for projects without a message-bearing session in this channel:
+    //          the feed records conversations, not registration. touch() seeds a
+    //          row while a directory is open, but only refreshes it while the
+    //          project is active, so inactive rows freeze and are collected here.
     //          Rows touched after the previous reconcile run are exempt: a second
     //          same-process pass (db recovery after quarantine) must not delete
     //          rows that instance boots re-touched in between, because touch is
@@ -1142,7 +1144,7 @@ export namespace Database {
       const wt = worktreeByPid.get(row.project_id)
       const wsDirs = workspaceDirsByPid.get(row.project_id)
       const internal = wt !== undefined && norm(row.directory) !== norm(wt) && !wsDirs?.has(norm(row.directory))
-      const inactive = (sessionCountByPid.get(row.project_id) ?? 0) === 0 && (!cutoff || row.time_updated <= cutoff)
+      const inactive = !activeByPid.get(row.project_id) && (!cutoff || row.time_updated <= cutoff)
       if (noDb || internal || inactive) {
         sqlite.prepare("DELETE FROM project_recent WHERE key = ?").run(row.key)
         removed++
