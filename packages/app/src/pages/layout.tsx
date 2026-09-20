@@ -2562,6 +2562,8 @@ export default function Layout(props: ParentProps) {
     }
   }
 
+  const [sessionSelectTriggers, setSessionSelectTriggers] = createStore<Record<string, (() => void)[]>>({})
+
   const workspaceSidebarCtx: WorkspaceSidebarContext = {
     currentDir,
     navList: currentSessions,
@@ -2582,6 +2584,13 @@ export default function Layout(props: ParentProps) {
     setEditor,
     InlineEditor,
     isBusy,
+    registerSessionSelect: (directory, trigger) =>
+      setSessionSelectTriggers(directory, (list) => [...(list ?? []), trigger]),
+    unregisterSessionSelect: (directory, trigger) =>
+      setSessionSelectTriggers(directory, (list) => (list ?? []).filter((fn) => fn !== trigger)),
+    requestSessionSelect: (directory) => {
+      for (const trigger of sessionSelectTriggers[directory] ?? []) trigger()
+    },
     workspaceExpanded: (directory, local) => store.workspaceExpanded[directory] ?? local,
     setWorkspaceExpanded: (directory, value) => setStore("workspaceExpanded", directory, value),
     sessionExpanded: (sessionID) => store.sessionExpanded[sessionID] ?? true,
@@ -2809,6 +2818,19 @@ export default function Layout(props: ParentProps) {
                         <DropdownMenu.Item data-action="project-import-session" onSelect={() => pick()}>
                           <DropdownMenu.ItemLabel>{language.t("session.import.action.import")}</DropdownMenu.ItemLabel>
                         </DropdownMenu.Item>
+                        <Show when={!workspacesEnabled()}>
+                          <DropdownMenu.Item
+                            data-action="project-select-sessions"
+                            data-project={slug()}
+                            onSelect={() => {
+                              const dir = worktree()
+                              if (!dir) return
+                              workspaceSidebarCtx.requestSessionSelect(dir)
+                            }}
+                          >
+                            <DropdownMenu.ItemLabel>{language.t("session.select")}</DropdownMenu.ItemLabel>
+                          </DropdownMenu.Item>
+                        </Show>
                         <DropdownMenu.Separator />
                         <DropdownMenu.Item
                           data-action="project-close-menu"

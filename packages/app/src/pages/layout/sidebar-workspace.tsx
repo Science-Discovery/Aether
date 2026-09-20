@@ -5,6 +5,7 @@ import {
   createSignal,
   For,
   on,
+  onCleanup,
   onMount,
   Show,
   type Accessor,
@@ -44,8 +45,107 @@ import { formatServerError } from "@/utils/server-errors"
 import { SessionImportInput } from "@/components/session-import-input"
 import { SidebarBranchView } from "@/pages/session/branch/sidebar-branch-view"
 
+const BATCH_CHUNK = 8
+
+async function listRootSessions(
+  client: ReturnType<typeof useGlobalSDK>["client"],
+  directory: string,
+  archivedMode: "exclude" | "only",
+) {
+  const all: Session[] = []
+  const seen = new Set<string>()
+  let cursor: number | undefined
+  for (let page = 0; page < 1000; page++) {
+    const result = await client.experimental.session.list({
+      directory,
+      roots: true,
+      archivedMode,
+      limit: 200,
+      ...(cursor === undefined ? {} : { cursor }),
+    } as any)
+    const items = (result.data ?? []) as unknown as Session[]
+    const before = all.length
+    for (const item of items) {
+      if (seen.has(item.id)) continue
+      seen.add(item.id)
+      all.push(item)
+    }
+    if (items.length < 200) break
+    const next = (items[items.length - 1]?.time?.updated ?? 0) + 1
+    if (all.length === before && next === cursor) break
+    cursor = next
+  }
+  return all
+}
+
+const BatchDeleteDialog = (props: {
+  count: number
+  language: ReturnType<typeof useLanguage>
+  onCancel: () => void
+  onConfirm: () => Promise<void>
+}) => {
+  const a = 2 + Math.floor(Math.random() * 8)
+  const b = 2 + Math.floor(Math.random() * 8)
+  const [answer, setAnswer] = createSignal("")
+  const [wrong, setWrong] = createSignal(false)
+  const parsed = () =>
+    Number.parseInt(
+      answer()
+        .trim()
+        .replace(/[０-９]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 65248)),
+      10,
+    )
+  const correct = () => parsed() === a + b
+  const attempt = () => {
+    if (correct()) {
+      void props.onConfirm()
+      return
+    }
+    setWrong(true)
+  }
+  return (
+    <Dialog title={props.language.t("session.delete.title")} fit>
+      <div class="flex flex-col gap-4 pl-6 pr-2.5 pb-3">
+        <span class="text-14-regular text-text-strong">
+          {props.language.t("session.batch.delete.confirm", { count: props.count })}
+        </span>
+        <div class="flex flex-col gap-1.5">
+          <span class="text-14-regular text-text-weak">{props.language.t("session.delete.math", { a, b })}</span>
+          <input
+            autofocus
+            value={answer()}
+            inputmode="numeric"
+            autocomplete="off"
+            class="text-14-regular text-text-strong w-24 rounded-md border border-border-weak-base bg-surface-raised-base px-2 py-1 outline-none"
+            data-action="batch-delete-math"
+            onInput={(e) => {
+              setAnswer(e.currentTarget.value)
+              setWrong(false)
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") attempt()
+            }}
+          />
+          <Show when={wrong()}>
+            <span class="text-12-regular text-text-error">{props.language.t("session.delete.math.wrong")}</span>
+          </Show>
+        </div>
+        <div class="flex justify-end gap-2">
+          <Button variant="ghost" size="large" onClick={props.onCancel}>
+            {props.language.t("common.cancel")}
+          </Button>
+          <Button variant="primary" size="large" disabled={!correct()} onClick={attempt}>
+            {props.language.t("session.batch.delete", { count: props.count })}
+          </Button>
+        </div>
+      </div>
+    </Dialog>
+  )
+}
+
 function createBatchSelect(
   sessions: Accessor<Session[]>,
+  fetchAll: () => Promise<Session[]>,
   archiveSession: (s: Session) => Promise<void>,
   deleteSession: (s: Session) => Promise<void>,
   dialog: ReturnType<typeof useDialog>,
@@ -53,11 +153,25 @@ function createBatchSelect(
 ) {
   const [selectMode, setSelectMode] = createSignal(false)
   const [selectedIds, setSelectedIds] = createSignal<Set<string>>(new Set<string>())
+  const [fetched, setFetched] = createSignal<Session[]>()
+
+  const pool = createMemo(() => {
+    const seen = new Set<string>()
+    const all: Session[] = []
+    for (const session of [...sessions(), ...(fetched() ?? [])]) {
+      if (seen.has(session.id)) continue
+      seen.add(session.id)
+      all.push(session)
+    }
+    return all
+  })
+  const total = createMemo(() => (fetched() ? pool().length : sessions().length))
 
   const enterSelect = () => setSelectMode(true)
   const cancelSelect = () => {
     setSelectMode(false)
     setSelectedIds(new Set<string>())
+    setFetched(undefined)
   }
   const toggleSelect = (session: Session) => {
     setSelectedIds((prev) => {
@@ -67,51 +181,41 @@ function createBatchSelect(
       return next
     })
   }
-  const selectAll = () => setSelectedIds(new Set(sessions().map((s) => s.id)))
+  const selectAll = async () => {
+    setFetched(await fetchAll().catch(() => undefined))
+    setSelectedIds(new Set(pool().map((s) => s.id)))
+  }
   const deselectAll = () => setSelectedIds(new Set<string>())
 
   const batchArchive = async () => {
     const ids = selectedIds()
-    await Promise.all(
-      sessions()
-        .filter((s) => ids.has(s.id))
-        .map((s) => archiveSession(s)),
-    )
+    const targets = pool().filter((s) => ids.has(s.id))
+    for (let i = 0; i < targets.length; i += BATCH_CHUNK) {
+      await Promise.all(targets.slice(i, i + BATCH_CHUNK).map((s) => archiveSession(s)))
+    }
     cancelSelect()
   }
 
   const batchDelete = () => {
-    const targets = sessions().filter((s) => selectedIds().has(s.id))
+    const targets = pool().filter((s) => selectedIds().has(s.id))
     const count = targets.length
     if (count === 0) return
+    const confirm = async () => {
+      dialog.close()
+      for (let i = 0; i < targets.length; i += BATCH_CHUNK) {
+        await Promise.all(targets.slice(i, i + BATCH_CHUNK).map((s) => deleteSession(s)))
+      }
+      cancelSelect()
+    }
     dialog.show(() => (
-      <Dialog title={language.t("session.delete.title")} fit>
-        <div class="flex flex-col gap-4 pl-6 pr-2.5 pb-3">
-          <span class="text-14-regular text-text-strong">{language.t("session.batch.delete.confirm", { count })}</span>
-          <div class="flex justify-end gap-2">
-            <Button variant="ghost" size="large" onClick={() => dialog.close()}>
-              {language.t("common.cancel")}
-            </Button>
-            <Button
-              variant="primary"
-              size="large"
-              onClick={async () => {
-                await Promise.all(targets.map((s) => deleteSession(s)))
-                dialog.close()
-                cancelSelect()
-              }}
-            >
-              {language.t("session.batch.delete", { count })}
-            </Button>
-          </div>
-        </div>
-      </Dialog>
+      <BatchDeleteDialog count={count} language={language} onCancel={() => dialog.close()} onConfirm={confirm} />
     ))
   }
 
   return {
     selectMode,
     selectedIds,
+    total,
     enterSelect,
     cancelSelect,
     toggleSelect,
@@ -164,6 +268,9 @@ export type WorkspaceSidebarContext = {
   setConversationTreeLastFocus: (rootSessionID: string, sessionID: string) => void
   showResetWorkspaceDialog: (root: string, directory: string) => void
   showDeleteWorkspaceDialog: (root: string, directory: string, branch?: string) => void
+  registerSessionSelect: (directory: string, trigger: () => void) => void
+  unregisterSessionSelect: (directory: string, trigger: () => void) => void
+  requestSessionSelect: (directory: string) => void
   setScrollContainerRef: (el: HTMLDivElement | undefined) => void
 }
 
@@ -878,12 +985,7 @@ const ArchivedSessionList = (props: {
   const load = async () => {
     setLoading(true)
     try {
-      const result = await globalSDK.client.experimental.session.list({
-        directory: props.directory,
-        archivedMode: "only",
-        roots: true,
-      } as any)
-      const roots = ((result.data ?? []) as unknown as Session[]).sort(sortByUpdatedDesc)
+      const roots = (await listRootSessions(globalSDK.client, props.directory, "only")).sort(sortByUpdatedDesc)
       const descendants = await loadDescendantsForRoots({
         directory: props.directory,
         roots,
@@ -944,18 +1046,65 @@ const ArchivedSessionList = (props: {
     }
   }
 
+  const [restoring, setRestoring] = createSignal(false)
+  const unarchiveAll = async () => {
+    if (restoring()) return
+    setRestoring(true)
+    try {
+      let roots = rootSessions()
+      if (roots.length === 0) {
+        roots = (await listRootSessions(globalSDK.client, props.directory, "only")).sort(sortByUpdatedDesc)
+      }
+      const count = roots.length
+      if (count === 0) return
+      let done = 0
+      for (let i = 0; i < count; i += BATCH_CHUNK) {
+        await Promise.all(
+          roots.slice(i, i + BATCH_CHUNK).map(async (s) => {
+            try {
+              await unarchiveSession(s)
+              done++
+            } catch {}
+          }),
+        )
+      }
+      if (done > 0) {
+        showToast({
+          title: props.language.t("session.unarchiveAll"),
+          description: props.language.t("session.unarchiveAll.done", { count: done }),
+        })
+      }
+    } finally {
+      setRestoring(false)
+    }
+  }
+
   return (
     <div>
-      <Button
-        variant="ghost"
-        size="large"
-        class="flex w-full text-left items-center gap-2 text-14-regular text-text-weak pl-2 pr-2"
-        onClick={toggle}
-      >
-        <Icon name={open() ? "chevron-down" : "chevron-right"} size="small" class="shrink-0" />
-        <Icon name="archive" size="small" class="shrink-0" />
-        <span class="truncate">{props.language.t("common.archive")}</span>
-      </Button>
+      <div class="flex w-full items-center gap-1">
+        <Button
+          variant="ghost"
+          size="large"
+          class="flex flex-1 min-w-0 text-left items-center gap-2 text-14-regular text-text-weak pl-2 pr-2"
+          onClick={toggle}
+        >
+          <Icon name={open() ? "chevron-down" : "chevron-right"} size="small" class="shrink-0" />
+          <Icon name="archive" size="small" class="shrink-0" />
+          <span class="truncate">{props.language.t("common.archive")}</span>
+        </Button>
+        <Show when={open() && (hasLoaded() || loading())}>
+          <Tooltip value={props.language.t("session.unarchiveAll")} placement="top">
+            <IconButton
+              icon="archive"
+              variant="ghost"
+              class="size-6 rounded-md shrink-0"
+              aria-label={props.language.t("session.unarchiveAll")}
+              disabled={restoring()}
+              onClick={() => void unarchiveAll()}
+            />
+          </Tooltip>
+        </Show>
+      </div>
       <Show when={open()}>
         <Show when={loading() && !hasLoaded()}>
           <SessionSkeleton />
@@ -994,8 +1143,9 @@ const WorkspaceSessionList = (props: {
   language: ReturnType<typeof useLanguage>
   selectMode: Accessor<boolean>
   selectedIds: Accessor<Set<string>>
+  total: Accessor<number>
   onToggleSelect: (session: Session) => void
-  onSelectAll: () => void
+  onSelectAll: () => void | Promise<void>
   onDeselectAll: () => void
   onBatchArchive: () => Promise<void>
   onBatchDelete: () => void
@@ -1003,9 +1153,7 @@ const WorkspaceSessionList = (props: {
   pinned?: boolean
 }) => {
   const selectedCount = createMemo(() => props.selectedIds().size)
-  const allSelected = createMemo(
-    () => props.rootSessions().length > 0 && props.selectedIds().size === props.rootSessions().length,
-  )
+  const allSelected = createMemo(() => props.total() > 0 && props.selectedIds().size >= props.total())
   const pinned = () => (props.pinned ? "sticky top-10 z-30 bg-background-base" : "")
 
   return (
@@ -1016,10 +1164,16 @@ const WorkspaceSessionList = (props: {
             variant="ghost"
             size="small"
             class="text-12-regular text-text-weak px-1 h-6 shrink-0"
-            onClick={() => (allSelected() ? props.onDeselectAll() : props.onSelectAll())}
+            onClick={() => {
+              if (allSelected()) props.onDeselectAll()
+              else void props.onSelectAll()
+            }}
           >
             {allSelected() ? props.language.t("session.deselectAll") : props.language.t("session.selectAll")}
           </Button>
+          <span class="text-12-regular text-text-weak shrink-0">
+            {props.language.t("session.batch.selectedCount", { selected: selectedCount(), total: props.total() })}
+          </span>
           <div class="flex-1" />
           <Show when={selectedCount() > 0}>
             <Tooltip value={props.language.t("session.batch.delete", { count: selectedCount() })} placement="top">
@@ -1119,6 +1273,7 @@ export const SortableWorkspace = (props: {
 }): JSX.Element => {
   const params = useParams()
   const globalSync = useGlobalSync()
+  const globalSDK = useGlobalSDK()
   const language = useLanguage()
   const dialog = useDialog()
   const notification = useNotification()
@@ -1169,6 +1324,7 @@ export const SortableWorkspace = (props: {
   const {
     selectMode,
     selectedIds,
+    total,
     enterSelect,
     cancelSelect,
     toggleSelect,
@@ -1176,7 +1332,14 @@ export const SortableWorkspace = (props: {
     deselectAll,
     batchArchive,
     batchDelete,
-  } = createBatchSelect(sessions, props.ctx.archiveSession, props.ctx.deleteSession, dialog, language)
+  } = createBatchSelect(
+    sessions,
+    () => listRootSessions(globalSDK.client, props.directory, "exclude"),
+    props.ctx.archiveSession,
+    props.ctx.deleteSession,
+    dialog,
+    language,
+  )
 
   const workspaceEditActive = createMemo(() => props.ctx.editorOpen(`workspace:${props.directory}`))
   const branchEditActive = createMemo(() => props.ctx.editorOpen(`branch:${props.directory}`))
@@ -1317,6 +1480,7 @@ export const SortableWorkspace = (props: {
             language={language}
             selectMode={selectMode}
             selectedIds={selectedIds}
+            total={total}
             onToggleSelect={toggleSelect}
             onSelectAll={selectAll}
             onDeselectAll={deselectAll}
@@ -1339,6 +1503,7 @@ export const LocalWorkspace = (props: {
 }): JSX.Element => {
   const params = useParams()
   const globalSync = useGlobalSync()
+  const globalSDK = useGlobalSDK()
   const language = useLanguage()
   const dialog = useDialog()
   const workspace = createMemo(() => {
@@ -1357,8 +1522,29 @@ export const LocalWorkspace = (props: {
     await globalSync.project.loadSessions(props.project.worktree)
   }
 
-  const { selectMode, selectedIds, cancelSelect, toggleSelect, selectAll, deselectAll, batchArchive, batchDelete } =
-    createBatchSelect(sessions, props.ctx.archiveSession, props.ctx.deleteSession, dialog, language)
+  const {
+    selectMode,
+    selectedIds,
+    total,
+    enterSelect,
+    cancelSelect,
+    toggleSelect,
+    selectAll,
+    deselectAll,
+    batchArchive,
+    batchDelete,
+  } = createBatchSelect(
+    sessions,
+    () => listRootSessions(globalSDK.client, props.project.worktree, "exclude"),
+    props.ctx.archiveSession,
+    props.ctx.deleteSession,
+    dialog,
+    language,
+  )
+  onMount(() => {
+    props.ctx.registerSessionSelect(props.project.worktree, enterSelect)
+    onCleanup(() => props.ctx.unregisterSessionSelect(props.project.worktree, enterSelect))
+  })
 
   return (
     <div
@@ -1378,6 +1564,7 @@ export const LocalWorkspace = (props: {
         language={language}
         selectMode={selectMode}
         selectedIds={selectedIds}
+        total={total}
         onToggleSelect={toggleSelect}
         onSelectAll={selectAll}
         onDeselectAll={deselectAll}
