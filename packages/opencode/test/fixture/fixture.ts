@@ -6,6 +6,41 @@ import { Effect, FileSystem, ServiceMap } from "effect"
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
 import type { Config } from "../../src/config/config"
 import { Instance } from "../../src/project/instance"
+import { ProjectIdentity } from "../../src/project/identity"
+import { Database } from "../../src/storage/db"
+import { Session } from "../../src/session"
+import { MessageV2 } from "../../src/session/message-v2"
+import { MessageID } from "../../src/session/schema"
+import { ModelID, ProviderID } from "../../src/provider/schema"
+
+// A conversation is the unit of project feed activity: one session plus one
+// persisted user message, written through the production path
+// (Session.updateMessage → message projector → Project.touchActivity).
+export async function converse(directory: string) {
+  await Instance.provide({
+    directory,
+    fn: async () => {
+      const session = await Session.create({})
+      const msg: MessageV2.User = {
+        id: MessageID.ascending(),
+        sessionID: session.id,
+        time: { created: Date.now() },
+        role: "user",
+        agent: "build",
+        model: { providerID: ProviderID.make("test"), modelID: ModelID.make("test") },
+      }
+      await Session.updateMessage(msg)
+    },
+  })
+  // The projector mints the feed row fire-and-forget; wait for the observable
+  // result so tests can assert on it deterministically.
+  const key = "dir:" + ProjectIdentity.norm(directory)
+  for (let i = 0; i < 100; i++) {
+    const row = Database.Client().$client.prepare("SELECT key FROM project_recent WHERE key = ?").get(key)
+    if (row) return
+    await Bun.sleep(10)
+  }
+}
 
 // Strip null bytes from paths (defensive fix for CI environment issues)
 function sanitizePath(p: string): string {

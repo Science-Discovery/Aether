@@ -7,7 +7,7 @@ import { Log } from "../../src/util/log"
 import { Git } from "../../src/git"
 import { $ } from "bun"
 import path from "path"
-import { tmpdir } from "../fixture/fixture"
+import { tmpdir, converse } from "../fixture/fixture"
 import { ProjectIdentity } from "../../src/project/identity"
 import { SessionTable } from "../../src/session/session.sql"
 import { DirectoryMetaTable } from "../../src/project/project.sql"
@@ -220,6 +220,7 @@ describe("Bug3: fromDirectory does not clear project_recent icon_color", () => {
   test("project_recent.icon_color is preserved after fromDirectory, synced to ProjectTable", async () => {
     await using tmp = await tmpdir({ git: true })
     const { project } = await Project.fromDirectory(tmp.path)
+    await converse(tmp.path)
 
     // Simulate what syncDirectoryMetaToGlobal would do: write icon into project_recent
     const wtKey = `dir:${norm(tmp.path)}`

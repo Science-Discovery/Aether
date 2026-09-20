@@ -5,7 +5,7 @@ import { ProjectRecentTable } from "./project.sql"
 import { GlobalProjectMapTable } from "./global-project-map.sql"
 import { ProjectTable } from "./project.sql"
 import { DirectoryMetaTable } from "./project.sql"
-import { SessionTable } from "../session/session.sql"
+import { SessionTable, MessageTable } from "../session/session.sql"
 import { Log } from "../util/log"
 import { Flag } from "@/flag/flag"
 import { BusEvent } from "@/bus/bus-event"
@@ -128,6 +128,14 @@ export namespace Project {
     if (!row.commands) return
     if (typeof row.commands === "string") return JSON.parse(row.commands) as Info["commands"]
     return row.commands
+  }
+
+  // A project is active only once a conversation actually happened in it: a
+  // bare session.create (optimistic UI, API calls, test probes) is not user
+  // activity and must never keep a feed entry alive.
+  function active(pid: ProjectID) {
+    if (!Database.hasProject(pid)) return false
+    return !!Database.useProject(pid, (d) => d.select({ id: MessageTable.id }).from(MessageTable).limit(1).get())
   }
 
   function canonical() {
@@ -316,6 +324,7 @@ export namespace Project {
     readonly removeSandbox: (id: ProjectID, directory: string) => Effect.Effect<void>
     readonly mergeSandboxSessions: (id: ProjectID, directory: string) => Effect.Effect<number>
     readonly syncWorktrees: (id: ProjectID, worktree: string) => Effect.Effect<void>
+    readonly touchActivity: (project: Info) => Effect.Effect<void>
   }
 
   export class Service extends ServiceMap.Service<Service, Interface>()("@opencode/Project") {}
@@ -387,31 +396,6 @@ export namespace Project {
         const kind = isProject ? "project" : "directory"
         const directory = norm(input.directory)
 
-        yield* db((d) =>
-          d
-            .insert(ProjectRecentTable)
-            .values({
-              key,
-              kind,
-              project_id: isProject ? input.project.id : null,
-              directory,
-              activity_at: now,
-              time_created: now,
-              time_updated: now,
-            })
-            .onConflictDoUpdate({
-              target: ProjectRecentTable.key,
-              set: {
-                kind,
-                project_id: isProject ? input.project.id : null,
-                directory,
-                activity_at: now,
-                time_updated: now,
-              },
-            })
-            .run(),
-        )
-
         if (isProject) {
           yield* dbProject(input.project.id, (d) =>
             d
@@ -439,7 +423,43 @@ export namespace Project {
           )
         }
 
+        // The feed records conversation activity, and touch never creates a
+        // row: the app itself boots instances for feed projects, so seeding on
+        // open would resurrect exactly the registration junk this feed must
+        // not hold. Rows are minted when a project's first message lands
+        // (Project.touchActivity from the message projector) and refreshed
+        // here while the project stays active.
+        if (!active(input.project.id)) return
+        yield* db((d) =>
+          d
+            .insert(ProjectRecentTable)
+            .values({
+              key,
+              kind,
+              project_id: isProject ? input.project.id : null,
+              directory,
+              activity_at: now,
+              time_created: now,
+              time_updated: now,
+            })
+            .onConflictDoUpdate({
+              target: ProjectRecentTable.key,
+              set: {
+                kind,
+                project_id: isProject ? input.project.id : null,
+                directory,
+                activity_at: now,
+                time_updated: now,
+              },
+            })
+            .run(),
+        )
         yield* emitRecentUpdated
+      })
+
+      const touchActivity = Effect.fn("Project.touchActivity")(function* (project: Info) {
+        if (project.worktree === "/") return
+        yield* touch({ project, directory: project.worktree })
       })
 
       const fromDirectory = Effect.fn("Project.fromDirectory")(function* (directory: string) {
@@ -953,6 +973,7 @@ export namespace Project {
         addSandbox,
         removeSandbox,
         mergeSandboxSessions,
+        touchActivity,
       })
     }),
   )
@@ -983,6 +1004,11 @@ export namespace Project {
 
   export function recentList() {
     return recent()
+  }
+
+  /** Mint or refresh the project's feed row from conversation activity. */
+  export function touchActivity(project: Info) {
+    return runPromise((svc) => svc.touchActivity(project))
   }
 
   export function recentFromDir(directory: string): RecentInfo | undefined {

@@ -5,7 +5,7 @@ import { Instance } from "../../src/project/instance"
 import { Log } from "../../src/util/log"
 import { $ } from "bun"
 import path from "path"
-import { tmpdir } from "../fixture/fixture"
+import { tmpdir, converse } from "../fixture/fixture"
 import { GlobalBus } from "../../src/bus/global"
 import { ProjectID } from "../../src/project/schema"
 import { ProjectIdentity } from "../../src/project/identity"
@@ -396,6 +396,7 @@ describe("Project.list and Project.get", () => {
   test("list returns all projects", async () => {
     await using tmp = await tmpdir({ git: true })
     const { project } = await Project.fromDirectory(tmp.path)
+    await converse(tmp.path)
 
     const all = Project.list()
     expect(all.length).toBeGreaterThan(0)
@@ -423,10 +424,10 @@ describe("Project.recentList", () => {
     await using b = await tmpdir({ git: true })
 
     await Project.fromDirectory(a.path)
-    await Instance.provide({ directory: a.path, fn: async () => Session.create({}) })
+    await converse(a.path)
     await Bun.sleep(10)
     await Project.fromDirectory(b.path)
-    await Instance.provide({ directory: b.path, fn: async () => Session.create({}) })
+    await converse(b.path)
 
     const before = Project.recentList()
       .filter((item) => item.kind === "project")
@@ -446,20 +447,22 @@ describe("Project.recentList", () => {
     expect(after.slice(0, 2)).toEqual([norm(b.path), norm(a.path)])
   })
 
-  test("lists non-git project entries from fromDirectory", async () => {
+  test("lists non-git project entries once a conversation exists", async () => {
     await using tmp = await tmpdir()
 
     const { project } = await Project.fromDirectory(tmp.path)
+    await converse(tmp.path)
 
     const item = Project.recentList().find((entry) => norm(entry.directory) === norm(project.worktree))
     expect(item).toBeDefined()
     expect(item!.kind).toBe("project")
   })
 
-  test("lists git project entries from fromDirectory", async () => {
+  test("lists git project entries once a conversation exists", async () => {
     await using tmp = await tmpdir({ git: true })
 
     await Project.fromDirectory(tmp.path)
+    await converse(tmp.path)
 
     const item = Project.recentList().find((entry) => norm(entry.directory) === norm(tmp.path))
     expect(item).toBeDefined()
