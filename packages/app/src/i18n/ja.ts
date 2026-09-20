@@ -976,5 +976,6 @@ export const dict = {
   "dialog.project.delete.cascadeConfirm": "完全に削除する",
   "dialog.project.delete.cascadeHint":
     "プロジェクトを削除すると、上記のセッション（アーカイブ済みを含む）も完全に削除されます。この操作は元に戻せません。",
+  "dialog.project.delete.failed": "プロジェクトの削除に失敗しました",
   "dialog.project.delete.sessionArchived": "アーカイブ済み",
 }

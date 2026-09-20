@@ -1087,7 +1087,6 @@ export class Project extends HeyApiClient {
       projectID: string
       directory?: string
       workspace?: string
-      cascade?: boolean
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -1099,7 +1098,6 @@ export class Project extends HeyApiClient {
             { in: "path", key: "projectID" },
             { in: "query", key: "directory" },
             { in: "query", key: "workspace" },
-            { in: "body", key: "cascade" },
           ],
         },
       ],
@@ -1108,11 +1106,6 @@ export class Project extends HeyApiClient {
       url: "/project/{projectID}",
       ...options,
       ...params,
-      headers: {
-        "Content-Type": "application/json",
-        ...options?.headers,
-        ...params.headers,
-      },
     })
   }
 

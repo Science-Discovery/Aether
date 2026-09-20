@@ -3207,9 +3207,7 @@ export type ProjectInitGitResponses = {
 export type ProjectInitGitResponse = ProjectInitGitResponses[keyof ProjectInitGitResponses]
 
 export type ProjectDeleteData = {
-  body?: {
-    cascade?: boolean
-  }
+  body?: never
   path: {
     projectID: string
   }

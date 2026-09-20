@@ -1066,5 +1066,6 @@ export const dict = {
   "dialog.project.delete.cascadeConfirm": "Eliminar permanentemente",
   "dialog.project.delete.cascadeHint":
     "Eliminar el proyecto borra permanentemente estas sesiones, incluidas las archivadas. Esto no se puede deshacer.",
+  "dialog.project.delete.failed": "Error al eliminar el proyecto",
   "dialog.project.delete.sessionArchived": "archivada",
 }

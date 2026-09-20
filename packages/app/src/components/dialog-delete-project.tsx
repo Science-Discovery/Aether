@@ -2,7 +2,7 @@ import { Button } from "@opencode-ai/ui/button"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { Dialog } from "@opencode-ai/ui/dialog"
 import { useQuery, useMutation } from "@tanstack/solid-query"
-import { For, Show, createSignal } from "solid-js"
+import { For, Show } from "solid-js"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { type LocalProject } from "@/context/layout"
 import { useLanguage } from "@/context/language"
@@ -15,7 +15,6 @@ export function DialogDeleteProject(props: { project: LocalProject; onConfirm?: 
   const dialog = useDialog()
   const globalSDK = useGlobalSDK()
   const language = useLanguage()
-  const [solved, setSolved] = createSignal(false)
 
   const folderName = () => props.project.name || getFilename(props.project.worktree)
 
@@ -49,7 +48,7 @@ export function DialogDeleteProject(props: { project: LocalProject; onConfirm?: 
     onError: (err) => {
       showToast({
         variant: "error",
-        title: language.t("workspace.delete.failed.title"),
+        title: language.t("dialog.project.delete.failed"),
         description: formatServerError(err),
       })
     },
@@ -111,7 +110,7 @@ export function DialogDeleteProject(props: { project: LocalProject; onConfirm?: 
                 </For>
               </div>
               <p class="text-12-regular text-text-weak">{language.t("dialog.project.delete.cascadeHint")}</p>
-              <MathConfirm onCorrect={() => setSolved(true)}>
+              <MathConfirm>
                 {(c) => (
                   <div class="flex justify-end gap-2">
                     <Button variant="ghost" onClick={close}>

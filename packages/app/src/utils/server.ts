@@ -121,7 +121,11 @@ export type AppClient = Base & {
     scripts(): Req<{ path: string; names: string[] }>
   }
   project: Base["project"] & {
-    delete(input: { projectID: string }): Req<{ status: string; projectID: string; sessionCount?: number }>
+    delete(input: { projectID: string; cascade?: boolean }): Req<{
+      status: string
+      projectID: string
+      sessionCount?: number
+    }>
     sessionCount(input: { projectID: string }): Req<{ count: number }>
   }
   cron: {
@@ -246,12 +250,13 @@ export function addProjectDeleteMethod(
 ): AppClient {
   const headers: Record<string, string> = { "Content-Type": "application/json", ...auth }
   const methods = {
-    async delete(input: { projectID: string }) {
+    async delete(input: { projectID: string; cascade?: boolean }) {
       return requestJSON<{ status: string; projectID: string; sessionCount?: number }>(
         `${baseUrl}/project/${input.projectID}`,
         {
           method: "DELETE",
           headers,
+          body: JSON.stringify({ cascade: input.cascade ?? false }),
         },
         options,
       )

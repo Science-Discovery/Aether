@@ -174,10 +174,14 @@ export const ProjectRoutes = lazy(() =>
         },
       }),
       validator("param", z.object({ projectID: ProjectID.zod })),
-      validator("json", z.object({ cascade: z.boolean().optional() }).default({})),
       async (c) => {
         const projectID = c.req.valid("param").projectID
-        const body = c.req.valid("json")
+        // Legacy clients delete with no body at all — treat missing or
+        // unparseable JSON as non-cascade instead of rejecting.
+        const body = z
+          .object({ cascade: z.boolean().optional() })
+          .catch({})
+          .parse(await c.req.json().catch(() => undefined))
         const result = Project.remove(projectID, body)
         return c.json(result)
       },

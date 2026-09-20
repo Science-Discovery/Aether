@@ -993,5 +993,6 @@ export const dict = {
   "dialog.project.delete.cascadeConfirm": "Supprimer définitivement",
   "dialog.project.delete.cascadeHint":
     "Supprimer le projet supprime définitivement ces sessions, y compris les archivées. C'est irréversible.",
+  "dialog.project.delete.failed": "Échec de la suppression du projet",
   "dialog.project.delete.sessionArchived": "archivée",
 }

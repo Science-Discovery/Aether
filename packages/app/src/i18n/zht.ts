@@ -1148,5 +1148,6 @@ export const dict = {
   "dialog.project.delete.hasSessions": "{{name}} 有 {{count}} 個會話（最早和最新如下）：",
   "dialog.project.delete.cascadeConfirm": "確認永久刪除",
   "dialog.project.delete.cascadeHint": "刪除項目將永久刪除以上會話（包括已歸檔），且無法復原。",
+  "dialog.project.delete.failed": "刪除項目失敗",
   "dialog.project.delete.sessionArchived": "已歸檔",
 } satisfies Partial<Record<Keys, string>>

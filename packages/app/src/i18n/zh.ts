@@ -1411,6 +1411,7 @@ export const dict = {
   "dialog.project.delete.hasSessions": "{{name}} 有 {{count}} 个会话（最早和最新如下）：",
   "dialog.project.delete.cascadeConfirm": "确认永久删除",
   "dialog.project.delete.cascadeHint": "删除项目将永久删除以上会话（包括已归档），且不可恢复。",
+  "dialog.project.delete.failed": "删除项目失败",
   "dialog.project.delete.sessionArchived": "已归档",
   "workspace.type.local": "本地",
   "workspace.type.sandbox": "沙箱",

@@ -993,5 +993,6 @@ export const dict = {
   "dialog.project.delete.cascadeConfirm": "Endgültig löschen",
   "dialog.project.delete.cascadeHint":
     "Beim Löschen des Projekts werden diese Sitzungen einschließlich archivierter endgültig gelöscht. Dies kann nicht rückgängig gemacht werden.",
+  "dialog.project.delete.failed": "Projekt konnte nicht gelöscht werden",
   "dialog.project.delete.sessionArchived": "archiviert",
 } satisfies Partial<Record<Keys, string>>

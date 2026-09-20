@@ -447,6 +447,7 @@ export const dict = {
   "dialog.project.delete.cascadeConfirm": "Delete permanently",
   "dialog.project.delete.cascadeHint":
     "Deleting the project permanently deletes these sessions, including archived ones. This cannot be undone.",
+  "dialog.project.delete.failed": "Failed to delete project",
   "dialog.project.delete.sessionArchived": "archived",
 
   "dialog.releaseNotes.action.getStarted": "Get started",
