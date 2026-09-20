@@ -1,6 +1,6 @@
 ---
 name: aether-issue-pr
-description: 用于处理 Science-Discovery/Aether 协作提交；当用户请求创建 issue/PR、恢复既有 PR、监控修复 CI、审查 cicd-guard 失败或评价受保护路径改动时使用。
+description: 用于处理 Science-Discovery/Aether 协作提交；当用户请求创建 issue/PR、恢复既有 PR、监控修复 CI、审查 cicd-guard 失败或评价受保护路径改动时使用。开 PR 前必须先确定关联 issue：用户给定或本任务已建则复用，都没有则先按模板自动创建；禁止无 issue 的 PR。
 ---
 
 # 协作提交流程
@@ -9,6 +9,7 @@ description: 用于处理 Science-Discovery/Aether 协作提交；当用户请�
 
 - 默认仓库 `Science-Discovery/Aether`，默认 base 为 `dev`；GitHub 操作统一用 `gh`，显式指定 `--repo Science-Discovery/Aether`。
 - 普通 issue/PR 按模板直接创建，不等待草稿确认，除非用户要求预览或 draft；仅提 issue 不自动扩展为提交代码或开 PR。
+- PR 必须关联真实存在的 issue：先复用用户指定或本任务已建的 issue，均无时先创建 issue 再开 PR。
 - 用户指定 `beta`、`main` 等敏感目标时，先提醒风险并等待确认，确认前不为该目标推送或创建 PR。
 - 提交、推送及后续修复须符合用户授权和环境权限；只写文档、只调研、禁止提交等限制优先于自动执行流程。
 
@@ -29,10 +30,10 @@ description: 用于处理 Science-Discovery/Aether 协作提交；当用户请�
 
 ## 复用或创建
 
-1. 用户给定 issue 时核实并复用；否则优先复用本任务已明确关联的 issue，没有才自动创建，不按相似标题选单。
+1. 用户给定 issue 时核实并复用；否则复用本任务已明确关联的 issue；两者皆无时必须先用 `gh issue create` 创建 issue 并关联后才能开 PR，不按相似标题选单。
 2. 读取仓库实际 `.github/ISSUE_TEMPLATE/` 和适用 PR 模板，按任务类型填写真实字段与必填项，不硬编码旧模板；本地缺失或过时时用 `gh` 核对目标仓库版本。
 3. 用 `gh issue create` 创建缺少的 issue，记录返回编号和链接；请求超时或结果不明时先查询是否已创建，再决定重试，PR 同理。
-4. PR 正文描述需求、完整改动和实际验证；真正解决 issue 才用 `Closes #<number>`，部分工作用 `Refs #<number>`，未运行检查和不适用项如实标注。
+4. PR 正文描述需求、完整改动和实际验证；默认以 `Closes #<number>` 关联本次复用或创建的 issue，`Refs #<number>` 仅用于已存在 issue 上的部分工作，不得以 Refs 或省略关联替代新建 issue；未运行检查和不适用项如实标注。
 5. 对授权范围内的改动运行适用检查，只暂存确认过的任务差异，复核暂存区后按仓库规范提交；推送前再次检查 `<base>...HEAD` 全部差异及提交。
 6. 确认推送目的仓库和 head 分支后普通推送；非快进拒绝先分析分歧，不自动 force push、改写共享历史或绕过 hooks。
 7. 推送后再次查重：已有本任务 PR 则更新，否则用 `gh pr create --base <base> --head <head>` 创建；fork head 使用正确的 owner 限定，记录 PR、head SHA 和 base SHA。
@@ -96,3 +97,10 @@ description: 用于处理 Science-Discovery/Aether 协作提交；当用户请�
 
 用一份简短汇报给出 issue/PR 链接、branch/head SHA、目标 base 和真实检查状态；仅做 issue 时省略不适用项，不强制分两阶段。
 适用时附 guard 逐项结论、审查评论链接、未解决原因及待办责任方；未执行、待批准、待复查须明示，不伪造测试、批准或成功状态。
+
+---
+
+## 硬性禁止
+
+- 禁止在未创建或未关联真实 issue 的情况下创建 PR。
+- 禁止虚构 issue 编号或假装已完成关联。
