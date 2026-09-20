@@ -126,3 +126,22 @@ const table = sqliteTable("session", {
 ## Type Checking
 
 - Always run `bun typecheck` from package directories (e.g., `packages/opencode`), never `tsc` directly.
+
+## Post-change Review
+
+After implementing a feature or fixing a bug, review the changes and
+directly affected code paths before considering the task complete.
+
+- Simplicity: Is the implementation clear and consistent with nearby code?
+  Remove unnecessary complexity and duplication introduced by this change.
+- Robustness: Check relevant edge cases, failure handling, and lifecycle
+  or concurrency behavior where applicable.
+- Regressions: Look for unintended behavior changes and verify that callers
+  and existing assumptions remain valid.
+- Fix concrete issues found during review, then re-review the affected
+  changes and run checks appropriate to the risk.
+
+Stop when no concrete, actionable issues remain and the relevant checks
+pass. Keep improvements within the task's scope; avoid speculative
+refactoring or repeated testing without new evidence. If verification is
+blocked, state what remains unverified in the final response.
