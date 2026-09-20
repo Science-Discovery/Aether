@@ -16,6 +16,7 @@ import { setupSkillEvolutionAutoOpen } from "@/skill-evolution/auto-open"
 
 const AVATAR_COLOR_KEYS = ["pink", "mint", "orange", "purple", "cyan", "lime"] as const
 const DEFAULT_PANEL_WIDTH = 344
+const DEFAULT_SIDEBAR_WIDTH = 241
 const DEFAULT_SESSION_WIDTH = 600
 const DEFAULT_TERMINAL_HEIGHT = 280
 export type AvatarColorKey = (typeof AVATAR_COLOR_KEYS)[number]
@@ -197,11 +198,13 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
       const sidebar = value.sidebar
       const migratedSidebar = (() => {
         if (!isRecord(sidebar)) return sidebar
-        if (typeof sidebar.workspaces !== "boolean") return sidebar
+        const width = sidebar.width === DEFAULT_PANEL_WIDTH ? DEFAULT_SIDEBAR_WIDTH : sidebar.width
+        if (typeof sidebar.workspaces !== "boolean" && width === sidebar.width) return sidebar
         return {
           ...sidebar,
-          workspaces: {},
-          workspacesDefault: sidebar.workspaces,
+          width,
+          workspaces: typeof sidebar.workspaces === "boolean" ? {} : sidebar.workspaces,
+          workspacesDefault: typeof sidebar.workspaces === "boolean" ? sidebar.workspaces : sidebar.workspacesDefault,
         }
       })()
 
@@ -259,7 +262,7 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
       createStore({
         sidebar: {
           opened: false,
-          width: DEFAULT_PANEL_WIDTH,
+          width: DEFAULT_SIDEBAR_WIDTH,
           workspaces: {} as Record<string, boolean>,
           workspacesDefault: false,
         },
