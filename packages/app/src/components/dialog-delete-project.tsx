@@ -7,6 +7,8 @@ import { useGlobalSDK } from "@/context/global-sdk"
 import { type LocalProject } from "@/context/layout"
 import { useLanguage } from "@/context/language"
 import { getFilename } from "@opencode-ai/util/path"
+import { showToast } from "@opencode-ai/ui/toast"
+import { formatServerError } from "@/utils/server-errors"
 import { MathConfirm } from "@/components/math-confirm"
 
 export function DialogDeleteProject(props: { project: LocalProject; onConfirm?: () => void }) {
@@ -43,6 +45,13 @@ export function DialogDeleteProject(props: { project: LocalProject; onConfirm?: 
         close()
       }
       return result.data!
+    },
+    onError: (err) => {
+      showToast({
+        variant: "error",
+        title: language.t("workspace.delete.failed.title"),
+        description: formatServerError(err),
+      })
     },
   }))
 

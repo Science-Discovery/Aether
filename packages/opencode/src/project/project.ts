@@ -1126,13 +1126,6 @@ export namespace Project {
   ])
   export type RemoveResult = z.infer<typeof RemoveResult>
 
-  type PreviewSession = {
-    id: string
-    title: string | null
-    time_created: number
-    time_archived: number | null
-  }
-
   // Read straight from the project db: the removal guard must never point at
   // data the user cannot see, and the instance may not even boot when the
   // workspace directory is gone. Long histories are sampled to the earliest
@@ -1143,12 +1136,17 @@ export namespace Project {
     if (!existsSync(dbPath)) return []
     const raw = new BunSqlite(dbPath)
     try {
-      const row = "SELECT id, title, time_created, time_archived FROM session ORDER BY time_created"
-      const first = raw.prepare(`${row} ASC LIMIT 1`).get() as PreviewSession | undefined
-      const last = raw.prepare(`${row} DESC LIMIT 1`).get() as PreviewSession | undefined
-      if (!first) return []
-      if (!last || last.id === first.id) return [first]
-      return [first, last]
+      // Select * and map defensively: legacy schemas may lack columns the
+      // current schema has (e.g. time_archived).
+      const rows = raw.prepare("SELECT * FROM session ORDER BY rowid").all() as Record<string, unknown>[]
+      const mapped = rows.map((r) => ({
+        id: String(r.id),
+        title: typeof r.title === "string" ? r.title : null,
+        time_created: typeof r.time_created === "number" ? r.time_created : 0,
+        time_archived: typeof r.time_archived === "number" ? r.time_archived : null,
+      }))
+      if (mapped.length <= 2) return mapped
+      return [mapped[0]!, mapped[mapped.length - 1]!]
     } finally {
       raw.close()
     }
@@ -1163,11 +1161,10 @@ export namespace Project {
     if (cnt > 0 && !input.cascade) {
       return { status: "has_sessions", projectID: id, sessionCount: cnt, sessions: sessionsPreview(id) }
     }
-    if (cnt > 0) {
-      // Session rows carry the conversation history; messages and parts are
-      // removed by the foreign-key cascade.
-      Database.useProject(id, (d) => d.delete(SessionTable).run())
-    }
+    // No attach here on purpose: legacy project dbs can fail schema-ensure on
+    // attach, which would make removal impossible for exactly the projects
+    // users most want to delete. The table wipe below removes sessions,
+    // messages and parts with them.
 
     Database.detach(id)
 
