@@ -1410,7 +1410,6 @@ export const dict = {
   "dialog.project.delete.confirm": "{{name}} 将被永久移除，此操作不可撤销。",
   "dialog.project.delete.deleted": "{{name}} 已移除。",
   "dialog.project.delete.hasSessions": "{{name}} 有 {{count}} 个会话：",
-  "dialog.project.delete.cascade": "删除项目和会话",
   "dialog.project.delete.cascadeConfirm": "确认永久删除",
   "dialog.project.delete.cascadeHint": "删除项目将永久删除以上会话（包括已归档），且不可恢复。",
   "dialog.project.delete.sessionArchived": "已归档",

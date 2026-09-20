@@ -1059,7 +1059,6 @@ export const dict = {
   "dialog.project.delete.confirm": "{{name}} будет удален безвозвратно. Это действие нельзя отменить.",
   "dialog.project.delete.deleted": "{{name}} удален.",
   "dialog.project.delete.hasSessions": "В проекте {{name}} {{count}} сеансов:",
-  "dialog.project.delete.cascade": "Удалить проект и сеансы",
   "dialog.project.delete.cascadeConfirm": "Удалить безвозвратно",
   "dialog.project.delete.cascadeHint":
     "Удаление проекта безвозвратно удаляет эти сеансы, включая архивированные. Отменить нельзя.",

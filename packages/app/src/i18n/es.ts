@@ -1063,7 +1063,6 @@ export const dict = {
   "dialog.project.delete.confirm": "{{name}} se eliminará permanentemente. Esto no se puede deshacer.",
   "dialog.project.delete.deleted": "{{name}} se ha eliminado.",
   "dialog.project.delete.hasSessions": "{{name}} tiene {{count}} sesiones:",
-  "dialog.project.delete.cascade": "Eliminar proyecto y sesiones",
   "dialog.project.delete.cascadeConfirm": "Eliminar permanentemente",
   "dialog.project.delete.cascadeHint":
     "Eliminar el proyecto borra permanentemente estas sesiones, incluidas las archivadas. Esto no se puede deshacer.",

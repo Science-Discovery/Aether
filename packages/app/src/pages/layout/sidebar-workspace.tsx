@@ -42,6 +42,7 @@ import { NewSessionItem, SessionItem, SessionSkeleton, StatusDot } from "./sideb
 import { childMapByParent, hasProjectPermissions, sortedRootSessions, workspaceKey } from "./helpers"
 import { formatServerError } from "@/utils/server-errors"
 import { SessionImportInput } from "@/components/session-import-input"
+import { MathConfirm } from "@/components/math-confirm"
 import { SidebarBranchView } from "@/pages/session/branch/sidebar-branch-view"
 
 const BATCH_CHUNK = 8
@@ -89,60 +90,24 @@ const BatchDeleteDialog = (props: {
   onCancel: () => void
   onConfirm: () => Promise<void>
 }) => {
-  const a = 2 + Math.floor(Math.random() * 8)
-  const b = 2 + Math.floor(Math.random() * 8)
-  const [answer, setAnswer] = createSignal("")
-  const [wrong, setWrong] = createSignal(false)
-  const parsed = () =>
-    Number.parseInt(
-      answer()
-        .trim()
-        .replace(/[０-９]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 65248)),
-      10,
-    )
-  const correct = () => parsed() === a + b
-  const attempt = () => {
-    if (correct()) {
-      void props.onConfirm()
-      return
-    }
-    setWrong(true)
-  }
   return (
     <Dialog title={props.language.t("session.delete.title")} fit>
       <div class="flex flex-col gap-4 pl-6 pr-2.5 pb-3">
         <span class="text-14-regular text-text-strong">
           {props.language.t("session.batch.delete.confirm", { count: props.count })}
         </span>
-        <div class="flex flex-col gap-1.5">
-          <span class="text-14-regular text-text-weak">{props.language.t("session.delete.math", { a, b })}</span>
-          <input
-            autofocus
-            value={answer()}
-            inputmode="numeric"
-            autocomplete="off"
-            class="text-14-regular text-text-strong w-24 rounded-md border border-border-weak-base bg-surface-raised-base px-2 py-1 outline-none"
-            data-action="batch-delete-math"
-            onInput={(e) => {
-              setAnswer(e.currentTarget.value)
-              setWrong(false)
-            }}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") attempt()
-            }}
-          />
-          <Show when={wrong()}>
-            <span class="text-12-regular text-text-error">{props.language.t("session.delete.math.wrong")}</span>
-          </Show>
-        </div>
-        <div class="flex justify-end gap-2">
-          <Button variant="ghost" size="large" onClick={props.onCancel}>
-            {props.language.t("common.cancel")}
-          </Button>
-          <Button variant="primary" size="large" disabled={!correct()} onClick={attempt}>
-            {props.language.t("session.batch.delete", { count: props.count })}
-          </Button>
-        </div>
+        <MathConfirm action="batch-delete-math" onCorrect={() => void props.onConfirm()}>
+          {(c) => (
+            <div class="flex justify-end gap-2">
+              <Button variant="ghost" size="large" onClick={props.onCancel}>
+                {props.language.t("common.cancel")}
+              </Button>
+              <Button variant="primary" size="large" disabled={!c.solved()} onClick={c.attempt}>
+                {props.language.t("session.batch.delete", { count: props.count })}
+              </Button>
+            </div>
+          )}
+        </MathConfirm>
       </div>
     </Dialog>
   )

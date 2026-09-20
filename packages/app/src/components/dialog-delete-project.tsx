@@ -7,12 +7,13 @@ import { useGlobalSDK } from "@/context/global-sdk"
 import { type LocalProject } from "@/context/layout"
 import { useLanguage } from "@/context/language"
 import { getFilename } from "@opencode-ai/util/path"
+import { MathConfirm } from "@/components/math-confirm"
 
 export function DialogDeleteProject(props: { project: LocalProject; onConfirm?: () => void }) {
   const dialog = useDialog()
   const globalSDK = useGlobalSDK()
   const language = useLanguage()
-  const [confirmCascade, setConfirmCascade] = createSignal(false)
+  const [solved, setSolved] = createSignal(false)
 
   const folderName = () => props.project.name || getFilename(props.project.worktree)
 
@@ -101,32 +102,27 @@ export function DialogDeleteProject(props: { project: LocalProject; onConfirm?: 
                     </For>
                   </div>
                   <p class="text-12-regular text-text-weak">{language.t("dialog.project.delete.cascadeHint")}</p>
-                  <div class="flex justify-end gap-2">
-                    <Button variant="ghost" onClick={close}>
-                      {language.t("common.cancel")}
-                    </Button>
-                    <Show
-                      when={confirmCascade()}
-                      fallback={
-                        <Button variant="secondary" onClick={() => setConfirmCascade(true)}>
-                          {language.t("dialog.project.delete.cascade")}
+                  <MathConfirm onCorrect={() => setSolved(true)}>
+                    {(c) => (
+                      <div class="flex justify-end gap-2">
+                        <Button variant="ghost" onClick={close}>
+                          {language.t("common.cancel")}
                         </Button>
-                      }
-                    >
-                      <Button
-                        variant="primary"
-                        disabled={deleteMutation.isPending}
-                        onClick={() => {
-                          props.onConfirm?.()
-                          deleteMutation.mutate(true)
-                        }}
-                      >
-                        {deleteMutation.isPending
-                          ? language.t("common.deleting")
-                          : language.t("dialog.project.delete.cascadeConfirm")}
-                      </Button>
-                    </Show>
-                  </div>
+                        <Button
+                          variant="primary"
+                          disabled={!c.solved() || deleteMutation.isPending}
+                          onClick={() => {
+                            props.onConfirm?.()
+                            deleteMutation.mutate(true)
+                          }}
+                        >
+                          {deleteMutation.isPending
+                            ? language.t("common.deleting")
+                            : language.t("dialog.project.delete.cascadeConfirm")}
+                        </Button>
+                      </div>
+                    )}
+                  </MathConfirm>
                 </div>
               </Show>
             }

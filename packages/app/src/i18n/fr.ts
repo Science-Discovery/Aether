@@ -990,7 +990,6 @@ export const dict = {
   "dialog.project.delete.confirm": "{{name}} sera définitivement supprimé. Cette action est irréversible.",
   "dialog.project.delete.deleted": "{{name}} a été supprimé.",
   "dialog.project.delete.hasSessions": "{{name}} contient {{count}} sessions :",
-  "dialog.project.delete.cascade": "Supprimer le projet et les sessions",
   "dialog.project.delete.cascadeConfirm": "Supprimer définitivement",
   "dialog.project.delete.cascadeHint":
     "Supprimer le projet supprime définitivement ces sessions, y compris les archivées. C'est irréversible.",
