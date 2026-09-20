@@ -1057,7 +1057,6 @@ export const dict = {
   "workspace.delete.alsoDeleteSessions": "Удалить сеансы и рабочую область",
   "dialog.project.delete.title": "Удалить проект",
   "dialog.project.delete.confirm": "{{name}} будет удален безвозвратно. Это действие нельзя отменить.",
-  "dialog.project.delete.deleted": "{{name}} удален.",
   "dialog.project.delete.hasSessions": "В проекте {{name}} {{count}} сеансов (ниже — самый ранний и самый поздний):",
   "dialog.project.delete.cascadeConfirm": "Удалить безвозвратно",
   "dialog.project.delete.cascadeHint":

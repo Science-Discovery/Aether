@@ -1145,7 +1145,6 @@ export const dict = {
   "workspace.delete.alsoDeleteSessions": "刪除會話和工作區",
   "dialog.project.delete.title": "刪除項目",
   "dialog.project.delete.confirm": "{{name}} 將被永久移除，此操作不可撤銷。",
-  "dialog.project.delete.deleted": "{{name}} 已移除。",
   "dialog.project.delete.hasSessions": "{{name}} 有 {{count}} 個會話（最早和最新如下）：",
   "dialog.project.delete.cascadeConfirm": "確認永久刪除",
   "dialog.project.delete.cascadeHint": "刪除項目將永久刪除以上會話（包括已歸檔），且無法復原。",

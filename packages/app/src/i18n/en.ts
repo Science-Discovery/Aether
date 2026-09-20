@@ -443,7 +443,6 @@ export const dict = {
   "dialog.project.edit.worktree.startup.placeholder": "e.g. bun install",
   "dialog.project.delete.title": "Delete project",
   "dialog.project.delete.confirm": "{{name}} will be permanently removed. This cannot be undone.",
-  "dialog.project.delete.deleted": "{{name}} has been removed.",
   "dialog.project.delete.hasSessions": "{{name}} has {{count}} sessions (earliest and newest shown below):",
   "dialog.project.delete.cascadeConfirm": "Delete permanently",
   "dialog.project.delete.cascadeHint":

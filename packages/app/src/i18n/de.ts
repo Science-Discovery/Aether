@@ -989,7 +989,6 @@ export const dict = {
   "workspace.delete.alsoDeleteSessions": "Sitzungen und Workspace löschen",
   "dialog.project.delete.title": "Projekt löschen",
   "dialog.project.delete.confirm": "{{name}} wird endgültig entfernt. Dies kann nicht rückgängig gemacht werden.",
-  "dialog.project.delete.deleted": "{{name}} wurde entfernt.",
   "dialog.project.delete.hasSessions": "{{name}} hat {{count}} Sitzungen (älteste und neueste unten):",
   "dialog.project.delete.cascadeConfirm": "Endgültig löschen",
   "dialog.project.delete.cascadeHint":

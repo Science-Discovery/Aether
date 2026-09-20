@@ -988,7 +988,6 @@ export const dict = {
   "workspace.delete.alsoDeleteSessions": "Supprimer les sessions et l'espace de travail",
   "dialog.project.delete.title": "Supprimer le projet",
   "dialog.project.delete.confirm": "{{name}} sera définitivement supprimé. Cette action est irréversible.",
-  "dialog.project.delete.deleted": "{{name}} a été supprimé.",
   "dialog.project.delete.hasSessions":
     "{{name}} contient {{count}} sessions (la plus ancienne et la plus récente ci-dessous) :",
   "dialog.project.delete.cascadeConfirm": "Supprimer définitivement",

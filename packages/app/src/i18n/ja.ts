@@ -972,7 +972,6 @@ export const dict = {
   "workspace.delete.alsoDeleteSessions": "セッションとワークスペースを削除",
   "dialog.project.delete.title": "プロジェクトを削除",
   "dialog.project.delete.confirm": "{{name}} は完全に削除されます。この操作は元に戻せません。",
-  "dialog.project.delete.deleted": "{{name}} を削除しました。",
   "dialog.project.delete.hasSessions": "{{name}} には {{count}} 件のセッションがあります（最新と最古を表示）:",
   "dialog.project.delete.cascadeConfirm": "完全に削除する",
   "dialog.project.delete.cascadeHint":
