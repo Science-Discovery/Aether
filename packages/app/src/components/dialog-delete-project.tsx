@@ -87,7 +87,7 @@ export function DialogDeleteProject(props: { project: LocalProject; onConfirm?: 
                       name: folderName(),
                     })}
                   </p>
-                  <div class="flex max-h-48 flex-col gap-1 overflow-y-auto">
+                  <div class="flex flex-col gap-1">
                     <For each={sessions.data ?? []}>
                       {(session) => (
                         <div class="flex items-baseline justify-between gap-2 rounded px-2 py-1 text-12-regular text-text-weak">

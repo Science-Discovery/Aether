@@ -1126,17 +1126,29 @@ export namespace Project {
   ])
   export type RemoveResult = z.infer<typeof RemoveResult>
 
+  type PreviewSession = {
+    id: string
+    title: string | null
+    time_created: number
+    time_archived: number | null
+  }
+
   // Read straight from the project db: the removal guard must never point at
   // data the user cannot see, and the instance may not even boot when the
-  // workspace directory is gone.
+  // workspace directory is gone. Long histories are sampled to the earliest
+  // and newest conversation — with the count shown alongside, that is the
+  // cheapest honest summary of what removal would delete.
   function sessionsPreview(id: ProjectID) {
     const dbPath = Database.projectPath(id)
     if (!existsSync(dbPath)) return []
     const raw = new BunSqlite(dbPath)
     try {
-      return raw
-        .prepare("SELECT id, title, time_created, time_archived FROM session ORDER BY time_updated DESC LIMIT 100")
-        .all() as { id: string; title: string | null; time_created: number; time_archived: number | null }[]
+      const row = "SELECT id, title, time_created, time_archived FROM session ORDER BY time_created"
+      const first = raw.prepare(`${row} ASC LIMIT 1`).get() as PreviewSession | undefined
+      const last = raw.prepare(`${row} DESC LIMIT 1`).get() as PreviewSession | undefined
+      if (!first) return []
+      if (!last || last.id === first.id) return [first]
+      return [first, last]
     } finally {
       raw.close()
     }

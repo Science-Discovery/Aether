@@ -69,4 +69,19 @@ describe("Project.remove", () => {
     expect(preview.length).toBe(1)
     expect(preview[0]!.title).toContain("New session")
   })
+
+  test("long histories are sampled to the earliest and newest session", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Project.fromDirectory(tmp.path)
+    await converse(tmp.path)
+    await Bun.sleep(5)
+    await converse(tmp.path)
+    await Bun.sleep(5)
+    await converse(tmp.path)
+
+    const preview = Project.sessions(ProjectID.fromDirectory(ProjectIdentity.norm(tmp.path)))
+    expect(preview.length).toBe(2)
+    expect(preview[0]!.time_created).toBeLessThan(preview[1]!.time_created)
+    expect(preview[0]!.id).not.toBe(preview[1]!.id)
+  })
 })
