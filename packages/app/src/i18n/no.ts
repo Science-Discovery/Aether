@@ -516,6 +516,7 @@ export const dict = {
   "session.tab.session": "Sesjon",
   "session.tab.review": "Gjennomgang",
   "session.tab.context": "Kontekst",
+  "session.tab.moreFiles": "Flere filer",
   "session.tab.gitGraph": "Git-graf",
   "session.tab.gitGraph.commitDetails": "?",
   "session.tab.gitGraph.hash": "?",

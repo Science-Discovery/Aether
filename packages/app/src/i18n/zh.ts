@@ -834,6 +834,7 @@ export const dict = {
   "session.tab.session": "会话",
   "session.tab.review": "审查",
   "session.tab.context": "上下文",
+  "session.tab.moreFiles": "更多文件",
   "session.tab.gitGraph": "Git 图",
   "session.tab.gitGraph.commitDetails": "提交详情",
   "session.tab.gitGraph.hash": "哈希",

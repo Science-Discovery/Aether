@@ -228,10 +228,6 @@ vi.mock("@/components/pdf-convert-progress", () => ({
   restoreActiveTasks: () => Promise.resolve(),
 }))
 
-vi.mock("@/pages/session/file-tab-scroll", () => ({
-  createFileTabListSync: () => () => undefined,
-}))
-
 vi.mock("@/pages/session/file-tabs", () => ({
   FileTabContent: () => null,
 }))

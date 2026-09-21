@@ -470,6 +470,7 @@ export const dict = {
   "session.tab.session": "세션",
   "session.tab.review": "검토",
   "session.tab.context": "컨텍스트",
+  "session.tab.moreFiles": "더 많은 파일",
   "session.tab.gitGraph": "Git 그래프",
   "session.tab.gitGraph.commitDetails": "?",
   "session.tab.gitGraph.hash": "?",

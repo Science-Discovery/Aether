@@ -872,6 +872,7 @@ export const dict = {
   "session.tab.session": "Session",
   "session.tab.review": "Review",
   "session.tab.context": "Context",
+  "session.tab.moreFiles": "More files",
   "session.tab.gitGraph": "Git Graph",
   "session.tab.gitGraph.allBranches": "All Branches",
   "session.tab.gitGraph.currentBranch": "Current Branch",

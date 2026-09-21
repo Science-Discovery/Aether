@@ -37,7 +37,7 @@ import {
   registerRefreshDirCallback,
   restoreActiveTasks,
 } from "@/components/pdf-convert-progress"
-import { createFileTabListSync } from "@/pages/session/file-tab-scroll"
+import { fitFileTabs } from "@/pages/session/file-tab-fit"
 import { FileTabContent } from "@/pages/session/file-tabs"
 import { createOpenSessionFileTab, createSessionTabs, getTabReorderIndex, type Sizing } from "@/pages/session/helpers"
 import { setSessionHandoff } from "@/pages/session/handoff"
@@ -655,6 +655,87 @@ export function SessionSidePanel(props: {
     })
   })
 
+  const [fit, setFit] = createStore({ capped: false, visible: Number.MAX_SAFE_INTEGER, more: false })
+  let listEl: HTMLDivElement | undefined
+  let fitFrame: number | undefined
+  let prevTabCount = openedTabs().length
+
+  const applyFit = (next: { capped: boolean; visible: number; more: boolean }) => {
+    if (next.capped === fit.capped && next.visible === fit.visible && next.more === fit.more) return
+    setFit("capped", next.capped)
+    setFit("visible", next.visible)
+    setFit("more", next.more)
+  }
+
+  const measureFit = () => {
+    const list = listEl
+    if (!list) return
+    const mount = list.closest<HTMLElement>("#opencode-titlebar-tabs")
+    if (!mount) return
+    const gap = Number.parseFloat(getComputedStyle(list).columnGap) || 0
+    const kids = [...list.children] as HTMLElement[]
+    const wrappers = kids.filter((el) => el.hasAttribute("data-file-tab"))
+    const more = list.querySelector<HTMLElement>("[data-fit-more]")
+    const widthOf = (el: HTMLElement) => el.offsetWidth + gap
+
+    for (const el of wrappers) {
+      el.style.display = ""
+      el.style.maxWidth = "none"
+    }
+    if (more) more.style.display = "none"
+
+    const fixed = kids.reduce(
+      (acc, el) => (el.hasAttribute("data-file-tab") || el.offsetWidth === 0 ? acc : acc + widthOf(el)),
+      0,
+    )
+    const natural = wrappers.map(widthOf)
+    const budget = mount.clientWidth
+    const first = fitFileTabs({ clientWidth: budget, fixedWidth: fixed, natural, capped: natural, moreWidth: 0 })
+    if (!first.capped) {
+      applyFit({ capped: false, visible: Number.MAX_SAFE_INTEGER, more: false })
+      return
+    }
+
+    for (const el of wrappers) el.style.maxWidth = "150px"
+    const capped = wrappers.map(widthOf)
+    const second = fitFileTabs({ clientWidth: budget, fixedWidth: fixed, natural, capped, moreWidth: 0 })
+    if (second.visible < capped.length) {
+      if (more) {
+        more.style.display = ""
+        const third = fitFileTabs({ clientWidth: budget, fixedWidth: fixed, natural, capped, moreWidth: widthOf(more) })
+        for (const el of wrappers) el.style.removeProperty("max-width")
+        wrappers.forEach((el, i) => {
+          el.style.display = i < third.visible ? "" : "none"
+        })
+        applyFit({ capped: true, visible: third.visible, more: true })
+        return
+      }
+    }
+    for (const el of wrappers) el.style.removeProperty("max-width")
+    applyFit({ capped: true, visible: second.visible, more: false })
+  }
+
+  const scheduleFit = () => {
+    if (fitFrame !== undefined) cancelAnimationFrame(fitFrame)
+    fitFrame = requestAnimationFrame(() => {
+      fitFrame = undefined
+      measureFit()
+    })
+  }
+
+  createEffect(() => {
+    const list = openedTabs()
+    reviewTab()
+    contextOpen()
+    gitGraphOpen()
+    if (fit.capped && list.length > prevTabCount) {
+      const last = list[list.length - 1]
+      if (last) tabs().move(last, 0)
+    }
+    prevTabCount = list.length
+    scheduleFit()
+  })
+
   const tabbar = (
     <Show when={titlebar()}>
       {(mount) => (
@@ -671,18 +752,61 @@ export function SessionSidePanel(props: {
               value={activeTab()}
               onChange={activate}
               data-scope="review-tabbar"
+              data-fit={fit.capped ? "capped" : "full"}
               class="h-7 min-w-0"
               style={{ width: "fit-content", "max-width": "100%" }}
             >
               <Tabs.List
                 ref={(el: HTMLDivElement) => {
-                  const stop = createFileTabListSync({ el, contextOpen })
-                  onCleanup(stop)
+                  listEl = el
+                  const observer = new ResizeObserver(() => scheduleFit())
+                  observer.observe(el)
+                  onCleanup(() => observer.disconnect())
                 }}
               >
                 <SortableProvider ids={openedTabs()}>
-                  <For each={openedTabs()}>{(tab) => <SortableTab tab={tab} onTabClose={tabs().close} />}</For>
+                  <For each={openedTabs()}>
+                    {(tab) => (
+                      <div data-file-tab="">
+                        <SortableTab tab={tab} onTabClose={tabs().close} />
+                      </div>
+                    )}
+                  </For>
                 </SortableProvider>
+                <div data-fit-more class="flex items-center shrink-0" style={{ display: "none" }}>
+                  <DropdownMenu>
+                    <DropdownMenu.Trigger
+                      as="button"
+                      type="button"
+                      class="flex items-center justify-center w-6 h-6 rounded text-text-weak hover:text-text-base hover:bg-surface-raised-base-hover transition-colors"
+                      aria-label={language.t("session.tab.moreFiles")}
+                    >
+                      <Icon name="chevron-double-down" size="small" />
+                    </DropdownMenu.Trigger>
+                    <DropdownMenu.Portal>
+                      <DropdownMenu.Content>
+                        <For each={openedTabs().slice(fit.visible)}>
+                          {(tab) => (
+                            <DropdownMenu.Item
+                              onSelect={() => {
+                                tabs().move(tab, 0)
+                                activate(tab)
+                              }}
+                            >
+                              <Show when={file.pathFromTab(tab)}>
+                                {(value) => (
+                                  <DropdownMenu.ItemLabel class="flex items-center">
+                                    <FileVisual path={value()} />
+                                  </DropdownMenu.ItemLabel>
+                                )}
+                              </Show>
+                            </DropdownMenu.Item>
+                          )}
+                        </For>
+                      </DropdownMenu.Content>
+                    </DropdownMenu.Portal>
+                  </DropdownMenu>
+                </div>
                 <Show when={reviewTab()}>
                   <Tabs.Trigger value="review">
                     <div class="flex items-center gap-1.5">

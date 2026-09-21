@@ -549,6 +549,7 @@ export const dict = {
   "session.tab.session": "工作階段",
   "session.tab.review": "審查",
   "session.tab.context": "上下文",
+  "session.tab.moreFiles": "更多檔案",
   "session.tab.gitGraph": "Git 圖",
   "session.tab.gitGraph.commitDetails": "?",
   "session.tab.gitGraph.hash": "?",
