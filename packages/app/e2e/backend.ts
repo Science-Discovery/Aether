@@ -84,6 +84,7 @@ export async function startBackend(label: string, input?: { llmUrl?: string }): 
     XDG_STATE_HOME: path.join(sandbox, "state"),
     OPENCODE_CLIENT: "app",
     OPENCODE_STRICT_CONFIG_DEPS: "true",
+    AETHER_PRESENCE_SCAN: "0",
     OPENCODE_E2E_LLM_URL: input?.llmUrl,
   } satisfies Record<string, string | undefined>
   const out: string[] = []

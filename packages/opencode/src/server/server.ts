@@ -168,11 +168,13 @@ import { installMemory, registerMemoryDirectActions } from "@/memory/installer"
 import { channelSlug } from "../persist/naming"
 import net from "node:net"
 import { onShutdown } from "./lifecycle"
+import { Presence } from "./presence"
 
 // @ts-ignore This global is needed to prevent ai-sdk from logging warnings to stdout https://github.com/vercel/ai/blob/2dc67e0ef538307f21368db32d5a12345d98831b/packages/ai/src/logger/log-warnings.ts#L85
 globalThis.AI_SDK_LOG_WARNINGS = false
 
 const NO_AUTH_PATHS = new Set([
+  "/global/presence",
   "/site.webmanifest",
   "/favicon-96x96-v3.png",
   "/favicon-v3.svg",
@@ -1067,6 +1069,7 @@ export namespace Server {
           tryServe(0))
         : tryServe(opts.port)
     if (!server) throw new Error(`Failed to start server on port ${opts.port}`)
+    Presence.attach(server.port)
 
     url = new URL(`http://${opts.hostname}:${server.port}`)
 

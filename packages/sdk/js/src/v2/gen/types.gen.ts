@@ -2778,6 +2778,39 @@ export type GlobalPingResponses = {
 
 export type GlobalPingResponse = GlobalPingResponses[keyof GlobalPingResponses]
 
+export type GlobalPresenceData = {
+  body?: never
+  path?: never
+  query?: never
+  url: "/global/presence"
+}
+
+export type GlobalPresenceResponses = {
+  /**
+   * Presence info
+   */
+  200: {
+    pid: number
+    channel: string
+    kind: "desktop" | "web"
+    clients: {
+      desktop: number
+      web: number
+    }
+    others: Array<{
+      pid: number
+      channel: string
+      kind: "desktop" | "web"
+      clients: {
+        desktop: number
+        web: number
+      }
+    }>
+  }
+}
+
+export type GlobalPresenceResponse = GlobalPresenceResponses[keyof GlobalPresenceResponses]
+
 export type GlobalEventData = {
   body?: never
   path?: never
