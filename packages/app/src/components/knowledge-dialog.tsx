@@ -13,6 +13,7 @@ import {
   inferKnowledgeProviderID,
   labelResolvedEmbeddingModel,
   labelProvider,
+  mayNotSupport,
   type ProviderConnection,
   type ResolvedEmbeddingModel,
   toEmbeddingProvider,
@@ -590,7 +591,13 @@ export const KnowledgeDialog: Component = () => {
 
                           <div class="grid grid-cols-1 gap-2">
                             <label class="text-12-regular text-text-base">Embedding Model</label>
-                            <Show when={editProviderType() === "custom"}>
+                            <Show
+                              when={
+                                editProviderType() === "custom" &&
+                                !editLoadingModels() &&
+                                mayNotSupport(editResolvedModels())
+                              }
+                            >
                               <span class="text-12-regular text-text-weak">
                                 The current provider may not support these models. Check your provider docs.
                               </span>
@@ -817,7 +824,7 @@ export const KnowledgeDialog: Component = () => {
             <Show when={selectedProviderID()}>
               <div class="flex flex-col gap-2">
                 <label class="text-13-medium text-text-strong">Embedding Model</label>
-                <Show when={addProviderType() === "custom"}>
+                <Show when={addProviderType() === "custom" && !loadingModels() && mayNotSupport(addResolvedModels())}>
                   <span class="text-12-regular text-text-weak">
                     The current provider may not support the models below. Check your provider documentation.
                   </span>
