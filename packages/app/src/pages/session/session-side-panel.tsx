@@ -1,4 +1,15 @@
-import { For, Match, Show, Switch, createEffect, createMemo, createSignal, onCleanup, type JSX } from "solid-js"
+import {
+  For,
+  Match,
+  Show,
+  Switch,
+  createEffect,
+  createMemo,
+  createSignal,
+  onCleanup,
+  untrack,
+  type JSX,
+} from "solid-js"
 import { createStore } from "solid-js/store"
 import { Portal } from "solid-js/web"
 import { createMediaQuery } from "@solid-primitives/media"
@@ -37,12 +48,11 @@ import {
   registerRefreshDirCallback,
   restoreActiveTasks,
 } from "@/components/pdf-convert-progress"
-import { createFileTabListSync } from "@/pages/session/file-tab-scroll"
+import { fitFileTabs } from "@/pages/session/file-tab-fit"
 import { FileTabContent } from "@/pages/session/file-tabs"
 import { createOpenSessionFileTab, createSessionTabs, getTabReorderIndex, type Sizing } from "@/pages/session/helpers"
 import { setSessionHandoff } from "@/pages/session/handoff"
 import { useSessionLayout } from "@/pages/session/session-layout"
-import { SessionSearchFiles } from "@/components/session/session-header"
 import { panel, tab } from "@/pages/session/session-side-panel-state"
 import { createFileActions } from "./file-actions"
 import { save } from "./download"
@@ -656,6 +666,110 @@ export function SessionSidePanel(props: {
     })
   })
 
+  const [fit, setFit] = createStore({ capped: false, visible: Number.MAX_SAFE_INTEGER, more: false })
+  let listEl: HTMLDivElement | undefined
+  let fitFrame: number | undefined
+  let prevTabCount = openedTabs().length
+  let fitSignature = ""
+
+  // The fit decision must be a pure function of its inputs: once a set of
+  // inputs has been decided, re-measurements with the same inputs keep the
+  // earlier decision. Without this lock, any feedback path between the
+  // measurement and the layout it produces can flip-flop forever.
+  const applyFit = (next: { capped: boolean; visible: number; more: boolean }, signature: string) => {
+    if (signature === fitSignature) return
+    fitSignature = signature
+    if (next.capped === fit.capped && next.visible === fit.visible && next.more === fit.more) return
+    setFit("capped", next.capped)
+    setFit("visible", next.visible)
+    setFit("more", next.more)
+  }
+
+  const measureFit = () => {
+    const list = listEl
+    if (!list) return
+    const mount = list.closest<HTMLElement>("#opencode-titlebar-tabs")
+    if (!mount) return
+    // The file tabs + review group may occupy at most half of the header.
+    const header = mount.closest<HTMLElement>("header")
+    const budget = header ? Math.min(mount.clientWidth, header.clientWidth / 2) : mount.clientWidth
+    if (budget <= 0) return
+    const gap = Number.parseFloat(getComputedStyle(list).columnGap) || 0
+    const kids = [...list.children] as HTMLElement[]
+    const wrappers = kids.filter((el) => el.hasAttribute("data-file-tab"))
+    const more = list.querySelector<HTMLElement>("[data-fit-more]")
+    const widthOf = (el: HTMLElement) => el.offsetWidth + gap
+
+    for (const el of wrappers) {
+      el.style.display = ""
+      el.style.maxWidth = "none"
+    }
+    if (more) more.style.display = "none"
+
+    const fixed = kids.reduce(
+      (acc, el) =>
+        el.hasAttribute("data-file-tab") || el.hasAttribute("data-fit-spacer") || el.offsetWidth === 0
+          ? acc
+          : acc + widthOf(el),
+      0,
+    )
+    const natural = wrappers.map(widthOf)
+    const signature = [
+      budget,
+      openedTabs().join(","),
+      reviewTab() ? 1 : 0,
+      contextOpen() ? 1 : 0,
+      gitGraphOpen() ? 1 : 0,
+      props.hasReview() ? props.reviewCount() : 0,
+    ].join("|")
+    // Hysteresis: entering the full / capped-all states requires 24px of slack,
+    // so content that sits exactly at the budget cannot flip-flop between
+    // showing every tab and collapsing into the overflow menu.
+    const relaxed = Math.max(0, budget - 24)
+    const first = fitFileTabs({ clientWidth: relaxed, fixedWidth: fixed, natural, capped: natural, moreWidth: 0 })
+    if (!first.capped) {
+      applyFit({ capped: false, visible: Number.MAX_SAFE_INTEGER, more: false }, signature)
+      return
+    }
+
+    for (const el of wrappers) el.style.maxWidth = "150px"
+    const capped = wrappers.map(widthOf)
+    const second = fitFileTabs({ clientWidth: relaxed, fixedWidth: fixed, natural, capped, moreWidth: 0 })
+    if (second.visible < capped.length && more) {
+      more.style.display = ""
+      const third = fitFileTabs({ clientWidth: budget, fixedWidth: fixed, natural, capped, moreWidth: widthOf(more) })
+      for (const el of wrappers) el.style.removeProperty("max-width")
+      wrappers.forEach((el, i) => {
+        el.style.display = i < third.visible ? "" : "none"
+      })
+      applyFit({ capped: true, visible: third.visible, more: true }, signature)
+      return
+    }
+    for (const el of wrappers) el.style.removeProperty("max-width")
+    applyFit({ capped: true, visible: second.visible, more: false }, signature)
+  }
+
+  const scheduleFit = () => {
+    if (fitFrame !== undefined) cancelAnimationFrame(fitFrame)
+    fitFrame = requestAnimationFrame(() => {
+      fitFrame = undefined
+      measureFit()
+    })
+  }
+
+  createEffect(() => {
+    const list = openedTabs()
+    reviewTab()
+    contextOpen()
+    gitGraphOpen()
+    if (untrack(() => fit.capped) && list.length > prevTabCount) {
+      const last = list[list.length - 1]
+      if (last) tabs().move(last, 0)
+    }
+    prevTabCount = list.length
+    scheduleFit()
+  })
+
   const tabbar = (
     <Show when={titlebar()}>
       {(mount) => (
@@ -672,13 +786,20 @@ export function SessionSidePanel(props: {
               value={activeTab()}
               onChange={activate}
               data-scope="review-tabbar"
+              data-fit={fit.capped ? "capped" : "full"}
               class="h-7 min-w-0"
-              style={{ width: "fit-content", "max-width": "100%" }}
+              style={{ width: "100%", "max-width": "100%" }}
             >
               <Tabs.List
                 ref={(el: HTMLDivElement) => {
-                  const stop = createFileTabListSync({ el, contextOpen })
-                  onCleanup(stop)
+                  listEl = el
+                  // Watch the mount, not the list: hiding/showing tabs mutates
+                  // list content, and observing it would re-trigger the fit
+                  // measurement from its own output (state flip-flop).
+                  const target = el.closest<HTMLElement>("#opencode-titlebar-tabs") ?? el
+                  const observer = new ResizeObserver(() => scheduleFit())
+                  observer.observe(target)
+                  onCleanup(() => observer.disconnect())
                 }}
               >
                 <Show when={reviewTab()}>
@@ -744,11 +865,49 @@ export function SessionSidePanel(props: {
                     <div>{language.t("session.tab.gitGraph")}</div>
                   </Tabs.Trigger>
                 </Show>
+                <div class="flex-1" data-fit-spacer="" />
                 <SortableProvider ids={openedTabs()}>
-                  <For each={openedTabs()}>{(tab) => <SortableTab tab={tab} onTabClose={tabs().close} />}</For>
+                  <For each={openedTabs()}>
+                    {(tab) => (
+                      <div data-file-tab="">
+                        <SortableTab tab={tab} onTabClose={tabs().close} />
+                      </div>
+                    )}
+                  </For>
                 </SortableProvider>
-                <div class="bg-background-base h-full shrink-0 sticky right-0 z-10 flex items-center justify-center px-1">
-                  <SessionSearchFiles />
+                <div data-fit-more class="flex items-center shrink-0" style={{ display: "none" }}>
+                  <DropdownMenu>
+                    <DropdownMenu.Trigger
+                      as="button"
+                      type="button"
+                      class="flex items-center justify-center w-6 h-6 rounded text-text-weak hover:text-text-base hover:bg-surface-raised-base-hover transition-colors"
+                      aria-label={language.t("session.tab.moreFiles")}
+                    >
+                      <Icon name="chevron-double-down" size="small" />
+                    </DropdownMenu.Trigger>
+                    <DropdownMenu.Portal>
+                      <DropdownMenu.Content>
+                        <For each={openedTabs().slice(fit.visible)}>
+                          {(tab) => (
+                            <DropdownMenu.Item
+                              onSelect={() => {
+                                tabs().move(tab, 0)
+                                activate(tab)
+                              }}
+                            >
+                              <Show when={file.pathFromTab(tab)}>
+                                {(value) => (
+                                  <DropdownMenu.ItemLabel class="flex items-center">
+                                    <FileVisual path={value()} />
+                                  </DropdownMenu.ItemLabel>
+                                )}
+                              </Show>
+                            </DropdownMenu.Item>
+                          )}
+                        </For>
+                      </DropdownMenu.Content>
+                    </DropdownMenu.Portal>
+                  </DropdownMenu>
                 </div>
               </Tabs.List>
             </Tabs>

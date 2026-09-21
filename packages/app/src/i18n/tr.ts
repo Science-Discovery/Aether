@@ -527,6 +527,7 @@ export const dict = {
   "session.tab.session": "Oturum",
   "session.tab.review": "İnceleme",
   "session.tab.context": "Bağlam",
+  "session.tab.moreFiles": "Daha fazla dosya",
   "session.tab.gitGraph": "Git Grafiği",
   "session.tab.gitGraph.commitDetails": "?",
   "session.tab.gitGraph.hash": "?",

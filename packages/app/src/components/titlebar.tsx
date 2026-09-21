@@ -166,7 +166,7 @@ export function Titlebar() {
 
   return (
     <header
-      class="h-7 shrink-0 bg-background-base relative grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center"
+      class="h-7 shrink-0 bg-background-base relative grid grid-cols-[auto_auto_1fr] items-center"
       style={{ "min-height": minHeight() }}
       data-tauri-drag-region
       onMouseDown={drag}
@@ -270,7 +270,7 @@ export function Titlebar() {
         </div>
         <div
           id="opencode-titlebar-left"
-          class="flex items-center gap-1 min-w-0 pl-1 pr-2 transition-transform"
+          class="flex items-center gap-1 min-w-0 px-1 transition-transform"
           classList={{
             "translate-x-0": !layout.sidebar.opened() || !hasProjects(),
             "-translate-x-[36px]": layout.sidebar.opened() && hasProjects(),
@@ -286,17 +286,24 @@ export function Titlebar() {
 
       <div
         classList={{
-          "flex items-center min-w-0 justify-end": true,
+          "flex items-center min-w-0 justify-start gap-1 transition-transform": true,
           "pr-2": !windows(),
+          "translate-x-0": !layout.sidebar.opened() || !hasProjects(),
+          "-translate-x-[36px]": layout.sidebar.opened() && hasProjects(),
+          "duration-180 ease-out": !layout.sidebar.opened(),
+          "duration-180 ease-in": layout.sidebar.opened(),
         }}
         data-tauri-drag-region
         onMouseDown={drag}
       >
-        <div id="opencode-titlebar-tabs" class="flex items-center min-w-0 flex-1 justify-end" />
-        <div id="opencode-titlebar-right" class="flex items-center gap-1 shrink-0 justify-end" />
+        <div id="opencode-titlebar-right" class="flex items-center gap-1 shrink-0 justify-start" />
+        <div
+          id="opencode-titlebar-tabs"
+          class="flex items-center min-w-0 flex-1 max-w-[50vw] justify-end gap-1 [&>div]:min-w-0"
+        />
         <Show when={windows()}>
-          {!tauriApi() && <div class="w-36 shrink-0" />}
-          <div data-tauri-decorum-tb class="flex flex-row" />
+          {!tauriApi() && <div class="w-36 shrink-0 ml-auto" />}
+          <div data-tauri-decorum-tb class="flex flex-row ml-auto" />
         </Show>
       </div>
     </header>

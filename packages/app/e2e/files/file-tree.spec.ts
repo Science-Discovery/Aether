@@ -38,7 +38,7 @@ test("file tree can expand folders and open a file", async ({ page, gotoSession 
   await expect(file).toBeVisible()
   await file.click()
 
-  const tab = page.getByRole("tab", { name: "file-tree.tsx" })
+  const tab = page.getByRole("tab", { name: "file-tree" })
   await expect(tab).toBeVisible()
   await tab.click()
   await expect(tab).toHaveAttribute("aria-selected", "true")

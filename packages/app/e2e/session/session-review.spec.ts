@@ -178,7 +178,7 @@ async function openReviewFile(page: Parameters<typeof test>[0]["page"], file: st
   await expect(open).toBeVisible()
   await open.click()
 
-  const tab = page.getByRole("tab", { name: file }).first()
+  const tab = page.getByRole("tab", { name: file.replace(/\.[^.]+$/, "") }).first()
   await expect(tab).toBeVisible()
   await tab.click()
 

@@ -468,6 +468,7 @@ export const dict = {
   "session.tab.session": "セッション",
   "session.tab.review": "レビュー",
   "session.tab.context": "コンテキスト",
+  "session.tab.moreFiles": "その他のファイル",
   "session.tab.gitGraph": "Gitグラフ",
   "session.tab.gitGraph.commitDetails": "?",
   "session.tab.gitGraph.hash": "?",

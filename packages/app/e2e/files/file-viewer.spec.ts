@@ -40,7 +40,7 @@ test("smoke file viewer renders real file content", async ({ page, gotoSession }
 
   await expect(dialog).toHaveCount(0)
 
-  const tab = page.getByRole("tab", { name: "package.json" })
+  const tab = page.getByRole("tab", { name: "package" })
   await expect(tab).toBeVisible()
   await tab.click()
 
@@ -87,7 +87,7 @@ test("cmd+f opens text viewer search while prompt is focused", async ({ page, go
 
   await expect(dialog).toHaveCount(0)
 
-  const tab = page.getByRole("tab", { name: "package.json" })
+  const tab = page.getByRole("tab", { name: "package" })
   await expect(tab).toBeVisible()
   await tab.click()
 
@@ -140,7 +140,7 @@ test("cmd+f opens text viewer search while prompt is not focused", async ({ page
 
   await expect(dialog).toHaveCount(0)
 
-  const tab = page.getByRole("tab", { name: "package.json" })
+  const tab = page.getByRole("tab", { name: "package" })
   await expect(tab).toBeVisible()
   await tab.click()
 

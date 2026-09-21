@@ -470,6 +470,7 @@ export const dict = {
   "session.tab.session": "Sessão",
   "session.tab.review": "Revisão",
   "session.tab.context": "Contexto",
+  "session.tab.moreFiles": "Mais arquivos",
   "session.tab.gitGraph": "Gráfico Git",
   "session.tab.gitGraph.commitDetails": "?",
   "session.tab.gitGraph.hash": "?",

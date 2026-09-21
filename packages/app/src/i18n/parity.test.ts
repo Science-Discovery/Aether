@@ -29,6 +29,7 @@ const keys = [
   "command.fileTree.close",
   "command.sidebar.open",
   "command.sidebar.close",
+  "session.tab.moreFiles",
 ] as const
 
 describe("i18n parity", () => {

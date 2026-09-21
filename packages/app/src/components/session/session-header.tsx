@@ -136,7 +136,7 @@ const showRequestError = (language: ReturnType<typeof useLanguage>, err: unknown
   })
 }
 
-/** Search-files button. Rendered at the right end of the review tab bar. */
+/** Search-files button. Rendered at the left end of the titlebar right cluster. */
 export function SessionSearchFiles() {
   const layout = useLayout()
   const command = useCommand()
@@ -417,6 +417,7 @@ export function SessionHeader() {
         {(mount) => (
           <Portal mount={mount()}>
             <div class="flex items-center gap-2">
+              <SessionSearchFiles />
               <PdfConvertProgressBar />
               <Show when={projectDirectory()}>
                 <div class="flex items-center shrink-0">
