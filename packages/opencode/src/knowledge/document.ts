@@ -2,6 +2,7 @@ import type { ChunkMeta } from "./types"
 import { Storage } from "./storage"
 import { extractText, getDocumentProxy } from "unpdf"
 import path from "path"
+import { existsSync } from "fs"
 
 // PDF 解析结果
 export interface ParsedDocument {
@@ -31,6 +32,22 @@ export function isSupportedDocument(filePath: string) {
   return ext === ".pdf" || isTextDocument(filePath)
 }
 
+// CID 字体（中日韩 PDF 常见）需要 Adobe CMap 表才能映射回 Unicode，缺失时
+// pdf.js 会静默丢弃汉字。cmaps 已随 web 资源分发，这里按编译产物 / 源码树
+// 两种布局定位；都找不到时返回 undefined，退化为原有行为。
+let cmaps: string | undefined
+
+function cMapUrl() {
+  if (cmaps !== undefined) return cmaps || undefined
+  const candidates = [
+    path.join(path.dirname(process.execPath), "web", "pdfjs-ref", "web", "cmaps"),
+    Bun.fileURLToPath(new URL("../../../app/public/pdfjs-ref/web/cmaps", import.meta.url)),
+  ]
+  const found = candidates.find((item) => existsSync(item))
+  cmaps = found ? found + path.sep : ""
+  return cmaps || undefined
+}
+
 // PDF 解析 - 使用 unpdf 库
 export async function parsePDF(filePath: string): Promise<ParsedDocument> {
   try {
@@ -45,6 +62,8 @@ export async function parsePDF(filePath: string): Promise<ParsedDocument> {
       // 不使用 standardFontDataUrl，避免版本不匹配导致字体加载 hang
       // verbosity: 0 抑制终端字体警告
       const pdf = await getDocumentProxy(new Uint8Array(buffer), {
+        cMapUrl: cMapUrl(),
+        cMapPacked: true,
         useSystemFonts: true,
         disableFontFace: true,
         fontExtraProperties: false,
@@ -94,6 +113,17 @@ export async function parseText(filePath: string): Promise<ParsedDocument> {
   }
 }
 
+// CJK 与全角标点同样作为句子边界；lookbehind 切分保证不丢尾部文本
+const SENTENCE = /(?<=[。！？；．.!?;])/
+const LINE = /(?<=\n)/
+
+function sentences(para: string) {
+  const parts = para.split(SENTENCE).filter((item) => item.length > 0)
+  if (parts.length > 1) return parts
+  // PDF 提取的正文常无空行也无句末标点，退化为按行切分
+  return para.split(LINE).filter((item) => item.length > 0)
+}
+
 // 文本分块
 export function chunkText(
   text: string,
@@ -102,74 +132,39 @@ export function chunkText(
     chunkOverlap: number
   },
 ): Chunk[] {
-  const { chunkSize, chunkOverlap } = options
+  const size = Math.max(1, options.chunkSize)
+  const overlap = Math.min(Math.max(0, options.chunkOverlap), size - 1)
   const chunks: Chunk[] = []
 
-  // 按段落分割
-  const paragraphs = text.split(/\n\s*\n/).filter((p) => p.trim().length > 0)
+  const paras = text.split(/\n\s*\n/).filter((p) => p.trim().length > 0)
+  const units = paras.length > 0 ? paras : [text]
 
-  let currentChunk = ""
-  let currentLength = 0
+  let cur = ""
 
-  for (const para of paragraphs) {
-    const paraText = para.trim()
-    const paraLength = paraText.length
+  for (const para of units) {
+    if (cur.trim()) cur += "\n\n"
 
-    // 如果当前段落超过了 chunk 大小，需要进一步分割
-    if (paraLength > chunkSize) {
-      // 先保存当前 chunk
-      if (currentChunk.trim()) {
-        chunks.push({ content: currentChunk.trim() })
-        currentChunk = ""
-        currentLength = 0
+    for (let part of sentences(para.trim())) {
+      // 无句末标点的超长单元必须硬切，否则 chunkSize 会被静默突破
+      while (part.length > size) {
+        if (cur.trim()) chunks.push({ content: cur.trim() })
+        const head = part.slice(0, size).trim()
+        if (head) chunks.push({ content: head })
+        part = part.slice(size - overlap)
+        cur = ""
       }
 
-      // 按句子分割大段落
-      const sentences = paraText.match(/[^.!?]+[.!?]+/g) || [paraText]
-      let sentenceChunk = ""
-
-      for (const sentence of sentences) {
-        if (sentenceChunk.length + sentence.length > chunkSize) {
-          if (sentenceChunk.trim()) {
-            chunks.push({ content: sentenceChunk.trim() })
-          }
-          // 添加重叠
-          const overlapStart = Math.max(0, sentenceChunk.length - chunkOverlap)
-          sentenceChunk = sentenceChunk.slice(overlapStart) + sentence
-        } else {
-          sentenceChunk += sentence
-        }
+      if (cur.length + part.length > size) {
+        if (cur.trim()) chunks.push({ content: cur.trim() })
+        const tail = cur.slice(Math.max(0, cur.length - overlap))
+        cur = tail.length + part.length > size ? part : tail + part
+        continue
       }
-
-      if (sentenceChunk.trim()) {
-        currentChunk = sentenceChunk
-        currentLength = sentenceChunk.length
-      }
-    } else if (currentLength + paraLength + 2 > chunkSize) {
-      // 当前 chunk 满了，保存并开始新的
-      if (currentChunk.trim()) {
-        chunks.push({ content: currentChunk.trim() })
-      }
-
-      // 添加重叠部分
-      const overlapStart = Math.max(0, currentChunk.length - chunkOverlap)
-      currentChunk = currentChunk.slice(overlapStart) + "\n\n" + paraText
-      currentLength = currentChunk.length
-    } else {
-      // 添加到当前 chunk
-      if (currentChunk) {
-        currentChunk += "\n\n" + paraText
-      } else {
-        currentChunk = paraText
-      }
-      currentLength = currentChunk.length
+      cur += part
     }
   }
 
-  // 保存最后一个 chunk
-  if (currentChunk.trim()) {
-    chunks.push({ content: currentChunk.trim() })
-  }
+  if (cur.trim()) chunks.push({ content: cur.trim() })
 
   return chunks
 }
