@@ -10,6 +10,7 @@ import { useProviders } from "@/hooks/use-providers"
 import {
   labelResolvedEmbeddingModel,
   labelProvider,
+  mayNotSupport,
   type ProviderConnection,
   type ResolvedEmbeddingModel,
   toEmbeddingProvider,
@@ -413,7 +414,7 @@ export const SettingsKnowledge: Component = () => {
                 <div class="flex flex-col gap-3 py-3 border-b border-border-weak-base">
                   <div class="flex flex-col min-w-0">
                     <span class="text-14-medium text-text-strong">Embedding Model</span>
-                    <Show when={newProviderType() === "custom"}>
+                    <Show when={newProviderType() === "custom" && !loadingModels() && mayNotSupport(resolvedModels())}>
                       <span class="text-12-regular text-text-weak">
                         The current provider may not support the models below. Check your provider documentation.
                       </span>

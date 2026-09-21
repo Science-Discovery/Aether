@@ -35,6 +35,12 @@ export function toEmbeddingProvider(id: string): "openai" | "local" | "custom" {
   return "custom"
 }
 
+// 只剩白名单兜底（或解析结果为空）时才提示"可能不支持"；runtime/remote/config
+// 任一来源都意味着提供商确实提供这些嵌入模型。
+export function mayNotSupport(models: ResolvedEmbeddingModel[]) {
+  return models.every((item) => item.source === "whitelist")
+}
+
 export function labelProvider(id: string, list: Provider[]) {
   if (id === "local") return "Local (offline)"
   return list.find((item) => item.id === id)?.name ?? id
