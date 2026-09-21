@@ -299,7 +299,7 @@ export function Titlebar() {
         <div id="opencode-titlebar-right" class="flex items-center gap-1 shrink-0 justify-start" />
         <div
           id="opencode-titlebar-tabs"
-          class="flex items-center min-w-0 flex-1 max-w-[50vw] justify-end gap-1 [&>div]:min-w-0"
+          class="flex items-center min-w-0 flex-1 justify-end gap-1 [&>div]:min-w-0 [&>div]:w-full"
         />
         <Show when={windows()}>
           {!tauriApi() && <div class="w-36 shrink-0 ml-auto" />}
