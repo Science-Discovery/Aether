@@ -1,4 +1,15 @@
-import { For, Match, Show, Switch, createEffect, createMemo, createSignal, onCleanup, type JSX } from "solid-js"
+import {
+  For,
+  Match,
+  Show,
+  Switch,
+  createEffect,
+  createMemo,
+  createSignal,
+  onCleanup,
+  untrack,
+  type JSX,
+} from "solid-js"
 import { createStore } from "solid-js/store"
 import { Portal } from "solid-js/web"
 import { createMediaQuery } from "@solid-primitives/media"
@@ -672,6 +683,8 @@ export function SessionSidePanel(props: {
     if (!list) return
     const mount = list.closest<HTMLElement>("#opencode-titlebar-tabs")
     if (!mount) return
+    const budget = mount.clientWidth
+    if (budget <= 0) return
     const gap = Number.parseFloat(getComputedStyle(list).columnGap) || 0
     const kids = [...list.children] as HTMLElement[]
     const wrappers = kids.filter((el) => el.hasAttribute("data-file-tab"))
@@ -689,8 +702,11 @@ export function SessionSidePanel(props: {
       0,
     )
     const natural = wrappers.map(widthOf)
-    const budget = mount.clientWidth
-    const first = fitFileTabs({ clientWidth: budget, fixedWidth: fixed, natural, capped: natural, moreWidth: 0 })
+    // Hysteresis: entering the full / capped-all states requires 24px of slack,
+    // so content that sits exactly at the budget cannot flip-flop between
+    // showing every tab and collapsing into the overflow menu.
+    const relaxed = Math.max(0, budget - 24)
+    const first = fitFileTabs({ clientWidth: relaxed, fixedWidth: fixed, natural, capped: natural, moreWidth: 0 })
     if (!first.capped) {
       applyFit({ capped: false, visible: Number.MAX_SAFE_INTEGER, more: false })
       return
@@ -698,18 +714,16 @@ export function SessionSidePanel(props: {
 
     for (const el of wrappers) el.style.maxWidth = "150px"
     const capped = wrappers.map(widthOf)
-    const second = fitFileTabs({ clientWidth: budget, fixedWidth: fixed, natural, capped, moreWidth: 0 })
-    if (second.visible < capped.length) {
-      if (more) {
-        more.style.display = ""
-        const third = fitFileTabs({ clientWidth: budget, fixedWidth: fixed, natural, capped, moreWidth: widthOf(more) })
-        for (const el of wrappers) el.style.removeProperty("max-width")
-        wrappers.forEach((el, i) => {
-          el.style.display = i < third.visible ? "" : "none"
-        })
-        applyFit({ capped: true, visible: third.visible, more: true })
-        return
-      }
+    const second = fitFileTabs({ clientWidth: relaxed, fixedWidth: fixed, natural, capped, moreWidth: 0 })
+    if (second.visible < capped.length && more) {
+      more.style.display = ""
+      const third = fitFileTabs({ clientWidth: budget, fixedWidth: fixed, natural, capped, moreWidth: widthOf(more) })
+      for (const el of wrappers) el.style.removeProperty("max-width")
+      wrappers.forEach((el, i) => {
+        el.style.display = i < third.visible ? "" : "none"
+      })
+      applyFit({ capped: true, visible: third.visible, more: true })
+      return
     }
     for (const el of wrappers) el.style.removeProperty("max-width")
     applyFit({ capped: true, visible: second.visible, more: false })
@@ -728,7 +742,7 @@ export function SessionSidePanel(props: {
     reviewTab()
     contextOpen()
     gitGraphOpen()
-    if (fit.capped && list.length > prevTabCount) {
+    if (untrack(() => fit.capped) && list.length > prevTabCount) {
       const last = list[list.length - 1]
       if (last) tabs().move(last, 0)
     }
@@ -759,8 +773,12 @@ export function SessionSidePanel(props: {
               <Tabs.List
                 ref={(el: HTMLDivElement) => {
                   listEl = el
+                  // Watch the mount, not the list: hiding/showing tabs mutates
+                  // list content, and observing it would re-trigger the fit
+                  // measurement from its own output (state flip-flop).
+                  const target = el.closest<HTMLElement>("#opencode-titlebar-tabs") ?? el
                   const observer = new ResizeObserver(() => scheduleFit())
-                  observer.observe(el)
+                  observer.observe(target)
                   onCleanup(() => observer.disconnect())
                 }}
               >
