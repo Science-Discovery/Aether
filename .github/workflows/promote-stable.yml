@@ -20,6 +20,26 @@ on:
         description: "Publish the GitHub release (undraft and unmark prerelease)"
         default: true
         type: boolean
+      announce:
+        description: "Create a release announcement on aether.aiphys.cn (requires SITE_ANNOUNCE_API_KEY secret)"
+        default: true
+        type: boolean
+      announcement_title_zh:
+        description: "Announcement title (zh), overrides release-notes derivation"
+        required: false
+        type: string
+      announcement_title_en:
+        description: "Announcement title (en), overrides release-notes derivation"
+        required: false
+        type: string
+      announcement_summary_zh:
+        description: "Announcement summary (zh), overrides release-notes derivation"
+        required: false
+        type: string
+      announcement_summary_en:
+        description: "Announcement summary (en), overrides release-notes derivation"
+        required: false
+        type: string
 
 concurrency: ${{ github.workflow }}-${{ inputs.version }}
 
@@ -111,3 +131,20 @@ jobs:
             fi
           fi
           [ "$ok" = "1" ] || exit 1
+
+      - name: Create release announcement
+        if: inputs.announce
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          SITE_BASE: https://aether.aiphys.cn
+          SITE_API_KEY: ${{ secrets.SITE_ANNOUNCE_API_KEY }}
+          VERSION: ${{ inputs.version }}
+          TITLE_ZH: ${{ inputs.announcement_title_zh }}
+          TITLE_EN: ${{ inputs.announcement_title_en }}
+          SUMMARY_ZH: ${{ inputs.announcement_summary_zh }}
+          SUMMARY_EN: ${{ inputs.announcement_summary_en }}
+        run: |
+          RELEASE_BODY="$(gh release view "v${{ inputs.version }}" --json body --jq .body)"
+          export RELEASE_BODY
+          bun .github/scripts/announce-stable.ts
