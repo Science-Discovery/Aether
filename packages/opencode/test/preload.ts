@@ -20,7 +20,10 @@ afterAll(async () => {
     await sleep(100)
     return fs.rm(dir, { recursive: true, force: true }).catch((error) => {
       if (!busy(error)) throw error
-      if (left <= 1) throw error
+      if (left <= 1) {
+        console.warn(`leftover test data dir: ${dir}`)
+        return
+      }
       return rm(left - 1)
     })
   }
