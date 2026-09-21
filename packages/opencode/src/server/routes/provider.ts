@@ -24,16 +24,22 @@ const EMBEDDING_WHITELIST = [
   { id: "gemini-embedding-2-preview", dimensions: 768, provider: "Google" },
 ]
 
+const qwen = [
+  { id: "text-embedding-v1", dimensions: 1536, provider: "Qwen" },
+  { id: "text-embedding-v2", dimensions: 1536, provider: "Qwen" },
+  { id: "text-embedding-v3", dimensions: 1024, provider: "Qwen" },
+  { id: "text-embedding-v4", dimensions: 1024, provider: "Qwen" },
+]
+
 const WHITELIST_BY_VENDOR: Record<string, typeof EMBEDDING_WHITELIST> = {
   openai: [
     { id: "text-embedding-3-small", dimensions: 1536, provider: "OpenAI" },
     { id: "text-embedding-3-large", dimensions: 3072, provider: "OpenAI" },
-    { id: "text-embedding-v1", dimensions: 1536, provider: "OpenAI" },
   ],
-  qwen: [{ id: "text-embedding-v4", dimensions: 1024, provider: "Qwen" }],
-  dashscope: [{ id: "text-embedding-v4", dimensions: 1024, provider: "Qwen" }],
-  alibaba: [{ id: "text-embedding-v4", dimensions: 1024, provider: "Qwen" }],
-  "alibaba-cn": [{ id: "text-embedding-v4", dimensions: 1024, provider: "Qwen" }],
+  qwen,
+  dashscope: qwen,
+  alibaba: qwen,
+  "alibaba-cn": qwen,
   google: [
     { id: "gemini-embedding-001", dimensions: 768, provider: "Google" },
     { id: "gemini-embedding-2-preview", dimensions: 768, provider: "Google" },
@@ -158,7 +164,7 @@ const KNOWN_PROVIDERS = new Set([
   "zhipuai-coding-plan",
 ])
 
-const EmbeddingModel = z.object({
+export const EmbeddingModel = z.object({
   id: z.string(),
   name: z.string(),
   dimensions: z.number().int().optional(),
@@ -179,7 +185,7 @@ function embedding(...parts: Array<string | undefined>) {
   return /(embed|embedding|bge|e5|gte)/i.test(parts.filter(Boolean).join(" "))
 }
 
-function model(
+export function model(
   map: Map<string, z.infer<typeof EmbeddingModel>>,
   providerID: string,
   id?: string,
@@ -190,6 +196,21 @@ function model(
   const key = normalize(id, providerID)
   if (!key || !embedding(key, name)) return
   map.set(key, { id: key, name: name || key, source })
+}
+
+export function merge(map: Map<string, z.infer<typeof EmbeddingModel>>, providerID: string) {
+  const vendor = WHITELIST_BY_VENDOR[providerID]
+  if (!vendor && (map.size > 0 || KNOWN_PROVIDERS.has(providerID))) return
+  for (const wl of vendor ?? EMBEDDING_WHITELIST) {
+    if (map.has(wl.id)) continue
+    map.set(wl.id, {
+      id: wl.id,
+      name: wl.id,
+      dimensions: wl.dimensions,
+      provider: wl.provider,
+      source: "whitelist",
+    })
+  }
 }
 
 export const ProviderRoutes = lazy(() =>
@@ -392,7 +413,7 @@ export const ProviderRoutes = lazy(() =>
               const data = (await resp.json()) as { data?: { id?: string; name?: string; object?: string }[] }
               const list = data?.data ?? []
               for (const item of list) {
-                model(embeddingModels, providerID, item.id, item.name ?? item.object ?? item.id, "remote")
+                model(embeddingModels, providerID, item.id, item.name, "remote")
               }
             }
           } catch {
@@ -400,20 +421,7 @@ export const ProviderRoutes = lazy(() =>
           }
         }
 
-        if (embeddingModels.size === 0) {
-          const vendorList = WHITELIST_BY_VENDOR[providerID]
-          const isKnown = KNOWN_PROVIDERS.has(providerID)
-          const fallbackList = !isKnown ? EMBEDDING_WHITELIST : (vendorList ?? [])
-          for (const wl of fallbackList) {
-            embeddingModels.set(wl.id, {
-              id: wl.id,
-              name: wl.id,
-              dimensions: wl.dimensions,
-              provider: wl.provider,
-              source: "whitelist",
-            })
-          }
-        }
+        merge(embeddingModels, providerID)
 
         return c.json({
           providerID,
