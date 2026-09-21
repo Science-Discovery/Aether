@@ -670,8 +670,15 @@ export function SessionSidePanel(props: {
   let listEl: HTMLDivElement | undefined
   let fitFrame: number | undefined
   let prevTabCount = openedTabs().length
+  let fitSignature = ""
 
-  const applyFit = (next: { capped: boolean; visible: number; more: boolean }) => {
+  // The fit decision must be a pure function of its inputs: once a set of
+  // inputs has been decided, re-measurements with the same inputs keep the
+  // earlier decision. Without this lock, any feedback path between the
+  // measurement and the layout it produces can flip-flop forever.
+  const applyFit = (next: { capped: boolean; visible: number; more: boolean }, signature: string) => {
+    if (signature === fitSignature) return
+    fitSignature = signature
     if (next.capped === fit.capped && next.visible === fit.visible && next.more === fit.more) return
     setFit("capped", next.capped)
     setFit("visible", next.visible)
@@ -702,13 +709,21 @@ export function SessionSidePanel(props: {
       0,
     )
     const natural = wrappers.map(widthOf)
+    const signature = [
+      budget,
+      openedTabs().join(","),
+      reviewTab() ? 1 : 0,
+      contextOpen() ? 1 : 0,
+      gitGraphOpen() ? 1 : 0,
+      props.hasReview() ? props.reviewCount() : 0,
+    ].join("|")
     // Hysteresis: entering the full / capped-all states requires 24px of slack,
     // so content that sits exactly at the budget cannot flip-flop between
     // showing every tab and collapsing into the overflow menu.
     const relaxed = Math.max(0, budget - 24)
     const first = fitFileTabs({ clientWidth: relaxed, fixedWidth: fixed, natural, capped: natural, moreWidth: 0 })
     if (!first.capped) {
-      applyFit({ capped: false, visible: Number.MAX_SAFE_INTEGER, more: false })
+      applyFit({ capped: false, visible: Number.MAX_SAFE_INTEGER, more: false }, signature)
       return
     }
 
@@ -722,11 +737,11 @@ export function SessionSidePanel(props: {
       wrappers.forEach((el, i) => {
         el.style.display = i < third.visible ? "" : "none"
       })
-      applyFit({ capped: true, visible: third.visible, more: true })
+      applyFit({ capped: true, visible: third.visible, more: true }, signature)
       return
     }
     for (const el of wrappers) el.style.removeProperty("max-width")
-    applyFit({ capped: true, visible: second.visible, more: false })
+    applyFit({ capped: true, visible: second.visible, more: false }, signature)
   }
 
   const scheduleFit = () => {
