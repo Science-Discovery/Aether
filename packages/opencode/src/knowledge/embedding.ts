@@ -64,12 +64,13 @@ function trimURL(url: string) {
   return url.replace(/\/+$/, "")
 }
 
-function listURLs(baseURL: string) {
+export function listURLs(baseURL: string) {
   const base = trimURL(baseURL)
   const list = [`${base}/embeddings`]
-  if (/\/v\d+$/.test(base)) {
-    list.push(`${base.replace(/\/v\d+$/, "")}/embeddings`)
-  } else {
+  // A versioned base (e.g. .../compatible-mode/v1) already points at the
+  // OpenAI-compatible root; stripping the version yields a bogus path whose 404
+  // can poison the pooled connection and break the retry on the valid URL.
+  if (!/\/v\d+$/.test(base)) {
     list.push(`${base}/v1/embeddings`)
   }
   return Array.from(new Set(list))
