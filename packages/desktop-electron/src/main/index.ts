@@ -18,6 +18,7 @@ import { registerIpcHandlers, sendDeepLinks, sendMenuCommand, sendSqliteMigratio
 import { initLogging } from "./logging"
 import { createMenu } from "./menu"
 import "./paths"
+import { conflict as frontendConflict, detail as conflictDetail } from "./presence"
 import { ensureDesktopPersist } from "./persist"
 import {
   getDefaultServerUrl,
@@ -148,6 +149,29 @@ async function initialize() {
   ensureDesktopPersist()
   logger.log("killing stale sidecar processes")
   await killStaleSidecar()
+
+  if (process.env.AETHER_CONFLICT_CHECK !== "0") {
+    await delay(300)
+    const others = await frontendConflict()
+    if (others.length > 0) {
+      logger.log("frontend conflict detected", { others })
+      await dialog
+        .showMessageBox({
+          type: "warning",
+          title: "Aether Is Already Connected",
+          message: "Aether is already connected in another app.",
+          detail: conflictDetail(others),
+          buttons: ["Exit"],
+          defaultId: 0,
+          cancelId: 0,
+          noLink: true,
+        })
+        .catch(() => null)
+      app.exit(0)
+      return
+    }
+  }
+
   logger.log("spawning sidecar", { url })
   const { child, health, events } = spawnLocalServer(hostname, port, password)
   sidecar = child

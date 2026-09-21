@@ -19,6 +19,7 @@ import { Config } from "../../config/config"
 import { Global } from "../../global"
 import { errors } from "../error"
 import { Lease } from "../lease"
+import { Presence, scanSuppressed } from "../presence"
 import { requestShutdown } from "../lifecycle"
 import { channelSlug } from "../../persist/naming"
 import {
@@ -88,6 +89,7 @@ function keepLoopbackNoProxy(value?: string) {
 
 async function streamEvents(c: Context, subscribe: (q: AsyncQueue<string | null>) => () => void) {
   return streamSSE(c, async (stream) => {
+    Presence.open()
     const q = new AsyncQueue<string | null>()
     let done = false
 
@@ -118,6 +120,7 @@ async function streamEvents(c: Context, subscribe: (q: AsyncQueue<string | null>
       clearInterval(heartbeat)
       unsub()
       q.push(null)
+      Presence.close()
       log.info("global event disconnected")
     }
 
@@ -380,6 +383,44 @@ export const GlobalRoutes = lazy(() =>
         const dir = body.directory ? Filesystem.resolve(body.directory) : undefined
         const active = Lease.touch(body.id, dir)
         return c.json({ ok: true as const, ...(dir ? { active } : {}) })
+      },
+    )
+    .get(
+      "/presence",
+      describeRoute({
+        summary: "Get frontend presence",
+        description:
+          "Report live desktop/web UI connections held by this server and by other local Aether servers. Used to keep desktop and web clients from connecting at the same time.",
+        operationId: "global.presence",
+        responses: {
+          200: {
+            description: "Presence info",
+            content: {
+              "application/json": {
+                schema: resolver(
+                  z.object({
+                    pid: z.number(),
+                    channel: z.string(),
+                    kind: z.enum(["desktop", "web"]),
+                    clients: z.object({ desktop: z.number(), web: z.number() }),
+                    others: z.array(
+                      z.object({
+                        pid: z.number(),
+                        channel: z.string(),
+                        kind: z.enum(["desktop", "web"]),
+                        clients: z.object({ desktop: z.number(), web: z.number() }),
+                      }),
+                    ),
+                  }),
+                ),
+              },
+            },
+          },
+        },
+      }),
+      async (c) => {
+        const others = scanSuppressed(c.req.header("x-aether-presence-scan")) ? [] : await Presence.others()
+        return c.json({ ...Presence.info(), others })
       },
     )
     .get(

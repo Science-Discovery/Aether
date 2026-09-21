@@ -1,6 +1,7 @@
 // @refresh reload
 
 import { render } from "solid-js/web"
+import { createSignal } from "solid-js"
 import { AppBaseProviders, AppInterface } from "@/app"
 import { base } from "@/base-path"
 import { type Platform, PlatformProvider } from "@/context/platform"
@@ -9,6 +10,7 @@ import { dict as zh } from "@/i18n/zh"
 import { createWebUpdate } from "@/utils/web-update"
 import { handleNotificationClick } from "@/utils/notification-click"
 import { ActiveDirectory } from "@/utils/active"
+import { presenceConflict } from "@/utils/presence"
 import { ServerConnection } from "./context/server"
 
 const DEFAULT_SERVER_URL_KEY = "opencode.settings.dat:defaultServerUrl"
@@ -312,6 +314,61 @@ const detectOS = (): string => {
 }
 const web = createWebUpdate(req, detectOS)
 
+function conflictTexts() {
+  return getLocale() === "zh"
+    ? {
+        title: "Aether 已在桌面版中连接",
+        body: "检测到桌面版正在运行并已连接，同一时间只能有一个客户端连接。请退出网页版，或先关闭桌面版。",
+        exit: "退出",
+        closed: "已退出，可以关闭此页面。",
+      }
+    : {
+        title: "Aether is already connected in the desktop app",
+        body: "The desktop app is currently connected. Only one app can be connected at a time. Exit the web version, or close the desktop app first.",
+        exit: "Exit",
+        closed: "Exited. You can close this page now.",
+      }
+}
+
+function renderConflict() {
+  const text = conflictTexts()
+  const [closed, setClosed] = createSignal(false)
+  const exit = async () => {
+    setClosed(true)
+    await fetch(endpoint("/global/shutdown"), {
+      method: "POST",
+      headers: { "x-aether-shutdown": "1" },
+    }).catch(() => undefined)
+    window.close()
+  }
+  render(() => {
+    const style = {
+      display: "flex",
+      "flex-direction": "column",
+      "align-items": "center",
+      "justify-content": "center",
+      height: "100vh",
+      gap: "12px",
+      padding: "24px",
+      "text-align": "center",
+      "font-family": "system-ui, sans-serif",
+    } as const
+    return (
+      <div style={style}>
+        <h1 style={{ "font-size": "18px", margin: "0" }}>{text.title}</h1>
+        <p style={{ color: "#888", margin: "0", "max-width": "420px", "line-height": "1.5" }}>{text.body}</p>
+        {closed() ? (
+          <p style={{ color: "#888", margin: "0" }}>{text.closed}</p>
+        ) : (
+          <button onClick={() => void exit()} style={{ padding: "8px 24px", cursor: "pointer" }}>
+            {text.exit}
+          </button>
+        )}
+      </div>
+    )
+  }, root!)
+}
+
 const platform: Platform = {
   platform: "web",
   version: undefined,
@@ -392,6 +449,12 @@ function handleClick(e: MouseEvent) {
 const boot = async () => {
   if (!(root instanceof HTMLElement)) return
   document.addEventListener("click", handleClick)
+  const skipConflict = new URLSearchParams(location.search).get("aether-conflict-check") === "0"
+  const conflict = skipConflict ? null : await presenceConflict(getCurrentUrl())
+  if (conflict) {
+    renderConflict()
+    return
+  }
   platform.version = (await readWebVersion()) || undefined
   let stop = start()
   await sync()

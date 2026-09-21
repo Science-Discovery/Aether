@@ -123,6 +123,7 @@ import type {
   GlobalHealthResponses,
   GlobalPingErrors,
   GlobalPingResponses,
+  GlobalPresenceResponses,
   GlobalProxyGetResponses,
   GlobalProxyUpdateErrors,
   GlobalProxyUpdateResponses,
@@ -753,6 +754,18 @@ export class Global extends HeyApiClient {
         ...options?.headers,
         ...params.headers,
       },
+    })
+  }
+
+  /**
+   * Get frontend presence
+   *
+   * Report live desktop/web UI connections held by this server and by other local Aether servers. Used to keep desktop and web clients from connecting at the same time.
+   */
+  public presence<ThrowOnError extends boolean = false>(options?: Options<never, ThrowOnError>) {
+    return (options?.client ?? this.client).get<GlobalPresenceResponses, unknown, ThrowOnError>({
+      url: "/global/presence",
+      ...options,
     })
   }
 
