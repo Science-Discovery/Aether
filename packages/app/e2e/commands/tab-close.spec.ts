@@ -22,11 +22,11 @@ test("mod+w closes the active file tab", async ({ page, gotoSession }) => {
   await item.click()
   await expect(dialog).toHaveCount(0)
 
-  const tab = page.getByRole("tab", { name: "package.json" }).first()
+  const tab = page.getByRole("tab", { name: "package" }).first()
   await expect(tab).toBeVisible()
   await tab.click()
   await expect(tab).toHaveAttribute("aria-selected", "true")
 
   await page.keyboard.press(`${modKey}+W`)
-  await expect(page.getByRole("tab", { name: "package.json" })).toHaveCount(0)
+  await expect(page.getByRole("tab", { name: "package" })).toHaveCount(0)
 })
