@@ -690,7 +690,9 @@ export function SessionSidePanel(props: {
     if (!list) return
     const mount = list.closest<HTMLElement>("#opencode-titlebar-tabs")
     if (!mount) return
-    const budget = mount.clientWidth
+    // The file tabs + review group may occupy at most half of the header.
+    const header = mount.closest<HTMLElement>("header")
+    const budget = header ? Math.min(mount.clientWidth, header.clientWidth / 2) : mount.clientWidth
     if (budget <= 0) return
     const gap = Number.parseFloat(getComputedStyle(list).columnGap) || 0
     const kids = [...list.children] as HTMLElement[]
@@ -705,7 +707,10 @@ export function SessionSidePanel(props: {
     if (more) more.style.display = "none"
 
     const fixed = kids.reduce(
-      (acc, el) => (el.hasAttribute("data-file-tab") || el.offsetWidth === 0 ? acc : acc + widthOf(el)),
+      (acc, el) =>
+        el.hasAttribute("data-file-tab") || el.hasAttribute("data-fit-spacer") || el.offsetWidth === 0
+          ? acc
+          : acc + widthOf(el),
       0,
     )
     const natural = wrappers.map(widthOf)
@@ -783,7 +788,7 @@ export function SessionSidePanel(props: {
               data-scope="review-tabbar"
               data-fit={fit.capped ? "capped" : "full"}
               class="h-7 min-w-0"
-              style={{ width: "fit-content", "max-width": "100%" }}
+              style={{ width: "100%", "max-width": "100%" }}
             >
               <Tabs.List
                 ref={(el: HTMLDivElement) => {
@@ -797,49 +802,6 @@ export function SessionSidePanel(props: {
                   onCleanup(() => observer.disconnect())
                 }}
               >
-                <SortableProvider ids={openedTabs()}>
-                  <For each={openedTabs()}>
-                    {(tab) => (
-                      <div data-file-tab="">
-                        <SortableTab tab={tab} onTabClose={tabs().close} />
-                      </div>
-                    )}
-                  </For>
-                </SortableProvider>
-                <div data-fit-more class="flex items-center shrink-0" style={{ display: "none" }}>
-                  <DropdownMenu>
-                    <DropdownMenu.Trigger
-                      as="button"
-                      type="button"
-                      class="flex items-center justify-center w-6 h-6 rounded text-text-weak hover:text-text-base hover:bg-surface-raised-base-hover transition-colors"
-                      aria-label={language.t("session.tab.moreFiles")}
-                    >
-                      <Icon name="chevron-double-down" size="small" />
-                    </DropdownMenu.Trigger>
-                    <DropdownMenu.Portal>
-                      <DropdownMenu.Content>
-                        <For each={openedTabs().slice(fit.visible)}>
-                          {(tab) => (
-                            <DropdownMenu.Item
-                              onSelect={() => {
-                                tabs().move(tab, 0)
-                                activate(tab)
-                              }}
-                            >
-                              <Show when={file.pathFromTab(tab)}>
-                                {(value) => (
-                                  <DropdownMenu.ItemLabel class="flex items-center">
-                                    <FileVisual path={value()} />
-                                  </DropdownMenu.ItemLabel>
-                                )}
-                              </Show>
-                            </DropdownMenu.Item>
-                          )}
-                        </For>
-                      </DropdownMenu.Content>
-                    </DropdownMenu.Portal>
-                  </DropdownMenu>
-                </div>
                 <Show when={reviewTab()}>
                   <Tabs.Trigger value="review">
                     <div class="flex items-center gap-1.5">
@@ -903,6 +865,50 @@ export function SessionSidePanel(props: {
                     <div>{language.t("session.tab.gitGraph")}</div>
                   </Tabs.Trigger>
                 </Show>
+                <div class="flex-1" data-fit-spacer="" />
+                <SortableProvider ids={openedTabs()}>
+                  <For each={openedTabs()}>
+                    {(tab) => (
+                      <div data-file-tab="">
+                        <SortableTab tab={tab} onTabClose={tabs().close} />
+                      </div>
+                    )}
+                  </For>
+                </SortableProvider>
+                <div data-fit-more class="flex items-center shrink-0" style={{ display: "none" }}>
+                  <DropdownMenu>
+                    <DropdownMenu.Trigger
+                      as="button"
+                      type="button"
+                      class="flex items-center justify-center w-6 h-6 rounded text-text-weak hover:text-text-base hover:bg-surface-raised-base-hover transition-colors"
+                      aria-label={language.t("session.tab.moreFiles")}
+                    >
+                      <Icon name="chevron-double-down" size="small" />
+                    </DropdownMenu.Trigger>
+                    <DropdownMenu.Portal>
+                      <DropdownMenu.Content>
+                        <For each={openedTabs().slice(fit.visible)}>
+                          {(tab) => (
+                            <DropdownMenu.Item
+                              onSelect={() => {
+                                tabs().move(tab, 0)
+                                activate(tab)
+                              }}
+                            >
+                              <Show when={file.pathFromTab(tab)}>
+                                {(value) => (
+                                  <DropdownMenu.ItemLabel class="flex items-center">
+                                    <FileVisual path={value()} />
+                                  </DropdownMenu.ItemLabel>
+                                )}
+                              </Show>
+                            </DropdownMenu.Item>
+                          )}
+                        </For>
+                      </DropdownMenu.Content>
+                    </DropdownMenu.Portal>
+                  </DropdownMenu>
+                </div>
               </Tabs.List>
             </Tabs>
             <DragOverlay>
