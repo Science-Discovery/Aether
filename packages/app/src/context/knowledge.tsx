@@ -34,7 +34,7 @@ export interface LastConfig {
 // 知识库状态
 export interface KnowledgeState {
   knowledgeBases: KnowledgeConfig[]
-  activeIds: string[]
+  activeIdsBySession: Record<string, string[]>
   lastConfig?: LastConfig
 }
 
@@ -91,21 +91,26 @@ export interface EmbeddingModel {
   description: string
 }
 
+// 尚未创建的会话（项目首页输入框）使用的激活桶 key
+export const NEW_SESSION_KEY = "__new__"
+
 const DEFAULT_STATE: KnowledgeState = {
   knowledgeBases: [],
-  activeIds: [],
+  activeIdsBySession: {},
 }
 
 interface KnowledgeContextValue {
   state: KnowledgeState
   models: () => EmbeddingModel[]
-  activeKnowledgeBases: () => KnowledgeConfig[]
+  activeIds: (key?: string) => string[]
+  activeKnowledgeBases: (key?: string) => KnowledgeConfig[]
   knowledgeBases: () => KnowledgeConfig[]
-  enabled: () => boolean
+  enabled: (key?: string) => boolean
   syncProgress: () => { current: number; total: number } | null
-  isActive: (id: string) => boolean
-  toggleActive: (id: string) => void
-  setActive: (ids: string[]) => void
+  isActive: (id: string, key?: string) => boolean
+  toggleActive: (id: string, key?: string) => void
+  setActive: (ids: string[], key?: string) => void
+  rekey: (from: string, to: string) => void
   addKnowledgeBase: (config: Omit<KnowledgeConfig, "id">) => string
   updateKnowledgeBase: (id: string, config: Partial<KnowledgeConfig>) => void
   removeKnowledgeBase: (id: string) => Promise<void>
@@ -126,7 +131,7 @@ interface KnowledgeContextValue {
       baseURL?: string
     },
   ) => Promise<void>
-  search: (query: string, topK?: number) => Promise<KnowledgeSearchResult[]>
+  search: (query: string, topK?: number, key?: string) => Promise<KnowledgeSearchResult[]>
   buildRAGContext: (results: KnowledgeSearchResult[], maxLength?: number) => string
   refreshAllStats: () => Promise<void>
   getLastConfig: () => LastConfig | undefined
@@ -161,7 +166,12 @@ export const KnowledgeProvider: Component<{ children: JSX.Element }> = (props) =
       const resp = await fetchApi("/knowledge/state")
       if (resp.ok) {
         const remote = await resp.json()
-        if (remote.knowledgeBases?.length > 0) setState(remote)
+        if (remote.knowledgeBases?.length > 0)
+          setState({
+            knowledgeBases: remote.knowledgeBases,
+            activeIdsBySession: remote.activeIdsBySession ?? {},
+            lastConfig: remote.lastConfig,
+          })
         return remote.knowledgeBases?.length > 0
       }
     } catch {}
@@ -176,7 +186,7 @@ export const KnowledgeProvider: Component<{ children: JSX.Element }> = (props) =
         body: JSON.stringify({
           data: {
             knowledgeBases: state.knowledgeBases,
-            activeIds: state.activeIds,
+            activeIdsBySession: state.activeIdsBySession,
             lastConfig: state.lastConfig,
           },
         }),
@@ -216,31 +226,41 @@ export const KnowledgeProvider: Component<{ children: JSX.Element }> = (props) =
     syncAbortController = null
   }
 
-  const activeKnowledgeBases = () => {
-    const ids = state.activeIds
+  const idsFor = (key?: string) => state.activeIdsBySession[key ?? NEW_SESSION_KEY] ?? []
+
+  const activeIds = (key?: string) => idsFor(key)
+
+  const activeKnowledgeBases = (key?: string) => {
+    const ids = idsFor(key)
     return state.knowledgeBases.filter((kb) => ids.includes(kb.id))
   }
 
   const knowledgeBases = () => state.knowledgeBases
 
-  const enabled = () => state.activeIds.length > 0
+  const enabled = (key?: string) => idsFor(key).length > 0
 
-  const isActive = (id: string) => state.activeIds.includes(id)
+  const isActive = (id: string, key?: string) => idsFor(key).includes(id)
 
-  const toggleActive = (id: string) => {
-    const current = state.activeIds
-    if (current.includes(id)) {
-      setState(
-        "activeIds",
-        current.filter((aid) => aid !== id),
-      )
-    } else {
-      setState("activeIds", [...current, id])
-    }
+  const toggleActive = (id: string, key?: string) => {
+    const bucket = key ?? NEW_SESSION_KEY
+    const current = state.activeIdsBySession[bucket] ?? []
+    setState(
+      "activeIdsBySession",
+      bucket,
+      current.includes(id) ? current.filter((aid) => aid !== id) : [...current, id],
+    )
   }
 
-  const setActive = (ids: string[]) => {
-    setState("activeIds", ids)
+  const setActive = (ids: string[], key?: string) => {
+    setState("activeIdsBySession", key ?? NEW_SESSION_KEY, ids)
+  }
+
+  const rekey = (from: string, to: string) => {
+    if (from === to) return
+    const ids = state.activeIdsBySession[from]
+    if (!ids?.length) return
+    setState("activeIdsBySession", to, ids)
+    setState("activeIdsBySession", from, [])
   }
 
   const addKnowledgeBase = (config: Omit<KnowledgeConfig, "id">): string => {
@@ -334,19 +354,6 @@ export const KnowledgeProvider: Component<{ children: JSX.Element }> = (props) =
     if (state.knowledgeBases.length > 0) {
       refreshAllStats()
     }
-
-    // 恢复后端 knowledge_search 工具的进程内存配置（重启后丢失）
-    for (const kb of state.knowledgeBases) {
-      if (!state.activeIds.includes(kb.id)) continue
-      fetchApi("/knowledge/config", {
-        method: "POST",
-        body: JSON.stringify({
-          path: kb.path,
-          apiKey: kb.apiKey,
-          baseURL: kb.baseURL,
-        }),
-      }).catch(() => {})
-    }
   })
 
   // 状态变更时自动持久化
@@ -354,7 +361,7 @@ export const KnowledgeProvider: Component<{ children: JSX.Element }> = (props) =
     on(
       () => ({
         knowledgeBases: state.knowledgeBases,
-        activeIds: state.activeIds,
+        activeIdsBySession: state.activeIdsBySession,
         lastConfig: state.lastConfig,
       }),
       () => {
@@ -403,7 +410,7 @@ export const KnowledgeProvider: Component<{ children: JSX.Element }> = (props) =
   }
 
   const syncKnowledgeBase = async (id?: string) => {
-    const targetId = id ?? (state.activeIds.length > 0 ? state.activeIds[0] : null)
+    const targetId = id ?? activeIds()[0] ?? null
     if (!targetId) {
       throw new Error("No knowledge base selected")
     }
@@ -512,7 +519,7 @@ export const KnowledgeProvider: Component<{ children: JSX.Element }> = (props) =
   }
 
   const syncAllActive = async () => {
-    for (const id of state.activeIds) {
+    for (const id of new Set(Object.values(state.activeIdsBySession).flat())) {
       await syncKnowledgeBase(id)
     }
   }
@@ -603,8 +610,8 @@ export const KnowledgeProvider: Component<{ children: JSX.Element }> = (props) =
     })
   }
 
-  const search = async (query: string, topK: number = 5): Promise<KnowledgeSearchResult[]> => {
-    const kbs = activeKnowledgeBases()
+  const search = async (query: string, topK: number = 5, key?: string): Promise<KnowledgeSearchResult[]> => {
+    const kbs = activeKnowledgeBases(key)
     if (kbs.length === 0) {
       return []
     }
@@ -634,7 +641,7 @@ export const KnowledgeProvider: Component<{ children: JSX.Element }> = (props) =
   }
 
   const removeKnowledgeBase = async (id?: string) => {
-    const targetId = id ?? (state.activeIds.length > 0 ? state.activeIds[0] : null)
+    const targetId = id ?? activeIds()[0] ?? null
     if (!targetId) return
 
     const kb = state.knowledgeBases.find((k) => k.id === targetId)
@@ -650,11 +657,15 @@ export const KnowledgeProvider: Component<{ children: JSX.Element }> = (props) =
       throw new Error(`Failed to remove knowledge base: ${error}`)
     }
 
-    const newIndex = state.knowledgeBases.filter((k) => k.id !== targetId)
-    setState("knowledgeBases", newIndex)
     setState(
-      "activeIds",
-      state.activeIds.filter((aid) => aid !== targetId),
+      "knowledgeBases",
+      state.knowledgeBases.filter((k) => k.id !== targetId),
+    )
+    setState(
+      "activeIdsBySession",
+      Object.fromEntries(
+        Object.entries(state.activeIdsBySession).map(([key, ids]) => [key, ids.filter((aid) => aid !== targetId)]),
+      ),
     )
   }
 
@@ -687,6 +698,7 @@ export const KnowledgeProvider: Component<{ children: JSX.Element }> = (props) =
   const value: KnowledgeContextValue = {
     state,
     models,
+    activeIds,
     activeKnowledgeBases,
     knowledgeBases,
     enabled,
@@ -694,6 +706,7 @@ export const KnowledgeProvider: Component<{ children: JSX.Element }> = (props) =
     isActive,
     toggleActive,
     setActive,
+    rekey,
     addKnowledgeBase,
     updateKnowledgeBase,
     removeKnowledgeBase,

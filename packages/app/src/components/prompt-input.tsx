@@ -1751,7 +1751,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                       "pointer-events": buttonsSpring() > 0.5 ? "auto" : "none",
                     }}
                   >
-                    <KnowledgeButton />
+                    <KnowledgeButton sessionID={params.id} />
                   </div>
                   <Tooltip placement="top" gutter={4} value={language.t("evolvedSkills.title")}>
                     <Button

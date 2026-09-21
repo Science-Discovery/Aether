@@ -480,7 +480,7 @@ export const dict = {
   "context.usage.view": "查看上下文用量",
 
   "knowledgeBase.title": "知识库",
-  "knowledgeBase.helperText": "可选择多个，不选则不使用知识库",
+  "knowledgeBase.helperText": "可选择多个，仅对当前会话生效；不选则不使用知识库",
   "knowledgeBase.label": "知识库",
   "knowledgeBase.none": "知识库：无",
   "knowledgeBase.withItems": "知识库：{{items}}",

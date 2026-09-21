@@ -7,13 +7,13 @@ import { KnowledgeDialog } from "./knowledge-dialog"
 import { useKnowledge } from "@/context/knowledge"
 import { useLanguage } from "@/context/language"
 
-export const KnowledgeButton: Component = () => {
+export const KnowledgeButton: Component<{ sessionID?: string }> = (props) => {
   const knowledge = useKnowledge()
   const dialog = useDialog()
   const language = useLanguage()
 
   const label = () => {
-    const list = knowledge.activeKnowledgeBases()
+    const list = knowledge.activeKnowledgeBases(props.sessionID)
     if (list.length === 0) {
       return language.t("knowledgeBase.none")
     }
@@ -22,7 +22,7 @@ export const KnowledgeButton: Component = () => {
   }
 
   const handleClick = () => {
-    dialog.show(() => <KnowledgeDialog />)
+    dialog.show(() => <KnowledgeDialog sessionID={props.sessionID} />)
   }
 
   return (
@@ -33,15 +33,15 @@ export const KnowledgeButton: Component = () => {
         class="h-7 px-2 flex items-center gap-1"
         onClick={handleClick}
         classList={{
-          "text-icon-strong-base": knowledge.enabled(),
-          "text-icon-weak": !knowledge.enabled(),
+          "text-icon-strong-base": knowledge.enabled(props.sessionID),
+          "text-icon-weak": !knowledge.enabled(props.sessionID),
         }}
       >
         <Icon
           name="brain"
           class="size-4"
           classList={{
-            "text-icon-success-base": knowledge.enabled(),
+            "text-icon-success-base": knowledge.enabled(props.sessionID),
           }}
         />
       </Button>

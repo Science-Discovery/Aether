@@ -199,9 +199,11 @@ beforeAll(async () => {
   }))
 
   mock.module("@/context/knowledge", () => ({
+    NEW_SESSION_KEY: "__new__",
     useKnowledge: () => ({
       enabled: () => false,
       activeKnowledgeBases: () => [],
+      rekey: () => {},
       data: {
         selected: () => undefined,
       },

@@ -490,7 +490,7 @@ export const dict = {
   "context.usage.view": "View context usage",
 
   "knowledgeBase.title": "Knowledge Base",
-  "knowledgeBase.helperText": "Select multiple, or none to disable knowledge base",
+  "knowledgeBase.helperText": "Select multiple for this session, or none to disable knowledge base",
   "knowledgeBase.label": "Knowledge Bases",
   "knowledgeBase.none": "Knowledge base: None",
   "knowledgeBase.withItems": "Knowledge base: {{items}}",
