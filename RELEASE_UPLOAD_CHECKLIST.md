@@ -39,3 +39,12 @@
 - 每个 `yml` 的 `url` 与上传资产文件名完全一致
 - 每个 `yml` 的 `sha512` 与 `size` 已生成且非空
 - `desktop` 与 `web` 资产未混传到错误通道
+
+## promote-stable 一键发布与公告自动化
+
+`promote-stable` workflow（`.github/workflows/promote-stable.yml`）在版本转正时可顺带在官网"最新动态"自动发布公告：
+
+- 前置条件（一次性）：用 admin 账号在 aether.aiphys.cn 控制台（设置 → API Key）创建 API Key，配置到本仓库 Actions secret `SITE_ANNOUNCE_API_KEY`
+- workflow 输入 `announce` 默认开启；公告内容默认从 Release notes 自动提取（中文标题与摘要；正文以 ASCII 为主时同时生成英文），可用 `announcement_title_zh` / `announcement_summary_zh` 等输入覆盖
+- 幂等：官网已有同版本公告时自动跳过；桌面/Web 晋升与渠道校验全部成功后才发布公告
+- 官网侧依赖：aether-site 的 `POST /v1/admin/announcements` 接受 admin 账号的 API Key（其余公告管理端点仍仅支持 session）
