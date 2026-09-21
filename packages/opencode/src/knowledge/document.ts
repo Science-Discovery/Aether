@@ -44,7 +44,9 @@ function cMapUrl() {
     Bun.fileURLToPath(new URL("../../../app/public/pdfjs-ref/web/cmaps", import.meta.url)),
   ]
   const found = candidates.find((item) => existsSync(item))
-  cmaps = found ? found + path.sep : ""
+  // pdf.js 要求 cMapUrl 以 "/" 结尾并按 baseUrl + name 拼接后交给 fs.readFile，
+  // Windows 下 readFile 接受正斜杠，但 path.sep 会被其 URL 校验拒绝。
+  cmaps = found ? `${found.replaceAll("\\", "/")}/` : ""
   return cmaps || undefined
 }
 
