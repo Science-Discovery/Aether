@@ -42,7 +42,6 @@ import { FileTabContent } from "@/pages/session/file-tabs"
 import { createOpenSessionFileTab, createSessionTabs, getTabReorderIndex, type Sizing } from "@/pages/session/helpers"
 import { setSessionHandoff } from "@/pages/session/handoff"
 import { useSessionLayout } from "@/pages/session/session-layout"
-import { SessionSearchFiles } from "@/components/session/session-header"
 import { panel, tab } from "@/pages/session/session-side-panel-state"
 import { createFileActions } from "./file-actions"
 import { save } from "./download"
@@ -681,6 +680,9 @@ export function SessionSidePanel(props: {
                   onCleanup(stop)
                 }}
               >
+                <SortableProvider ids={openedTabs()}>
+                  <For each={openedTabs()}>{(tab) => <SortableTab tab={tab} onTabClose={tabs().close} />}</For>
+                </SortableProvider>
                 <Show when={reviewTab()}>
                   <Tabs.Trigger value="review">
                     <div class="flex items-center gap-1.5">
@@ -744,12 +746,6 @@ export function SessionSidePanel(props: {
                     <div>{language.t("session.tab.gitGraph")}</div>
                   </Tabs.Trigger>
                 </Show>
-                <SortableProvider ids={openedTabs()}>
-                  <For each={openedTabs()}>{(tab) => <SortableTab tab={tab} onTabClose={tabs().close} />}</For>
-                </SortableProvider>
-                <div class="bg-background-base h-full shrink-0 sticky right-0 z-10 flex items-center justify-center px-1">
-                  <SessionSearchFiles />
-                </div>
               </Tabs.List>
             </Tabs>
             <DragOverlay>

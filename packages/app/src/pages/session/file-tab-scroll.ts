@@ -4,13 +4,15 @@ type Input = {
   clientWidth: number
   prevContextOpen: boolean
   contextOpen: boolean
+  lastFileTabRight?: number
 }
 
 export const nextTabListScrollLeft = (input: Input) => {
   if (input.scrollWidth <= input.prevScrollWidth) return
-  if (!input.prevContextOpen && input.contextOpen) return 0
+  if (!input.prevContextOpen && input.contextOpen) return input.scrollWidth - input.clientWidth
   if (input.scrollWidth <= input.clientWidth) return
-  return input.scrollWidth - input.clientWidth
+  if (input.lastFileTabRight === undefined) return input.scrollWidth - input.clientWidth
+  return Math.max(0, input.lastFileTabRight - input.clientWidth)
 }
 
 export const createFileTabListSync = (input: { el: HTMLDivElement; contextOpen: () => boolean }) => {
@@ -22,12 +24,17 @@ export const createFileTabListSync = (input: { el: HTMLDivElement; contextOpen: 
     const scrollWidth = input.el.scrollWidth
     const clientWidth = input.el.clientWidth
     const contextOpen = input.contextOpen()
+    const last = input.el.querySelectorAll<HTMLElement>('[data-value^="file://"]')
+    const lastFileTabRight = last.length
+      ? last[last.length - 1].offsetLeft + last[last.length - 1].offsetWidth
+      : undefined
     const left = nextTabListScrollLeft({
       prevScrollWidth,
       scrollWidth,
       clientWidth,
       prevContextOpen,
       contextOpen,
+      lastFileTabRight,
     })
 
     if (left !== undefined) {
