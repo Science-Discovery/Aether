@@ -156,6 +156,10 @@
     --tabs-bar-height: 28px;
     background-color: transparent;
 
+    &[data-fit="capped"] [data-slot="tabs-trigger-wrapper"] {
+      max-width: 150px;
+    }
+
     [data-slot="tabs-list"] {
       height: var(--tabs-bar-height);
       padding-left: 2px;
@@ -176,7 +180,7 @@
     [data-slot="tabs-trigger-wrapper"] {
       height: var(--tabs-compact-pill-height);
       margin-block: 0;
-      max-width: 320px;
+      max-width: none;
       padding-inline: var(--tabs-compact-pill-padding-x);
       box-sizing: border-box;
       border: 1px solid transparent;
