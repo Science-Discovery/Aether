@@ -280,7 +280,7 @@ export const SettingsKnowledge: Component = () => {
             <div class="bg-surface-raised-base rounded-lg overflow-hidden">
               <For each={knowledge.knowledgeBases()}>
                 {(kb) => {
-                  const isActive = createMemo(() => knowledge.state.activeIds.includes(kb.id))
+                  const isActive = createMemo(() => knowledge.activeIds().includes(kb.id))
                   const isSyncing = createMemo(() => syncing() === kb.id)
                   return (
                     <div

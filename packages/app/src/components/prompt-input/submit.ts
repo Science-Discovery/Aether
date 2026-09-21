@@ -14,7 +14,7 @@ import { DEFAULT_PROMPT, type ContextItem, type ImageAttachmentPart, type Prompt
 import { useSDK } from "@/context/sdk"
 import { useServer } from "@/context/server"
 import { useSync } from "@/context/sync"
-import { useKnowledge } from "@/context/knowledge"
+import { NEW_SESSION_KEY, useKnowledge } from "@/context/knowledge"
 import { promptProbe } from "@/testing/prompt"
 import { Identifier } from "@/utils/id"
 import { claimSession } from "@/utils/session-pending"
@@ -697,6 +697,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
         draft.sessionID = created.id
       }
       seed(sessionDirectory, created)
+      if (isNewSession) knowledge.rekey(NEW_SESSION_KEY, session.id)
       if (shouldAutoAccept) permission.enableAutoAccept(session.id, sessionDirectory)
       return true
     }
@@ -880,12 +881,14 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       return true
     }
 
+    const kbKey = isNewSession ? NEW_SESSION_KEY : session.id
+    const activeKbs = knowledge.activeKnowledgeBases(kbKey)
     const knowledgeBase =
-      knowledge.enabled() && knowledge.activeKnowledgeBases().length > 0
+      activeKbs.length > 0
         ? {
-            paths: knowledge.activeKnowledgeBases().map((kb) => kb.path),
-            apiKey: knowledge.activeKnowledgeBases()[0]!.apiKey,
-            baseURL: knowledge.activeKnowledgeBases()[0]!.baseURL,
+            paths: activeKbs.map((kb) => kb.path),
+            apiKey: activeKbs[0]!.apiKey,
+            baseURL: activeKbs[0]!.baseURL,
           }
         : undefined
 

@@ -5,7 +5,7 @@ import { Button } from "@opencode-ai/ui/button"
 import { Icon } from "@opencode-ai/ui/icon"
 import { Select } from "@opencode-ai/ui/select"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
-import { useKnowledge } from "@/context/knowledge"
+import { NEW_SESSION_KEY, useKnowledge } from "@/context/knowledge"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useServer } from "@/context/server"
 import { useProviders } from "@/hooks/use-providers"
@@ -21,13 +21,14 @@ import {
 import { DialogSelectDirectory } from "./dialog-select-directory"
 import { useLanguage } from "@/context/language"
 
-export const KnowledgeDialog: Component = () => {
+export const KnowledgeDialog: Component<{ sessionID?: string }> = (props) => {
   const knowledge = useKnowledge()
   const dialog = useDialog()
   const sdk = useGlobalSDK()
   const server = useServer()
   const providers = useProviders()
   const language = useLanguage()
+  const kbKey = () => props.sessionID ?? NEW_SESSION_KEY
 
   const [syncing, setSyncing] = createSignal(false)
   const [error, setError] = createSignal("")
@@ -269,7 +270,7 @@ export const KnowledgeDialog: Component = () => {
         chunkOverlap: 50,
       })
 
-      knowledge.toggleActive(id)
+      knowledge.toggleActive(id, kbKey())
 
       const kb = knowledge.knowledgeBases().find((k) => k.id === id)
       if (kb) {
@@ -339,7 +340,7 @@ export const KnowledgeDialog: Component = () => {
   }
 
   const handleToggle = (id: string) => {
-    knowledge.toggleActive(id)
+    knowledge.toggleActive(id, kbKey())
   }
 
   const openEditor = async (id: string) => {
@@ -492,7 +493,7 @@ export const KnowledgeDialog: Component = () => {
             <div class="flex flex-col gap-1">
               <For each={knowledge.knowledgeBases()}>
                 {(kb) => {
-                  const isActive = () => knowledge.isActive(kb.id)
+                  const isActive = () => knowledge.isActive(kb.id, kbKey())
                   const isEdit = () => editId() === kb.id
                   return (
                     <div class="flex flex-col gap-2">

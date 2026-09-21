@@ -26,40 +26,56 @@ IMPORTANT: When answering based on search results, you MUST:
 
 Do not ignore any relevant results - synthesize information from all returned chunks.`
 
-// 全局知识库配置存储（支持多个知识库）
-let globalKnowledgeConfig: {
-  paths: string[] // 多个知识库路径
+// 知识库配置存储（支持多个知识库路径），会话级配置优先于全局配置
+interface KnowledgeConfig {
+  paths: string[]
   apiKey?: string
   baseURL?: string
-} | null = null
+}
+
+let globalConfig: KnowledgeConfig | null = null
+const sessionConfigs = new Map<string, KnowledgeConfig>()
 
 export function setKnowledgeConfig(
   config: { path?: string; paths?: string[]; apiKey?: string; baseURL?: string } | null,
+  sessionID?: string,
 ) {
-  if (!config) {
-    globalKnowledgeConfig = null
+  if (sessionID) {
+    if (!config) {
+      sessionConfigs.delete(sessionID)
+      return
+    }
+    // 支持单个 path 或多个 paths
+    const paths = config.paths || (config.path ? [config.path] : [])
+    sessionConfigs.set(sessionID, { paths, apiKey: config.apiKey, baseURL: config.baseURL })
     return
   }
-  // 支持单个 path 或多个 paths
-  const paths = config.paths || (config.path ? [config.path] : [])
-  globalKnowledgeConfig = {
-    paths,
-    apiKey: config.apiKey,
-    baseURL: config.baseURL,
+  if (!config) {
+    globalConfig = null
+    return
   }
+  const paths = config.paths || (config.path ? [config.path] : [])
+  globalConfig = { paths, apiKey: config.apiKey, baseURL: config.baseURL }
 }
 
-export function getKnowledgeConfig() {
-  return globalKnowledgeConfig
+export function getKnowledgeConfig(sessionID?: string) {
+  return (sessionID ? sessionConfigs.get(sessionID) : undefined) ?? globalConfig
+}
+
+// 会话是否挂载了知识库（用于决定是否注册 knowledge_search 工具）
+// 仅看会话级配置：global 配置由 sync 等流程写入，不代表会话选择
+export function hasKnowledge(sessionID: string) {
+  return (sessionConfigs.get(sessionID)?.paths?.length ?? 0) > 0
 }
 
 // 获取所有激活的知识库路径
-async function getActiveKnowledgeBases(): Promise<string[]> {
+async function getActiveKnowledgeBases(sessionID?: string): Promise<string[]> {
   const result: string[] = []
+  const cfg = getKnowledgeConfig(sessionID)
 
-  // 优先使用全局配置中的路径
-  if (globalKnowledgeConfig?.paths?.length) {
-    for (const kbPath of globalKnowledgeConfig.paths) {
+  // 优先使用会话/全局配置中的路径
+  if (cfg?.paths?.length) {
+    for (const kbPath of cfg.paths) {
       const metaPath = Storage.kbPath(kbPath)
       if (await Filesystem.exists(metaPath)) {
         result.push(kbPath)
@@ -109,7 +125,8 @@ export const KnowledgeTool = Tool.define("knowledge_search", {
   }),
   async execute(params, ctx) {
     // 获取所有激活的知识库
-    const kbPaths = await getActiveKnowledgeBases()
+    const cfg = getKnowledgeConfig(ctx.sessionID)
+    const kbPaths = await getActiveKnowledgeBases(ctx.sessionID)
 
     if (kbPaths.length === 0) {
       return {
@@ -167,8 +184,8 @@ Please run sync to index your documents:
 
     for (const { path: kbPath, index } of indexes) {
       const results = await Knowledge.search(kbPath, index as any, params.query, {
-        apiKey: (index as any).config.apiKey || globalKnowledgeConfig?.apiKey,
-        baseURL: (index as any).config.baseURL || globalKnowledgeConfig?.baseURL,
+        apiKey: (index as any).config.apiKey || cfg?.apiKey,
+        baseURL: (index as any).config.baseURL || cfg?.baseURL,
         topK,
       })
       for (const result of results) {

@@ -53,6 +53,7 @@ import { ShellOutput } from "@/shell/output"
 import { cleanupNul } from "@/shell/guard"
 import { Truncate } from "@/tool/truncate"
 import { Knowledge } from "../knowledge"
+import { setKnowledgeConfig, hasKnowledge } from "../tool/knowledge"
 import { decodeDataUrl } from "@/util/data-url"
 import { Process } from "@/util/process"
 import { SessionRecovery } from "./recovery"
@@ -834,6 +835,8 @@ export namespace SessionPrompt {
       { modelID: ModelID.make(input.model.api.id), providerID: input.model.providerID },
       input.agent,
     )) {
+      // 仅当会话挂载了知识库时才暴露 knowledge_search
+      if (item.id === "knowledge_search" && !hasKnowledge(input.session.id)) continue
       const schema = ProviderTransform.schema(input.model, z.toJSONSchema(item.parameters))
       tools[item.id] = tool({
         id: item.id as any,
@@ -1077,12 +1080,18 @@ export namespace SessionPrompt {
 
     // RAG: search knowledge base and build context for system prompt
     let ragContext: string | undefined
-    if (input.knowledgeBase) {
+    const kb = input.knowledgeBase
+    const kbPaths = kb?.paths ?? (kb?.path ? [kb.path] : [])
+    // 会话级知识库配置：knowledge_search 工具按此判断是否可用
+    setKnowledgeConfig(
+      kbPaths.length > 0 ? { paths: kbPaths, apiKey: kb?.apiKey, baseURL: kb?.baseURL } : null,
+      input.sessionID,
+    )
+    if (kbPaths.length > 0) {
       try {
-        const paths = input.knowledgeBase.paths || (input.knowledgeBase.path ? [input.knowledgeBase.path] : [])
         const allResults: Awaited<ReturnType<typeof Knowledge.search>> = []
 
-        for (const kbPath of paths) {
+        for (const kbPath of kbPaths) {
           const index = await Knowledge.load(kbPath)
           if (index) {
             const userText = input.parts
@@ -1090,8 +1099,8 @@ export namespace SessionPrompt {
               .map((p) => (p as { text: string }).text)
               .join(" ")
             const results = await Knowledge.search(kbPath, index, userText, {
-              apiKey: input.knowledgeBase.apiKey,
-              baseURL: input.knowledgeBase.baseURL,
+              apiKey: kb?.apiKey,
+              baseURL: kb?.baseURL,
               topK: 5,
             })
             allResults.push(...results)
