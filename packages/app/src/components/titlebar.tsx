@@ -293,7 +293,7 @@ export function Titlebar() {
         onMouseDown={drag}
       >
         <div id="opencode-titlebar-right" class="flex items-center gap-2 shrink-0 justify-end" />
-        <div id="opencode-titlebar-tabs" class="flex items-center min-w-0 flex-1 justify-end" />
+        <div id="opencode-titlebar-tabs" class="flex items-center min-w-0 flex-1 justify-end gap-2 [&>div]:min-w-0" />
         <Show when={windows()}>
           {!tauriApi() && <div class="w-36 shrink-0" />}
           <div data-tauri-decorum-tb class="flex flex-row" />
