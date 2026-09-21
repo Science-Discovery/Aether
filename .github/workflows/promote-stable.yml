@@ -1,0 +1,113 @@
+name: promote-stable
+run-name: "promote v${{ inputs.version }} to stable"
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Stable version, for example 0.7.7"
+        required: true
+        type: string
+      promote_desktop:
+        description: "Upload desktop assets to the public channel"
+        default: true
+        type: boolean
+      promote_web:
+        description: "Upload web assets to the public channel"
+        default: true
+        type: boolean
+      publish_release:
+        description: "Publish the GitHub release (undraft and unmark prerelease)"
+        default: true
+        type: boolean
+
+concurrency: ${{ github.workflow }}-${{ inputs.version }}
+
+permissions:
+  contents: write
+
+jobs:
+  promote:
+    if: github.repository == 'Science-Discovery/Aether'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/setup-bun
+
+      - name: Download release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          mkdir -p assets
+          gh release download "v${{ inputs.version }}" --dir assets --clobber \
+            --pattern "aether-desktop-*" \
+            --pattern "latest.yml" \
+            --pattern "latest-mac.yml" \
+            --pattern "latest-linux.yml" \
+            --pattern "latest-linux-arm64.yml" \
+            --pattern "aether-darwin-arm64.dmg" \
+            --pattern "aether-darwin-x64.dmg" \
+            --pattern "aether-windows-x64.zip" \
+            --pattern "aether-linux-x64.zip" \
+            --pattern "aether-linux-arm64.zip"
+          ls -la assets
+
+      - name: Promote assets to public channel
+        if: inputs.promote_desktop || inputs.promote_web
+        env:
+          ADMIN_BASE: ${{ vars.DOWNLOAD_BETA_BASE_URL }}
+          ADMIN_PASSWORD: ${{ secrets.DOWNLOAD_ADMIN_PASSWORD }}
+          VERSION: ${{ inputs.version }}
+          ASSETS_DIR: ${{ github.workspace }}/assets
+          UPDATE_DIR: ${{ github.workspace }}/Update
+          PROMOTE_DESKTOP: ${{ inputs.promote_desktop }}
+          PROMOTE_WEB: ${{ inputs.promote_web }}
+        run: bun .github/scripts/promote-stable.ts
+
+      - name: Publish GitHub release
+        if: inputs.publish_release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: gh release edit "v${{ inputs.version }}" --draft=false --prerelease=false --latest
+
+      - name: Verify channels
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          BASE: ${{ vars.DOWNLOAD_BETA_BASE_URL }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          tag="v$VERSION"
+          ok=1
+          check() {
+            local target="$1" pattern="$2" attempt
+            for attempt in 1 2 3 4 5 6; do
+              if curl -fsSL "$target" | grep -qE "$pattern"; then
+                echo "ok: $target"
+                return 0
+              fi
+              sleep 10
+            done
+            echo "FAIL: $target"
+            ok=0
+          }
+          if [ "${{ inputs.promote_desktop }}" = "true" ]; then
+            check "$BASE/download/desktop/latest/latest.yml" "^version: ?[\"']?$VERSION[\"']?"
+          fi
+          if [ "${{ inputs.promote_web }}" = "true" ]; then
+            check "$BASE/download/latest/mac-arm64.yml" "^version: ?[\"']?$VERSION[\"']?"
+          fi
+          if [ "${{ inputs.publish_release }}" = "true" ]; then
+            latest="$(gh api "repos/$GH_REPO/releases/latest" --jq .tag_name)"
+            if [ "$latest" = "$tag" ]; then
+              echo "ok: latest release is $latest"
+            else
+              echo "FAIL: latest release is $latest, expected $tag"
+              ok=0
+            fi
+          fi
+          [ "$ok" = "1" ] || exit 1
