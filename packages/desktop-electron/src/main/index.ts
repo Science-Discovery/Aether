@@ -491,9 +491,11 @@ async function checkUpdate() {
         }
         if (!stableAvailable) {
           logger.log("no update decision", {
-            reason: "prerelease re-check failed and no stable fallback",
+            reason: stableFailed
+              ? "no prerelease update available and stable check failed"
+              : "no newer version in any channel",
           })
-          return { updateAvailable: false, failed: true }
+          return { updateAvailable: false, failed: stableFailed }
         }
         autoUpdater.allowPrerelease = false
         autoUpdater.setFeedURL(UPDATE_URL)
