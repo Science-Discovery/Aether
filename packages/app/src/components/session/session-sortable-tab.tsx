@@ -11,6 +11,12 @@ import { useLanguage } from "@/context/language"
 import { useCommand } from "@/context/command"
 
 export function FileVisual(props: { path: string; active?: boolean }): JSX.Element {
+  const name = createMemo(() => {
+    const filename = getFilename(props.path)
+    const dot = filename.lastIndexOf(".")
+    // keep dotfiles like ".gitignore" intact
+    return dot > 0 ? filename.slice(0, dot) : filename
+  })
   return (
     <div class="flex items-center gap-x-1.5 min-w-0">
       <Show
@@ -22,7 +28,7 @@ export function FileVisual(props: { path: string; active?: boolean }): JSX.Eleme
           <FileIcon node={{ path: props.path, type: "file" }} mono class="absolute inset-0 size-4 tab-fileicon-mono" />
         </span>
       </Show>
-      <span class="text-14-medium truncate">{getFilename(props.path)}</span>
+      <span class="text-14-medium truncate">{name()}</span>
     </div>
   )
 }
