@@ -334,7 +334,15 @@ describe("prompt submit worktree selection", () => {
     variant = "high"
 
     const submit = createPromptSubmit({
-      info: () => ({ id: "session-1" }),
+      info: () => ({
+        id: "session-1",
+        slug: "",
+        projectID: "proj",
+        directory: "/repo",
+        title: "t",
+        version: "",
+        time: { created: 0, updated: 0 },
+      }),
       imageAttachments: () => [],
       commentCount: () => 0,
       autoAccept: () => false,
@@ -480,7 +488,15 @@ describe("prompt submit worktree selection", () => {
     }
 
     const submit = createPromptSubmit({
-      info: () => ({ id: "session-1" }),
+      info: () => ({
+        id: "session-1",
+        slug: "",
+        projectID: "proj",
+        directory: "/repo",
+        title: "t",
+        version: "",
+        time: { created: 0, updated: 0 },
+      }),
       imageAttachments: () => [],
       commentCount: () => 0,
       autoAccept: () => false,
@@ -532,7 +548,15 @@ describe("prompt submit worktree selection", () => {
     params = { id: "session-1" }
 
     const submit = createPromptSubmit({
-      info: () => ({ id: "session-1" }),
+      info: () => ({
+        id: "session-1",
+        slug: "",
+        projectID: "proj",
+        directory: "/repo",
+        title: "t",
+        version: "",
+        time: { created: 0, updated: 0 },
+      }),
       imageAttachments: () => [],
       commentCount: () => 0,
       autoAccept: () => false,

@@ -300,7 +300,7 @@ export async function sendFollowupDraft(input: FollowupSendInput) {
 }
 
 type PromptSubmitInput = {
-  info: Accessor<{ id: string } | undefined>
+  info: Accessor<Session | undefined>
   imageAttachments: Accessor<ImageAttachmentPart[]>
   commentCount: Accessor<number>
   autoAccept: Accessor<boolean>
@@ -666,6 +666,13 @@ export function createPromptSubmit(input: PromptSubmitInput) {
         description: language.t("prompt.toast.promptSendFailed.description"),
       })
       return
+    }
+
+    // Existing sessions must be prompted in their own directory's instance, not
+    // whichever workspace the user is currently viewing. Otherwise the server
+    // binds the run (busy status, tool cwd) to the wrong workspace.
+    if (!isNewSession && session.directory !== projectDirectory) {
+      client = sdk.createClient({ directory: session.directory, throwOnError: true })
     }
 
     const waitForSession = async () => {

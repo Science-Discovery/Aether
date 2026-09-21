@@ -2,6 +2,7 @@ import path from "path"
 import { describe, expect, test } from "bun:test"
 import { NamedError } from "@opencode-ai/util/error"
 import { fileURLToPath } from "url"
+import { mkdir, rm } from "node:fs/promises"
 import { Instance } from "../../src/project/instance"
 import { ModelID, ProviderID } from "../../src/provider/schema"
 import { Session } from "../../src/session"
@@ -9,6 +10,7 @@ import { MessageV2 } from "../../src/session/message-v2"
 import { SessionPrompt } from "../../src/session/prompt"
 import { Log } from "../../src/util/log"
 import { tmpdir } from "../fixture/fixture"
+import { serve } from "../lib/server"
 
 Log.init({ print: false })
 
@@ -330,6 +332,123 @@ description: Demo skill.
         expect(text).toContain("Skill scan paths (low -> high priority)")
         expect(text).toContain(path.join(tmp.path, ".aether", "skills", "**", "SKILL.md"))
         expect(text).not.toContain("{skill,skills}")
+      },
+    })
+  }, 30000)
+})
+
+describe("session prompt instance binding", () => {
+  const pid = ProviderID.make("binding-local")
+  const mid = ModelID.make("tiny")
+  const model = { providerID: pid, modelID: mid }
+
+  function line(input: unknown) {
+    if (input === "done") return "data: [DONE]\n\n"
+    return `data: ${JSON.stringify(input)}\n\n`
+  }
+
+  function chunk(input: { text?: string; finish?: string }) {
+    return {
+      id: "chatcmpl-test",
+      object: "chat.completion.chunk",
+      choices: [
+        {
+          delta: input.text ? { content: input.text } : {},
+          ...(input.finish ? { finish_reason: input.finish } : {}),
+        },
+      ],
+    }
+  }
+
+  function text(text: string) {
+    return new Response([line(chunk({ text })), line(chunk({ finish: "stop" })), line("done")].join(""), {
+      headers: { "Content-Type": "text/event-stream" },
+    })
+  }
+
+  test("prompt runs the session in its own directory's instance, not the caller's", async () => {
+    const server = await serve({
+      port: 0,
+      async fetch(req) {
+        const body = (await req.json().catch(() => ({}))) as Record<string, unknown>
+        if (JSON.stringify(body).includes("Generate a title for this conversation")) return text("Binding Test")
+        return text("hello from home")
+      },
+    })
+
+    const config = {
+      $schema: "https://opencode.ai/config.json",
+      provider: {
+        [pid]: {
+          name: "Binding Local",
+          npm: "@ai-sdk/openai-compatible",
+          env: [],
+          models: {
+            [mid]: {
+              name: "Tiny",
+              tool_call: true,
+              temperature: true,
+              limit: { context: 100, output: 20 },
+              modalities: { input: ["text"], output: ["text"] },
+            },
+          },
+          options: {
+            apiKey: "test-key",
+            baseURL: `${server.url.origin}/v1`,
+          },
+        },
+      },
+    }
+
+    await using tmp = await tmpdir({
+      git: true,
+      init: async (dir) => {
+        await Bun.write(path.join(dir, "opencode.json"), JSON.stringify(config))
+        // A linked git worktree resolves to the same project as the main repo,
+        // mirroring how sandbox workspaces share one project database.
+        const wt = dir + "-wt"
+        const proc = Bun.spawnSync(["git", "-C", dir, "worktree", "add", wt, "-b", "wt-binding"])
+        if (proc.exitCode !== 0) throw new Error(new TextDecoder().decode(proc.stderr))
+        await Bun.write(path.join(wt, "opencode.json"), JSON.stringify(config))
+        return wt
+      },
+      dispose: async (dir) => {
+        await rm(dir + "-wt", { recursive: true, force: true })
+        return dir
+      },
+    })
+
+    const other = tmp.extra!
+
+    let homeSession: Session.Info | undefined
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        homeSession = await Session.create({})
+      },
+    })
+
+    await Instance.provide({
+      directory: other,
+      fn: async () => {
+        const result = await SessionPrompt.prompt({
+          sessionID: homeSession!.id,
+          agent: "build",
+          model,
+          parts: [{ type: "text", text: "start" }],
+        })
+
+        expect(result.info.role).toBe("assistant")
+        if (result.info.role !== "assistant") throw new Error("expected assistant message")
+        expect(result.info.path.cwd).toBe(tmp.path)
+        expect(result.info.path.cwd).not.toBe(other)
+      },
+    })
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        await Session.remove(homeSession!.id)
       },
     })
   }, 30000)
