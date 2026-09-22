@@ -5,7 +5,7 @@ import { useFileComponent } from "../context/file"
 
 import { Binary } from "@opencode-ai/util/binary"
 import { getDirectory, getFilename } from "@opencode-ai/util/path"
-import { createEffect, createMemo, createSignal, For, on, ParentProps, Show } from "solid-js"
+import { createEffect, createMemo, createSignal, For, on, onCleanup, ParentProps, Show } from "solid-js"
 import { createStore } from "solid-js/store"
 import { Dynamic } from "solid-js/web"
 import { AssistantParts, Message, MessageDivider, type UserActions } from "./message-part"
@@ -364,10 +364,49 @@ export function SessionTurn(
   const assistantExpandLabel = createMemo(() => i18n.t("ui.message.expand"))
   const collapseAssistant = () => props.onAssistantCollapsedChange?.(true)
   const toggleAssistant = (event: MouseEvent) => {
-    if (event.button !== 0 || !canCollapseAssistant() || !props.onAssistantCollapsedChange) return
+    if (event.button !== 0) return
     if (skip(event.target) || picked()) return
+    const el = pin()
+    const view = el?.closest<HTMLElement>(".scroll-view__viewport")
+    const parent = el?.parentElement
+    if (el && view && parent) {
+      const sticky = Number.parseFloat(getComputedStyle(el).top) || 0
+      const parentTop = parent.getBoundingClientRect().top - view.getBoundingClientRect().top + view.scrollTop
+      if (view.scrollTop > parentTop - sticky + 4) {
+        const delta = parent.getBoundingClientRect().top - view.getBoundingClientRect().top - sticky
+        view.scrollTo({ top: view.scrollTop + delta, behavior: "smooth" })
+        return
+      }
+    }
+    if (!canCollapseAssistant() || !props.onAssistantCollapsedChange) return
     props.onAssistantCollapsedChange(!assistantCollapsed())
   }
+
+  const promptPinShift = (el: HTMLElement) => {
+    const bubble = el.querySelector<HTMLElement>("[data-slot='user-message-text']")
+    if (!bubble) return 0
+    const rect = el.getBoundingClientRect()
+    const bubbleRect = bubble.getBoundingClientRect()
+    return Math.max(0, Math.ceil(bubbleRect.bottom - rect.top - 50))
+  }
+  const [pin, setPin] = createSignal<HTMLElement>()
+  let pinShift = -1
+
+  createEffect(
+    on([pin], ([el]) => {
+      if (!el) return
+      const apply = () => {
+        const shift = promptPinShift(el)
+        if (shift === pinShift) return
+        pinShift = shift
+        el.style.setProperty("--pin-shift", `${shift}px`)
+      }
+      apply()
+      const ro = new ResizeObserver(apply)
+      ro.observe(el)
+      onCleanup(() => ro.disconnect())
+    }),
+  )
 
   const autoScroll = createAutoScroll({
     working,
@@ -397,7 +436,12 @@ export function SessionTurn(
               data-assistant-collapsed={assistantCollapsed() ? "true" : undefined}
               class={props.classes?.container}
             >
-              <div data-slot="session-turn-message-content" aria-live="off">
+              <div
+                ref={setPin}
+                data-slot="session-turn-message-content"
+                aria-live="off"
+                style={{ "--pin-shift": "0px" }}
+              >
                 <Message
                   message={message()!}
                   parts={parts()}

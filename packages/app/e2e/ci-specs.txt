@@ -28,4 +28,5 @@ e2e/status/status-popover.spec.ts
 e2e/terminal/terminal.spec.ts
 e2e/thinking-level.spec.ts
 e2e/session/todo-panel.spec.ts
+e2e/session/prompt-pin-verify.spec.ts
 e2e/session/init-git-mid-session.spec.ts
