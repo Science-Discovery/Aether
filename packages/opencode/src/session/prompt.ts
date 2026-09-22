@@ -359,9 +359,7 @@ export namespace SessionPrompt {
         await SessionStatus.set(sessionID, { type: "busy" })
         log.info("loop", { step, sessionID })
         if (abort.aborted) break
-        // Clients miss todo.updated events whenever the SSE stream drops or
-        // they joined mid-task; re-assert stored truth so the todo list can
-        // never stay stale once the next step starts.
+        // clients that missed todo.updated events converge here (see Todo.publish)
         await Todo.publish(sessionID)
         let msgs = await MessageV2.filterCompacted(MessageV2.stream(sessionID))
 
