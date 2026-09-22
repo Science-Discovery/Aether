@@ -314,24 +314,26 @@ const detectOS = (): string => {
 }
 const web = createWebUpdate(req, detectOS)
 
-function conflictTexts() {
+function conflictTexts(channel: string) {
+  const where = channel ? `（channel: ${channel}）` : ""
+  const whereEn = channel ? ` (channel: ${channel})` : ""
   return getLocale() === "zh"
     ? {
-        title: "Aether 已在桌面版中连接",
-        body: "检测到桌面版正在运行并已连接，同一时间只能有一个客户端连接。请退出网页版，或先关闭桌面版。",
+        title: `Aether 已在其他应用中连接${where}`,
+        body: `检测到 ${channel || "同一 channel"} 正在被另一个应用使用，同一 channel 同一时间只能运行一个应用。请退出网页版，或先关闭另一个应用。`,
         exit: "退出",
         closed: "已退出，可以关闭此页面。",
       }
     : {
-        title: "Aether is already connected in the desktop app",
-        body: "The desktop app is currently connected. Only one app can be connected at a time. Exit the web version, or close the desktop app first.",
+        title: `Aether is already connected elsewhere${whereEn}`,
+        body: `The channel ${channel || "you are opening"} is already in use by another app. Only one app can use a channel at a time. Exit the web version, or close the other app first.`,
         exit: "Exit",
         closed: "Exited. You can close this page now.",
       }
 }
 
-function renderConflict() {
-  const text = conflictTexts()
+function renderConflict(channel: string) {
+  const text = conflictTexts(channel)
   const [closed, setClosed] = createSignal(false)
   const exit = async () => {
     setClosed(true)
@@ -452,7 +454,7 @@ const boot = async () => {
   const skipConflict = new URLSearchParams(location.search).get("aether-conflict-check") === "0"
   const conflict = skipConflict ? null : await presenceConflict(getCurrentUrl())
   if (conflict) {
-    renderConflict()
+    renderConflict(conflict.channel)
     return
   }
   platform.version = (await readWebVersion()) || undefined

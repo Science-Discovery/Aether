@@ -11,6 +11,12 @@ type Opts = {
   fetch?: typeof globalThis.fetch
   signal: AbortSignal
   onSseError?: (error: unknown) => void
+  client?: "desktop" | "web"
+}
+
+function clientHeaders(client: "desktop" | "web" | undefined): Record<string, string> | undefined {
+  if (!client) return undefined
+  return { "x-aether-client": client }
 }
 
 type Conn = {
@@ -68,7 +74,11 @@ export function connectShared(opts: Opts): Conn {
       const hb = setInterval(() => ch.postMessage({ kind: "heartbeat", id } satisfies Msg), HB_MS)
       try {
         const sdk = createSdkForServer({ server: opts.server, fetch: opts.fetch, signal: opts.signal })
-        const result = await sdk.global.event({ signal: opts.signal, onSseError: opts.onSseError })
+        const result = await sdk.global.event({
+          signal: opts.signal,
+          headers: clientHeaders(opts.client),
+          onSseError: opts.onSseError,
+        })
         for await (const ev of result.stream) {
           if (dead) return
           ch.postMessage({ kind: "event", data: ev as SSEvent } satisfies Msg)
@@ -128,7 +138,11 @@ function connectDirect(opts: Opts): Conn {
         const link = new AbortController()
         opts.signal.addEventListener("abort", () => link.abort(), { once: true })
         const sdk = createSdkForServer({ server: opts.server, fetch: opts.fetch, signal: link.signal })
-        const result = await sdk.global.event({ signal: link.signal, onSseError: opts.onSseError })
+        const result = await sdk.global.event({
+          signal: link.signal,
+          headers: clientHeaders(opts.client),
+          onSseError: opts.onSseError,
+        })
         for await (const ev of result.stream) yield ev as SSEvent
       },
     },

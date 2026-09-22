@@ -1,4 +1,19 @@
-export type Conflict = { desktop: number }
+export type ClientType = "desktop" | "web"
+
+export type PresenceData = {
+  pid?: number
+  channel?: string
+  clients?: { desktop?: number; web?: number }
+  others?: { pid: number; channel: string; clients: { desktop: number; web: number } }[]
+}
+
+export type Conflict = { channel: string }
+
+export function conflictOf(data: PresenceData): Conflict | null {
+  const desktop = data.clients?.desktop ?? 0
+  if (desktop === 0 && (data.others?.length ?? 0) === 0) return null
+  return { channel: data.channel ?? "" }
+}
 
 export async function presenceConflict(
   url: string,
@@ -9,15 +24,9 @@ export async function presenceConflict(
     const target = new URL("/global/presence", `${url.replace(/\/+$/, "")}/`)
     const res = await fetchImpl(target, { signal: AbortSignal.timeout(opts.timeout ?? 5_000) })
     if (!res.ok) return null
-    const data = (await res.json()) as { others?: unknown }
-    if (!data || !Array.isArray(data.others)) return null
-    let desktop = 0
-    for (const item of data.others) {
-      const clients = (item as { clients?: { desktop?: unknown } } | null)?.clients
-      const count = clients?.desktop
-      if (typeof count === "number" && count > 0) desktop += count
-    }
-    return desktop > 0 ? { desktop } : null
+    const data = (await res.json()) as PresenceData | null
+    if (!data || typeof data !== "object") return null
+    return conflictOf(data)
   } catch {
     return null
   }

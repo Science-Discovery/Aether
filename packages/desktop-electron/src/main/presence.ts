@@ -4,13 +4,13 @@ import { aetherDataDir } from "./paths"
 
 const BASE_PORT = 19527
 const PORT_SPAN = 5
+const SUPPRESS_HEADER = "x-aether-presence-scan"
 
 export type Clients = { desktop: number; web: number }
 
 export type Info = {
   pid: number
   channel: string
-  kind: "desktop" | "web"
   clients: Clients
 }
 
@@ -38,42 +38,44 @@ export function parse(value: unknown): Info | null {
   const raw = data.clients as Record<string, unknown> | undefined
   if (typeof data.pid !== "number") return null
   if (typeof data.channel !== "string") return null
-  if (data.kind !== "desktop" && data.kind !== "web") return null
   if (!raw || typeof raw.desktop !== "number" || typeof raw.web !== "number") return null
-  return {
-    pid: data.pid,
-    channel: data.channel,
-    kind: data.kind,
-    clients: { desktop: raw.desktop, web: raw.web },
-  }
+  return { pid: data.pid, channel: data.channel, clients: { desktop: raw.desktop, web: raw.web } }
 }
 
 async function defaultProbe(port: number): Promise<Info | null> {
   const url = `http://127.0.0.1:${port}/global/presence`
-  const res = await fetch(url, { signal: AbortSignal.timeout(2_500) }).catch(() => null)
+  const res = await fetch(url, {
+    signal: AbortSignal.timeout(2_500),
+    headers: { [SUPPRESS_HEADER]: "0" },
+  }).catch(() => null)
   if (!res || !res.ok) return null
   return parse(await res.json().catch(() => null))
 }
 
 export async function conflict(
-  opts: { root?: string; probe?: (port: number) => Promise<Info | null> } = {},
+  opts: { root?: string; channel: string; probe?: (port: number) => Promise<Info | null> } = { channel: "" },
 ): Promise<Info[]> {
   const probe = opts.probe ?? defaultProbe
   const found = new Map<number, Info>()
   await Promise.all(
     ports(opts.root).map(async (port) => {
       const info = await probe(port)
-      if (info) found.set(info.pid, info)
+      if (info && info.channel === opts.channel) found.set(info.pid, info)
     }),
   )
   return [...found.values()]
 }
 
-export function detail(infos: Info[]) {
-  const web = infos.reduce((sum, info) => sum + info.clients.web, 0)
-  const desktop = infos.reduce((sum, info) => sum + info.clients.desktop, 0)
+export function channelSlug(channel: string) {
+  return channel === "beta" || channel === "latest" ? "latest" : channel
+}
+
+export function detail(infos: Info[], channel: string) {
+  const web = infos.some((info) => info.clients.web > 0)
+  const desktop = infos.some((info) => info.clients.desktop > 0)
   const parts = []
-  if (web > 0) parts.push("the web version (browser)")
-  if (desktop > 0) parts.push("another desktop app")
-  return `${parts.join(" and ")} currently connected. Only one app can be connected at a time.`
+  if (web) parts.push("the web version (browser)")
+  if (desktop) parts.push("another desktop app")
+  const who = parts.length > 0 ? `${parts.join(" and ")} is` : "another Aether server is"
+  return `${who} already using the "${channel}" channel. Only one app can use a channel at a time.`
 }

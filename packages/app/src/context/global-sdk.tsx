@@ -150,6 +150,7 @@ export const { use: useGlobalSDK, provider: GlobalSDKProvider } = createSimpleCo
           server: currentServer.http,
           fetch: eventFetch,
           signal: attempt.signal,
+          client: window.api ? "desktop" : "web",
           onSseError: (error) => {
             if (aborted(error)) return
             console.error("[global-sdk] event stream error", {

@@ -100,7 +100,11 @@ export function registerIpcHandlers(deps: Deps) {
       const win = BrowserWindow.fromWebContents(event.sender)
       win?.focus()
       const dialogOpts = {
-        properties: ["openDirectory", ...(opts?.multiple ? ["multiSelections" as const] : []), "createDirectory"] as any,
+        properties: [
+          "openDirectory",
+          ...(opts?.multiple ? ["multiSelections" as const] : []),
+          "createDirectory",
+        ] as any,
         title: opts?.title ?? "Choose a folder",
         defaultPath: opts?.defaultPath,
       }

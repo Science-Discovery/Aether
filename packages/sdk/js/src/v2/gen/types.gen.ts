@@ -2792,7 +2792,6 @@ export type GlobalPresenceResponses = {
   200: {
     pid: number
     channel: string
-    kind: "desktop" | "web"
     clients: {
       desktop: number
       web: number
@@ -2800,7 +2799,6 @@ export type GlobalPresenceResponses = {
     others: Array<{
       pid: number
       channel: string
-      kind: "desktop" | "web"
       clients: {
         desktop: number
         web: number
