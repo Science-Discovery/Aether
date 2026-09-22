@@ -29,7 +29,9 @@ export function useFilteredList<T>(props: FilteredListProps<T>) {
     }),
     async ({ filter, items }) => {
       const query = filter ?? ""
-      const needle = query.toLowerCase()
+      // match the display convention: paths are forward-slash everywhere,
+      // while Windows users type and paste backslash-separated paths
+      const needle = query.toLowerCase().replaceAll("\\", "/")
       const all = (await Promise.resolve(items)) || []
       const result = pipe(
         all,

@@ -53,6 +53,17 @@ export namespace Vcs {
       list,
       (item) =>
         Effect.gen(function* () {
+          // collapsed untracked directory (trailing slash): nothing to read
+          if (item.status === "added" && item.file.endsWith("/")) {
+            return {
+              file: item.file,
+              before: "",
+              after: "",
+              additions: 0,
+              deletions: 0,
+              status: "added",
+            } satisfies Snapshot.FileDiff
+          }
           const before = item.status === "added" || !ref ? "" : yield* git.show(cwd, ref, item.file, base)
           const after = item.status === "deleted" ? "" : yield* work(fs, cwd, item.file)
           const stat = map.get(item.file)
@@ -70,15 +81,35 @@ export namespace Vcs {
     return next.toSorted((a, b) => a.file.localeCompare(b.file))
   })
 
+  // Expand collapsed untracked directories (trailing slash) up to a bound so
+  // the changes panel lists their files; each expansion walk is bounded to
+  // the directory subtree and stops once the result set is large.
+  const expand = Effect.fnUntraced(function* (git: Git.Interface, cwd: string, list: Git.Item[]) {
+    const out: Git.Item[] = []
+    for (const item of list) {
+      if (item.status !== "added" || !item.file.endsWith("/")) {
+        out.push(item)
+        continue
+      }
+      if (out.length > 1000) {
+        out.push(item)
+        continue
+      }
+      const inner = (yield* git.status(cwd, item.file)).filter((x) => !x.file.endsWith("/"))
+      out.push(...(inner.length ? inner : [item]))
+    }
+    return out
+  })
+
   const track = Effect.fnUntraced(function* (
     fs: AppFileSystem.Interface,
     git: Git.Interface,
     cwd: string,
     ref: string | undefined,
   ) {
-    if (!ref) return yield* files(fs, git, cwd, ref, yield* git.status(cwd), new Map())
+    if (!ref) return yield* files(fs, git, cwd, ref, yield* expand(git, cwd, yield* git.status(cwd)), new Map())
     const [list, stats] = yield* Effect.all([git.status(cwd), git.stats(cwd, ref)], { concurrency: 2 })
-    return yield* files(fs, git, cwd, ref, list, nums(stats))
+    return yield* files(fs, git, cwd, ref, yield* expand(git, cwd, list), nums(stats))
   })
 
   const compare = Effect.fnUntraced(function* (
@@ -95,9 +126,13 @@ export namespace Vcs {
       git,
       cwd,
       ref,
-      merge(
-        list,
-        extra.filter((item) => item.code === "??"),
+      yield* expand(
+        git,
+        cwd,
+        merge(
+          list,
+          extra.filter((item) => item.code === "??"),
+        ),
       ),
       nums(stats),
     )
@@ -229,6 +264,8 @@ export namespace Vcs {
   interface State {
     current: string | undefined
     root: Git.Base | undefined
+    /** armed single-flight diff per mode, shared by concurrent callers */
+    diffs?: Map<Mode, Effect.Effect<Snapshot.FileDiff[]>>
   }
 
   export class Service extends ServiceMap.Service<Service, Interface>()("@opencode/Vcs") {}
@@ -290,20 +327,33 @@ export namespace Vcs {
         diff: Effect.fn("Vcs.diff")(function* (mode: Mode) {
           const value = yield* InstanceState.get(state)
           if (Instance.project.vcs !== "git") return []
-          if (mode === "git") {
-            return yield* track(
-              fs,
-              git,
-              Instance.directory,
-              (yield* git.hasHead(Instance.directory)) ? "HEAD" : undefined,
-            )
-          }
+          // the web app fires this on session open, watcher debounces and
+          // idle transitions at once; concurrent callers share one run
+          value.diffs ??= new Map()
+          const hit = value.diffs.get(mode)
+          if (hit) return yield* hit
+          const fx = yield* Effect.cached(
+            Effect.gen(function* () {
+              if (mode === "git") {
+                return yield* track(
+                  fs,
+                  git,
+                  Instance.directory,
+                  (yield* git.hasHead(Instance.directory)) ? "HEAD" : undefined,
+                )
+              }
 
-          if (!value.root) return []
-          if (value.current && value.current === value.root.name) return []
-          const ref = yield* git.mergeBase(Instance.directory, value.root.ref)
-          if (!ref) return []
-          return yield* compare(fs, git, Instance.directory, ref)
+              if (!value.root) return []
+              if (value.current && value.current === value.root.name) return []
+              const ref = yield* git.mergeBase(Instance.directory, value.root.ref)
+              if (!ref) return []
+              return yield* compare(fs, git, Instance.directory, ref)
+            }).pipe(Effect.catch(() => Effect.succeed([] as Snapshot.FileDiff[]))),
+          )
+          value.diffs.set(mode, fx)
+          const out = yield* fx
+          if (value.diffs.get(mode) === fx) value.diffs.delete(mode)
+          return out
         }),
         graph: Effect.fn("Vcs.graph")(function* (opts?: { max?: number; branch?: string; skip?: number }) {
           if (Instance.project.vcs !== "git") {

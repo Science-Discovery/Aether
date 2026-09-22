@@ -493,7 +493,7 @@ export namespace DbRecovery {
 
     // After recovery, refresh main DB project mappings
     try {
-      Database.registerUntrackedProjects(Database.Client())
+      await Database.registerUntrackedProjects(Database.Client())
       log.info("refreshed main db project mappings after recovery")
     } catch (err) {
       log.warn("failed to refresh project mappings after recovery", { error: String(err) })

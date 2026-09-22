@@ -27,7 +27,9 @@ export async function InstanceBootstrap() {
   Vcs.init()
   FileWatcher.initGit()
 
-  await SessionRecovery.repairInterrupted().catch((error) => {
+  // Crash repair is cosmetic bookkeeping (stale running parts/messages) and
+  // scales with session count — run it off the open path.
+  void SessionRecovery.repairInterrupted().catch((error) => {
     Log.Default.warn("failed to repair interrupted assistant messages", { error })
   })
 

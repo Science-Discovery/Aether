@@ -273,6 +273,7 @@ export namespace Ripgrep {
     hidden?: boolean
     follow?: boolean
     maxDepth?: number
+    paths?: string[]
     signal?: AbortSignal
   }) {
     input.signal?.throwIfAborted()
@@ -286,6 +287,7 @@ export namespace Ripgrep {
         args.push(`--glob=${g}`)
       }
     }
+    if (input.paths) args.push(...input.paths)
 
     // Guard against invalid cwd to provide a consistent ENOENT error.
     if (!(await fs.stat(input.cwd).catch(() => undefined))?.isDirectory()) {

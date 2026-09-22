@@ -512,7 +512,7 @@ export namespace Database {
       migrate(db, entries)
     }
     if (isNewDb) postSplitFixupMain(db)
-    registerUntrackedProjects(db)
+    void registerUntrackedProjects(db)
     return db
   }
 
@@ -712,30 +712,33 @@ export namespace Database {
     }
   }
 
-  function gitWorktreeDirectories(worktree: string): string[] {
-    if (!existsSync(worktree)) return []
+  function gitWorktreeDirectories(worktree: string): Promise<string[]> {
+    if (!existsSync(worktree)) return Promise.resolve([])
     try {
-      const proc = Bun.spawnSync(["git", "worktree", "list", "--porcelain"], {
+      const proc = Bun.spawn(["git", "worktree", "list", "--porcelain"], {
         cwd: worktree,
         stderr: "pipe",
         stdout: "pipe",
       })
-      if (proc.exitCode !== 0) return []
-      const text = proc.stdout?.toString() ?? ""
-      const dirs: string[] = []
-      for (const line of text.split("\n")) {
-        const trimmed = line.trim()
-        if (trimmed.startsWith("worktree ")) {
-          dirs.push(trimmed.slice("worktree ".length).trim())
-        }
-      }
-      return dirs
+      return proc.exited.then((exitCode) => {
+        if (exitCode !== 0) return []
+        return new Response(proc.stdout).text().then((text) => {
+          const dirs: string[] = []
+          for (const line of text.split("\n")) {
+            const trimmed = line.trim()
+            if (trimmed.startsWith("worktree ")) {
+              dirs.push(trimmed.slice("worktree ".length).trim())
+            }
+          }
+          return dirs
+        })
+      })
     } catch {
-      return []
+      return Promise.resolve([])
     }
   }
 
-  function validateDirectoryMeta(pSqlite: BunSqlite, pid: string, recentLookup: Map<string, any>) {
+  async function validateDirectoryMeta(pSqlite: BunSqlite, pid: string, recentLookup: Map<string, any>) {
     const hasTable = pSqlite
       .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='directory_meta'")
       .get()
@@ -757,7 +760,7 @@ export namespace Database {
 
     const setB = new Set<string>()
     if (projectRow.vcs === "git" && worktree !== "/") {
-      for (const dir of gitWorktreeDirectories(worktree)) {
+      for (const dir of await gitWorktreeDirectories(worktree)) {
         setB.add(norm(dir))
       }
     }
@@ -914,9 +917,30 @@ export namespace Database {
    *  were re-registered by a live instance boot and must survive a repeat pass. */
   let lastReconcileAt = 0
 
-  export function registerUntrackedProjects(db: DrizzleClient) {
+  let reconcilingProjects: Promise<void> | undefined
+
+  /**
+   * Reconcile every project DB against the main DB (directory_meta backfill,
+   * stale-row cleanup, identity re-resolution). With hundreds of project DBs
+   * this opens and integrity-checks each one, so callers on the open path
+   * fire-and-forget it; the returned promise resolves when the pass completes
+   * (tests await it). Idempotent — a killed run is completed by the next
+   * process start.
+   */
+  export function registerUntrackedProjects(db: DrizzleClient): Promise<void> {
+    // a pass already in flight answers both callers
+    if (!reconcilingProjects) {
+      reconcilingProjects = reconcileProjects(db)
+        .catch((error) => log.error("project reconciliation failed", { error: String(error) }))
+        .finally(() => (reconcilingProjects = undefined))
+    }
+    return reconcilingProjects
+  }
+
+  async function reconcileProjects(db: DrizzleClient) {
     const sqlite = db.$client
     const cutoff = lastReconcileAt
+    const breathe = () => new Promise<void>((resolve) => setImmediate(resolve))
 
     cleanupQuarantinedOriginals()
 
@@ -1017,7 +1041,7 @@ export namespace Database {
           }
 
           ensureDirectoryMeta(pSqlite, pid, recentLookup)
-          validateDirectoryMeta(pSqlite, pid, recentLookup)
+          await validateDirectoryMeta(pSqlite, pid, recentLookup)
           syncProjectSandboxes(pSqlite, pid)
           syncDirectoryMetaToGlobal(sqlite, pSqlite, pid)
           activeByPid.set(pid, hasMessage)
@@ -1055,8 +1079,18 @@ export namespace Database {
         quarantine(fullPath, "project", pid)
         corruptedIds.add(pid)
       }
+      // yield to the event loop so pending requests are not starved
+      if (synced > 0 && synced % 8 === 0) await breathe()
     }
     if (synced > 0) log.info("directory_meta sync complete", { synced })
+
+    // Freshly touched rows may belong to projects whose DB file has not been
+    // created yet (it is created on first attach) — now that reconciliation
+    // runs in the background, a row touched after the previous pass (cutoff)
+    // must never be deleted by this pass. On the first pass (cutoff 0) this
+    // exempts everything, which matches the classic synchronous behavior
+    // where the first pass ran before any user row existed.
+    const fresh = (at: number) => at > cutoff
 
     // Phase 2: Verify global_project_map + project_recent against
     //          ProjectIdentity.resolve. Collect all directory paths from
@@ -1066,16 +1100,18 @@ export namespace Database {
     //          (a) resolve agrees with current project_id → skip
     //          (b) resolve disagrees, correct DB exists → update both tables
     //          (c) resolve disagrees, neither DB exists → delete both entries
+    //              (unless fresh: touched after the previous pass)
     //          (d) resolve disagrees, only old DB exists → keep old (backward compat)
     //          Runs BEFORE the purge phases so re-pointed rows are cleaned in
     //          the same startup pass.
-    const mapRows = sqlite.prepare("SELECT directory, project_id FROM global_project_map").all() as {
+    const mapRows = sqlite.prepare("SELECT directory, project_id, time_updated FROM global_project_map").all() as {
       directory: string
       project_id: string
+      time_updated: number
     }[]
     const recentPidRows = sqlite
-      .prepare("SELECT key, directory, project_id, kind FROM project_recent WHERE project_id IS NOT NULL")
-      .all() as { key: string; directory: string; project_id: string; kind: string }[]
+      .prepare("SELECT key, directory, project_id, time_updated FROM project_recent WHERE project_id IS NOT NULL")
+      .all() as { key: string; directory: string; project_id: string; time_updated: number }[]
     const mapPidByDir = new Map<string, string>()
     for (const row of mapRows) mapPidByDir.set(row.directory, row.project_id)
     const updateMap = sqlite.prepare(
@@ -1089,7 +1125,7 @@ export namespace Database {
     let mapCorrected = 0
     let recentCorrected = 0
 
-    const fixEntry = (directory: string, oldPid: string, fixRecentOnly: boolean) => {
+    const fixEntry = (directory: string, oldPid: string, fixRecentOnly: boolean, fresh: boolean) => {
       const resolved = ProjectIdentity.resolve(directory)
       if (oldPid === resolved.id) return false
       const resolvedDbExists = existingDbIds.has(resolved.id)
@@ -1103,7 +1139,7 @@ export namespace Database {
         }
         updateRecent.run(resolved.id, Date.now(), key)
         recentCorrected++
-      } else if (!mappedDbExists) {
+      } else if (!mappedDbExists && !fresh) {
         if (!fixRecentOnly) {
           deleteMap.run(directory)
           mapCorrected++
@@ -1114,27 +1150,19 @@ export namespace Database {
       return true
     }
 
-    for (const row of mapRows) fixEntry(row.directory, row.project_id, false)
-    for (const row of recentPidRows) {
+    for (const [i, row] of mapRows.entries()) {
+      fixEntry(row.directory, row.project_id, false, fresh(row.time_updated))
+      if (i % 200 === 199) await breathe()
+    }
+    for (const [i, row] of recentPidRows.entries()) {
       const mapPid = mapPidByDir.get(row.directory)
-      if (mapPid && mapPid !== row.project_id) fixEntry(row.directory, row.project_id, true)
+      if (mapPid && mapPid !== row.project_id) fixEntry(row.directory, row.project_id, true, fresh(row.time_updated))
+      if (i % 200 === 199) await breathe()
     }
     if (mapCorrected > 0) log.info("corrected stale global_project_map entries", { mapCorrected })
     if (recentCorrected > 0) log.info("corrected stale project_recent entries", { recentCorrected })
 
     // Phase 3: Delete project_recent entries whose project_id has no corresponding DB
-    //          (covers corrupted/orphaned project DBs), rows pointing INTO a
-    //          known project without being its worktree — sandbox/alias rows are
-    //          internal and must never live in the user-activity feed — and rows
-    //          for projects without a message-bearing session in this channel:
-    //          the feed records conversations, not registration. touch() seeds a
-    //          row while a directory is open, but only refreshes it while the
-    //          project is active, so inactive rows freeze and are collected here.
-    //          Rows touched after the previous reconcile run are exempt: a second
-    //          same-process pass (db recovery after quarantine) must not delete
-    //          rows that instance boots re-touched in between, because touch is
-    //          the only writer and a purged row would not come back until the
-    //          next fromDirectory.
     const staleRows = sqlite
       .prepare("SELECT key, project_id, directory, time_updated FROM project_recent WHERE project_id IS NOT NULL")
       .all() as { key: string; project_id: string; directory: string; time_updated: number }[]
@@ -1145,6 +1173,9 @@ export namespace Database {
       const wsDirs = workspaceDirsByPid.get(row.project_id)
       const internal = wt !== undefined && norm(row.directory) !== norm(wt) && !wsDirs?.has(norm(row.directory))
       const inactive = !activeByPid.get(row.project_id) && (!cutoff || row.time_updated <= cutoff)
+      // a no-DB row may be a fresh registration whose DB file has not been
+      // created yet (first attach) — purge those only once stale
+      if (noDb && fresh(row.time_updated)) continue
       if (noDb || internal || inactive) {
         sqlite.prepare("DELETE FROM project_recent WHERE key = ?").run(row.key)
         removed++
@@ -1152,14 +1183,22 @@ export namespace Database {
     }
     if (removed > 0) log.info("removed stale project_recent entries", { removed })
 
-    // Phase 4: Delete global_project_map entries whose project_id has no corresponding DB
-    const staleMap = sqlite.prepare("SELECT directory, project_id FROM global_project_map").all() as {
+    // Phase 4: Delete global_project_map entries whose project_id has no
+    //          corresponding DB, and deduplicate entries where norm(directory)
+    //          differs from the stored value (keep the normed one written by
+    //          syncDirectoryMetaToGlobal). Rows touched after the previous pass are exempt.
+    const staleMap = sqlite.prepare("SELECT directory, project_id, time_updated FROM global_project_map").all() as {
       directory: string
       project_id: string
+      time_updated: number
     }[]
     let mapRemoved = 0
     const seenNorms = new Map<string, string>() // norm(directory) → the kept row's raw directory
     for (const row of staleMap) {
+      if (fresh(row.time_updated)) {
+        seenNorms.set(norm(row.directory), row.directory)
+        continue
+      }
       const noDb = !existingDbIds.has(row.project_id) || corruptedIds.has(row.project_id)
       if (noDb) {
         sqlite.prepare("DELETE FROM global_project_map WHERE directory = ?").run(row.directory)

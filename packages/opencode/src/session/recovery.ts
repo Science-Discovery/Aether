@@ -62,11 +62,19 @@ export namespace SessionRecovery {
     return stale.length
   }
 
+  // Only sessions touched recently can have crash-interrupted runs; older
+  // ones are left as-is so opening a project with thousands of sessions
+  // does not read every conversation.
+  const WINDOW_MS = 7 * 24 * 60 * 60 * 1000
+
   export async function repairInterrupted() {
     const boot = Date.now()
+    const cutoff = boot - WINDOW_MS
+    const all = [...Session.list({ limit })]
+    const sessions = all.filter((session) => (session.time?.updated ?? 0) >= cutoff)
     let count = 0
 
-    for (const session of Session.list({ limit })) {
+    for (const session of sessions) {
       count += await repair({
         messages: await Session.messages({ sessionID: session.id }).catch(() => []),
         completed: boot,
@@ -76,6 +84,9 @@ export namespace SessionRecovery {
       })
     }
 
+    if (all.length > sessions.length) {
+      log.info("skipped old sessions for repair", { skipped: all.length - sessions.length })
+    }
     if (count > 0) log.info("repaired interrupted assistant messages", { count })
   }
 
