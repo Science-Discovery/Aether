@@ -697,4 +697,17 @@ describe("session prompt cross-project binding", () => {
       },
     })
   }, 30000)
+
+  test("cancel tolerates a session that exists in no project database", async () => {
+    // runLoop's defer(cancel) must not turn a finished loop into an error when
+    // the session row was removed mid-run: a global miss skips the rebind and
+    // resolves instead of rejecting.
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        await SessionPrompt.cancel(SessionID.descending())
+      },
+    })
+  })
 })

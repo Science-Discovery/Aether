@@ -554,10 +554,11 @@ export const SessionRoutes = lazy(() =>
         }),
       ),
       async (c) => {
-        // Fire-and-forget: cancel rebinds into the session's own instance and
-        // logs its own failures; surfacing them here would only create
-        // unhandled rejections.
-        SessionPrompt.cancel(c.req.valid("param").sessionID).catch(() => {})
+        // Fire-and-forget: cancel rebinds into the session's own instance;
+        // failures are logged here instead of surfacing, which would only
+        // create unhandled rejections.
+        const sessionID = c.req.valid("param").sessionID
+        SessionPrompt.cancel(sessionID).catch((error) => log.warn("abort", { sessionID, error }))
         return c.json(true)
       },
     )
