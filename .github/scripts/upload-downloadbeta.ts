@@ -246,14 +246,30 @@ function pickLink(pre: Presign, name: string): Upload {
 const pre = await presignBeta()
 const represign = async (name: string) => pickLink(await presignBeta(), name)
 
+const tasks = [
+  ...Object.entries(items).flatMap(([key, item]) => [
+    () =>
+      put(
+        item.archive,
+        pre.platforms[key]!.archive.objectKey.split("/").pop() ?? "",
+        represign,
+        pre.platforms[key]!.archive as Upload,
+      ),
+    () =>
+      put(
+        item.installer,
+        pre.platforms[key]!.installer.objectKey.split("/").pop() ?? "",
+        represign,
+        pre.platforms[key]!.installer as Upload,
+      ),
+  ]),
+  ...desktop.map((name) => () => put(`dist/${name}`, name, represign, pickLink(pre, name))),
+]
+
 await Promise.all(
-  [
-    ...Object.entries(items).flatMap(([key, item]) => [
-      put(item.archive, pre.platforms[key]!.archive.objectKey.split("/").pop() ?? "", represign, pre.platforms[key]!.archive as Upload),
-      put(item.installer, pre.platforms[key]!.installer.objectKey.split("/").pop() ?? "", represign, pre.platforms[key]!.installer as Upload),
-    ]),
-    ...desktop.map((name) => put(`dist/${name}`, name, represign, pickLink(pre, name))),
-  ],
+  Array.from({ length: 3 }, async () => {
+    for (let task = tasks.shift(); task; task = tasks.shift()) await task()
+  }),
 )
 
 const done = await post(root, "/api/downloadbeta/admin/commit", pass, {
@@ -268,7 +284,8 @@ if (Array.isArray(done.ossWarnings) && done.ossWarnings.length > 0) {
 }
 if (!Array.isArray(done.files) || done.files.length < Object.keys(items).length)
   fail("Commit response is missing files")
-if (!Array.isArray(done.desktop?.files) || done.desktop.files.length < 6) fail("Commit response is missing desktop files")
+if (!Array.isArray(done.desktop?.files) || done.desktop.files.length < 6)
+  fail("Commit response is missing desktop files")
 const links = done.files.map(urls)
 const desktopLinks = done.desktop.files.map(desktopUrls)
 if (links.some((item) => item.length === 0) || desktopLinks.some((item) => item.length === 0)) {
