@@ -36,7 +36,7 @@ description: 在 Aether (aether-dev) 中把多个独立任务派发到 worktree 
 1. `git worktree list` 确认现有沙箱清单；`git fetch origin dev` 确认基线。
 2. **分配 worktree**（每任务一个，路径记入任务书）：
    - 复用判定：`git -C <worktree> status --porcelain` 为空（干净）→ 复用，无论当前挂的分支是什么（子会话会自己 `checkout -b`）。
-   - 不干净或数量不够 → 新建：`git worktree add --detach <worktree父目录>/sandbox-N origin/dev`（编号顺延，不占分支名；子会话再 checkout -b）。**用 `git worktree add`，禁止走 Aether 的 Worktree.create API**（连续创建会触发 watcher.node Bun segfault 闪退；外部 git worktree add 由 WorktreeDiscover 5s 轮询自动注册进侧边栏，是安全路径）。
+   - 不干净或数量不够 → 新建：`git worktree add --detach <worktree父目录>/sandbox-N origin/dev`（**N 从现有 `git worktree list` 中 sandbox 前缀的最大编号 +1 顺延**，不重号；`--detach` 不占分支名，子会话再 checkout -b）。**用 `git worktree add`，禁止走 Aether 的 Worktree.create API**（连续创建会触发 watcher.node Bun segfault 闪退；外部 git worktree add 由 WorktreeDiscover 5s 轮询自动注册进侧边栏，是安全路径）。
 3. 写派发脚本（见 `scripts/dispatch.py`，可按任务改 `TASKS` 表）：
    - 全部子会话 `POST /session?directory=<URL编码的主工作区路径>` 建会话，body 带 title + **permission 规则集**。
    - `POST /session/<id>/prompt_async?directory=<同主工作区>` 派发任务书（含分配的 worktree 路径），立即返回 204，全部并行不阻塞；body 可带可选 `model`。
@@ -109,5 +109,5 @@ netstat -ano | grep "$OPENCODE_PID"        # 找 LISTENING 端口
 - URL 参数 `directory` 要对完整路径做 quote（safe=""）。
 - 多沙箱并行时 CI runner 资源紧张，重载测试（如 packages/opencode 的 30s 超时类）偶发 flaky：先对照 dev 基线 run 判断是否环境性，是则单次有限重跑并记录原因，不算回归。
 - 共享 worktree 上可能残留其他沙箱实验的未提交改动：分配时用 `git -C <worktree> status --porcelain` 检查，不干净就换/新建；review 以已推送的 HEAD 提交为准；返工前让 agent 确认基线是自己的 PR head。
-- 新建 worktree 用 `git worktree add --detach <path> origin/dev`；**不要**用 Aether 的 Worktree.create/UI 创建（连续创建触发 watcher.node segfault 闪退）。
+- 新建 worktree 用 `git worktree add --detach <path> origin/dev`，编号取 `git worktree list` 中 sandbox 前缀最大编号 +1（不重号）；**不要**用 Aether 的 Worktree.create/UI 创建（连续创建触发 watcher.node segfault 闪退）。
 - 子会话的 bash 默认 cwd 是主工作区：任务书必须明确"所有 git 用 `git -C <worktree>`、文件操作用 worktree 绝对路径"，防止误改主工作区。
