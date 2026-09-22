@@ -32,7 +32,7 @@ const webServer = [
     ? []
     : [
         {
-          command: "bun script/e2e-backend.ts",
+          command: `bun script/e2e-backend.ts ${serverPort}`,
           url: `http://127.0.0.1:${serverPort}/global/health`,
           timeout: 120_000,
         },
