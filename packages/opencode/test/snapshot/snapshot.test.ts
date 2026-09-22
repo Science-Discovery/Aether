@@ -5,6 +5,10 @@ import path from "path"
 import { Snapshot } from "../../src/snapshot"
 import { Instance } from "../../src/project/instance"
 import { Filesystem } from "../../src/util/filesystem"
+import { Hash } from "../../src/util/hash"
+import { Global } from "../../src/global"
+import { Bus } from "../../src/bus"
+import { FileWatcher } from "../../src/file/watcher"
 import { tmpdir } from "../fixture/fixture"
 
 // Git always outputs /-separated paths internally. Snapshot.patch() joins them
@@ -1230,6 +1234,67 @@ test("revert with overlapping files across patches uses first patch hash", async
 
       const content = await fs.readFile(`${tmp.path}/shared.txt`, "utf-8")
       expect(content).toBe("v1")
+    },
+  })
+})
+
+test("directory event in a burst does not drop file edits", async () => {
+  await using tmp = await bootstrap()
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const before = await Snapshot.track()
+      expect(before).toBeTruthy()
+
+      // simulate a watcher burst: a mkdir lands in pending next to a real
+      // edit. The edit keeps b.txt's size and mtime so the reconcile walk
+      // cannot see it — only the pending path can stage it, which keeps
+      // this test deterministic.
+      await $`mkdir ${tmp.path}/burst`.quiet()
+      const bstat = await fs.stat(`${tmp.path}/b.txt`)
+      const btext = await fs.readFile(`${tmp.path}/b.txt`, "utf-8")
+      await Filesystem.write(`${tmp.path}/b.txt`, `Z${btext.slice(1)}`)
+      await fs.utimes(`${tmp.path}/b.txt`, bstat.atime, bstat.mtime)
+      await Bus.publish(FileWatcher.Event.Updated, { file: `${tmp.path}/burst`, event: "add" })
+      await Bus.publish(FileWatcher.Event.Updated, { file: `${tmp.path}/b.txt`, event: "change" })
+
+      // bus delivery into the pending set is asynchronous; keep tracking
+      // (re-publishing the burst) until the edit has actually been staged
+      let patch = await Snapshot.patch(before!)
+      for (let i = 0; i < 150 && !patch.files.includes(fwd(tmp.path, "b.txt")); i++) {
+        if (i % 10 === 5) {
+          await Bus.publish(FileWatcher.Event.Updated, { file: `${tmp.path}/burst`, event: "add" })
+          await Bus.publish(FileWatcher.Event.Updated, { file: `${tmp.path}/b.txt`, event: "change" })
+        }
+        await Bun.sleep(10)
+        patch = await Snapshot.patch(before!)
+      }
+
+      expect(patch.files).toContain(fwd(tmp.path, "b.txt"))
+      expect(patch.files).not.toContain(fwd(tmp.path, "burst"))
+    },
+  })
+}, 20_000)
+
+test("seed failure does not permanently disable snapshots", async () => {
+  await using tmp = await bootstrap()
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      // plant a file where the side gitdir goes so the first seed fails
+      const gitdir = path.join(Global.Path.data, "snapshot", Instance.project.id, Hash.fast(Instance.worktree))
+      await fs.mkdir(path.dirname(gitdir), { recursive: true })
+      await fs.writeFile(gitdir, "blocked")
+
+      expect(Snapshot.track()).rejects.toThrow()
+
+      // unblock: a later track must retry the seed and still work
+      await fs.rm(gitdir, { force: true })
+      const hash = await Snapshot.track()
+      expect(hash).toBeTruthy()
+
+      await Filesystem.write(`${tmp.path}/after.txt`, "after")
+      expect((await Snapshot.patch(hash!)).files).toContain(fwd(tmp.path, "after.txt"))
     },
   })
 })

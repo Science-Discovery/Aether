@@ -329,9 +329,19 @@ export namespace Vcs {
           if (Instance.project.vcs !== "git") return []
           // the web app fires this on session open, watcher debounces and
           // idle transitions at once; concurrent callers share one run
-          value.diffs ??= new Map()
-          const hit = value.diffs.get(mode)
-          if (hit) return yield* hit
+          const diffs = (value.diffs ??= new Map())
+          // identity-checked so an interrupted joiner cannot strand the cached
+          // run in the map for the instance lifetime
+          const joined = (fx: Effect.Effect<Snapshot.FileDiff[]>) =>
+            fx.pipe(
+              Effect.ensuring(
+                Effect.sync(() => {
+                  if (diffs.get(mode) === fx) diffs.delete(mode)
+                }),
+              ),
+            )
+          const hit = diffs.get(mode)
+          if (hit) return yield* joined(hit)
           const fx = yield* Effect.cached(
             Effect.gen(function* () {
               if (mode === "git") {
@@ -350,10 +360,8 @@ export namespace Vcs {
               return yield* compare(fs, git, Instance.directory, ref)
             }).pipe(Effect.catch(() => Effect.succeed([] as Snapshot.FileDiff[]))),
           )
-          value.diffs.set(mode, fx)
-          const out = yield* fx
-          if (value.diffs.get(mode) === fx) value.diffs.delete(mode)
-          return out
+          diffs.set(mode, fx)
+          return yield* joined(fx)
         }),
         graph: Effect.fn("Vcs.graph")(function* (opts?: { max?: number; branch?: string; skip?: number }) {
           if (Instance.project.vcs !== "git") {

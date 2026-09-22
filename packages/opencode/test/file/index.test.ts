@@ -1,8 +1,9 @@
-import { afterEach, describe, test, expect } from "bun:test"
+import { afterEach, describe, test, expect, mock } from "bun:test"
 import { $ } from "bun"
 import path from "path"
 import fs from "fs/promises"
 import { File } from "../../src/file"
+import { Git } from "../../src/git"
 import { Instance } from "../../src/project/instance"
 import { Filesystem } from "../../src/util/filesystem"
 import { tmpdir } from "../fixture/fixture"
@@ -959,6 +960,58 @@ describe("file/index Filesystem patterns", () => {
         },
       })
     })
+  })
+})
+
+describe("File.deferred untracked merge", () => {
+  test("deferred rescan keeps untracked entries and the background merge refreshes them", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await fs.writeFile(path.join(tmp.path, "tracked.txt"), "tracked", "utf-8")
+    await $`git add tracked.txt`.cwd(tmp.path).quiet()
+    await $`git commit --no-gpg-sign -m "tracked"`.cwd(tmp.path).quiet()
+    await fs.writeFile(path.join(tmp.path, "old.ts"), "old", "utf-8")
+
+    // Slow the untracked enumeration past SLOW_MS so scans defer it to the
+    // background; the real git implementation still runs underneath.
+    const real = Git
+    const realRun = real.run
+    mock.module("@/git", () => ({
+      Git: Object.assign(Object.create(real) as typeof real, {
+        run: (args: string[], opts: Git.Options) =>
+          args.includes("--others") ? Bun.sleep(600).then(() => realRun(args, opts)) : realRun(args, opts),
+      }),
+    }))
+
+    try {
+      await Instance.provide({
+        directory: tmp.path,
+        fn: async () => {
+          await File.init()
+          expect(await File.search({ query: "old.ts", type: "file" })).toContain("old.ts")
+
+          // Change the tracked set so the next scan defers; new.ts exists only
+          // on disk and must stay invisible until the merge lands.
+          await fs.writeFile(path.join(tmp.path, "second.txt"), "second", "utf-8")
+          await fs.writeFile(path.join(tmp.path, "new.ts"), "new", "utf-8")
+          await $`git add second.txt`.cwd(tmp.path).quiet()
+
+          const carried = await File.search({ query: "old.ts", type: "file" })
+          expect(carried).toContain("old.ts")
+          expect(carried).not.toContain("new.ts")
+
+          const deadline = Date.now() + 15_000
+          let refreshed = await File.search({ query: "new.ts", type: "file" })
+          while (!refreshed.includes("new.ts") && Date.now() < deadline) {
+            await Bun.sleep(200)
+            refreshed = await File.search({ query: "new.ts", type: "file" })
+          }
+          expect(refreshed).toContain("new.ts")
+          expect(await File.search({ query: "old.ts", type: "file" })).toContain("old.ts")
+        },
+      })
+    } finally {
+      mock.module("@/git", () => ({ Git: real }))
+    }
   })
 })
 

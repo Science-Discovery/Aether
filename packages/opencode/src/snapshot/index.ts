@@ -99,6 +99,7 @@ export namespace Snapshot {
           const pending = new Set<string>()
           let seeded = false
           let reconciled = 0
+          let borrowed = 0
           let walkMs = 0
           const JOURNAL_MAX = 1000
           const CHUNK = 64
@@ -107,11 +108,12 @@ export namespace Snapshot {
           const args = (cmd: string[]) => ["--git-dir", state.gitdir, "--work-tree", state.worktree, ...cmd]
 
           const git = Effect.fnUntraced(
-            function* (cmd: string[], opts?: { cwd?: string; env?: Record<string, string> }) {
+            function* (cmd: string[], opts?: { cwd?: string; env?: Record<string, string>; stdin?: string }) {
               const proc = ChildProcess.make("git", cmd, {
                 cwd: opts?.cwd,
                 env: opts?.env,
                 extendEnv: true,
+                stdin: opts?.stdin === undefined ? undefined : Stream.make(new TextEncoder().encode(opts.stdin)),
               })
               const handle = yield* spawner.spawn(proc)
               const [text, stderr] = yield* Effect.all(
@@ -213,7 +215,10 @@ export namespace Snapshot {
             return out
           })
 
+          // returns the items of every chunk that failed so callers can
+          // re-queue them; a failed chunk stages NOTHING from its invocation
           const stage = Effect.fnUntraced(function* (list: string[]) {
+            const failed: string[] = []
             for (const chunk of chunks(list)) {
               const result = yield* git([...cfg, ...args(["update-index", "--add", "--remove", "--", ...chunk])], {
                 cwd: state.worktree,
@@ -224,8 +229,10 @@ export namespace Snapshot {
                   stderr: result.stderr,
                   count: chunk.length,
                 })
+                failed.push(...chunk)
               }
             }
+            return failed
           })
 
           // drain watcher events into the snapshot index
@@ -239,6 +246,9 @@ export namespace Snapshot {
             for (const item of list) {
               if (ignored.has(item)) continue
               const stat = yield* fs.stat(path.join(state.worktree, item)).pipe(Effect.catch(() => Effect.void))
+              // directories cannot be staged: update-index rejects them with
+              // a fatal error that aborts the whole chunk
+              if (stat && stat.type === "Directory") continue
               if (stat && stat.type === "File") {
                 const size = typeof stat.size === "bigint" ? Number(stat.size) : stat.size
                 if (size > limit) {
@@ -249,8 +259,12 @@ export namespace Snapshot {
               out.push(item)
             }
             if (large.length) yield* sync(large)
-            if (out.length) yield* stage(out)
-            return out
+            const failed = out.length ? yield* stage(out) : []
+            // failed items retry on the next track/patch instead of being lost
+            if (!failed.length) return out
+            for (const item of failed) pending.add(item)
+            const dropped = new Set(failed)
+            return out.filter((item) => !dropped.has(item))
           })
 
           type Entry = { hash: string; files: string[] }
@@ -298,57 +312,109 @@ export namespace Snapshot {
 
           // one-time setup: init the side gitdir, share the repository object
           // store via alternates (no full copy), seed the index from HEAD so
-          // the first track is cheap, then reconcile dirty state in background
+          // the first track is cheap, then reconcile dirty state in background.
+          // Serialized under a dedicated semaphore - NOT the snapshot lock,
+          // which restore/revert already hold when calling this. A failure
+          // leaves `seeded` false so the next track retries.
           const seed = Effect.fnUntraced(function* () {
             if (seeded) return
-            seeded = true
-            const existed = yield* exists(state.gitdir)
-            yield* fs.ensureDir(state.gitdir).pipe(Effect.orDie)
-            if (!existed) {
-              yield* git(["init"], {
-                env: { GIT_DIR: state.gitdir, GIT_WORK_TREE: state.worktree },
-              })
-              yield* git(["--git-dir", state.gitdir, "config", "core.autocrlf", "false"])
-              yield* git(["--git-dir", state.gitdir, "config", "core.longpaths", "true"])
-              yield* git(["--git-dir", state.gitdir, "config", "core.symlinks", "true"])
-              yield* git(["--git-dir", state.gitdir, "config", "core.fsmonitor", "false"])
-              log.info("initialized")
-            }
-
-            // share objects with the repository so trees/blobs referenced by
-            // HEAD need no copying into the snapshot store
-            const common = yield* git(["rev-parse", "--path-format=absolute", "--git-common-dir"], {
-              cwd: state.worktree,
-            })
-            const dir = common.text.trim()
-            if (common.code === 0 && dir) {
-              yield* fs.ensureDir(path.join(state.gitdir, "objects", "info")).pipe(Effect.orDie)
-              yield* fs
-                .writeFileString(path.join(state.gitdir, "objects", "info", "alternates"), `${dir}/objects\n`)
-                .pipe(Effect.orDie)
-            }
-
-            if (!(yield* exists(path.join(state.gitdir, "index")))) {
-              // seed from the repository's own index: it carries fresh stat
-              // data and cache-tree, so write-tree stays incremental and
-              // diff-files only reports real changes. Blobs resolve through
-              // the alternates entry above.
-              const idx = yield* git(["rev-parse", "--path-format=absolute", "--git-path", "index"], {
-                cwd: state.worktree,
-              })
-              const file = idx.text.trim()
-              if (idx.code === 0 && file && (yield* exists(file))) {
-                yield* fs.copyFile(file, path.join(state.gitdir, "index")).pipe(Effect.orDie)
-                log.info("seeded", { index: file })
-              } else {
-                const head = yield* git(["rev-parse", "HEAD^{tree}"], { cwd: state.worktree })
-                const hash = head.text.trim()
-                if (head.code === 0 && hash) {
-                  yield* git(args(["read-tree", hash]), { cwd: state.worktree })
-                  log.info("seeded", { tree: hash })
+            yield* lock(state.gitdir + ":seed").withPermits(1)(
+              Effect.gen(function* () {
+                if (seeded) return
+                const existed = yield* exists(state.gitdir)
+                yield* fs.ensureDir(state.gitdir).pipe(Effect.orDie)
+                if (!existed) {
+                  yield* git(["init"], {
+                    env: { GIT_DIR: state.gitdir, GIT_WORK_TREE: state.worktree },
+                  })
+                  yield* git(["--git-dir", state.gitdir, "config", "core.autocrlf", "false"])
+                  yield* git(["--git-dir", state.gitdir, "config", "core.longpaths", "true"])
+                  yield* git(["--git-dir", state.gitdir, "config", "core.symlinks", "true"])
+                  yield* git(["--git-dir", state.gitdir, "config", "core.fsmonitor", "false"])
+                  log.info("initialized")
                 }
-              }
+
+                // share objects with the repository so trees/blobs referenced by
+                // HEAD need no copying into the snapshot store
+                const common = yield* git(["rev-parse", "--path-format=absolute", "--git-common-dir"], {
+                  cwd: state.worktree,
+                })
+                const dir = common.text.trim()
+                if (common.code === 0 && dir) {
+                  yield* fs.ensureDir(path.join(state.gitdir, "objects", "info")).pipe(Effect.orDie)
+                  yield* fs
+                    .writeFileString(path.join(state.gitdir, "objects", "info", "alternates"), `${dir}/objects\n`)
+                    .pipe(Effect.orDie)
+                }
+
+                if (!(yield* exists(path.join(state.gitdir, "index")))) {
+                  // seed from the repository's own index: it carries fresh stat
+                  // data and cache-tree, so write-tree stays incremental and
+                  // diff-files only reports real changes. Blobs resolve through
+                  // the alternates entry above.
+                  const idx = yield* git(["rev-parse", "--path-format=absolute", "--git-path", "index"], {
+                    cwd: state.worktree,
+                  })
+                  const file = idx.text.trim()
+                  if (idx.code === 0 && file && (yield* exists(file))) {
+                    yield* fs.copyFile(file, path.join(state.gitdir, "index")).pipe(Effect.orDie)
+                    log.info("seeded", { index: file })
+                  } else {
+                    const head = yield* git(["rev-parse", "HEAD^{tree}"], { cwd: state.worktree })
+                    const hash = head.text.trim()
+                    if (head.code === 0 && hash) {
+                      yield* git(args(["read-tree", hash]), { cwd: state.worktree })
+                      log.info("seeded", { tree: hash })
+                    }
+                  }
+                }
+                seeded = true
+              }),
+            )
+          })
+
+          // the side index is seeded from the repository's own index, so it
+          // references blobs that may exist only in the shared object store;
+          // once they leave the main index and HEAD, gc prunes them and
+          // write-tree breaks. Pack that borrowed subset into the side store
+          // so snapshots stay readable. Best effort: never fail tracking.
+          const borrow = Effect.fnUntraced(function* () {
+            if (Date.now() - borrowed < 60_000) return
+            borrowed = Date.now()
+            if (!(yield* exists(path.join(state.gitdir, "index")))) return
+            const [side, main, head] = yield* Effect.all(
+              [
+                git(args(["ls-files", "-s", "-z"]), { cwd: state.worktree }),
+                git(["ls-files", "-s", "-z"], { cwd: state.worktree }),
+                git(["ls-tree", "-r", "-z", "HEAD"], { cwd: state.worktree }),
+              ],
+              { concurrency: 3 },
+            )
+            const known = new Set<string>()
+            for (const item of main.text.split("\0")) {
+              const [mode, sha] = item.split(" ")
+              if (mode === "100644" || mode === "100755" || mode === "120000") known.add(sha)
             }
+            for (const item of head.text.split("\0")) {
+              const [mode, kind, sha] = item.split(" ")
+              if (kind === "blob") known.add(sha)
+            }
+            const risky = new Set<string>()
+            for (const item of side.text.split("\0")) {
+              const [mode, sha] = item.split(" ")
+              if ((mode === "100644" || mode === "100755" || mode === "120000") && !known.has(sha)) risky.add(sha)
+            }
+            if (!risky.size) return
+            const items = [...risky]
+            const pack = yield* git(args(["pack-objects", path.join(state.gitdir, "objects", "pack", "pack")]), {
+              cwd: state.worktree,
+              stdin: items.join("\n") + "\n",
+            })
+            if (pack.code !== 0) {
+              log.warn("failed to pack borrowed snapshot objects", { code: pack.code, stderr: pack.stderr })
+              return
+            }
+            log.info("packed borrowed snapshot objects", { count: items.length })
           })
 
           // full refresh: catches external edits that produce no watcher
@@ -361,6 +427,7 @@ export namespace Snapshot {
             reconciled = Date.now()
             const began = Date.now()
             yield* seed()
+            yield* borrow()
             // refresh ignore rules BEFORE the walk so newly excluded files
             // are not listed as untracked
             yield* sync()
