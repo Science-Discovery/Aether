@@ -31,6 +31,7 @@ import { type Session } from "@opencode-ai/sdk/v2/client"
 import { type LocalProject } from "@/context/layout"
 import { useGlobalSync } from "@/context/global-sync"
 import { useGlobalSDK } from "@/context/global-sdk"
+import { SESSION_BASE_LIMIT } from "@/context/global-sync/types"
 import { loadDescendantsForRoots } from "@/context/global-sync/session-load"
 import { useLanguage } from "@/context/language"
 import { useNotification } from "@/context/notification"
@@ -1097,7 +1098,7 @@ const ArchivedSessionList = (props: {
   )
 }
 
-const WorkspaceSessionList = (props: {
+export const WorkspaceSessionList = (props: {
   slug: Accessor<string>
   currentSessionID: Accessor<string | undefined>
   ctx: WorkspaceSidebarContext
@@ -1107,6 +1108,8 @@ const WorkspaceSessionList = (props: {
   children: Accessor<Map<string, string[]>>
   hasMore: Accessor<boolean>
   loadMore: () => Promise<void>
+  canCollapse: Accessor<boolean>
+  collapseAll: () => Promise<void>
   language: ReturnType<typeof useLanguage>
   selectMode: Accessor<boolean>
   selectedIds: Accessor<Set<string>>
@@ -1213,18 +1216,33 @@ const WorkspaceSessionList = (props: {
           />
         </Show>
         <Show when={props.hasMore() && !props.selectMode()}>
-          <div class="relative w-full py-1">
-            <Button
-              variant="ghost"
-              class="flex w-full text-left justify-start text-14-regular text-text-weak pl-9 pr-10"
-              size="large"
-              onClick={(e: MouseEvent) => {
-                props.loadMore()
-                ;(e.currentTarget as HTMLButtonElement).blur()
-              }}
-            >
-              {props.language.t("common.loadMore")}
-            </Button>
+          <div class="relative w-full py-1 flex items-center justify-center gap-0.5">
+            <Tooltip value={props.language.t("common.loadMore")} placement="top">
+              <IconButton
+                icon="chevron-double-down"
+                variant="ghost"
+                class="size-6 rounded-md text-text-weak"
+                aria-label={props.language.t("common.loadMore")}
+                onClick={(e: MouseEvent) => {
+                  void props.loadMore()
+                  ;(e.currentTarget as HTMLButtonElement).blur()
+                }}
+              />
+            </Tooltip>
+            <Show when={props.canCollapse()}>
+              <Tooltip value={props.language.t("common.collapseAll")} placement="top">
+                <IconButton
+                  icon="chevron-double-down"
+                  variant="ghost"
+                  class="size-6 rounded-md rotate-180 text-text-weak"
+                  aria-label={props.language.t("common.collapseAll")}
+                  onClick={(e: MouseEvent) => {
+                    void props.collapseAll()
+                    ;(e.currentTarget as HTMLButtonElement).blur()
+                  }}
+                />
+              </Tooltip>
+            </Show>
           </div>
         </Show>
       </nav>
@@ -1283,8 +1301,13 @@ export const SortableWorkspace = (props: {
   const notify = createMemo(() => hasPermissions() || notification.project.unseenCount(props.directory) > 0)
   const touch = createMediaQuery("(hover: none)")
   const showNew = createMemo(() => !loading())
+  const canCollapse = createMemo(() => workspaceStore.limit > SESSION_BASE_LIMIT)
   const loadMore = async () => {
     setWorkspaceStore("limit", (limit) => (limit ?? 0) + 10)
+    await globalSync.project.loadSessions(props.directory)
+  }
+  const collapseAll = async () => {
+    setWorkspaceStore("limit", SESSION_BASE_LIMIT)
     await globalSync.project.loadSessions(props.directory)
   }
 
@@ -1444,6 +1467,8 @@ export const SortableWorkspace = (props: {
             children={children}
             hasMore={hasMore}
             loadMore={loadMore}
+            canCollapse={canCollapse}
+            collapseAll={collapseAll}
             language={language}
             selectMode={selectMode}
             selectedIds={selectedIds}
@@ -1484,8 +1509,13 @@ export const LocalWorkspace = (props: {
   const count = createMemo(() => sessions()?.length ?? 0)
   const loading = createMemo(() => !booted() && count() === 0)
   const hasMore = createMemo(() => workspace().store.sessionTotal > count())
+  const canCollapse = createMemo(() => workspace().store.limit > SESSION_BASE_LIMIT)
   const loadMore = async () => {
     workspace().setStore("limit", (limit) => (limit ?? 0) + 10)
+    await globalSync.project.loadSessions(props.project.worktree)
+  }
+  const collapseAll = async () => {
+    workspace().setStore("limit", SESSION_BASE_LIMIT)
     await globalSync.project.loadSessions(props.project.worktree)
   }
 
@@ -1530,6 +1560,8 @@ export const LocalWorkspace = (props: {
         children={children}
         hasMore={hasMore}
         loadMore={loadMore}
+        canCollapse={canCollapse}
+        collapseAll={collapseAll}
         language={language}
         selectMode={selectMode}
         selectedIds={selectedIds}

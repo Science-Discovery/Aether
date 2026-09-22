@@ -1092,6 +1092,7 @@ export const dict = {
   "common.close": "Close",
   "common.edit": "Edit",
   "common.loadMore": "Load more",
+  "common.collapseAll": "Collapse all",
   "common.key.esc": "ESC",
   "common.key.ctrl": "Ctrl",
   "common.key.alt": "Alt",

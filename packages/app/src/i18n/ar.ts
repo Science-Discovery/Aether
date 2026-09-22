@@ -610,6 +610,7 @@ export const dict = {
   "common.close": "إغلاق",
   "common.edit": "تحرير",
   "common.loadMore": "تحميل المزيد",
+  "common.collapseAll": "طي الكل",
   "common.key.esc": "ESC",
   "sidebar.menu.toggle": "تبديل القائمة",
   "sidebar.nav.projectsAndSessions": "المشاريع والجلسات",
