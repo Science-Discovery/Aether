@@ -11,6 +11,7 @@ docs/ci-guide.md
 # GitHub workflows
 .github/publish-python-sdk.yml
 .github/workflows/cicd-guard.yml
+.github/workflows/cleanup-orphan-tags.yml
 .github/workflows/cleanup-draft-releases.yml
 .github/workflows/close-issues.yml
 .github/workflows/close-stale-prs.yml
@@ -19,10 +20,12 @@ docs/ci-guide.md
 .github/workflows/docs-update.yml
 .github/workflows/duplicate-issues.yml
 .github/workflows/generate.yml
+.github/workflows/install-update.yml
 .github/workflows/nix-eval.yml
 .github/workflows/nix-hashes.yml
 .github/workflows/pr-management.yml
 .github/workflows/pr-standards.yml
+.github/workflows/promote-stable.yml
 .github/workflows/publish.yml
 .github/workflows/review.yml
 .github/workflows/storybook.yml
@@ -37,7 +40,10 @@ docs/ci-guide.md
 .github/actions/setup-git-committer/action.yml
 .github/pull_request_template.md
 .github/prompts/review.txt
+.github/scripts/announce-stable.ts
 .github/scripts/extract-opencode-comment.mjs
+.github/scripts/install-update-ci.ts
+.github/scripts/promote-stable.ts
 .github/scripts/upload-downloadbeta.ts
 .github/TEAM_MEMBERS
 .github/VOUCHED.td
@@ -48,8 +54,11 @@ nix/node_modules.nix
 nix/scripts/canonicalize-node-modules.ts
 nix/scripts/normalize-bun-binaries.ts
 package.json
+packing_scripts/release-linux-desktop.sh
 packing_scripts/release-linux-web.sh
+packing_scripts/release-mac-desktop.sh
 packing_scripts/release-mac-web.sh
+packing_scripts/release-windows-desktop.bat
 packing_scripts/release-windows-web.bat
 packages/app/happydom.ts
 packages/app/package.json
