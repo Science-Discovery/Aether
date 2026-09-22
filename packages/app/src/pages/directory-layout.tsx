@@ -3,7 +3,7 @@ import { Button } from "@opencode-ai/ui/button"
 import { showToast } from "@opencode-ai/ui/toast"
 import { base64Encode } from "@opencode-ai/util/encode"
 import { useLocation, useNavigate, useParams, useResolvedPath } from "@solidjs/router"
-import { createEffect, createMemo, createResource, type ParentProps, Show } from "solid-js"
+import { createEffect, createMemo, createResource, onCleanup, type ParentProps, Show } from "solid-js"
 import { useLanguage } from "@/context/language"
 import { LocalProvider } from "@/context/local"
 import { SDKProvider } from "@/context/sdk"
@@ -13,7 +13,7 @@ import { SyncProvider, useSync } from "@/context/sync"
 import { decode64 } from "@/utils/base64"
 import { OpenIntent } from "@/utils/open-intent"
 import { formatServerError } from "@/utils/server-errors"
-import { known } from "./directory-guard"
+import { forget, fresh, known, remember } from "./directory-guard"
 
 function DirectoryDataProvider(props: ParentProps<{ directory: string }>) {
   const location = useLocation()
@@ -55,6 +55,7 @@ export default function Layout(props: ParentProps) {
   const server = useServer()
   let invalid = ""
   let blocked = ""
+  onCleanup(forget)
 
   const resolved = createMemo(() => {
     if (!params.dir) return ""
@@ -97,8 +98,10 @@ export default function Layout(props: ParentProps) {
       if (OpenIntent.consume(input.key, input.dir)) return input
       // Session links can use a different spelling of the directory already open on this server.
       if (info.value?.key === input.key && known(input.dir, [info.value.dir])) return input
+      if (fresh(input.key, input.dir)) return input
       const client = global.createClient({ throwOnError: true })
       const result = await client.project.directories()
+      remember(input.key, result.data ?? [])
       if (known(input.dir, result.data ?? [])) return input
     },
   )
@@ -130,7 +133,14 @@ export default function Layout(props: ParentProps) {
       when={resolved() && allowed() ? resolved() : undefined}
       keyed
       fallback={
-        <Show when={guard.state === "errored"}>
+        <Show
+          when={guard.state === "errored"}
+          fallback={
+            <div class="size-full flex items-center justify-center p-6" aria-busy="true">
+              <div class="size-6 animate-spin rounded-full border-2 border-icon-weak border-t-icon-base" />
+            </div>
+          }
+        >
           <div class="size-full flex items-center justify-center p-6">
             <div class="flex flex-col items-center gap-4 max-w-md text-center">
               <div role="alert" class="flex flex-col gap-2">

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { known } from "./directory-guard"
+import { forget, fresh, known, remember } from "./directory-guard"
 
 describe("directory guard", () => {
   test("matches Windows paths with different separators", () => {
@@ -43,5 +43,19 @@ describe("directory guard", () => {
     expect(known("/server/share/Paper", ["\\\\server\\share\\Paper"])).toBe(false)
     expect(known("//?/C:/Paper", ["\\\\?\\C:\\Paper"])).toBe(false)
     expect(known("//./C:/Paper", ["\\\\.\\C:\\Paper"])).toBe(false)
+  })
+})
+
+describe("directory guard cache", () => {
+  test("validates remembered directories per server until cleared", () => {
+    forget()
+    expect(fresh("local", "F:\\Desktop\\Paper")).toBe(false)
+    remember("local", ["F:/Desktop/Paper"])
+    expect(fresh("local", "F:\\Desktop\\Paper")).toBe(true)
+    expect(fresh("local", "F:/Desktop/Paper/")).toBe(true)
+    expect(fresh("local", "F:/Desktop/Other")).toBe(false)
+    expect(fresh("remote", "F:\\Desktop\\Paper")).toBe(false)
+    forget()
+    expect(fresh("local", "F:\\Desktop\\Paper")).toBe(false)
   })
 })
