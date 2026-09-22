@@ -18,7 +18,7 @@ import { registerIpcHandlers, sendDeepLinks, sendMenuCommand, sendSqliteMigratio
 import { initLogging } from "./logging"
 import { createMenu } from "./menu"
 import "./paths"
-import { conflict as frontendConflict, detail as conflictDetail } from "./presence"
+import { channelSlug, conflict as frontendConflict, detail as conflictDetail } from "./presence"
 import { ensureDesktopPersist } from "./persist"
 import {
   getDefaultServerUrl,
@@ -152,15 +152,16 @@ async function initialize() {
 
   if (process.env.AETHER_CONFLICT_CHECK !== "0") {
     await delay(300)
-    const others = await frontendConflict()
+    const channel = channelSlug(CHANNEL)
+    const others = await frontendConflict({ channel })
     if (others.length > 0) {
       logger.log("frontend conflict detected", { others })
       await dialog
         .showMessageBox({
           type: "warning",
           title: "Aether Is Already Connected",
-          message: "Aether is already connected in another app.",
-          detail: conflictDetail(others),
+          message: `Aether is already connected via another app on the "${channel}" channel.`,
+          detail: conflictDetail(others, channel),
           buttons: ["Exit"],
           defaultId: 0,
           cancelId: 0,

@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process"
 import { writeFile } from "node:fs/promises"
+import { randomUUID } from "node:crypto"
 import { BrowserWindow, Notification, app, clipboard, dialog, ipcMain, shell } from "electron"
 import type { IpcMainEvent, IpcMainInvokeEvent } from "electron"
 
@@ -42,6 +43,10 @@ type Deps = {
 }
 
 export function registerIpcHandlers(deps: Deps) {
+  const instanceId = randomUUID()
+  ipcMain.on("instance-id", (event: IpcMainEvent) => {
+    event.returnValue = instanceId
+  })
   ipcMain.handle("kill-sidecar", () => deps.killSidecar())
   ipcMain.handle("install-cli", () => deps.installCli())
   ipcMain.handle("await-initialization", (event: IpcMainInvokeEvent) => {
@@ -100,7 +105,11 @@ export function registerIpcHandlers(deps: Deps) {
       const win = BrowserWindow.fromWebContents(event.sender)
       win?.focus()
       const dialogOpts = {
-        properties: ["openDirectory", ...(opts?.multiple ? ["multiSelections" as const] : []), "createDirectory"] as any,
+        properties: [
+          "openDirectory",
+          ...(opts?.multiple ? ["multiSelections" as const] : []),
+          "createDirectory",
+        ] as any,
         title: opts?.title ?? "Choose a folder",
         defaultPath: opts?.defaultPath,
       }

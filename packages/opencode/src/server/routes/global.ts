@@ -19,7 +19,7 @@ import { Config } from "../../config/config"
 import { Global } from "../../global"
 import { errors } from "../error"
 import { Lease } from "../lease"
-import { Presence, scanSuppressed } from "../presence"
+import { Presence, marker, scanSuppressed } from "../presence"
 import { requestShutdown } from "../lifecycle"
 import { channelSlug } from "../../persist/naming"
 import {
@@ -88,8 +88,9 @@ function keepLoopbackNoProxy(value?: string) {
 }
 
 async function streamEvents(c: Context, subscribe: (q: AsyncQueue<string | null>) => () => void) {
+  const client = marker(c.req.header("x-aether-client"), c.req.header("x-aether-id"))
   return streamSSE(c, async (stream) => {
-    Presence.open()
+    const key = Presence.join(client)
     const q = new AsyncQueue<string | null>()
     let done = false
 
@@ -120,7 +121,7 @@ async function streamEvents(c: Context, subscribe: (q: AsyncQueue<string | null>
       clearInterval(heartbeat)
       unsub()
       q.push(null)
-      Presence.close()
+      Presence.leave(key)
       log.info("global event disconnected")
     }
 
@@ -390,7 +391,7 @@ export const GlobalRoutes = lazy(() =>
       describeRoute({
         summary: "Get frontend presence",
         description:
-          "Report live desktop/web UI connections held by this server and by other local Aether servers. Used to keep desktop and web clients from connecting at the same time.",
+          "Report live UI programs (desktop apps and browsers) connected to this server and to other local Aether servers on the same channel. Used to keep one channel to a single app at a time.",
         operationId: "global.presence",
         responses: {
           200: {
@@ -401,14 +402,12 @@ export const GlobalRoutes = lazy(() =>
                   z.object({
                     pid: z.number(),
                     channel: z.string(),
-                    kind: z.enum(["desktop", "web"]),
-                    clients: z.object({ desktop: z.number(), web: z.number() }),
+                    programs: z.array(z.object({ type: z.enum(["desktop", "web"]), id: z.string() })),
                     others: z.array(
                       z.object({
                         pid: z.number(),
                         channel: z.string(),
-                        kind: z.enum(["desktop", "web"]),
-                        clients: z.object({ desktop: z.number(), web: z.number() }),
+                        programs: z.array(z.object({ type: z.enum(["desktop", "web"]), id: z.string() })),
                       }),
                     ),
                   }),

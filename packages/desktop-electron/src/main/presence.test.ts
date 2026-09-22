@@ -29,13 +29,14 @@ describe("desktop presence scan", () => {
     const sibling = {
       pid: 4242,
       channel: "prod",
-      kind: "desktop" as const,
-      clients: { desktop: 1, web: 0 },
+      programs: [{ type: "desktop" as const, id: "app-1" }],
     }
     expect(parse(sibling)).toEqual(sibling)
     expect(parse(null)).toBeNull()
-    expect(parse({ pid: 1, channel: "prod", kind: "web" })).toBeNull()
-    expect(parse({ pid: 1, channel: 2, kind: "web", clients: { desktop: 0, web: 1 } })).toBeNull()
+    expect(parse({ pid: 1, channel: "prod" })).toBeNull()
+    expect(parse({ pid: 1, channel: 2, programs: [] })).toBeNull()
+    expect(parse({ pid: 1, channel: "prod", programs: [{ type: "web" }] })).toBeNull()
+    expect(parse({ pid: 1, channel: "prod", programs: [{ type: "other", id: "x" }] })).toBeNull()
   })
 
   test("ports includes the base range and serve-port files", async () => {
@@ -56,49 +57,55 @@ describe("desktop presence scan", () => {
     }
   })
 
-  test("conflict aggregates probed siblings, deduped by pid", async () => {
+  test("conflict keeps only same-channel servers, deduped by pid", async () => {
     presence = await import("./presence")
-    const { conflict, detail } = presence
+    const { conflict, channelSlug, detail } = presence
 
     const sibling = {
       pid: 4242,
       channel: "prod",
-      kind: "desktop" as const,
-      clients: { desktop: 1, web: 0 },
+      programs: [{ type: "desktop" as const, id: "app-1" }],
     }
-    const other = {
+    const webServer = {
       pid: 4243,
-      channel: "local",
-      kind: "web" as const,
-      clients: { desktop: 0, web: 2 },
+      channel: "prod",
+      programs: [{ type: "web" as const, id: "browser-1" }],
     }
+    const idle = { pid: 4244, channel: "prod", programs: [] }
+    const foreign = { pid: 4245, channel: "local", programs: [{ type: "desktop" as const, id: "app-2" }] }
 
     const root = mkdtempSync(join(tmpdir(), "aether-presence-"))
     try {
-      mkdirSync(join(root, "local"), { recursive: true })
-      writeFileSync(join(root, "local", "serve-port"), "20911")
+      mkdirSync(join(root, "prod"), { recursive: true })
+      writeFileSync(join(root, "prod", "serve-port"), "20911")
       writeFileSync(join(root, "serve-port"), "20912")
-      mkdirSync(join(root, "beta"), { recursive: true })
-      writeFileSync(join(root, "beta", "serve-port"), "20913")
+      mkdirSync(join(root, "local"), { recursive: true })
+      writeFileSync(join(root, "local", "serve-port"), "20913")
 
       const impl = (port: number) => {
         if (port === 20911) return Promise.resolve(sibling)
-        if (port === 20912) return Promise.resolve({ ...sibling, pid: 4242, channel: "dup" })
-        if (port === 20913) return Promise.resolve(other)
-        return Promise.resolve(null)
+        if (port === 20912) return Promise.resolve(webServer)
+        if (port === 20913) return Promise.resolve(foreign)
+        return Promise.resolve(idle)
       }
 
-      const found = await conflict({ root, probe: impl })
-      expect(found).toHaveLength(2)
-      expect(detail(found)).toBe(
-        "the web version (browser) and another desktop app currently connected. Only one app can be connected at a time.",
+      const found = await conflict({ root, channel: "prod", probe: impl })
+      expect(found).toHaveLength(3)
+      expect(detail(found, "prod")).toBe(
+        'the web version (browser) and another desktop app is already using the "prod" channel. Only one app can use a channel at a time.',
       )
-      expect(detail([other])).toBe(
-        "the web version (browser) currently connected. Only one app can be connected at a time.",
+      expect(detail([webServer], "prod")).toBe(
+        'the web version (browser) is already using the "prod" channel. Only one app can use a channel at a time.',
       )
-      expect(detail([sibling])).toBe(
-        "another desktop app currently connected. Only one app can be connected at a time.",
+      expect(detail([sibling], "prod")).toBe(
+        'another desktop app is already using the "prod" channel. Only one app can use a channel at a time.',
       )
+      expect(detail([idle], "prod")).toBe(
+        'another Aether server is already using the "prod" channel. Only one app can use a channel at a time.',
+      )
+      expect(channelSlug("beta")).toBe("latest")
+      expect(channelSlug("prod")).toBe("prod")
+      expect(channelSlug("dev")).toBe("dev")
     } finally {
       rmSync(root, { recursive: true, force: true })
     }

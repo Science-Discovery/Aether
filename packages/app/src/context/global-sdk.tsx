@@ -16,6 +16,7 @@ import {
 import { useLanguage } from "./language"
 import { usePlatform } from "./platform"
 import { useServer } from "./server"
+import { clientId } from "@/utils/presence"
 import { connectShared } from "./shared-connection"
 
 const abortError = z.object({
@@ -150,6 +151,9 @@ export const { use: useGlobalSDK, provider: GlobalSDKProvider } = createSimpleCo
           server: currentServer.http,
           fetch: eventFetch,
           signal: attempt.signal,
+          client: window.api?.instanceId
+            ? { type: "desktop", id: window.api.instanceId }
+            : { type: "web", id: clientId() },
           onSseError: (error) => {
             if (aborted(error)) return
             console.error("[global-sdk] event stream error", {

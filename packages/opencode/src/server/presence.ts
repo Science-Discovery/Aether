@@ -1,40 +1,45 @@
 import fs from "fs/promises"
 import path from "path"
-import { Flag } from "../flag/flag"
 import { Global } from "../global"
 import { channelSlug } from "../persist/naming"
 
 const BASE_PORT = 19527
 const PORT_SPAN = 5
 
-export type Clients = { desktop: number; web: number }
+export type ClientType = "desktop" | "web"
 
-type FetchLike = (url: string, init?: RequestInit) => Promise<Response>
+export type Program = { type: ClientType; id: string }
 
 export type Info = {
   pid: number
   channel: string
-  kind: "desktop" | "web"
-  clients: Clients
+  programs: Program[]
 }
 
-let streams = 0
-let selfPort: number | undefined
+type FetchLike = (url: string, init?: RequestInit) => Promise<Response>
+
+let seq = 0
+const live = new Map<number, Program>()
 
 export function parse(value: unknown): Info | null {
   if (!value || typeof value !== "object") return null
   const data = value as Record<string, unknown>
-  const raw = data.clients as Record<string, unknown> | undefined
+  const raw = data.programs as unknown
   if (typeof data.pid !== "number") return null
   if (typeof data.channel !== "string") return null
-  if (data.kind !== "desktop" && data.kind !== "web") return null
-  if (!raw || typeof raw.desktop !== "number" || typeof raw.web !== "number") return null
-  return {
-    pid: data.pid,
-    channel: data.channel,
-    kind: data.kind,
-    clients: { desktop: raw.desktop, web: raw.web },
+  if (!Array.isArray(raw)) return null
+  const programs: Program[] = []
+  for (const item of raw) {
+    if (!item || typeof item !== "object") return null
+    const p = item as Record<string, unknown>
+    if ((p.type !== "desktop" && p.type !== "web") || typeof p.id !== "string") return null
+    programs.push({ type: p.type, id: p.id })
   }
+  return { pid: data.pid, channel: data.channel, programs }
+}
+
+export function marker(type: string | undefined, id: string | undefined): Program {
+  return { type: type === "desktop" ? "desktop" : "web", id: id ?? "" }
 }
 
 const SUPPRESS_HEADER = "x-aether-presence-scan"
@@ -73,48 +78,48 @@ async function candidatePorts(): Promise<number[]> {
 let inflight: Promise<Info[]> | null = null
 
 export namespace Presence {
-  export function kind(): "desktop" | "web" {
-    return Flag.OPENCODE_CLIENT === "desktop" ? "desktop" : "web"
+  export function join(program: Program): number {
+    const key = ++seq
+    live.set(key, program)
+    return key
   }
 
-  export function attach(port: number | undefined) {
-    selfPort = port
+  export function leave(key: number) {
+    live.delete(key)
   }
 
-  export function open() {
-    streams++
-  }
-
-  export function close() {
-    streams = Math.max(0, streams - 1)
-  }
-
-  export function clients(): Clients {
-    return kind() === "desktop" ? { desktop: streams, web: 0 } : { desktop: 0, web: streams }
+  export function programs(): Program[] {
+    const seen = new Set<string>()
+    const out: Program[] = []
+    for (const p of live.values()) {
+      const id = `${p.type}:${p.id}`
+      if (seen.has(id)) continue
+      seen.add(id)
+      out.push(p)
+    }
+    return out
   }
 
   export function info(): Info {
-    return { pid: process.pid, channel: channelSlug(), kind: kind(), clients: clients() }
+    return { pid: process.pid, channel: channelSlug(), programs: programs() }
   }
 
   export async function others(fetchImpl: FetchLike = fetch): Promise<Info[]> {
-    if (selfPort === undefined) return []
     if (process.env.AETHER_PRESENCE_SCAN === "0") return []
     if (inflight) return inflight
-    inflight = scan().finally(() => {
+    inflight = scan(fetchImpl).finally(() => {
       inflight = null
     })
     return inflight
   }
 
-  async function scan(): Promise<Info[]> {
+  async function scan(fetchImpl: FetchLike): Promise<Info[]> {
     const found = new Map<number, Info>()
     const ports = await candidatePorts()
     await Promise.all(
       ports.map(async (port) => {
-        if (port === selfPort) return
-        const info = await probe(port, fetch)
-        if (info && info.pid !== process.pid) found.set(info.pid, info)
+        const info = await probe(port, fetchImpl)
+        if (info && info.pid !== process.pid && info.channel === channelSlug()) found.set(info.pid, info)
       }),
     )
     return [...found.values()]
