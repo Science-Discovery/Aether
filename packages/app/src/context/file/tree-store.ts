@@ -1,5 +1,6 @@
 import { createStore, produce, reconcile } from "solid-js/store"
 import type { FileNode } from "@opencode-ai/sdk/v2"
+import { createInflight } from "./inflight"
 
 type DirectoryState = {
   expanded: boolean
@@ -56,7 +57,7 @@ export function createFileTreeStore(options: TreeStoreOptions) {
     })
   }
 
-  const inflight = new Map<string, Promise<void>>()
+  const inflight = createInflight()
 
   const applyExpanded = (dirs?: Iterable<string>) => {
     if (!dirs) return
@@ -77,7 +78,7 @@ export function createFileTreeStore(options: TreeStoreOptions) {
   }
 
   const reset = (dirs?: Iterable<string>) => {
-    inflight.clear()
+    inflight.reset()
     setTree("node", reconcile({}))
     setTree("dir", reconcile({}))
     setTree("dir", "", { expanded: true })
@@ -98,8 +99,10 @@ export function createFileTreeStore(options: TreeStoreOptions) {
     const current = tree.dir[dir]
     if (!opts?.force && current?.loaded) return Promise.resolve()
 
-    const pending = inflight.get(dir)
-    if (pending) return pending
+    const held = inflight.held(dir, opts?.force)
+    if (held) return held
+
+    const id = inflight.claim(dir)
 
     setTree(
       "dir",
@@ -116,6 +119,7 @@ export function createFileTreeStore(options: TreeStoreOptions) {
       .list(dir)
       .then((nodes) => {
         if (options.scope() !== directory) return
+        if (!inflight.fresh(dir, id)) return
         const prevChildren = tree.dir[dir]?.children ?? []
         const nextChildren = nodes.map((node) => node.path)
         const nextSet = new Set(nextChildren)
@@ -162,6 +166,7 @@ export function createFileTreeStore(options: TreeStoreOptions) {
       })
       .catch((e) => {
         if (options.scope() !== directory) return
+        if (!inflight.fresh(dir, id)) return
         setTree(
           "dir",
           dir,
@@ -173,10 +178,10 @@ export function createFileTreeStore(options: TreeStoreOptions) {
         options.onError(e.message)
       })
       .finally(() => {
-        inflight.delete(dir)
+        inflight.detach(dir, promise)
       })
 
-    inflight.set(dir, promise)
+    inflight.attach(dir, promise)
     return promise
   }
 

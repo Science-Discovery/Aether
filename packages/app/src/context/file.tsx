@@ -24,6 +24,7 @@ import {
 } from "./file/content-cache"
 import { createFileViewCache } from "./file/view-cache"
 import { createFileTreeStore, type TreeSnapshot } from "./file/tree-store"
+import { createInflight } from "./file/inflight"
 import { invalidateFromWatcher } from "./file/watcher"
 import {
   selectionFromLines,
@@ -242,7 +243,7 @@ export const { use: useFile, provider: FileProvider } = createSimpleContext({
     })
     const tabs = layout.tabs(() => params.dir ?? "")
 
-    const inflight = new Map<string, Promise<void>>()
+    const inflight = createInflight()
     const [store, setStore] = createStore<{
       file: Record<string, FileState>
     }>({
@@ -303,7 +304,7 @@ export const { use: useFile, provider: FileProvider } = createSimpleContext({
       on(
         scope,
         (dir) => {
-          inflight.clear()
+          inflight.reset()
           resetFileContentLru()
           batch(() => {
             setStore("file", reconcile({}))
@@ -374,8 +375,10 @@ export const { use: useFile, provider: FileProvider } = createSimpleContext({
       const current = store.file[file]
       if (!options?.force && current?.loaded) return Promise.resolve()
 
-      const pending = inflight.get(key)
-      if (pending) return pending
+      const held = inflight.held(key, options?.force)
+      if (held) return held
+
+      const id = inflight.claim(key)
 
       setLoading(file)
 
@@ -386,6 +389,7 @@ export const { use: useFile, provider: FileProvider } = createSimpleContext({
       )
         .then((next) => {
           if (scope() !== directory) return
+          if (!inflight.fresh(key, id)) return
           setLoaded(file, next)
 
           if (!("content" in next) || !next.content) return
@@ -394,13 +398,14 @@ export const { use: useFile, provider: FileProvider } = createSimpleContext({
         })
         .catch((e) => {
           if (scope() !== directory) return
+          if (!inflight.fresh(key, id)) return
           setLoadError(file, errorMessage(e, language.t("error.chain.unknown")))
         })
         .finally(() => {
-          inflight.delete(key)
+          inflight.detach(key, promise)
         })
 
-      inflight.set(key, promise)
+      inflight.attach(key, promise)
       return promise
     }
 
