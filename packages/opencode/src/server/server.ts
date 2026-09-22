@@ -137,6 +137,7 @@ import { ExperimentalRoutes } from "./routes/experimental"
 import { ProviderRoutes } from "./routes/provider"
 import { EventRoutes } from "./routes/event"
 import { InstanceBootstrap } from "../project/bootstrap"
+import { WorktreeDiscover } from "../worktree/discover"
 import { NotFoundError } from "../storage/db"
 import type { ContentfulStatusCode } from "hono/utils/http-status"
 import { websocket } from "hono/bun"
@@ -208,6 +209,7 @@ export namespace Server {
     void Cron.start().catch((error) => {
       log.error("cron start failed", { error })
     })
+    WorktreeDiscover.start()
     void installMemory().catch((error) => {
       log.error("memory install failed", { error })
     })
@@ -1098,6 +1100,7 @@ export namespace Server {
         [
           Instance.disposeAll(),
           Cron.stop(),
+          WorktreeDiscover.stop(),
           Memory.stop(),
           FeishuManager.stop(),
           QQManager.stop(),
