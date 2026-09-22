@@ -15,6 +15,17 @@ WT = "C:/Users/yqma/.local/share/aether/worktree/<worktree-根>"
 REPORT = "E:/work/AI/Aether/<报告>.md"
 OUT = "E:/work/AI/Aether/dispatch-results.json"
 
+# 权限默认继承派发 agent 的会话：GET /session/<当前sessionID> 读出 permission 字段后填到这里；
+# 派发者无显式规则集时给最小 allow 集（headless 无人应答 ask，必须显式 allow）
+PERMISSION = [
+    {"permission": "bash", "pattern": "*", "action": "allow"},
+    {"permission": "edit", "pattern": "*", "action": "allow"},
+    {"permission": "write", "pattern": "*", "action": "allow"},
+]
+
+# 可选：MODEL = {"providerID": "...", "modelID": "..."}；不设（None）= 用当前默认模型
+MODEL = None
+
 TASKS = [
     # (编号, sandbox, 分支, 会话标题, 任务书正文)
 ]
@@ -41,15 +52,21 @@ def main():
         directory = f"{WT}/{sandbox}"
         q = urllib.parse.quote(directory, safe="")
         try:
-            sess = api("POST", f"/session?directory={q}", {"title": title}) or {}
+            sess = (
+                api(
+                    "POST",
+                    f"/session?directory={q}",
+                    {"title": title, "permission": PERMISSION},
+                )
+                or {}
+            )
             sid = sess.get("id")
             if not sid:
                 raise RuntimeError(f"no session id in response: {sess}")
-            api(
-                "POST",
-                f"/session/{sid}/prompt_async?directory={q}",
-                {"parts": [{"type": "text", "text": text}]},
-            )
+            prompt = {"parts": [{"type": "text", "text": text}]}
+            if MODEL:
+                prompt["model"] = MODEL
+            api("POST", f"/session/{sid}/prompt_async?directory={q}", prompt)
             results.append(
                 {
                     "task": num,

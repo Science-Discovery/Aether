@@ -15,10 +15,13 @@ description: 在 Aether (aether-dev) 中把多个独立任务派发到现有 wor
 
 1. `git worktree list` 确认沙箱清单；`git fetch origin dev` 确认基线。
 2. 写派发脚本（见 `scripts/dispatch.py`，可按任务改 `TASKS` 表）：
-   - 在每个沙箱目录下 `POST /session?directory=<worktree>` 建会话（带 title）。
-   - `POST /session/<id>/prompt_async?directory=<worktree>` 派发任务书，立即返回 204，全部并行不阻塞。
+   - 在每个沙箱目录下 `POST /session?directory=<worktree>` 建会话，body 同时带 title 与 **permission 规则集（默认继承派发 agent 的权限，见下）**。
+   - `POST /session/<id>/prompt_async?directory=<worktree>` 派发任务书，立即返回 204，全部并行不阻塞；body 可带可选的 `model` 指定模型。
    - 落盘 session↔sandbox↔任务 映射 JSON（供监控与后续回话用）。
-3. 任务书必须包含（模板见 `references/task-prompt.md`）：
+3. **权限与模型**（派发时设定）：
+   - **权限**：建会话 body 的 `permission` 是规则数组 `[{permission: "<工具名>", pattern: "*", action: "allow"}]`（工具名如 bash/edit/write/webfetch，pattern 可限定命令/路径）。**默认继承当前派发任务的 agent 的权限**：先 `GET /session/<当前sessionID>` 读出本会话的 `permission` 字段，原样传入新建会话的 body——沙箱 agent 获得与派发者一致的操作面。若派发者无显式规则集，则给出最小 allow 集（至少 bash/edit/write），否则 headless 会话会卡在默认 `ask` 上无人应答。注意：worktree 只隔离 git 历史，不隔离文件系统——`pattern: "*"` 的 allow 不限制路径，安全性取决于对 agent 的信任而非目录边界，需收紧时用 pattern 限定命令/路径。
+   - **模型**：`prompt_async` body 可带 `"model": {"providerID": "...", "modelID": "..."}` 指定该沙箱用的模型；**默认不传（用当前会话/项目默认模型）**，需要分模型跑任务时才设。
+4. 任务书必须包含（模板见 `references/task-prompt.md`）：
    - 目标 + 参考报告路径；准备步骤（fetch origin/dev → `git checkout -b <branch> origin/dev`；fetch 遇 ref lock 等 2 秒重试最多 3 次）。
    - 先读码确认问题在当前基线仍存在；不存在则停下汇报，不开 issue/PR。
    - 修复要求：优雅、健壮、最小侵入，遵循仓库 AGENTS.md 风格。
@@ -26,7 +29,7 @@ description: 在 Aether (aether-dev) 中把多个独立任务派发到现有 wor
    - 提交流程：按 aether-issue-pr skill——**若无 issue 就先建 issue 再开 PR**（复用已有 issue 则直接开），base=dev，`Closes #N`，跟踪 CI 到绿。
    - 边界：只修自己的任务，不顺手修别的；最终汇报 issue/PR/分支/改动/测试/CI。
    - 同文件相邻区域的多任务要互相注明冲突风险。
-4. 派发后抽查 status 确认全部 busy。
+5. 派发后抽查 status 确认全部 busy。
 
 ## 监控
 
@@ -56,9 +59,13 @@ description: 在 Aether (aether-dev) 中把多个独立任务派发到现有 wor
 netstat -ano | grep "$OPENCODE_PID"        # 找 LISTENING 端口
 # 认证：Basic auth，用户 opencode，密码取环境变量 OPENCODE_SERVER_PASSWORD
 
-# 1. 建会话：POST /session?directory=<URL编码的worktree路径>  body {"title":"..."}
+# 1. 建会话：POST /session?directory=<URL编码的worktree路径>
+#            body {"title":"...", "permission":[<派发agent会话的permission规则，原样继承>]}
+#            （先 GET /session/<当前sessionID> 读自己的 permission 再传入；
+#              派发者无规则集时至少给 bash/edit/write allow，否则 headless 卡在权限询问）
 # 2. 派任务：POST /session/<sessionID>/prompt_async?directory=<同上>
-#            body {"parts":[{"type":"text","text":"<完整任务书>"}]}
+#            body {"parts":[{"type":"text","text":"<完整任务书>"}],
+#                  "model":{"providerID":"<可选>","modelID":"<可选>"}}   # model 不传=当前默认模型
 # 3. 监控：  GET /session/status?directory=<同上>            → {"ses_xxx":{"type":"busy"}}
 # 4. 读汇报：GET /session/<sessionID>/message?directory=<同上>
 ```
