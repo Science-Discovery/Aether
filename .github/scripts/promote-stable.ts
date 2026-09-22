@@ -19,6 +19,7 @@ type DesktopFile = {
 }
 
 type CommitFile = {
+  platform?: string
   url?: string
   latestUrl?: string
   manifestUrl?: string
@@ -266,7 +267,9 @@ if (promoteWeb) {
   if (!done.ok) fail("Invalid web commit response")
   const files = done.files ?? []
   if (files.length < Object.keys(webItems).length) fail("Web commit response is missing files")
-  if (files.some((file) => !file.installerUrl)) fail("Web commit response is missing installer URLs")
+  const missingInstallers = files.filter((file) => !file.installerUrl).map((file) => file.platform ?? "unknown")
+  if (missingInstallers.length > 0)
+    fail(`Web commit response is missing installer URLs for: ${missingInstallers.join(", ")}`)
   const urls = files.flatMap((file) =>
     [
       file.url,

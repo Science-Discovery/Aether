@@ -4,7 +4,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { betaDesktopNames, betaItems, betaPlatformKeys, runScript } from "./fixtures"
 
-function serveBeta(opts: { failFirst?: Record<string, number> }) {
+function serveBeta(opts: { failFirst?: Record<string, number>; omitObjectKeys?: boolean }) {
   const uploaded = new Map<string, number>()
   const attempts = new Map<string, number>()
   let presigns = 0
@@ -26,12 +26,12 @@ function serveBeta(opts: { failFirst?: Record<string, number> }) {
                 archive: {
                   url: `${base}/${val.archive}?sig=archive`,
                   contentType: "application/octet-stream",
-                  objectKey: val.archive,
+                  objectKey: opts.omitObjectKeys ? undefined : val.archive,
                 },
                 installer: {
                   url: `${base}/${val.installer}?sig=installer`,
                   contentType: "text/x-shellscript",
-                  objectKey: val.installer,
+                  objectKey: opts.omitObjectKeys ? undefined : val.installer,
                 },
               },
             ]),
@@ -136,4 +136,18 @@ test("failed platform installer retries against its own object key", async () =>
   expect(mock.attempts.get(macIntelInstaller)).toBe(2)
   expect(mock.attempts.get(macInstaller)).toBe(1)
   expect(mock.presigns()).toBe(2)
+}, 60000)
+
+test("fails loudly when presign entries lack object keys", async () => {
+  const mock = serveBeta({ omitObjectKeys: true })
+  const dir = await makeFiles()
+  const { stderr, code } = await runScript("upload-downloadbeta.ts", dir, {
+    DOWNLOAD_BETA_BASE_URL: `http://127.0.0.1:${mock.server.port}`,
+    DOWNLOAD_ADMIN_PASSWORD: "secret",
+    DOWNLOAD_BETA_VERSION: "1.4.0",
+    UPLOAD_RETRY_DELAY_MS: "10",
+  })
+  await rm(dir, { recursive: true, force: true })
+  expect(code).toBe(1)
+  expect(stderr).toContain("Invalid presign response")
 }, 60000)

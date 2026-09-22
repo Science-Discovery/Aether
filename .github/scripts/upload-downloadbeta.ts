@@ -123,8 +123,8 @@ function upload(val: unknown): val is Upload {
 
 function platform(val: unknown): val is Platform {
   if (!val || typeof val !== "object") return false
-  if (!("archive" in val) || !link(val.archive)) return false
-  if (!("installer" in val) || !link(val.installer)) return false
+  if (!("archive" in val) || !upload(val.archive)) return false
+  if (!("installer" in val) || !upload(val.installer)) return false
   return true
 }
 

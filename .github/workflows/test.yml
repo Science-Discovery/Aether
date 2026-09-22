@@ -156,6 +156,25 @@ jobs:
       - name: Run desktop icon checks
         run: bun run --cwd packages/desktop-electron test build-icons
 
+  scripts-unit:
+    name: scripts unit (linux)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Bun
+        uses: ./.github/actions/setup-bun
+
+      - name: Run release script tests
+        working-directory: .github/scripts
+        run: bun test
+
   # Second-layer CI: keep core package tests visible even while they are still failing.
   # This is intentional: these failures represent real product/test issues, not runner noise.
   opencode-unit:
