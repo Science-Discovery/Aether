@@ -1,80 +1,73 @@
 ---
 name: aether-dispatch-tasks
-description: Dispatch autonomous tasks in parallel to multiple directories/worktrees in the aether-dev repo by creating one real session per directory via the local opencode server API (POST /session + prompt_async). Use when the user asks to 分派/派发任务给多个沙箱/worktree/目录, run one task per sandbox in parallel ("每个worktree一个任务", "分配给N个沙箱"), wants each task to be a real trackable session in the sidebar (输出可跟踪), or asks how the dispatch mechanism works. Covers locating the server port and auth, writing complete task briefs, the dispatch script, status verification, and progress tracking/cleanup.
+description: 在 Aether (aether-dev) 中把多个独立任务派发到现有 worktree 沙箱（sandbox/多工作区/multi-worktree/并行会话/parallel agents）并行执行并管理其全生命周期：派发任务书（含分支/测试/提交规范）、监控完成状态、派 subagent 逐个 review、review 结果作为 comment 发布到 GitHub PR、FAIL 返工循环到 PASS 放行。当用户提到把任务分配/派发给沙箱、sandbox、工作区、worktree 或多个会话/agents 并行执行时使用。
 ---
 
-# Aether Dispatch Tasks
+# 多沙箱任务派发与监控
 
-向多个目录（worktree/沙箱）并行派发自主体任务：每个目录建一个真实会话（侧边栏可跟踪），通过 `prompt_async` 立即返回、天然并行。通用流程与任务内容无关。
+## 适用前提
 
-## Workflow
+- 有一批**相互独立**的任务（如 bug 修复列表），每任务一个沙箱（worktree）。
+- 沙箱必须**已存在**（`git worktree list` 确认）；本 skill 不新建 worktree。注意：沙箱目录上挂的分支名可能是旧任务残留，以任务书指定的**新分支**为准（从 `origin/dev` 切）。
+- 用户希望每个沙箱是一个可跟踪的"会话"——通过本地 server API 在沙箱目录下创建会话并 `prompt_async` 派发，与用户手动新建会话完全同构。
 
-1. 定位 server 端点与鉴权 → 2. 枚举执行位置 → 3. 组装任务书 → 4. 派发脚本执行 → 5. 落盘映射 → 6. 验证 busy → 7. 跟踪/回收
+## 派发
 
-### Step 1: 定位 server 端点与鉴权
+1. `git worktree list` 确认沙箱清单；`git fetch origin dev` 确认基线。
+2. 写派发脚本（见 `scripts/dispatch.py`，可按任务改 `TASKS` 表）：
+   - 在每个沙箱目录下 `POST /session?directory=<worktree>` 建会话（带 title）。
+   - `POST /session/<id>/prompt_async?directory=<worktree>` 派发任务书，立即返回 204，全部并行不阻塞。
+   - 落盘 session↔sandbox↔任务 映射 JSON（供监控与后续回话用）。
+3. 任务书必须包含（模板见 `references/task-prompt.md`）：
+   - 目标 + 参考报告路径；准备步骤（fetch origin/dev → `git checkout -b <branch> origin/dev`；fetch 遇 ref lock 等 2 秒重试最多 3 次）。
+   - 先读码确认问题在当前基线仍存在；不存在则停下汇报，不开 issue/PR。
+   - 修复要求：优雅、健壮、最小侵入，遵循仓库 AGENTS.md 风格。
+   - 测试要求：为失败场景写回归测试；bun test 从 package 目录跑（禁从仓库根）；Solid 响应式单测用 `*.vitest.ts`；bun typecheck 通过；需要时可用 Playwright e2e。
+   - 提交流程：按 aether-issue-pr skill——**若无 issue 就先建 issue 再开 PR**（复用已有 issue 则直接开），base=dev，`Closes #N`，跟踪 CI 到绿。
+   - 边界：只修自己的任务，不顺手修别的；最终汇报 issue/PR/分支/改动/测试/CI。
+   - 同文件相邻区域的多任务要互相注明冲突风险。
+4. 派发后抽查 status 确认全部 busy。
 
-```bash
-echo $OPENCODE_PID
-netstat -ano | grep "$OPENCODE_PID" | grep LISTENING   # → 127.0.0.1:<port> LISTENING <pid>
-echo $OPENCODE_SERVER_PASSWORD
+## 监控
+
+- 轮询 `GET /session/status?directory=<worktree>`：`{"ses_xxx":{"type":"busy"}}`。busy=在跑；session 从 status 消失=完成。
+- 完成后读最终汇报：`GET /session/<id>/message?directory=<worktree>`，确认产出（issue/PR/CI 状态）再进入 review。
+
+## Review（必须派 subagent，禁止主 agent 自己审）
+
+每个完成的任务派一个独立 review subagent（`task` 工具，general 类型），任务书要点：
+
+- 只读审查：禁止修改文件、禁止提交。
+- 给出 worktree 路径、分支、head SHA、PR/issue 链接、bug 原文。
+- 审查清单：完整 diff（含测试/fixture）；修复语义与竞态推演；回归风险（非目标路径行为不变）；测试判别力（**实测**：基线代码上失败、修复后通过）；CI 与 PR 描述真实性。
+- 输出格式：**结论 PASS/FAIL** + 关键问题列表（file:line + 失败场景 + 修复建议；只有功能错误/回归/竞态/数据丢失/测试无效才算关键）+ 非关键建议 + 已验证项清单。
+
+**每份 review 结果必须作为 comment 发布到对应 GitHub PR**（`gh pr comment <N> --repo Science-Discovery/Aether --body-file <file>`），FAIL 的也要发（PR 上保留完整 review 历史）。
+
+## FAIL 返工与 PASS 放行
+
+- **FAIL**：把关键问题转达给该沙箱 agent 返工。消息必须发到**当初解决问题的原始会话**（`prompt_async` 到原 session ID），**不要新开会话**；附 review 评论链接、逐条问题定位与修复建议、回归测试要求、push 同一 PR、CI 到绿。返工完成后派新 subagent 复审，仍有关键问题继续循环，**直到 PASS 才放行**。
+- **PASS**：放行。同时把 review 结果（含非关键建议）发回**原始会话**（同样不开新会话），由该 agent 自行决定是否处理非关键建议；修不修都接受。此后**不再监控该任务**。
+
+## 本地 server API 关键命令（Windows 实测）
+
+```
+# 0. 定位本实例 server（端口每次可能变）：
+netstat -ano | grep "$OPENCODE_PID"        # 找 LISTENING 端口
+# 认证：Basic auth，用户 opencode，密码取环境变量 OPENCODE_SERVER_PASSWORD
+
+# 1. 建会话：POST /session?directory=<URL编码的worktree路径>  body {"title":"..."}
+# 2. 派任务：POST /session/<sessionID>/prompt_async?directory=<同上>
+#            body {"parts":[{"type":"text","text":"<完整任务书>"}]}
+# 3. 监控：  GET /session/status?directory=<同上>            → {"ses_xxx":{"type":"busy"}}
+# 4. 读汇报：GET /session/<sessionID>/message?directory=<同上>
 ```
 
-- base URL `http://127.0.0.1:<port>`；HTTP Basic，username 固定 `opencode`
-- 每个请求都带 `?directory=<执行位置绝对路径>`（否则落到默认目录）
+**踩坑记录（Windows）**：
 
-### Step 2: 枚举执行位置
-
-`git worktree list` 或任何"目录 → 标识"映射来源，产出 `[(标识, 目录绝对路径, 任务正文), ...]`。
-
-### Step 3: 组装任务书
-
-任务书 = 公共模板（占位符 `{ID}` `{DIR}` `{EXTRA}`）+ 每条专属内容。模板与完整示例见 [references/task-brief-template.md](references/task-brief-template.md)。
-
-六段结构（子 agent 没有调用方上下文，缺一段就返工一次）：
-
-1. 角色（你在独立目录 {DIR} 工作，可放心读写）
-2. 准备步骤（按序，含失败时的停止条件）
-3. 执行要求（质量约束 + 要求其用 subagents 并行处理独立子问题）
-4. 验证要求（具体命令与运行目录；不可执行的操作给替代方案）
-5. 提交与产出（产出形式；引用相关 skill 而非复制规范）
-6. 边界与汇报格式（只处理本项；汇报改动摘要/验证结果/产出链接/未解决项）
-
-**把并行冲突显式写进任务书**：共享端口的操作禁止并行（如 Playwright e2e）；改同一文件相邻区域的任务要求改动局部化 + 注明冲突风险；受保护路径要求先查门禁。
-
-### Step 4: 派发
-
-用 [scripts/dispatch.py](scripts/dispatch.py)（Python + urllib，见脚本头部用法注释）。核心两个 endpoint：
-
-| 操作   | 请求                                              | body                                       |
-| ------ | ------------------------------------------------- | ------------------------------------------ |
-| 建会话 | `POST /session?directory=<dir>`                   | `{"title": "..."}`                         |
-| 派发   | `POST /session/:sid/prompt_async?directory=<dir>` | `{"parts":[{"type":"text","text":"..."}]}` |
-
-`prompt_async` 返回 204 立即返回不阻塞；同步的 `/prompt` 会阻塞，并行场景禁用。
-
-### Step 5-6: 落盘与验证
-
-- 脚本自动写 `dispatch-results.json`（id → dir → session 映射），后续跟踪只依赖它
-- 派发后必须抽查 `/session/status?directory=<dir>`，全部目标会话 `busy` 才算成功；HTTP 200 不代表任务真的在跑
-
-### Step 7: 跟踪与回收
-
-| 操作   | 请求                                                               |
-| ------ | ------------------------------------------------------------------ |
-| 查进度 | `GET /session/status?directory=<dir>`（`{sessionID:{type}}` 映射） |
-| 读消息 | `GET /session/:sid/messages?directory=<dir>`                       |
-| 中止   | `POST /session/:sid/abort?directory=<dir>`                         |
-| 删除   | `DELETE /session/:sid?directory=<dir>`                             |
-
-## 关键坑
-
-| 坑                             | 处理                                                         |
-| ------------------------------ | ------------------------------------------------------------ |
-| Windows 路径塞 query 会坏      | `urllib.parse.quote(dir, safe="")`，路径统一正斜杠 `C:/...`  |
-| Python 读 UTF-8 JSON 报 GBK 错 | 显式 `encoding="utf-8"`                                      |
-| `/session/status` 返回结构     | `{sessionID:{type}}` 映射，不是数组                          |
-| 用了同步 `/prompt`             | 并行必须 `prompt_async`                                      |
-| 一次性检查被重复               | 鉴权/权限/基线检查在派发前做一次，别让 N 个 agent 各失败一次 |
-| 目录未绑定                     | 每个 endpoint 都带 `?directory=`                             |
-
-验证机制先行：先对一个目录做"建会话→prompt→删除"最小闭环，确认通路后再批量派发。
+- python 处理含中文的 JSON/文件必须 `-X utf8`（默认 GBK 解码失败）。
+- API 长响应先落盘文件再解析（长响应走 stdout 管道会被截断）。
+- 消息接口是单数 `message`；`messages` 会命中前端路由返回 HTML。
+- URL 参数 `directory` 要对 worktree 完整路径做 quote（safe=""）。
+- 多沙箱并行时 CI runner 资源紧张，重载测试（如 packages/opencode 的 30s 超时类）偶发 flaky：先对照 dev 基线 run 判断是否环境性，是则单次有限重跑并记录原因，不算回归。
+- 共享 worktree 上可能残留其他沙箱实验的未提交改动：review 以已推送的 HEAD 提交为准；返工前让 agent 确认基线是自己的 PR head。
