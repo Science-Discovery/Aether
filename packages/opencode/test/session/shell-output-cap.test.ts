@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test"
+import fs from "node:fs/promises"
 import path from "node:path"
 import { Bus } from "../../src/bus"
 import { Instance } from "../../src/project/instance"
@@ -47,6 +48,86 @@ test("shell caps runaway output and spills full output to file", async () => {
       expect(saved).toBeTruthy()
       const stored = await Bun.file(saved!).text()
       expect(stored).toBe(full)
+    },
+  })
+})
+
+test("shell byte-cuts multibyte output at cap boundary without corruption", async () => {
+  await using tmp = await tmpdir()
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const session = await Session.create({})
+      const full = "a".repeat(49999) + "😀".repeat(3000) + "TAIL-OK"
+      const script = await emitScript(tmp.path, `process.stdout.write(Buffer.from(${JSON.stringify(full)}))`)
+      const result = await SessionPrompt.shell({
+        sessionID: session.id,
+        agent: "build",
+        model: { providerID: ProviderID.make("test"), modelID: ModelID.make("test") },
+        command: `${prefix()}"${process.execPath.replaceAll("\\", "/")}" "${script.replaceAll("\\", "/")}"`,
+      })
+      const part = result.parts[0]
+      if (part.type !== "tool") throw new Error("Expected shell tool output")
+      if (part.state.status !== "completed") throw new Error("Expected completed shell output")
+      const output = part.state.output
+      expect(output).not.toContain("TAIL-OK")
+      expect(output).not.toContain("\uFFFD")
+      const marker = output.indexOf("\n\n...")
+      expect(marker).toBeGreaterThan(0)
+      const preview = output.slice(0, marker)
+      expect(Buffer.byteLength(preview)).toBeLessThanOrEqual(Truncate.MAX_BYTES)
+      expect(Buffer.byteLength(preview)).toBeGreaterThanOrEqual(Truncate.MAX_BYTES - 4)
+      const saved = output.match(/Full output saved to: (.+)/)?.[1]
+      expect(saved).toBeTruthy()
+      const stored = await Bun.file(saved!).text()
+      expect(stored).toBe(full)
+    },
+  })
+})
+
+test("shell abort during spill keeps both truncation note and abort marker", async () => {
+  await using tmp = await tmpdir()
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const session = await Session.create({})
+      const list = () =>
+        fs
+          .readdir(Truncate.DIR)
+          .then((names) => names.filter((name) => name.startsWith("tool_")))
+          .catch(() => [])
+      const before = new Set(await list())
+      const script = await emitScript(
+        tmp.path,
+        `for (let i = 0; i < 200; i++) {
+  process.stdout.write("z".repeat(2000) + "\\n")
+  await Bun.sleep(30)
+}`,
+      )
+      const run = SessionPrompt.shell({
+        sessionID: session.id,
+        agent: "build",
+        model: { providerID: ProviderID.make("test"), modelID: ModelID.make("test") },
+        command: `${prefix()}"${process.execPath.replaceAll("\\", "/")}" "${script.replaceAll("\\", "/")}"`,
+      })
+      let spilled: string | undefined
+      const deadline = Date.now() + 15000
+      while (Date.now() < deadline) {
+        spilled = (await list()).find((name) => !before.has(name))
+        if (spilled) break
+        await Bun.sleep(25)
+      }
+      expect(spilled).toBeDefined()
+      await SessionPrompt.cancel(session.id)
+      const result = await run
+      const part = result.parts[0]
+      if (part.type !== "tool") throw new Error("Expected shell tool output")
+      if (part.state.status !== "completed") throw new Error("Expected completed shell output")
+      expect(part.state.output).toContain("bytes truncated")
+      expect(part.state.output).toContain("Full output saved to: ")
+      expect(part.state.output).toContain("User aborted the command")
+      const stored = await Bun.file(path.join(Truncate.DIR, spilled!)).text()
+      expect(stored.length).toBeGreaterThan(Truncate.MAX_BYTES)
     },
   })
 })

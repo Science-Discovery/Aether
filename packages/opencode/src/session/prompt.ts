@@ -1854,26 +1854,43 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       let file: string | undefined
       let sink: Bun.FileSink | undefined
       let pending: Promise<unknown> | undefined
+      let dead = false
+
+      const spillFail = (err: unknown) => {
+        dead = true
+        sink = undefined
+        file = undefined
+        log.error("shell output spill failed", { err })
+      }
 
       const append = (text: string) => {
         if (!text) return
         total += Buffer.byteLength(text)
         if (sink) {
-          sink.write(text)
+          try {
+            sink.write(text)
+          } catch (err) {
+            spillFail(err)
+          }
           return
         }
-        if (Buffer.byteLength(output) + Buffer.byteLength(text) <= MAX_OUTPUT) {
+        if (!dead && Buffer.byteLength(output) + Buffer.byteLength(text) <= MAX_OUTPUT) {
           output += text
           return
         }
-        const keep = Math.max(0, MAX_OUTPUT - Buffer.byteLength(output))
-        const head = text.slice(0, keep)
-        file = path.join(Truncate.DIR, ToolID.ascending())
-        mkdirSync(Truncate.DIR, { recursive: true })
-        sink = Bun.file(file).writer()
-        sink.write(output + head)
-        sink.write(text.slice(keep))
-        output += head
+        const all = new TextEncoder().encode(output + text)
+        let cut = Math.min(MAX_OUTPUT, all.byteLength)
+        while (cut > 0 && (all[cut] & 0xc0) === 0x80) cut--
+        output = new TextDecoder().decode(all.subarray(0, cut))
+        if (dead) return
+        try {
+          file = path.join(Truncate.DIR, ToolID.ascending())
+          mkdirSync(Truncate.DIR, { recursive: true })
+          sink = Bun.file(file).writer()
+          sink.write(all)
+        } catch (err) {
+          spillFail(err)
+        }
       }
 
       let last = 0
@@ -1942,11 +1959,19 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         clearTimeout(timer)
         timer = undefined
       }
-      if (sink) pending = Promise.resolve(sink.end()).catch((err) => log.error("shell output spill failed", { err }))
+      let spillFailed = false
+      if (sink) {
+        pending = Promise.resolve(sink.end()).catch((err) => {
+          spillFailed = true
+          log.error("shell output spill failed", { err })
+        })
+      }
       if (pending) await pending
       if (file) {
         const dropped = total - Buffer.byteLength(output)
-        output += `\n\n...${dropped} bytes truncated...\n\nFull output saved to: ${file}\nUse Grep to search the full content or Read with offset/limit to view specific sections.`
+        output += spillFailed
+          ? `\n\n...${dropped} bytes truncated (saving full output failed)...`
+          : `\n\n...${dropped} bytes truncated...\n\nFull output saved to: ${file}\nUse Grep to search the full content or Read with offset/limit to view specific sections.`
       }
       if (aborted) {
         output += "\n\n" + ["<metadata>", "User aborted the command", "</metadata>"].join("\n")
