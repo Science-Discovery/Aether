@@ -104,3 +104,16 @@ export const PermissionTable = sqliteTable("permission", {
   ...Timestamps,
   data: text({ mode: "json" }).notNull().$type<Permission.Ruleset>(),
 })
+
+export const SessionRetryTable = sqliteTable("session_retry", {
+  session_id: text()
+    .$type<SessionID>()
+    .primaryKey()
+    .references(() => SessionTable.id, { onDelete: "cascade" }),
+  message_id: text().$type<MessageID>().notNull(),
+  started_at: integer().notNull(),
+  next_at: integer().notNull(),
+  attempts: integer().notNull(),
+  message: text().notNull(),
+  ...Timestamps,
+})

@@ -6,6 +6,7 @@ import { Snapshot } from "@/snapshot"
 import { SessionSummary } from "./summary"
 import { Bus } from "@/bus"
 import { SessionRetry } from "./retry"
+import { SessionWatchdog } from "./watchdog"
 import { SessionStatus } from "./status"
 import { Plugin } from "@/plugin"
 import type { Provider } from "@/provider/provider"
@@ -51,6 +52,11 @@ export namespace SessionProcessor {
     let attempt = 0
     let needsCompaction = false
     let idle = false
+    // Set when short retries are exhausted on a connection-class upstream
+    // failure: the error is recorded on the assistant message and a watchdog
+    // retry wait is armed, then process() returns "retry" so the session loop
+    // can release its claim instead of dying.
+    let waiting = false
     // Set once the review char guard trips, so process() returns "stop" and the
     // outer loop ends the entire review (not just the current step).
     let reviewStopped = false
@@ -66,6 +72,7 @@ export namespace SessionProcessor {
         log.info("process")
         needsCompaction = false
         idle = false
+        waiting = false
         const shouldBreak = (await Config.get()).experimental?.continue_loop_on_deny !== true
         // Reasoning-only recovery: retry once with the truncated reasoning
         // replayed as context, a nudge to externalize work via tools, and
@@ -516,11 +523,30 @@ export namespace SessionProcessor {
                 continue
               }
               input.assistantMessage.error = error
-              Bus.publish(Session.Event.Error, {
-                sessionID: input.assistantMessage.sessionID,
-                error: input.assistantMessage.error,
-              })
-              idle = true
+              const connection = !input.abort.aborted ? SessionRetry.connection(error) : undefined
+              if (connection !== undefined) {
+                // Short retries exhausted on a connection-class failure: keep
+                // the task recoverable. The error stays on the assistant
+                // message (completed, so restart repair leaves it alone, and
+                // the missing finish lets a later resume continue the turn);
+                // the watchdog owns waiting and waking.
+                const text = typeof error.data?.message === "string" ? error.data.message : connection
+                await SessionWatchdog.defer({
+                  sessionID: input.sessionID,
+                  messageID: input.assistantMessage.parentID,
+                  message: text.slice(0, 200),
+                })
+                // cancel() may have landed while the wait was being persisted;
+                // never resurrect a wait the user just killed.
+                waiting = !input.abort.aborted
+                if (!waiting) await SessionWatchdog.clear(input.sessionID)
+              } else {
+                Bus.publish(Session.Event.Error, {
+                  sessionID: input.assistantMessage.sessionID,
+                  error: input.assistantMessage.error,
+                })
+                idle = true
+              }
             }
           }
           if (snapshot) {
@@ -557,6 +583,7 @@ export namespace SessionProcessor {
           input.assistantMessage.time.completed = Date.now()
           await Session.updateMessage(input.assistantMessage)
           if (idle) await SessionStatus.set(input.sessionID, { type: "idle" })
+          if (waiting) return "retry"
           if (needsCompaction) return "compact"
           if (blocked) return "stop"
           if (input.assistantMessage.error) return "stop"

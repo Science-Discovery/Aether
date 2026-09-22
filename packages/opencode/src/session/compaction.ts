@@ -39,8 +39,7 @@ export namespace SessionCompaction {
       input.tokens.total ||
       input.tokens.input + input.tokens.output + input.tokens.cache.read + input.tokens.cache.write
 
-    const reserved =
-      config.compaction?.reserved ?? ProviderTransform.maxOutputTokens(input.model, input.model.options)
+    const reserved = config.compaction?.reserved ?? ProviderTransform.maxOutputTokens(input.model, input.model.options)
     const usable = (input.model.limit.input ?? context) - reserved
     return count >= usable
   }
@@ -236,6 +235,8 @@ When constructing the summary, try to stick to this template:
       await Session.updateMessage(processor.message)
       return "stop"
     }
+
+    if (result === "retry") return "retry"
 
     if (result === "continue" && input.auto) {
       if (replay) {

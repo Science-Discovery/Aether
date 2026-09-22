@@ -10,6 +10,16 @@ export namespace SessionRetry {
   export const TIMEOUT_RETRY_INITIAL_DELAY = 30_000 // 30 seconds for timeout retries
   export const TIMEOUT_RETRY_MAX_DELAY = 120_000 // 120 seconds cap for timeout retries
 
+  // Long-window retry for upstream connection-class failures: sustained
+  // retries for the first hour, then hourly, giving up after 10 days.
+  export const WINDOW_HIGH = 60 * 60 * 1000
+  export const WINDOW_TOTAL = 10 * 24 * 60 * 60 * 1000
+  export const LONG_INITIAL_DELAY = 60_000
+  export const LONG_HOURLY_DELAY = 60 * 60 * 1000
+
+  const BILLING =
+    /insufficient_quota|insufficient (credit|balance|funds)|credit balance is too low|quota.{0,20}exceed|exceed.{0,20}quota|billing (hard )?limit|FreeUsageLimitError|out of credits|欠费|余额不足/i
+
   export async function sleep(ms: number, signal: AbortSignal): Promise<void> {
     return new Promise((resolve, reject) => {
       const abortHandler = () => {
@@ -108,5 +118,34 @@ export namespace SessionRetry {
     } catch {
       return undefined
     }
+  }
+
+  export function deadline(started: number) {
+    return started + WINDOW_TOTAL
+  }
+
+  export function expired(started: number, now = Date.now()) {
+    return now >= deadline(started)
+  }
+
+  export function longDelay(elapsed: number) {
+    return elapsed < WINDOW_HIGH ? LONG_INITIAL_DELAY : LONG_HOURLY_DELAY
+  }
+
+  export function connection(error: ReturnType<NamedError["toObject"]>) {
+    if (MessageV2.ContextOverflowError.isInstance(error)) return undefined
+    if (MessageV2.AbortedError.isInstance(error)) return undefined
+    const api = MessageV2.APIError.isInstance(error) ? error : undefined
+    const text = [error.data?.message, api?.data.responseBody]
+      .filter((item): item is string => typeof item === "string")
+      .join("\n")
+    if (BILLING.test(text)) return "Upstream billing or quota limit reached"
+    if (!api) return retryable(error)
+    const status = api.data.statusCode
+    if (status !== undefined && (status === 402 || status === 408 || status === 429 || status >= 500)) {
+      return api.data.message
+    }
+    if (!api.data.isRetryable) return undefined
+    return api.data.message
   }
 }
