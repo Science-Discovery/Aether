@@ -205,13 +205,15 @@ class WeChatManagerImpl extends MobileManagerBase {
     return this.start()
   }
 
-  private async reconnect(): Promise<void> {
+  private async reconnect(gen: number): Promise<void> {
+    if (this._pollGen !== gen) return
     this.status = "reconnecting"
     Bus.publish(this.busEvents.Reconnecting, { attempt: 1, delay: 0 })
 
     try {
       if (await this.resumeFromSaved()) return
     } catch (err) {
+      if (this._pollGen !== gen) return
       const message = err instanceof Error ? err.message : String(err)
       console.error("[wechat] resume failed:", err)
       this._error = { code: "resume_failed", message }
@@ -220,21 +222,24 @@ class WeChatManagerImpl extends MobileManagerBase {
       return
     }
 
+    if (this._pollGen !== gen) return
     this._ilinkToken = ""
     void this.loginAndPoll()
   }
 
-  private async finishConnect(user: { id: string; name: string }): Promise<void> {
+  private async finishConnect(user: { id: string; name: string }, gen: number): Promise<void> {
+    if (this._pollGen !== gen) return
     this._wcSession = { connected: true, user, createdAt: Date.now() }
     await this.saveWcSession()
     await this.saveILinkState()
     this._initialized = false
     await this.initSessions()
+    if (this._pollGen !== gen) return
     this.status = "connected"
     Bus.publish(this.busEvents.Connected, { user })
     this._pollRunning = true
-    const gen = ++this._pollGen
-    void this.pollLoop(gen)
+    this._pollGen = gen + 1
+    void this.pollLoop(gen + 1)
     this.subscribeBusEvents()
     this._modelList = []
     void this.buildModelList().then((list) => {
@@ -243,18 +248,21 @@ class WeChatManagerImpl extends MobileManagerBase {
   }
 
   private async resumeFromSaved(): Promise<boolean> {
+    const gen = this._pollGen
     const state = await this.loadILinkState()
     if (!state?.token) return false
+    if (this._pollGen !== gen) return false
     this._ilinkToken = state.token
     this._ilinkBaseUrl = state.baseUrl || ILINK_BASE_URL
     this._cursor = state.cursor || ""
     const session = await this.adapter.loadSession()
     const user = session?.user || this._wcSession?.user || { id: "wechat-user", name: "微信用户" }
-    await this.finishConnect(user)
+    await this.finishConnect(user, gen)
     return true
   }
 
   private async loginAndPoll(): Promise<void> {
+    const gen = this._pollGen
     const abort = new AbortController()
     this._loginAbort = abort
     let token: string
@@ -292,7 +300,7 @@ class WeChatManagerImpl extends MobileManagerBase {
     }
 
     try {
-      await this.finishConnect({ id: "wechat-user", name: "微信用户" })
+      await this.finishConnect({ id: "wechat-user", name: "微信用户" }, gen)
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       console.error("[wechat] connect after login failed:", err)
@@ -321,6 +329,7 @@ class WeChatManagerImpl extends MobileManagerBase {
   // ── Poll loop ──────────────────────────────────────────────────────────────
 
   private async expire(reason: string): Promise<void> {
+    const gen = this._pollGen
     console.warn(`[wechat] session invalidated (${reason}), reconnecting...`)
     this._pollRunning = false
     this._tokenKnownExpired = true
@@ -331,7 +340,7 @@ class WeChatManagerImpl extends MobileManagerBase {
     } catch {}
     this.status = "reconnecting"
     Bus.publish(this.busEvents.Reconnecting, { attempt: 1, delay: 0 })
-    void this.reconnect()
+    void this.reconnect(gen)
   }
 
   private async pollLoop(gen: number): Promise<void> {
@@ -368,6 +377,7 @@ class WeChatManagerImpl extends MobileManagerBase {
             this._contextTokens[parsed.conversation_id] = parsed.context_token
           }
 
+          if (this._pollGen !== gen) return
           await this.saveILinkState()
 
           console.log("[wechat] received:", parsed.conversation_id, parsed.text.slice(0, 50))
@@ -382,6 +392,7 @@ class WeChatManagerImpl extends MobileManagerBase {
           })
         }
 
+        if (this._pollGen !== gen) return
         if (this._cursor) await this.saveILinkState()
       } catch (err) {
         if (!this._pollRunning || this._pollGen !== gen) return
@@ -458,6 +469,7 @@ class WeChatManagerImpl extends MobileManagerBase {
     this._loginAbort?.abort()
     this._loginAbort = null
     this._pollRunning = false
+    this._pollGen++
     this.unsubscribeBusEvents()
     if (this._cursor && this._ilinkToken) await this.saveILinkState()
     this._qrcode = null
@@ -468,6 +480,9 @@ class WeChatManagerImpl extends MobileManagerBase {
   }
 
   override async clearSession(): Promise<void> {
+    this._ilinkToken = ""
+    this._cursor = ""
+    this._tokenKnownExpired = false
     try {
       await rm(wcFile("session.json"), { force: true })
       await rm(wcFile("accounts.json"), { force: true })
