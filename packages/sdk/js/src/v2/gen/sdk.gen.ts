@@ -760,7 +760,7 @@ export class Global extends HeyApiClient {
   /**
    * Get frontend presence
    *
-   * Report live UI programs (desktop apps and browsers) connected to this server and to other local Aether servers on the same channel. Used to keep one channel to a single app at a time.
+   * Report live desktop/web client connections held by this server and by other local Aether servers on the same channel. Used to keep one channel to a single app at a time.
    */
   public presence<ThrowOnError extends boolean = false>(options?: Options<never, ThrowOnError>) {
     return (options?.client ?? this.client).get<GlobalPresenceResponses, unknown, ThrowOnError>({

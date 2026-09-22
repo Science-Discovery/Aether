@@ -10,7 +10,7 @@ import { dict as zh } from "@/i18n/zh"
 import { createWebUpdate } from "@/utils/web-update"
 import { handleNotificationClick } from "@/utils/notification-click"
 import { ActiveDirectory } from "@/utils/active"
-import { clientId, presenceConflict } from "@/utils/presence"
+import { presenceConflict } from "@/utils/presence"
 import { ServerConnection } from "./context/server"
 
 const DEFAULT_SERVER_URL_KEY = "opencode.settings.dat:defaultServerUrl"
@@ -452,7 +452,7 @@ const boot = async () => {
   if (!(root instanceof HTMLElement)) return
   document.addEventListener("click", handleClick)
   const skipConflict = new URLSearchParams(location.search).get("aether-conflict-check") === "0"
-  const conflict = skipConflict ? null : await presenceConflict(getCurrentUrl(), { id: clientId() })
+  const conflict = skipConflict ? null : await presenceConflict(getCurrentUrl())
   if (conflict) {
     renderConflict(conflict.channel)
     return

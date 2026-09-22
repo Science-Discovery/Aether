@@ -6,19 +6,17 @@ type SSEvent = { directory?: string; payload: Event }
 
 type Msg = { kind: "event"; data: SSEvent } | { kind: "heartbeat"; id: string } | { kind: "claim"; id: string }
 
-type Client = { type: "desktop" | "web"; id: string }
-
 type Opts = {
   server: ServerConnection.HttpBase
   fetch?: typeof globalThis.fetch
   signal: AbortSignal
   onSseError?: (error: unknown) => void
-  client?: Client
+  client?: "desktop" | "web"
 }
 
-function clientHeaders(client: Client | undefined): Record<string, string> | undefined {
+function clientHeaders(client: "desktop" | "web" | undefined): Record<string, string> | undefined {
   if (!client) return undefined
-  return { "x-aether-client": client.type, "x-aether-id": client.id }
+  return { "x-aether-client": client }
 }
 
 type Conn = {

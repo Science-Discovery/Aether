@@ -88,7 +88,7 @@ function keepLoopbackNoProxy(value?: string) {
 }
 
 async function streamEvents(c: Context, subscribe: (q: AsyncQueue<string | null>) => () => void) {
-  const client = marker(c.req.header("x-aether-client"), c.req.header("x-aether-id"))
+  const client = marker(c.req.header("x-aether-client"))
   return streamSSE(c, async (stream) => {
     const key = Presence.join(client)
     const q = new AsyncQueue<string | null>()
@@ -391,7 +391,7 @@ export const GlobalRoutes = lazy(() =>
       describeRoute({
         summary: "Get frontend presence",
         description:
-          "Report live UI programs (desktop apps and browsers) connected to this server and to other local Aether servers on the same channel. Used to keep one channel to a single app at a time.",
+          "Report live desktop/web client connections held by this server and by other local Aether servers on the same channel. Used to keep one channel to a single app at a time.",
         operationId: "global.presence",
         responses: {
           200: {
@@ -402,12 +402,12 @@ export const GlobalRoutes = lazy(() =>
                   z.object({
                     pid: z.number(),
                     channel: z.string(),
-                    programs: z.array(z.object({ type: z.enum(["desktop", "web"]), id: z.string() })),
+                    clients: z.object({ desktop: z.number(), web: z.number() }),
                     others: z.array(
                       z.object({
                         pid: z.number(),
                         channel: z.string(),
-                        programs: z.array(z.object({ type: z.enum(["desktop", "web"]), id: z.string() })),
+                        clients: z.object({ desktop: z.number(), web: z.number() }),
                       }),
                     ),
                   }),

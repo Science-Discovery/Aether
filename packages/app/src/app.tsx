@@ -80,7 +80,6 @@ declare global {
     }
     api?: {
       setTitlebar?: (theme: { mode: "light" | "dark" }) => Promise<void>
-      instanceId?: string
     }
   }
 }

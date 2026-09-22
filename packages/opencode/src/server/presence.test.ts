@@ -16,86 +16,58 @@ async function makeTmp() {
 const SIBLING: Info = {
   pid: process.pid + 1,
   channel: "local",
-  programs: [{ type: "desktop", id: "app-1" }],
+  clients: { desktop: 1, web: 0 },
 }
 
 function infoByPid(infos: Info[], pid: number) {
   return infos.find((info) => info.pid === pid)
 }
+
 describe("presence parse", () => {
   test("accepts a valid payload", () => {
-    const info = parse({
-      pid: 1,
-      channel: "prod",
-      programs: [
-        { type: "desktop", id: "a" },
-        { type: "web", id: "" },
-      ],
-    })
-    expect(info).toEqual({
-      pid: 1,
-      channel: "prod",
-      programs: [
-        { type: "desktop", id: "a" },
-        { type: "web", id: "" },
-      ],
-    })
-  })
-
-  test("accepts an empty roster", () => {
-    expect(parse({ pid: 1, channel: "prod", programs: [] })).toEqual({ pid: 1, channel: "prod", programs: [] })
+    const info = parse({ pid: 1, channel: "prod", clients: { desktop: 2, web: 0 } })
+    expect(info).toEqual({ pid: 1, channel: "prod", clients: { desktop: 2, web: 0 } })
   })
 
   test("rejects malformed payloads", () => {
     expect(parse(null)).toBeNull()
     expect(parse(undefined)).toBeNull()
     expect(parse({})).toBeNull()
-    expect(parse({ pid: "x", channel: "prod", programs: [] })).toBeNull()
+    expect(parse({ pid: "x", channel: "prod", clients: { desktop: 0, web: 1 } })).toBeNull()
+    expect(parse({ pid: 1, channel: 2, clients: { desktop: 0, web: 1 } })).toBeNull()
     expect(parse({ pid: 1, channel: "prod" })).toBeNull()
-    expect(parse({ pid: 1, channel: "prod", programs: "x" })).toBeNull()
-    expect(parse({ pid: 1, channel: "prod", programs: [{ type: "other", id: "a" }] })).toBeNull()
-    expect(parse({ pid: 1, channel: "prod", programs: [{ type: "web" }] })).toBeNull()
-    expect(parse({ pid: 1, channel: 2, programs: [] })).toBeNull()
+    expect(parse({ pid: 1, channel: "prod", clients: { desktop: "0", web: 1 } })).toBeNull()
   })
 })
 
 describe("marker", () => {
-  test("maps headers to a program", () => {
-    expect(marker("desktop", "app-1")).toEqual({ type: "desktop", id: "app-1" })
-    expect(marker("web", "browser-1")).toEqual({ type: "web", id: "browser-1" })
-  })
-
-  test("treats missing or unknown headers as an unnamed web program", () => {
-    expect(marker(undefined, undefined)).toEqual({ type: "web", id: "" })
-    expect(marker("bogus", undefined)).toEqual({ type: "web", id: "" })
+  test("maps the client header, defaulting to web", () => {
+    expect(marker("desktop")).toBe("desktop")
+    expect(marker("web")).toBe("web")
+    expect(marker(undefined)).toBe("web")
+    expect(marker("bogus")).toBe("web")
   })
 })
 
 describe("presence roster", () => {
-  test("joins and leaves programs, deduplicating by type and id", () => {
-    const a = Presence.join({ type: "desktop", id: "app-1" })
-    const b = Presence.join({ type: "web", id: "browser-1" })
-    const c = Presence.join({ type: "web", id: "browser-1" })
-    expect(Presence.programs()).toEqual([
-      { type: "desktop", id: "app-1" },
-      { type: "web", id: "browser-1" },
-    ])
+  test("joins and leaves connections, counting by type", () => {
+    const a = Presence.join("desktop")
+    const b = Presence.join("web")
+    const c = Presence.join("web")
+    expect(Presence.clients()).toEqual({ desktop: 1, web: 2 })
     Presence.leave(b)
-    expect(Presence.programs()).toEqual([
-      { type: "desktop", id: "app-1" },
-      { type: "web", id: "browser-1" },
-    ])
+    expect(Presence.clients()).toEqual({ desktop: 1, web: 1 })
     Presence.leave(a)
     Presence.leave(c)
-    expect(Presence.programs()).toEqual([])
+    expect(Presence.clients()).toEqual({ desktop: 0, web: 0 })
   })
 
   test("info carries the channel slug", () => {
-    const before = Presence.programs()
+    const before = Presence.clients()
     const info = Presence.info()
     expect(info.pid).toBe(process.pid)
     expect(typeof info.channel).toBe("string")
-    expect(info.programs).toEqual(before)
+    expect(info.clients).toEqual(before)
   })
 })
 
@@ -149,7 +121,7 @@ describe("presence others scan", () => {
     const siblingPort = 20902
     await fs.mkdir(path.join(tmp.path, "prod"), { recursive: true })
     await fs.writeFile(path.join(tmp.path, "prod", "serve-port"), String(siblingPort))
-    const foreign: Info = { pid: process.pid + 2, channel: "prod", programs: [] }
+    const foreign: Info = { pid: process.pid + 2, channel: "prod", clients: { desktop: 0, web: 1 } }
     const seen: string[] = []
     const server = Bun.serve({
       port: siblingPort,
@@ -171,7 +143,7 @@ describe("presence others scan", () => {
 
   test("excludes the server itself by pid and sends the suppression header", async () => {
     const selfPort = 19527
-    const self: Info = { pid: process.pid, channel: "local", programs: [{ type: "web", id: "x" }] }
+    const self: Info = { pid: process.pid, channel: "local", clients: { desktop: 0, web: 5 } }
     let suppress: string | undefined
     const impl = (url: string, init?: RequestInit) => {
       suppress = new Headers(init?.headers).get("x-aether-presence-scan") ?? undefined

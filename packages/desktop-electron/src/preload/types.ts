@@ -27,7 +27,6 @@ export type TitlebarTheme = {
 }
 
 export type ElectronAPI = {
-  instanceId: string
   killSidecar: () => Promise<void>
   installCli: () => Promise<string>
   awaitInitialization: (onStep: (step: InitStep) => void) => Promise<ServerReadyData>

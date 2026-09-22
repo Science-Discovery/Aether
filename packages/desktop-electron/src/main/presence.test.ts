@@ -29,14 +29,13 @@ describe("desktop presence scan", () => {
     const sibling = {
       pid: 4242,
       channel: "prod",
-      programs: [{ type: "desktop" as const, id: "app-1" }],
+      clients: { desktop: 1, web: 0 },
     }
     expect(parse(sibling)).toEqual(sibling)
     expect(parse(null)).toBeNull()
     expect(parse({ pid: 1, channel: "prod" })).toBeNull()
-    expect(parse({ pid: 1, channel: 2, programs: [] })).toBeNull()
-    expect(parse({ pid: 1, channel: "prod", programs: [{ type: "web" }] })).toBeNull()
-    expect(parse({ pid: 1, channel: "prod", programs: [{ type: "other", id: "x" }] })).toBeNull()
+    expect(parse({ pid: 1, channel: 2, clients: { desktop: 0, web: 1 } })).toBeNull()
+    expect(parse({ pid: 1, channel: "prod", clients: { desktop: "0", web: 1 } })).toBeNull()
   })
 
   test("ports includes the base range and serve-port files", async () => {
@@ -61,18 +60,18 @@ describe("desktop presence scan", () => {
     presence = await import("./presence")
     const { conflict, channelSlug, detail } = presence
 
-    const sibling = {
+    const desktopServer = {
       pid: 4242,
       channel: "prod",
-      programs: [{ type: "desktop" as const, id: "app-1" }],
+      clients: { desktop: 1, web: 0 },
     }
     const webServer = {
       pid: 4243,
       channel: "prod",
-      programs: [{ type: "web" as const, id: "browser-1" }],
+      clients: { desktop: 0, web: 2 },
     }
-    const idle = { pid: 4244, channel: "prod", programs: [] }
-    const foreign = { pid: 4245, channel: "local", programs: [{ type: "desktop" as const, id: "app-2" }] }
+    const idle = { pid: 4244, channel: "prod", clients: { desktop: 0, web: 0 } }
+    const foreign = { pid: 4245, channel: "local", clients: { desktop: 0, web: 1 } }
 
     const root = mkdtempSync(join(tmpdir(), "aether-presence-"))
     try {
@@ -83,7 +82,7 @@ describe("desktop presence scan", () => {
       writeFileSync(join(root, "local", "serve-port"), "20913")
 
       const impl = (port: number) => {
-        if (port === 20911) return Promise.resolve(sibling)
+        if (port === 20911) return Promise.resolve(desktopServer)
         if (port === 20912) return Promise.resolve(webServer)
         if (port === 20913) return Promise.resolve(foreign)
         return Promise.resolve(idle)
@@ -97,7 +96,7 @@ describe("desktop presence scan", () => {
       expect(detail([webServer], "prod")).toBe(
         'the web version (browser) is already using the "prod" channel. Only one app can use a channel at a time.',
       )
-      expect(detail([sibling], "prod")).toBe(
+      expect(detail([desktopServer], "prod")).toBe(
         'another desktop app is already using the "prod" channel. Only one app can use a channel at a time.',
       )
       expect(detail([idle], "prod")).toBe(

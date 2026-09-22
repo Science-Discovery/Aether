@@ -6,12 +6,12 @@ const BASE_PORT = 19527
 const PORT_SPAN = 5
 const SUPPRESS_HEADER = "x-aether-presence-scan"
 
-export type Program = { type: "desktop" | "web"; id: string }
+export type Clients = { desktop: number; web: number }
 
 export type Info = {
   pid: number
   channel: string
-  programs: Program[]
+  clients: Clients
 }
 
 export function ports(root = aetherDataDir()) {
@@ -35,18 +35,11 @@ export function ports(root = aetherDataDir()) {
 export function parse(value: unknown): Info | null {
   if (!value || typeof value !== "object") return null
   const data = value as Record<string, unknown>
-  const raw = data.programs as unknown
+  const raw = data.clients as Record<string, unknown> | undefined
   if (typeof data.pid !== "number") return null
   if (typeof data.channel !== "string") return null
-  if (!Array.isArray(raw)) return null
-  const programs: Program[] = []
-  for (const item of raw) {
-    if (!item || typeof item !== "object") return null
-    const p = item as Record<string, unknown>
-    if ((p.type !== "desktop" && p.type !== "web") || typeof p.id !== "string") return null
-    programs.push({ type: p.type, id: p.id })
-  }
-  return { pid: data.pid, channel: data.channel, programs }
+  if (!raw || typeof raw.desktop !== "number" || typeof raw.web !== "number") return null
+  return { pid: data.pid, channel: data.channel, clients: { desktop: raw.desktop, web: raw.web } }
 }
 
 async function defaultProbe(port: number): Promise<Info | null> {
@@ -78,8 +71,8 @@ export function channelSlug(channel: string) {
 }
 
 export function detail(infos: Info[], channel: string) {
-  const web = infos.some((info) => info.programs.some((p) => p.type === "web"))
-  const desktop = infos.some((info) => info.programs.some((p) => p.type === "desktop"))
+  const web = infos.some((info) => info.clients.web > 0)
+  const desktop = infos.some((info) => info.clients.desktop > 0)
   const parts = []
   if (web) parts.push("the web version (browser)")
   if (desktop) parts.push("another desktop app")

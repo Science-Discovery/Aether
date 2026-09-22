@@ -7,39 +7,26 @@ const BASE_PORT = 19527
 const PORT_SPAN = 5
 
 export type ClientType = "desktop" | "web"
-
-export type Program = { type: ClientType; id: string }
-
-export type Info = {
-  pid: number
-  channel: string
-  programs: Program[]
-}
+export type Clients = { desktop: number; web: number }
+export type Info = { pid: number; channel: string; clients: Clients }
 
 type FetchLike = (url: string, init?: RequestInit) => Promise<Response>
 
 let seq = 0
-const live = new Map<number, Program>()
+const live = new Map<number, ClientType>()
 
 export function parse(value: unknown): Info | null {
   if (!value || typeof value !== "object") return null
   const data = value as Record<string, unknown>
-  const raw = data.programs as unknown
+  const raw = data.clients as Record<string, unknown> | undefined
   if (typeof data.pid !== "number") return null
   if (typeof data.channel !== "string") return null
-  if (!Array.isArray(raw)) return null
-  const programs: Program[] = []
-  for (const item of raw) {
-    if (!item || typeof item !== "object") return null
-    const p = item as Record<string, unknown>
-    if ((p.type !== "desktop" && p.type !== "web") || typeof p.id !== "string") return null
-    programs.push({ type: p.type, id: p.id })
-  }
-  return { pid: data.pid, channel: data.channel, programs }
+  if (!raw || typeof raw.desktop !== "number" || typeof raw.web !== "number") return null
+  return { pid: data.pid, channel: data.channel, clients: { desktop: raw.desktop, web: raw.web } }
 }
 
-export function marker(type: string | undefined, id: string | undefined): Program {
-  return { type: type === "desktop" ? "desktop" : "web", id: id ?? "" }
+export function marker(type: string | undefined): ClientType {
+  return type === "desktop" ? "desktop" : "web"
 }
 
 const SUPPRESS_HEADER = "x-aether-presence-scan"
@@ -78,9 +65,9 @@ async function candidatePorts(): Promise<number[]> {
 let inflight: Promise<Info[]> | null = null
 
 export namespace Presence {
-  export function join(program: Program): number {
+  export function join(type: ClientType): number {
     const key = ++seq
-    live.set(key, program)
+    live.set(key, type)
     return key
   }
 
@@ -88,20 +75,18 @@ export namespace Presence {
     live.delete(key)
   }
 
-  export function programs(): Program[] {
-    const seen = new Set<string>()
-    const out: Program[] = []
-    for (const p of live.values()) {
-      const id = `${p.type}:${p.id}`
-      if (seen.has(id)) continue
-      seen.add(id)
-      out.push(p)
+  export function clients(): Clients {
+    let desktop = 0
+    let web = 0
+    for (const type of live.values()) {
+      if (type === "desktop") desktop++
+      else web++
     }
-    return out
+    return { desktop, web }
   }
 
   export function info(): Info {
-    return { pid: process.pid, channel: channelSlug(), programs: programs() }
+    return { pid: process.pid, channel: channelSlug(), clients: clients() }
   }
 
   export async function others(fetchImpl: FetchLike = fetch): Promise<Info[]> {

@@ -2792,17 +2792,17 @@ export type GlobalPresenceResponses = {
   200: {
     pid: number
     channel: string
-    programs: Array<{
-      type: "desktop" | "web"
-      id: string
-    }>
+    clients: {
+      desktop: number
+      web: number
+    }
     others: Array<{
       pid: number
       channel: string
-      programs: Array<{
-        type: "desktop" | "web"
-        id: string
-      }>
+      clients: {
+        desktop: number
+        web: number
+      }
     }>
   }
 }
