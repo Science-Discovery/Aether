@@ -4,7 +4,8 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { betaDesktopNames, betaItems, betaPlatformKeys, runScript } from "./fixtures"
 
-function serveBeta(opts: { failFirst?: Record<string, number>; omitObjectKeys?: boolean }) {
+function serveBeta(opts: { failFirst?: Record<string, number>; omitObjectKeys?: boolean; commitStallMs?: number }) {
+  const sleep = (ms: number) => new Promise((done) => setTimeout(done, ms))
   const uploaded = new Map<string, number>()
   const attempts = new Map<string, number>()
   let presigns = 0
@@ -55,6 +56,7 @@ function serveBeta(opts: { failFirst?: Record<string, number>; omitObjectKeys?: 
       }
       if (req.method === "POST" && reqUrl.pathname === "/api/downloadbeta/admin/commit") {
         commits++
+        if (opts.commitStallMs && commits === 1) await sleep(opts.commitStallMs)
         return Response.json({
           ok: true,
           files: Object.entries(betaPlatformKeys).map(([platform, val]) => ({
@@ -136,6 +138,23 @@ test("failed platform installer retries against its own object key", async () =>
   expect(mock.attempts.get(macIntelInstaller)).toBe(2)
   expect(mock.attempts.get(macInstaller)).toBe(1)
   expect(mock.presigns()).toBe(2)
+}, 60000)
+
+test("slow first commit is retried with a dedicated commit timeout", async () => {
+  const mock = serveBeta({ commitStallMs: 3000 })
+  const dir = await makeFiles()
+  const { stdout, stderr, code } = await runScript("upload-downloadbeta.ts", dir, {
+    DOWNLOAD_BETA_BASE_URL: `http://127.0.0.1:${mock.server.port}`,
+    DOWNLOAD_ADMIN_PASSWORD: "secret",
+    DOWNLOAD_BETA_VERSION: "1.4.0",
+    UPLOAD_RETRY_DELAY_MS: "10",
+    COMMIT_TIMEOUT_MS: "500",
+  })
+  await rm(dir, { recursive: true, force: true })
+  if (code !== 0) console.error(stderr)
+  expect(code).toBe(0)
+  expect(stdout).toContain("Uploaded 1.4.0 to downloadbeta")
+  expect(mock.commits()).toBe(2)
 }, 60000)
 
 test("fails loudly when presign entries lack object keys", async () => {

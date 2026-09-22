@@ -174,23 +174,35 @@ async function exists(item: Item) {
   )
 }
 
-async function post(root: string, path: string, pass: string, body: Record<string, unknown>) {
-  const res = await fetch(url(root, path), {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-download-admin-password": pass,
-    },
-    body: JSON.stringify(body),
-    signal: AbortSignal.timeout(120_000),
-  })
-  if (!res.ok) fail(`Request failed: ${path} ${res.status}`)
-  return await json(res)
+async function post(root: string, path: string, pass: string, body: Record<string, unknown>, timeoutMs: number) {
+  for (let n = 1; ; n++) {
+    try {
+      const res = await fetch(url(root, path), {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-download-admin-password": pass,
+        },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(timeoutMs),
+      })
+      if (!res.ok) {
+        if (res.status < 500) fail(`Request failed: ${path} ${res.status}`)
+        throw new Error(`HTTP ${res.status}`)
+      }
+      return await json(res)
+    } catch (err) {
+      if (n >= uploadAttempts) fail(`Request failed after ${n} attempts: ${path}: ${err}`)
+      console.error(`Retrying ${path} (attempt ${n} failed): ${err}`)
+      await sleep(n * backoff)
+    }
+  }
 }
 
 const uploadTimeoutMs = Number(process.env.UPLOAD_TIMEOUT_MS) || 900_000
 const uploadAttempts = 3
 const backoff = Number(process.env.UPLOAD_RETRY_DELAY_MS) || 15_000
+const commitTimeoutMs = Number(process.env.COMMIT_TIMEOUT_MS) || 900_000
 const sleep = (ms: number) => new Promise((done) => setTimeout(done, ms))
 
 async function put(file: string, key: string, represign: (key: string) => Promise<Upload>, link: Upload) {
@@ -230,7 +242,7 @@ await Promise.all([
 ])
 
 const presignBeta = async () => {
-  const pre = await post(root, "/api/downloadbeta/admin/presign", pass, body)
+  const pre = await post(root, "/api/downloadbeta/admin/presign", pass, body, 120_000)
   if (!presign(pre)) fail("Invalid presign response")
   return pre
 }
@@ -269,11 +281,17 @@ await Promise.all(
   }),
 )
 
-const done = await post(root, "/api/downloadbeta/admin/commit", pass, {
-  ...Object.fromEntries(Object.keys(items).map((key) => [key, { version: ver }])),
-  desktop: { version: ver },
-  releaseDate: new Date().toISOString(),
-})
+const done = await post(
+  root,
+  "/api/downloadbeta/admin/commit",
+  pass,
+  {
+    ...Object.fromEntries(Object.keys(items).map((key) => [key, { version: ver }])),
+    desktop: { version: ver },
+    releaseDate: new Date().toISOString(),
+  },
+  commitTimeoutMs,
+)
 
 if (!commit(done)) fail("Invalid commit response")
 if (Array.isArray(done.ossWarnings) && done.ossWarnings.length > 0) {
