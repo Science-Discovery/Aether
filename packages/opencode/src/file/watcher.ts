@@ -28,6 +28,10 @@ export namespace FileWatcher {
   const log = Log.create({ service: "file.watcher" })
   const SUBSCRIBE_TIMEOUT_MS = 10_000
   const SUBPROCESS_KILL_TIMEOUT_MS = 500
+  const RESPAWN_MAX = 5
+  const RESPAWN_BASE_MS = 500
+  const RESPAWN_CAP_MS = 8_000
+  const RESPAWN_RESET_MS = 60_000
   const sidecarDir = new URL("../../../go-watcher/bin/", import.meta.url)
 
   export const Event = {
@@ -188,7 +192,7 @@ export namespace FileWatcher {
     readonly deactivateAll: () => Effect.Effect<void>
   }
 
-  type Subscription = ParcelWatcher.AsyncSubscription & {
+  export type Subscription = ParcelWatcher.AsyncSubscription & {
     readonly sync?: (dirs: string[]) => Promise<void>
   }
 
@@ -271,6 +275,193 @@ export namespace FileWatcher {
     }
   }
 
+  export type Outcome = { sub?: Subscription; fail?: "timeout" | "error" | "notfound" }
+
+  export interface SuperviseInput {
+    readonly dir: string
+    readonly kind: "worktree" | "git"
+    readonly ignore: string[]
+    readonly filter: string[]
+    readonly backend: "windows" | "fs-events" | "inotify"
+    readonly cb: ParcelWatcher.SubscribeCallback
+    readonly js?: string
+    readonly sidecar: boolean
+    readonly native: boolean
+    readonly subs: Set<Subscription>
+    readonly scope?: { directory: string; worktree: string; projectID: string }
+    readonly disposed: () => boolean
+    readonly degrade?: () => Promise<void> | void
+    readonly onSpawn?: (proc: Process.Child) => void
+    readonly onReady?: () => void
+    readonly delay?: (attempt: number) => number
+  }
+
+  // Keeps one live subscription for `dir`. Launches the sidecar (falling back
+  // to the shared in-process watch when the sidecar cannot attach) and, when
+  // a sidecar dies after becoming ready, respawns it with capped exponential
+  // backoff instead of leaving the watch silently dead. Consecutive fast
+  // crashes give up and report `degrade`; a generation that lives past
+  // RESPAWN_RESET_MS resets the attempt budget.
+  export async function supervise(input: SuperviseInput): Promise<Outcome> {
+    const start = Date.now()
+    let born = start
+    let attempt = 0
+    let gaveUp = false
+    let live: Subscription | undefined
+    let current: { pending: Promise<Subscription>; cancel?: () => void } | undefined
+    let mode = "in-process"
+
+    const attach = async (candidate: { pending: Promise<Subscription> }) => {
+      const next = await Promise.race([
+        candidate.pending,
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error("subscribe timeout")), SUBSCRIBE_TIMEOUT_MS),
+        ),
+      ])
+      log.info("subscribe ready", {
+        dir: input.dir,
+        kind: input.kind,
+        backend: input.backend,
+        mode,
+        respawned: attempt,
+        elapsedMs: Date.now() - start,
+        ...(input.scope ?? {}),
+      })
+      input.onReady?.()
+      return next
+    }
+
+    const abandon = (candidate: typeof current) => {
+      candidate?.cancel?.()
+      candidate?.pending.then((sub) => sub.unsubscribe()).catch(() => {})
+    }
+
+    const accept = (next: Subscription): Outcome => {
+      if (input.disposed()) {
+        void next.unsubscribe()
+        return {}
+      }
+      live = next
+      input.subs.add(next)
+      return { sub: next }
+    }
+
+    const respawn = () => {
+      if (gaveUp || input.disposed()) return
+      const dead = live
+      live = undefined
+      if (dead) {
+        input.subs.delete(dead)
+        void dead.unsubscribe()
+      }
+      if (Date.now() - born >= RESPAWN_RESET_MS) attempt = 0
+      if (attempt >= RESPAWN_MAX) {
+        gaveUp = true
+        log.error("watcher respawn gave up", {
+          dir: input.dir,
+          kind: input.kind,
+          mode,
+          attempts: attempt,
+          ...(input.scope ?? {}),
+        })
+        void Promise.resolve(input.degrade?.()).catch(() => undefined)
+        return
+      }
+      attempt++
+      const wait = input.delay ? input.delay(attempt) : Math.min(RESPAWN_BASE_MS * 2 ** (attempt - 1), RESPAWN_CAP_MS)
+      log.warn("watcher respawn scheduled", {
+        dir: input.dir,
+        kind: input.kind,
+        mode,
+        attempt,
+        delayMs: wait,
+        ...(input.scope ?? {}),
+      })
+      setTimeout(() => {
+        if (input.disposed()) return
+        born = Date.now()
+        launch(true).catch(() => undefined)
+      }, wait)
+    }
+
+    const launch = async (retry: boolean): Promise<Outcome> => {
+      try {
+        if (input.sidecar) {
+          mode = input.js ? "js-sidecar" : "go-sidecar"
+          current = child({
+            dir: input.dir,
+            ignore: input.ignore,
+            filter: input.filter,
+            backend: input.backend,
+            cb: input.cb,
+            js: input.js,
+            died: respawn,
+            onSpawn: input.onSpawn,
+          })
+        } else if (input.native) {
+          current = { pending: sharedSubscribe(input.dir, input.cb, { ignore: input.ignore, backend: input.backend }) }
+        } else {
+          current = child({
+            dir: input.dir,
+            ignore: input.ignore,
+            filter: input.filter,
+            backend: input.backend,
+            cb: input.cb,
+            died: respawn,
+            onSpawn: input.onSpawn,
+          })
+        }
+        return accept(await attach(current))
+      } catch (cause) {
+        const first = reason(cause)
+        abandon(current)
+
+        // The sidecar is a crash-containment boundary, not a hard
+        // requirement: if it cannot run, retry with the in-process
+        // backend rather than losing file watching entirely.
+        if (input.sidecar && input.native) {
+          log.warn("watcher sidecar failed, falling back in-process", {
+            dir: input.dir,
+            kind: input.kind,
+            mode,
+            reason: first,
+            ...(input.scope ?? {}),
+          })
+          mode = "in-process"
+          current = { pending: sharedSubscribe(input.dir, input.cb, { ignore: input.ignore, backend: input.backend }) }
+          try {
+            return accept(await attach(current))
+          } catch (retryError) {
+            abandon(current)
+            cause = retryError
+          }
+        }
+
+        const why = reason(cause)
+        log.error("failed to subscribe", {
+          dir: input.dir,
+          kind: input.kind,
+          retry,
+          reason: why,
+          backend: input.backend,
+          elapsedMs: Date.now() - start,
+          timeoutMs: SUBSCRIBE_TIMEOUT_MS,
+          ignoreCount: input.ignore.length,
+          ignorePreview: input.ignore.slice(0, 20),
+          ...(input.scope ?? {}),
+          cause: cause instanceof Error ? (cause.stack ?? cause.message) : cause,
+        })
+        if (retry) {
+          gaveUp = true
+          await Promise.resolve(input.degrade?.()).catch(() => undefined)
+        }
+        return { fail: why }
+      }
+    }
+
+    return launch(false)
+  }
+
   export class Service extends ServiceMap.Service<Service, Interface>()("@opencode/FileWatcher") {}
 
   export const layer = Layer.effect(
@@ -346,102 +537,35 @@ export namespace FileWatcher {
 
         const subscribe = (dir: string, ignore: string[], kind: "worktree" | "git") =>
           Effect.promise(async () => {
-            const start = Date.now()
             const watchIgnore = process.platform === "linux" && kind === "worktree" ? sidecarIgnore : ignore
             const jsSidecarFile = jsSidecar()
             const useSidecar = !w || (process.platform === "linux" && kind === "worktree") || !!jsSidecarFile
             const filter = kind === "worktree" ? sidecarFilter : []
-            let input:
-              | {
-                  pending: Promise<Subscription>
-                  cancel?: () => void
-                }
-              | undefined
-            let mode = "in-process"
 
-            const attach = async (candidate: { pending: Promise<Subscription> }) => {
-              const sub = await Promise.race([
-                candidate.pending,
-                new Promise<never>((_, reject) =>
-                  setTimeout(() => reject(new Error("subscribe timeout")), SUBSCRIBE_TIMEOUT_MS),
-                ),
-              ])
-              subs.add(sub)
-              log.info("subscribe ready", {
-                dir,
-                kind,
-                backend,
-                mode,
-                elapsedMs: Date.now() - start,
+            const outcome = await supervise({
+              dir,
+              kind,
+              ignore: watchIgnore,
+              filter,
+              backend,
+              cb,
+              js: jsSidecarFile,
+              sidecar: useSidecar,
+              native: !!w,
+              subs,
+              scope: {
                 directory: Instance.directory,
                 worktree: Instance.project.worktree,
                 projectID: Instance.project.id,
-              })
-              return sub
+              },
+              disposed: () => disposed,
+              degrade: () => Effect.runPromise(warn({ dir, reason: "error" })).catch(() => undefined),
+            })
+
+            if (outcome.fail && kind === "worktree" && process.platform === "linux") {
+              await Effect.runPromise(outcome.fail === "notfound" ? notfound(dir) : warn({ dir, reason: outcome.fail }))
             }
-
-            const abandon = (candidate: typeof input) => {
-              candidate?.cancel?.()
-              candidate?.pending.then((sub) => sub.unsubscribe()).catch(() => {})
-            }
-
-            try {
-              if (useSidecar) {
-                mode = jsSidecarFile ? "js-sidecar" : "go-sidecar"
-                input = child({ dir, ignore: watchIgnore, filter, backend, cb, js: jsSidecarFile })
-              } else if (w) {
-                input = {
-                  pending: sharedSubscribe(dir, cb, { ignore: watchIgnore, backend }),
-                }
-              } else {
-                input = child({ dir, ignore: watchIgnore, filter, backend, cb })
-              }
-
-              return await attach(input)
-            } catch (error) {
-              const first = reason(error)
-              abandon(input)
-
-              // The sidecar is a crash-containment boundary, not a hard
-              // requirement: if it cannot run, retry with the in-process
-              // backend rather than losing file watching entirely.
-              if (useSidecar && w) {
-                log.warn("watcher sidecar failed, falling back in-process", {
-                  dir,
-                  kind,
-                  mode,
-                  reason: first,
-                  directory: Instance.directory,
-                })
-                mode = "in-process"
-                input = { pending: sharedSubscribe(dir, cb, { ignore: watchIgnore, backend }) }
-                try {
-                  return await attach(input)
-                } catch (retryError) {
-                  abandon(input)
-                  error = retryError
-                }
-              }
-
-              const why = reason(error)
-              log.error("failed to subscribe", {
-                dir,
-                kind,
-                reason: why,
-                backend,
-                elapsedMs: Date.now() - start,
-                timeoutMs: SUBSCRIBE_TIMEOUT_MS,
-                ignoreCount: watchIgnore.length,
-                ignorePreview: watchIgnore.slice(0, 20),
-                directory: Instance.directory,
-                worktree: Instance.project.worktree,
-                projectID: Instance.project.id,
-                cause: error instanceof Error ? (error.stack ?? error.message) : error,
-              })
-              if (kind === "worktree" && process.platform === "linux") {
-                await Effect.runPromise(why === "notfound" ? notfound(dir) : warn({ dir, reason: why }))
-              }
-            }
+            return outcome.sub
           })
 
         return {
@@ -579,6 +703,8 @@ export namespace FileWatcher {
     backend: ParcelWatcher.BackendType
     cb: ParcelWatcher.SubscribeCallback
     js?: string
+    died?: () => void
+    onSpawn?: (proc: Process.Child) => void
   }) {
     const abort = new AbortController()
     const command = input.js ? [process.execPath, input.js] : [requireSidecar()]
@@ -591,6 +717,7 @@ export namespace FileWatcher {
       abort: abort.signal,
       timeout: SUBPROCESS_KILL_TIMEOUT_MS,
     })
+    input.onSpawn?.(proc)
     log.info("watcher child spawn", {
       dir: input.dir,
       backend: input.backend,
@@ -695,6 +822,7 @@ export namespace FileWatcher {
             pid: proc.pid,
           })
           input.cb(new Error(`watcher child ${msg.stage}: ${msg.error}`), [])
+          if (msg.fatal) input.died?.()
           return
         }
 
@@ -722,7 +850,11 @@ export namespace FileWatcher {
           signal,
           elapsedMs: Date.now() - start,
         })
-        if (ready) return
+        if (ready) {
+          if (abort.signal.aborted) return
+          input.died?.()
+          return
+        }
         if (abort.signal.aborted) {
           fail(new Error(`watcher child aborted before ready: ${input.dir}`))
           return
