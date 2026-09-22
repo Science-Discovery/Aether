@@ -444,6 +444,9 @@ export namespace Snapshot {
               Effect.gen(function* () {
                 if (!(yield* enabled())) return
                 if (!(yield* exists(state.gitdir))) return
+                // the project may have been deleted entirely (e.g. e2e temp
+                // projects); gc would only fail against a missing worktree
+                if (!(yield* exists(state.worktree))) return
                 const result = yield* git(args(["gc", `--prune=${prune}`]), { cwd: state.worktree })
                 if (result.code !== 0) {
                   log.warn("cleanup failed", {

@@ -11,6 +11,8 @@ export namespace Git {
     "-c",
     "core.autocrlf=false",
     "-c",
+    "core.fsmonitor=false",
+    "-c",
     "core.longpaths=true",
     ...(process.platform !== "win32" ? ["-c", "core.symlinks=true"] : []),
     "-c",
@@ -19,6 +21,8 @@ export namespace Git {
 
   const statusCfg = [
     "--no-optional-locks",
+    "-c",
+    "core.fsmonitor=false",
     "-c",
     "core.longpaths=true",
     ...(process.platform !== "win32" ? ["-c", "core.symlinks=true"] : []),

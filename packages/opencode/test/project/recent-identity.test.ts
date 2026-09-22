@@ -145,7 +145,7 @@ describe("startup reconciliation removes ghost sandbox projects", () => {
       expect(existsSync(ghostDbPath)).toBeTrue()
       expect(mainSqlite().prepare("SELECT key FROM project_recent WHERE project_id = ?").get(ghostId)).toBeDefined()
 
-      Database.registerUntrackedProjects(Database.Client())
+      await Database.registerUntrackedProjects(Database.Client())
       // The ghost db is quarantined; on Windows the unlink can be blocked by a
       // lingering handle, and a later startup's cleanup removes the leftover.
       for (let i = 0; i < 5 && existsSync(ghostDbPath); i++) {
@@ -189,7 +189,7 @@ describe("startup reconciliation removes ghost sandbox projects", () => {
       )
       .run(`dir:${norm(sandboxDir)}`, project.id, norm(sandboxDir))
 
-    Database.registerUntrackedProjects(Database.Client())
+    await Database.registerUntrackedProjects(Database.Client())
 
     expect(mainSqlite().prepare("SELECT key FROM project_recent WHERE directory = ?").get(norm(sandboxDir))).toBeFalsy()
     const item = Project.recentList().find((i) => Project.norm(i.directory) === norm(tmp.path))
@@ -234,7 +234,7 @@ describe("startup reconciliation removes ghost sandbox projects", () => {
     )
     Database.detach(ghostId)
 
-    Database.registerUntrackedProjects(Database.Client())
+    await Database.registerUntrackedProjects(Database.Client())
     for (let i = 0; i < 5 && Database.hasProject(ghostId); i++) {
       Bun.gc(true)
       await Bun.sleep(100)
@@ -336,19 +336,19 @@ describe("startup reconciliation removes ghost sandbox projects", () => {
     seedRecent(tmp.path, pid)
     const rowHere = () => mainSqlite().prepare("SELECT key FROM project_recent WHERE directory = ?").get(norm(tmp.path))
 
-    Database.registerUntrackedProjects(Database.Client())
+    await Database.registerUntrackedProjects(Database.Client())
     expect(rowHere()).toBeDefined()
 
-    Database.registerUntrackedProjects(Database.Client())
+    await Database.registerUntrackedProjects(Database.Client())
     expect(rowHere()).toBeFalsy()
 
     await converse(tmp.path)
     await Project.fromDirectory(tmp.path)
-    Database.registerUntrackedProjects(Database.Client())
+    await Database.registerUntrackedProjects(Database.Client())
     expect(rowHere()).toBeDefined()
 
     // An active project is cutoff-exempt-proof: no pass can take its row.
-    Database.registerUntrackedProjects(Database.Client())
+    await Database.registerUntrackedProjects(Database.Client())
     expect(rowHere()).toBeDefined()
   })
 
@@ -362,11 +362,11 @@ describe("startup reconciliation removes ghost sandbox projects", () => {
 
     // First pass: the row was seeded after the previous pass, so a fresh boot
     // registration is presumed live and survives (same-process recovery safety).
-    Database.registerUntrackedProjects(Database.Client())
+    await Database.registerUntrackedProjects(Database.Client())
     expect(rowHere()).toBeDefined()
 
     // Second pass: nothing refreshed it — registration alone is not activity.
-    Database.registerUntrackedProjects(Database.Client())
+    await Database.registerUntrackedProjects(Database.Client())
     expect(rowHere()).toBeFalsy()
     expect(Project.recentList().some((i) => Project.norm(i.directory) === norm(tmp.path))).toBe(false)
 
@@ -374,8 +374,8 @@ describe("startup reconciliation removes ghost sandbox projects", () => {
     // reconcile can take it afterwards.
     await converse(tmp.path)
     await Project.fromDirectory(tmp.path)
-    Database.registerUntrackedProjects(Database.Client())
-    Database.registerUntrackedProjects(Database.Client())
+    await Database.registerUntrackedProjects(Database.Client())
+    await Database.registerUntrackedProjects(Database.Client())
 
     expect(rowHere()).toBeDefined()
     const item = Project.recentList().find((i) => Project.norm(i.directory) === norm(tmp.path))
@@ -393,11 +393,11 @@ describe("startup reconciliation removes ghost sandbox projects", () => {
     expect(rowHere()).toBeDefined()
 
     // Freshly seeded rows survive exactly one pass (same-process safety)...
-    Database.registerUntrackedProjects(Database.Client())
+    await Database.registerUntrackedProjects(Database.Client())
     expect(rowHere()).toBeDefined()
     // ...and an empty session never refreshes the row, so the next reconcile
     // collects it even though sessionCount > 0.
-    Database.registerUntrackedProjects(Database.Client())
+    await Database.registerUntrackedProjects(Database.Client())
     expect(rowHere()).toBeFalsy()
     expect(Project.recentList().some((i) => Project.norm(i.directory) === norm(tmp.path))).toBe(false)
 
@@ -518,7 +518,7 @@ describe("managed worktree storage folds into the owning project", () => {
       })
       Database.detach(ghostId)
 
-      Database.registerUntrackedProjects(Database.Client())
+      await Database.registerUntrackedProjects(Database.Client())
 
       // The feed row and map entry are re-pointed to the owning project, then
       // the internal-directory rule collects the row in the same pass.
