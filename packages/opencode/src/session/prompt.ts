@@ -1,5 +1,6 @@
 import path from "path"
 import os from "os"
+import { mkdirSync } from "node:fs"
 import fs from "fs/promises"
 import z from "zod"
 import { Filesystem } from "../util/filesystem"
@@ -51,6 +52,7 @@ import { iife } from "@/util/iife"
 import { Shell } from "@/shell/shell"
 import { ShellOutput } from "@/shell/output"
 import { cleanupNul } from "@/shell/guard"
+import { ToolID } from "@/tool/schema"
 import { Truncate } from "@/tool/truncate"
 import { Knowledge } from "../knowledge"
 import { setKnowledgeConfig, hasKnowledge } from "../tool/knowledge"
@@ -1873,23 +1875,83 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         },
       })
 
+      const MAX_OUTPUT = Truncate.MAX_BYTES
+      const UPDATE_INTERVAL = 250
       let output = ""
+      let total = 0
+      let file: string | undefined
+      let sink: Bun.FileSink | undefined
+      let pending: Promise<unknown> | undefined
+      let dead = false
+
+      const spillFail = (err: unknown) => {
+        dead = true
+        sink = undefined
+        file = undefined
+        log.error("shell output spill failed", { err })
+      }
 
       const append = (text: string) => {
         if (!text) return
-        output += text
-        if (part.state.status === "running") {
-          part.state.metadata = {
-            output: output,
-            description: "",
+        total += Buffer.byteLength(text)
+        if (sink) {
+          try {
+            sink.write(text)
+          } catch (err) {
+            spillFail(err)
           }
-          Session.updatePart(part)
+          return
         }
+        if (!dead && Buffer.byteLength(output) + Buffer.byteLength(text) <= MAX_OUTPUT) {
+          output += text
+          return
+        }
+        const all = new TextEncoder().encode(output + text)
+        let cut = Math.min(MAX_OUTPUT, all.byteLength)
+        while (cut > 0 && (all[cut] & 0xc0) === 0x80) cut--
+        output = new TextDecoder().decode(all.subarray(0, cut))
+        if (dead) return
+        try {
+          file = path.join(Truncate.DIR, ToolID.ascending())
+          mkdirSync(Truncate.DIR, { recursive: true })
+          sink = Bun.file(file).writer()
+          sink.write(all)
+        } catch (err) {
+          spillFail(err)
+        }
+      }
+
+      let last = 0
+      let timer: ReturnType<typeof setTimeout> | undefined
+      const flush = () => {
+        if (timer) {
+          clearTimeout(timer)
+          timer = undefined
+        }
+        if (part.state.status !== "running") return
+        last = Date.now()
+        part.state.metadata = {
+          output,
+          description: "",
+        }
+        Session.updatePart(part)
+      }
+      const schedule = () => {
+        if (timer || part.state.status !== "running") return
+        const wait = UPDATE_INTERVAL - (Date.now() - last)
+        if (wait <= 0) {
+          flush()
+          return
+        }
+        timer = setTimeout(flush, wait)
       }
 
       for (const stream of [proc.stdout, proc.stderr]) {
         const decoder = ShellOutput.decoder(encoding)
-        stream?.on("data", (chunk: Buffer) => append(decoder.write(chunk)))
+        stream?.on("data", (chunk: Buffer) => {
+          append(decoder.write(chunk))
+          schedule()
+        })
         stream?.on("end", () => append(decoder.end()))
         stream?.on("close", () => append(decoder.end()))
       }
@@ -1921,6 +1983,24 @@ NOTE: At any point in time through this workflow you should feel free to ask the
 
       await cleanupNul(Instance.directory)
 
+      if (timer) {
+        clearTimeout(timer)
+        timer = undefined
+      }
+      let spillFailed = false
+      if (sink) {
+        pending = Promise.resolve(sink.end()).catch((err) => {
+          spillFailed = true
+          log.error("shell output spill failed", { err })
+        })
+      }
+      if (pending) await pending
+      if (file) {
+        const dropped = total - Buffer.byteLength(output)
+        output += spillFailed
+          ? `\n\n...${dropped} bytes truncated (saving full output failed)...`
+          : `\n\n...${dropped} bytes truncated...\n\nFull output saved to: ${file}\nUse Grep to search the full content or Read with offset/limit to view specific sections.`
+      }
       if (aborted) {
         output += "\n\n" + ["<metadata>", "User aborted the command", "</metadata>"].join("\n")
       }
