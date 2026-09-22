@@ -328,6 +328,7 @@ jobs:
           DOWNLOAD_BETA_BASE_URL: ${{ vars.DOWNLOAD_BETA_BASE_URL }}
           DOWNLOAD_ADMIN_PASSWORD: ${{ secrets.DOWNLOAD_ADMIN_PASSWORD }}
           DOWNLOAD_BETA_VERSION: ${{ needs.release.outputs.version }}
+          UPLOAD_TIMEOUT_MS: "3600000"
         run: bun .github/scripts/upload-downloadbeta.ts
 
       - name: Create release tag
