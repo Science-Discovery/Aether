@@ -55,12 +55,15 @@ export namespace SessionWatchdog {
   export async function defer(input: { sessionID: SessionID; messageID: MessageID; message: string }) {
     const now = Date.now()
     const prev = await record(input.sessionID).catch(() => undefined)
-    const started = prev?.started_at ?? now
+    // Same turn keeps the original window anchor; a different anchor means a
+    // new user message turned this into a new task with a fresh 10-day window.
+    const same = prev?.message_id === input.messageID
+    const started = same ? prev!.started_at : now
     if (SessionRetry.expired(started, now)) {
       await expire(input.sessionID, started)
       return
     }
-    const attempts = (prev?.attempts ?? 0) + 1
+    const attempts = (same ? prev!.attempts : 0) + 1
     const next = now + SessionRetry.longDelay(now - started)
     const session = await Session.getGlobal(input.sessionID)
     await Database.useProject(session.projectID, (db) =>
@@ -78,6 +81,7 @@ export namespace SessionWatchdog {
           target: SessionRetryTable.session_id,
           set: {
             message_id: input.messageID,
+            started_at: started,
             next_at: next,
             attempts,
             message: input.message,

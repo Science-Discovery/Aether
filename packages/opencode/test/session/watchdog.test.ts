@@ -94,6 +94,20 @@ describe("session.retry.connection", () => {
     ).toBeUndefined()
   })
 
+  test("does not retry 4xx errors mislabeled as retryable by the provider", () => {
+    expect(SessionRetry.connection(apiError({ message: "boom", statusCode: 400, isRetryable: true }))).toBeUndefined()
+    expect(SessionRetry.connection(apiError({ message: "boom", statusCode: 404, isRetryable: true }))).toBeUndefined()
+    expect(SessionRetry.connection(apiError({ message: "boom", statusCode: 422, isRetryable: true }))).toBeUndefined()
+  })
+
+  test("does not park unknown JSON errors from the retryable catch-all", () => {
+    const unknown = {
+      data: { message: JSON.stringify({ code: "something_unheard_of" }) },
+    } as ReturnType<NamedError["toObject"]>
+    expect(SessionRetry.retryable(unknown)).toBeDefined()
+    expect(SessionRetry.connection(unknown)).toBeUndefined()
+  })
+
   test("keeps legacy retryable heuristics for exotic error shapes", () => {
     const wrapped = { data: { message: "socket hang up" } } as ReturnType<NamedError["toObject"]>
     expect(SessionRetry.connection(wrapped)).toBe("Connection error")
@@ -200,7 +214,7 @@ describe("session.watchdog recovery loop", () => {
             },
           )
         }
-        return stream("final answer")
+        return stream("second answer")
       },
     })
     servers.push(server)
@@ -254,7 +268,21 @@ describe("session.watchdog recovery loop", () => {
         expect((parked.info as MessageV2.Assistant).error).toBeDefined()
         const parkedStatus = await SessionStatus.get(session.id)
         expect(parkedStatus.type).toBe("retry")
+        expect(parkedStatus.type === "retry" && parkedStatus.attempt).toBeGreaterThanOrEqual(1)
         expect(await SessionWatchdog.pending(session.id)).toBe(true)
+
+        // A new user message while still parked starts a new task: the 10-day
+        // window anchor resets instead of inheriting the old turn's window.
+        const parked2 = await SessionPrompt.prompt({
+          sessionID: session.id,
+          agent: "build",
+          model,
+          parts: [{ type: "text", text: "Try again please." }],
+        })
+        expect((parked2.info as MessageV2.Assistant).error).toBeDefined()
+        const parkedStatus2 = await SessionStatus.get(session.id)
+        expect(parkedStatus2.type).toBe("retry")
+        expect(parkedStatus2.type === "retry" && parkedStatus2.attempt).toBe(1)
 
         // Upstream recovers: the wake reruns the loop and the turn completes
         // without any user interaction.
@@ -266,7 +294,7 @@ describe("session.watchdog recovery loop", () => {
         expect(await SessionWatchdog.pending(session.id)).toBe(false)
         const msgs = await Session.messages({ sessionID: session.id })
         const texts = msgs.flatMap((msg) => msg.parts).filter((part) => part.type === "text")
-        expect(texts.some((part) => part.type === "text" && part.text === "final answer")).toBe(true)
+        expect(texts.some((part) => part.type === "text" && part.text === "second answer")).toBe(true)
 
         await SessionWatchdog.clear(session.id)
         await Instance.dispose()

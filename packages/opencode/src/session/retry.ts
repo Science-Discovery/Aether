@@ -140,11 +140,21 @@ export namespace SessionRetry {
       .filter((item): item is string => typeof item === "string")
       .join("\n")
     if (BILLING.test(text)) return "Upstream billing or quota limit reached"
-    if (!api) return retryable(error)
+    if (!api) {
+      const fallback = retryable(error)
+      // retryable()'s JSON catch-all returns truthy for arbitrary unknown
+      // errors; only its specific transient signals justify a 10-day park.
+      if (fallback === undefined || fallback.startsWith("{")) return undefined
+      return fallback
+    }
     const status = api.data.statusCode
     if (status !== undefined && (status === 402 || status === 408 || status === 429 || status >= 500)) {
       return api.data.message
     }
+    // 4xx mislabeled as retryable by the provider (e.g. the OpenAI 404 quirk)
+    // is a request/class error that does not self-heal; the short in-loop
+    // retries already covered the transient part.
+    if (status !== undefined && status >= 400) return undefined
     if (!api.data.isRetryable) return undefined
     return api.data.message
   }
