@@ -364,8 +364,21 @@ export function SessionTurn(
   const assistantExpandLabel = createMemo(() => i18n.t("ui.message.expand"))
   const collapseAssistant = () => props.onAssistantCollapsedChange?.(true)
   const toggleAssistant = (event: MouseEvent) => {
-    if (event.button !== 0 || !canCollapseAssistant() || !props.onAssistantCollapsedChange) return
+    if (event.button !== 0) return
     if (skip(event.target) || picked()) return
+    const el = pin()
+    const view = el?.closest<HTMLElement>(".scroll-view__viewport")
+    const parent = el?.parentElement
+    if (el && view && parent) {
+      const sticky = Number.parseFloat(getComputedStyle(el).top) || 0
+      const parentTop = parent.getBoundingClientRect().top - view.getBoundingClientRect().top + view.scrollTop
+      if (view.scrollTop > parentTop - sticky + 4) {
+        const delta = parent.getBoundingClientRect().top - view.getBoundingClientRect().top - sticky
+        view.scrollTo({ top: view.scrollTop + delta, behavior: "smooth" })
+        return
+      }
+    }
+    if (!canCollapseAssistant() || !props.onAssistantCollapsedChange) return
     props.onAssistantCollapsedChange(!assistantCollapsed())
   }
 
@@ -374,7 +387,7 @@ export function SessionTurn(
     if (!bubble) return 0
     const rect = el.getBoundingClientRect()
     const bubbleRect = bubble.getBoundingClientRect()
-    return Math.max(0, Math.ceil(bubbleRect.bottom - rect.top - 62))
+    return Math.max(0, Math.ceil(bubbleRect.bottom - rect.top - 50))
   }
   const [pin, setPin] = createSignal<HTMLElement>()
   let pinShift = -1

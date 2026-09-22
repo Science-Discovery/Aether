@@ -91,21 +91,16 @@ test("scrolled assistant output pins the user prompt tail and collapses on click
       .toBeGreaterThan(4000)
 
     const view = await timelineViewport(page)
-    await page.evaluate((el) => {
-      el.scrollTop = 0
-    }, view)
     await expect
       .poll(async () =>
         page.evaluate(() => {
+          const list = document.querySelector('[data-slot="session-turn-list"]')
+          const view = list?.closest(".scroll-view__viewport")
+          if (!(view instanceof HTMLElement)) return Number.NaN
+          view.scrollTop = 0
           const message = document.querySelector('[data-slot="session-turn-message-content"]')
           const assistantEl = document.querySelector('[data-slot="session-turn-assistant-content"]')
-          const first = assistantEl?.firstElementChild
-          if (
-            !(message instanceof HTMLElement) ||
-            !(assistantEl instanceof HTMLElement) ||
-            !(first instanceof HTMLElement)
-          )
-            return Number.NaN
+          if (!(message instanceof HTMLElement) || !(assistantEl instanceof HTMLElement)) return Number.NaN
           return Math.round(assistantEl.getBoundingClientRect().top - message.getBoundingClientRect().bottom)
         }),
       )
@@ -137,10 +132,23 @@ test("scrolled assistant output pins the user prompt tail and collapses on click
     })
     expect(pinnedBubble.top).toBeLessThanOrEqual(64)
     expect(pinnedBubble.bubbleBottom).toBeGreaterThanOrEqual(38)
-    expect(pinnedBubble.bubbleBottom).toBeLessThanOrEqual(130)
+    expect(pinnedBubble.bubbleBottom).toBeLessThanOrEqual(100)
 
     const pin = page.locator('[data-slot="session-turn-message-content"]').first()
     await expect(pin).toContainText(tail)
+
+    await page.locator("[data-slot='user-message-text']").first().click()
+    await expect
+      .poll(
+        async () =>
+          page.evaluate(() => {
+            const view = document.querySelector('[data-slot="session-turn-list"]')?.closest(".scroll-view__viewport")
+            if (!(view instanceof HTMLElement)) return Number.NaN
+            return view.scrollTop
+          }),
+        { timeout: 10_000 },
+      )
+      .toBeLessThan(200)
 
     await page.locator("[data-slot='user-message-text']").first().click()
     await expect(page.locator('[data-slot="session-turn-assistant-content"]')).toHaveCount(0)
@@ -165,7 +173,7 @@ test("scrolled assistant output pins the user prompt tail and collapses on click
           }),
         { timeout: 10_000 },
       )
-      .toBeLessThanOrEqual(130)
+      .toBeLessThanOrEqual(100)
   } finally {
     page.off("pageerror", onPageError)
   }

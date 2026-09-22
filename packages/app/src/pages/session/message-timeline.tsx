@@ -1243,9 +1243,9 @@ export function MessageTimeline(props: {
           onClick={props.onAutoScrollInteraction}
           class="relative min-w-0 w-full h-full"
           style={{
-            "--session-title-height": showHeader() ? "40px" : "0px",
-            "--sticky-accordion-top": showHeader() ? "48px" : "0px",
-            "--session-title-block": showHeader() ? "64px" : "0px",
+            "--session-title-height": showHeader() ? "45px" : "0px",
+            "--sticky-accordion-top": showHeader() ? "45px" : "0px",
+            "--session-title-block": showHeader() ? "45px" : "0px",
           }}
         >
           <div ref={props.setContentRef} class="min-w-0 w-full">
@@ -1253,14 +1253,13 @@ export function MessageTimeline(props: {
               <div
                 data-session-title
                 classList={{
-                  "sticky top-0 z-30 bg-[linear-gradient(to_bottom,var(--background-stronger)_48px,transparent)]": true,
+                  "sticky top-0 z-30 bg-background-stronger border-b border-border-weaker-base": true,
                   "w-full": true,
-                  "pb-4": true,
                   "pl-2 pr-3 md:pl-4 md:pr-3": true,
                   "md:max-w-[2400px] md:mx-auto 2xl:max-w-[3000px]": props.centered,
                 }}
               >
-                <div class="h-12 w-full flex items-center justify-between gap-2">
+                <div class="h-[45px] w-full flex items-center justify-between gap-2">
                   <div class="flex items-center gap-1 min-w-0 flex-1 pr-3">
                     <Show when={parentID()}>
                       <IconButton
@@ -1294,7 +1293,8 @@ export function MessageTimeline(props: {
                           when={title.editing}
                           fallback={
                             <h1
-                              class="text-14-medium text-text-strong truncate grow-1 min-w-0"
+                              class="text-14-medium truncate grow-1 min-w-0"
+                              style={{ color: "var(--text-diff-add-base)" }}
                               onDblClick={openTitleEditor}
                             >
                               {titleValue()}
