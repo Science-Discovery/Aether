@@ -736,7 +736,9 @@ export namespace File {
               paths: collapsed.slice(0, DIRS_MAX),
               signal: ac.signal,
             })) {
-              files.push(file)
+              // rg emits backslash-separated paths on Windows; git (and the
+              // search index) uses forward slashes everywhere
+              files.push(file.replaceAll("\\", "/"))
               if (files.length >= UNTRACKED_MAX) break
             }
           } catch {
@@ -779,7 +781,10 @@ export namespace File {
         // appends into a shared cache.
         const next: Entry = { files: [], dirs: [] }
         const seen = new Set<string>()
-        const put = (file: string) => {
+        const put = (raw: string) => {
+          // rg (non-git fallback) emits backslash-separated paths on
+          // Windows; keep the index forward-slash everywhere like git
+          const file = raw.replaceAll("\\", "/")
           next.files.push(file)
           let current = file
           while (true) {
