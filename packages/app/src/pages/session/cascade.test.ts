@@ -107,6 +107,36 @@ describe("cascade", () => {
     expect(back.moved).toBe(-250)
   })
 
+  test("right drag overflow skips a right pane already at its min", () => {
+    const out = cascade(
+      [
+        { width: 200, min: 81 },
+        { width: 400, min: 150 },
+        { width: 107, min: 107 },
+        { width: 200, min: 67 },
+      ],
+      2,
+      50,
+    )
+    expect(out.widths).toEqual([200, 450, 107, 150])
+    expect(out.moved).toBe(50)
+  })
+
+  test("left drag overflow skips a left pane already at its min", () => {
+    const out = cascade(
+      [
+        { width: 200, min: 81 },
+        { width: 150, min: 150 },
+        { width: 107, min: 107 },
+        { width: 200, min: 67 },
+      ],
+      2,
+      -50,
+    )
+    expect(out.widths).toEqual([150, 150, 157, 200])
+    expect(out.moved).toBe(-50)
+  })
+
   test("does not mutate the input", () => {
     const panes = row()
     cascade(panes, 2, 120)
