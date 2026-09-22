@@ -136,4 +136,19 @@ describe("sidecar pid lifecycle", () => {
       rmSync(root, { recursive: true, force: true })
     }
   })
+
+  test("corrupt json pid file is removed without throwing", async () => {
+    const root = pidRoot()
+    process.env.XDG_DATA_HOME = root
+    try {
+      const file = pidFile(root)
+      writeFileSync(file, '{"pid": 12')
+      const cli = await import("./cli")
+      await cli.killStaleSidecar()
+      expect(existsSync(file)).toBe(false)
+    } finally {
+      delete process.env.XDG_DATA_HOME
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
 })

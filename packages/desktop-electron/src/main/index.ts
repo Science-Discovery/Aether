@@ -61,10 +61,13 @@ setupApp()
 // but NOT on SIGKILL (which is fundamentally uncatchable — killStaleSidecar
 // handles that on next startup). On macOS/Linux the detached process is in its
 // own process group (PGID = sidecarPid), so killing -PGID removes it entirely.
+// On Windows the sidecar cannot be killed here, so the pid file is left in
+// place for killStaleSidecar's identity check on the next startup — removing
+// it would strand a live sidecar with no cleanup path.
 process.on("exit", () => {
   if (sidecarPid === null) return
-  clearSidecarPid()
   if (process.platform !== "win32") {
+    clearSidecarPid()
     try {
       process.kill(-sidecarPid, "SIGKILL")
     } catch {
