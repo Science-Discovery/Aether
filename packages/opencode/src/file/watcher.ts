@@ -294,6 +294,7 @@ export namespace FileWatcher {
     readonly onSpawn?: (proc: Process.Child) => void
     readonly onReady?: () => void
     readonly delay?: (attempt: number) => number
+    readonly resetMs?: number
   }
 
   // Keeps one live subscription for `dir`. Launches the sidecar (falling back
@@ -312,23 +313,28 @@ export namespace FileWatcher {
     let mode = "in-process"
 
     const attach = async (candidate: { pending: Promise<Subscription> }) => {
-      const next = await Promise.race([
-        candidate.pending,
-        new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error("subscribe timeout")), SUBSCRIBE_TIMEOUT_MS),
-        ),
-      ])
-      log.info("subscribe ready", {
-        dir: input.dir,
-        kind: input.kind,
-        backend: input.backend,
-        mode,
-        respawned: attempt,
-        elapsedMs: Date.now() - start,
-        ...(input.scope ?? {}),
-      })
-      input.onReady?.()
-      return next
+      let timer: ReturnType<typeof setTimeout> | undefined
+      try {
+        const next = await Promise.race([
+          candidate.pending,
+          new Promise<never>((_, reject) => {
+            timer = setTimeout(() => reject(new Error("subscribe timeout")), SUBSCRIBE_TIMEOUT_MS)
+          }),
+        ])
+        log.info("subscribe ready", {
+          dir: input.dir,
+          kind: input.kind,
+          backend: input.backend,
+          mode,
+          respawned: attempt,
+          elapsedMs: Date.now() - start,
+          ...(input.scope ?? {}),
+        })
+        input.onReady?.()
+        return next
+      } finally {
+        if (timer) clearTimeout(timer)
+      }
     }
 
     const abandon = (candidate: typeof current) => {
@@ -342,6 +348,7 @@ export namespace FileWatcher {
         return {}
       }
       live = next
+      born = Date.now()
       input.subs.add(next)
       return { sub: next }
     }
@@ -354,7 +361,7 @@ export namespace FileWatcher {
         input.subs.delete(dead)
         void dead.unsubscribe()
       }
-      if (Date.now() - born >= RESPAWN_RESET_MS) attempt = 0
+      if (Date.now() - born >= (input.resetMs ?? RESPAWN_RESET_MS)) attempt = 0
       if (attempt >= RESPAWN_MAX) {
         gaveUp = true
         log.error("watcher respawn gave up", {
@@ -379,7 +386,6 @@ export namespace FileWatcher {
       })
       setTimeout(() => {
         if (input.disposed()) return
-        born = Date.now()
         launch(true).catch(() => undefined)
       }, wait)
     }
@@ -769,6 +775,15 @@ export namespace FileWatcher {
         await proc.exited.catch(() => undefined)
       }
 
+      // died is a once-per-generation signal: a fatal line racing the process
+      // exit (or two fatal lines) must not schedule two respawns.
+      let announced = false
+      const announce = () => {
+        if (announced) return
+        announced = true
+        input.died?.()
+      }
+
       out.on("line", (line) => {
         let msg:
           | { type: "ready"; watched?: number; ignored?: number }
@@ -822,7 +837,7 @@ export namespace FileWatcher {
             pid: proc.pid,
           })
           input.cb(new Error(`watcher child ${msg.stage}: ${msg.error}`), [])
-          if (msg.fatal) input.died?.()
+          if (msg.fatal) announce()
           return
         }
 
@@ -852,7 +867,7 @@ export namespace FileWatcher {
         })
         if (ready) {
           if (abort.signal.aborted) return
-          input.died?.()
+          announce()
           return
         }
         if (abort.signal.aborted) {

@@ -127,6 +127,38 @@ describe("FileWatcher sidecar respawn", () => {
   )
 
   testWin32(
+    "resets the attempt budget after a healthy generation",
+    async () => {
+      await using tmp = await tmpdir()
+      const h = harness(tmp.path)
+      const outcome = await FileWatcher.supervise(h.input({ delay: () => 10, resetMs: 1_000 }))
+      expect(outcome.sub).toBeDefined()
+
+      h.procs[0].kill("SIGKILL")
+      await until(() => h.state.ready === 2, "respawn 1")
+      await Bun.sleep(1_100)
+
+      h.procs[1].kill("SIGKILL")
+      await until(() => h.state.ready === 3, "respawn after reset")
+
+      for (let i = 4; i <= RESPAWN_MAX + 2; i++) {
+        h.procs[h.procs.length - 1].kill("SIGKILL")
+        await until(() => h.state.ready === i, `respawn to generation ${i}`)
+      }
+      expect(h.state.degraded).toBe(0)
+      expect(h.procs.length).toBe(RESPAWN_MAX + 2)
+
+      h.procs[RESPAWN_MAX + 1].kill("SIGKILL")
+      await until(() => h.state.degraded === 1, "degrade after reset budget")
+      expect(h.procs.length).toBe(RESPAWN_MAX + 2)
+
+      h.state.disposed = true
+      await settle(h.procs)
+    },
+    45_000,
+  )
+
+  testWin32(
     "does not respawn once disposed",
     async () => {
       await using tmp = await tmpdir()
