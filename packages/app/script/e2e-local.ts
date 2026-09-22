@@ -1,28 +1,7 @@
 import fs from "node:fs/promises"
-import net from "node:net"
 import os from "node:os"
 import path from "node:path"
-
-async function freePort() {
-  return await new Promise<number>((resolve, reject) => {
-    const server = net.createServer()
-    server.once("error", reject)
-    server.listen(0, () => {
-      const address = server.address()
-      if (!address || typeof address === "string") {
-        server.close(() => reject(new Error("Failed to acquire a free port")))
-        return
-      }
-      server.close((err) => {
-        if (err) {
-          reject(err)
-          return
-        }
-        resolve(address.port)
-      })
-    })
-  })
-}
+import { freePort } from "../e2e/port"
 
 async function waitForHealth(url: string) {
   const timeout = Date.now() + 120_000

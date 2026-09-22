@@ -31,8 +31,8 @@ Your app is ready to be deployed!
 
 ## E2E Testing
 
-Playwright starts the Vite dev server automatically via `webServer`, and UI tests need an Aether backend (defaults to `localhost:4096`).
-Use the local runner to create a temp sandbox, seed data, and run the tests.
+Playwright starts the Vite dev server via `webServer` on a free OS-assigned port, and unless an external backend is requested it also starts a throwaway Aether backend (temp sandbox home, seeded models) on another free port. Multiple e2e runs can therefore execute in parallel on the same machine without port conflicts.
+Use the local runner to create a temp sandbox, seed data, and run the tests:
 
 ```bash
 bunx playwright install
@@ -42,9 +42,9 @@ bun run test:e2e:local -- --grep "settings"
 
 Environment options:
 
-- `PLAYWRIGHT_SERVER_HOST` / `PLAYWRIGHT_SERVER_PORT` (backend address, default: `localhost:4096`)
-- `PLAYWRIGHT_PORT` (Vite dev server port, default: `3000`)
-- `PLAYWRIGHT_BASE_URL` (override base URL, default: `http://localhost:<PLAYWRIGHT_PORT>`)
+- `PLAYWRIGHT_SERVER_HOST` / `PLAYWRIGHT_SERVER_PORT` (target an external backend instead of starting one; without them both ports are auto-assigned)
+- `PLAYWRIGHT_PORT` (Vite dev server port, default: a free OS-assigned port)
+- `PLAYWRIGHT_BASE_URL` (override base URL, default: `http://127.0.0.1:<PLAYWRIGHT_PORT>`)
 
 ## Deployment
 
