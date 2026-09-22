@@ -251,6 +251,7 @@ export function createMobileRoutes(platform: "feishu" | "qq" | "wechat") {
       }),
       async (c) => {
         await manager.setDesired(false)
+        await manager.stop()
         await manager.clearSession()
         return c.json({ success: true })
       },

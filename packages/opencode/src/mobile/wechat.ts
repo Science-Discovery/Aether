@@ -458,6 +458,7 @@ class WeChatManagerImpl extends MobileManagerBase {
     this._loginAbort?.abort()
     this._loginAbort = null
     this._pollRunning = false
+    this._pollGen++
     this.unsubscribeBusEvents()
     if (this._cursor && this._ilinkToken) await this.saveILinkState()
     this._qrcode = null
