@@ -183,11 +183,19 @@ export namespace SessionPrompt {
 
   async function runPrompt(input: PromptInput): Promise<MessageV2.WithParts> {
     return home(input.sessionID, async (session) => {
-      assertNotBusy(input.sessionID)
+      // Claim the busy lock before anything is persisted so a losing concurrent
+      // prompt fails with BusyError instead of writing a permanent orphan message.
+      const claim = start(input.sessionID)
+      if (!claim) throw new Session.BusyError(input.sessionID)
+      await using _ = defer(() => {
+        const s = state()
+        if (s[input.sessionID]?.abort.signal === claim) delete s[input.sessionID]
+      })
+
       await SessionRevert.awaitPending(input.sessionID)
       await SessionRevert.cleanup(session)
 
-      const message = await createUserMessage(input)
+      const message = await createUserMessage(input, claim)
       await Session.touch(input.sessionID)
 
       // this is backwards compatibility for allowing `tools` to be specified when
@@ -209,7 +217,10 @@ export namespace SessionPrompt {
         return message
       }
 
-      return loop({ sessionID: input.sessionID })
+      // cancel() may have dropped the claim while the prompt was being prepared;
+      // re-claim so the persisted message still gets its reply
+      if (!state()[input.sessionID]) start(input.sessionID)
+      return await loop({ sessionID: input.sessionID, resume_existing: true })
     })
   }
 
@@ -1072,7 +1083,7 @@ export namespace SessionPrompt {
     })
   }
 
-  async function createUserMessage(input: PromptInput) {
+  async function createUserMessage(input: PromptInput, claim?: AbortSignal) {
     const pref = SessionPreference.get(input.sessionID)
     const agentName = input.agent || pref?.agent || (await Agent.defaultAgent())
     const agent = await Agent.get(agentName)
@@ -1106,11 +1117,16 @@ export namespace SessionPrompt {
     let ragContext: string | undefined
     const kb = input.knowledgeBase
     const kbPaths = kb?.paths ?? (kb?.path ? [kb.path] : [])
-    // 会话级知识库配置：knowledge_search 工具按此判断是否可用
-    setKnowledgeConfig(
-      kbPaths.length > 0 ? { paths: kbPaths, apiKey: kb?.apiKey, baseURL: kb?.baseURL } : null,
-      input.sessionID,
-    )
+    // 会话级知识库配置：knowledge_search 工具按此判断是否可用。
+    // 进行中的 run 依赖该配置解析工具，只有无人持锁（或锁是本次抢到的）才允许改写，
+    // 否则并发 prompt/scan 写入的 null 会把在途 run 的 knowledge_search 摘掉
+    const active = state()[input.sessionID]
+    if (!active || active.abort.signal === claim) {
+      setKnowledgeConfig(
+        kbPaths.length > 0 ? { paths: kbPaths, apiKey: kb?.apiKey, baseURL: kb?.baseURL } : null,
+        input.sessionID,
+      )
+    }
     if (kbPaths.length > 0) {
       try {
         const allResults: Awaited<ReturnType<typeof Knowledge.search>> = []
