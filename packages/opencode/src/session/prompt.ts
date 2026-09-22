@@ -321,7 +321,10 @@ export namespace SessionPrompt {
     return home(input.sessionID, async (session) => {
       const { sessionID, resume_existing } = input
 
-      const abort = resume_existing ? resume(sessionID) : start(sessionID)
+      // cancel() racing the prompt prep may have removed the caller's claim
+      // between the re-claim above and here; re-claim so the persisted message
+      // still gets its reply instead of surfacing BusyError after the fact
+      const abort = resume_existing ? (resume(sessionID) ?? start(sessionID)) : start(sessionID)
       if (!abort) {
         throw new Session.BusyError(sessionID)
       }
@@ -1126,6 +1129,8 @@ export namespace SessionPrompt {
         kbPaths.length > 0 ? { paths: kbPaths, apiKey: kb?.apiKey, baseURL: kb?.baseURL } : null,
         input.sessionID,
       )
+    } else {
+      log.debug("knowledge config write skipped, run in flight", { sessionID: input.sessionID })
     }
     if (kbPaths.length > 0) {
       try {
