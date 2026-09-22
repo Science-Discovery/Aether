@@ -1,5 +1,6 @@
 import path from "path"
 import os from "os"
+import { mkdirSync } from "node:fs"
 import fs from "fs/promises"
 import z from "zod"
 import { Filesystem } from "../util/filesystem"
@@ -51,6 +52,7 @@ import { iife } from "@/util/iife"
 import { Shell } from "@/shell/shell"
 import { ShellOutput } from "@/shell/output"
 import { cleanupNul } from "@/shell/guard"
+import { ToolID } from "@/tool/schema"
 import { Truncate } from "@/tool/truncate"
 import { Knowledge } from "../knowledge"
 import { setKnowledgeConfig, hasKnowledge } from "../tool/knowledge"
@@ -1845,23 +1847,66 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         },
       })
 
+      const MAX_OUTPUT = Truncate.MAX_BYTES
+      const UPDATE_INTERVAL = 250
       let output = ""
+      let total = 0
+      let file: string | undefined
+      let sink: Bun.FileSink | undefined
+      let pending: Promise<unknown> | undefined
 
       const append = (text: string) => {
         if (!text) return
-        output += text
-        if (part.state.status === "running") {
-          part.state.metadata = {
-            output: output,
-            description: "",
-          }
-          Session.updatePart(part)
+        total += Buffer.byteLength(text)
+        if (sink) {
+          sink.write(text)
+          return
         }
+        if (Buffer.byteLength(output) + Buffer.byteLength(text) <= MAX_OUTPUT) {
+          output += text
+          return
+        }
+        const keep = Math.max(0, MAX_OUTPUT - Buffer.byteLength(output))
+        const head = text.slice(0, keep)
+        file = path.join(Truncate.DIR, ToolID.ascending())
+        mkdirSync(Truncate.DIR, { recursive: true })
+        sink = Bun.file(file).writer()
+        sink.write(output + head)
+        sink.write(text.slice(keep))
+        output += head
+      }
+
+      let last = 0
+      let timer: ReturnType<typeof setTimeout> | undefined
+      const flush = () => {
+        if (timer) {
+          clearTimeout(timer)
+          timer = undefined
+        }
+        if (part.state.status !== "running") return
+        last = Date.now()
+        part.state.metadata = {
+          output,
+          description: "",
+        }
+        Session.updatePart(part)
+      }
+      const schedule = () => {
+        if (timer || part.state.status !== "running") return
+        const wait = UPDATE_INTERVAL - (Date.now() - last)
+        if (wait <= 0) {
+          flush()
+          return
+        }
+        timer = setTimeout(flush, wait)
       }
 
       for (const stream of [proc.stdout, proc.stderr]) {
         const decoder = ShellOutput.decoder(encoding)
-        stream?.on("data", (chunk: Buffer) => append(decoder.write(chunk)))
+        stream?.on("data", (chunk: Buffer) => {
+          append(decoder.write(chunk))
+          schedule()
+        })
         stream?.on("end", () => append(decoder.end()))
         stream?.on("close", () => append(decoder.end()))
       }
@@ -1893,6 +1938,16 @@ NOTE: At any point in time through this workflow you should feel free to ask the
 
       await cleanupNul(Instance.directory)
 
+      if (timer) {
+        clearTimeout(timer)
+        timer = undefined
+      }
+      if (sink) pending = Promise.resolve(sink.end()).catch((err) => log.error("shell output spill failed", { err }))
+      if (pending) await pending
+      if (file) {
+        const dropped = total - Buffer.byteLength(output)
+        output += `\n\n...${dropped} bytes truncated...\n\nFull output saved to: ${file}\nUse Grep to search the full content or Read with offset/limit to view specific sections.`
+      }
       if (aborted) {
         output += "\n\n" + ["<metadata>", "User aborted the command", "</metadata>"].join("\n")
       }
