@@ -11,6 +11,7 @@ import treeKill from "tree-kill"
 import { WSL_ENABLED_KEY } from "./constants"
 import { ensureDesktopPersist, pidFiles } from "./persist"
 import { userDataDir } from "./paths"
+import { decodePid, encodePid, killTree, running, WSL_IMAGE } from "./sidecar"
 import { store } from "./store"
 
 const CLI_INSTALL_DIR = ".opencode/bin"
@@ -142,33 +143,43 @@ export function syncCli() {
 export function saveSidecarPid(pid: number) {
   try {
     mkdirSync(userDataDir(), { recursive: true })
-    writeFileSync(join(userDataDir(), "sidecar.pid"), String(pid), "utf8")
+    writeFileSync(join(userDataDir(), "sidecar.pid"), encodePid(pid, sidecarImage()), "utf8")
   } catch {
     // ignore
   }
 }
 
+export function clearSidecarPid() {
+  try {
+    unlinkSync(join(userDataDir(), "sidecar.pid"))
+  } catch {
+    // ignore
+  }
+}
+
+function sidecarImage() {
+  if (process.platform === "win32" && isWslEnabled()) return WSL_IMAGE
+  return getSidecarPath()
+}
+
 export async function killStaleSidecar(): Promise<void> {
   ensureDesktopPersist()
   for (const file of pidFiles()) {
-    let pid: number
-    try {
-      pid = Number.parseInt(readFileSync(file, "utf8").trim(), 10)
-      if (Number.isNaN(pid)) continue
-    } catch {
-      continue
-    }
-    await Promise.race([
-      new Promise<void>((resolve) => {
-        treeKill(pid, "SIGKILL", () => resolve())
-      }),
-      new Promise<void>((resolve) => setTimeout(resolve, 3000)),
-    ])
+    const rec = await readPid(file)
+    if (rec && (await running(rec.pid, rec.image))) await killTree(rec.pid)
     try {
       unlinkSync(file)
     } catch {
       // ignore
     }
+  }
+}
+
+async function readPid(file: string) {
+  try {
+    return decodePid(readFileSync(file, "utf8"), sidecarImage())
+  } catch {
+    return null
   }
 }
 

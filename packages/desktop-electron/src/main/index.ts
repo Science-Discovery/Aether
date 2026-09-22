@@ -12,7 +12,7 @@ const { autoUpdater } = pkg
 import type { InitStep, ServerReadyData, SqliteMigrationProgress, WslConfig } from "../preload/types"
 import { checkAppExists, resolveAppPath, wslPath } from "./apps"
 import type { CommandChild } from "./cli"
-import { installCli, killStaleSidecar, saveSidecarPid, syncCli } from "./cli"
+import { clearSidecarPid, installCli, killStaleSidecar, saveSidecarPid, syncCli } from "./cli"
 import { CHANNEL, UPDATER_ENABLED } from "./constants"
 import { registerIpcHandlers, sendDeepLinks, sendMenuCommand, sendSqliteMigrationProgress } from "./ipc"
 import { initLogging } from "./logging"
@@ -63,6 +63,7 @@ setupApp()
 // own process group (PGID = sidecarPid), so killing -PGID removes it entirely.
 process.on("exit", () => {
   if (sidecarPid === null) return
+  clearSidecarPid()
   if (process.platform !== "win32") {
     try {
       process.kill(-sidecarPid, "SIGKILL")
@@ -333,6 +334,7 @@ function killSidecar() {
   sidecar.kill()
   sidecar = null
   sidecarPid = null
+  clearSidecarPid()
   // tree-kill is async; also send process group signal as immediate fallback
   if (pid && process.platform !== "win32") {
     try {
