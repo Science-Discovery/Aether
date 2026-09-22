@@ -158,7 +158,9 @@ const chevron = (left: HTMLElement) =>
   left.querySelector('[aria-label="session.header.open.menu"]') as HTMLButtonElement
 
 const rootRow = (left: HTMLElement) =>
-  left.querySelector('[aria-label="session.header.open.fileExplorer"]') as HTMLButtonElement
+  left.querySelector(
+    '[aria-label="session.header.open.finder"],[aria-label="session.header.open.fileExplorer"],[aria-label="session.header.open.fileManager"]',
+  ) as HTMLButtonElement
 
 beforeEach(() => {
   state.platform = "web"
