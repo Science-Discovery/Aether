@@ -55,7 +55,7 @@ export default function Layout(props: ParentProps) {
   const server = useServer()
   let invalid = ""
   let blocked = ""
-  onCleanup(forget)
+  onCleanup(() => forget(server.key))
 
   const resolved = createMemo(() => {
     if (!params.dir) return ""
@@ -134,21 +134,25 @@ export default function Layout(props: ParentProps) {
       keyed
       fallback={
         <Show
-          when={guard.state === "errored"}
+          when={guard.state === "pending" || guard.state === "refreshing"}
           fallback={
-            <div class="size-full flex items-center justify-center p-6" aria-busy="true">
-              <div class="size-6 animate-spin rounded-full border-2 border-icon-weak border-t-icon-base" />
-            </div>
+            <Show when={guard.state === "errored"}>
+              <div class="size-full flex items-center justify-center p-6">
+                <div class="flex flex-col items-center gap-4 max-w-md text-center">
+                  <div role="alert" class="flex flex-col gap-2">
+                    <p class="text-16-medium text-text-strong">{language.t("common.requestFailed")}</p>
+                    <p class="text-14-regular text-text-weak break-words">
+                      {formatServerError(guard.error, language.t)}
+                    </p>
+                  </div>
+                  <Button onClick={() => actions.refetch()}>{language.t("directory.retry")}</Button>
+                </div>
+              </div>
+            </Show>
           }
         >
-          <div class="size-full flex items-center justify-center p-6">
-            <div class="flex flex-col items-center gap-4 max-w-md text-center">
-              <div role="alert" class="flex flex-col gap-2">
-                <p class="text-16-medium text-text-strong">{language.t("common.requestFailed")}</p>
-                <p class="text-14-regular text-text-weak break-words">{formatServerError(guard.error, language.t)}</p>
-              </div>
-              <Button onClick={() => actions.refetch()}>{language.t("directory.retry")}</Button>
-            </div>
+          <div class="size-full flex items-center justify-center p-6" aria-busy="true">
+            <div class="size-6 animate-spin rounded-full border-2 border-icon-weak border-t-icon-base" />
           </div>
         </Show>
       }

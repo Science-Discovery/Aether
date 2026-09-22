@@ -58,4 +58,15 @@ describe("directory guard cache", () => {
     forget()
     expect(fresh("local", "F:\\Desktop\\Paper")).toBe(false)
   })
+
+  test("forgets a single server without touching others", () => {
+    forget()
+    remember("local", ["F:/Desktop/Paper"])
+    remember("remote", ["F:/Desktop/Paper"])
+    forget("local")
+    expect(fresh("local", "F:\\Desktop\\Paper")).toBe(false)
+    expect(fresh("remote", "F:\\Desktop\\Paper")).toBe(true)
+    forget()
+    expect(fresh("remote", "F:\\Desktop\\Paper")).toBe(false)
+  })
 })

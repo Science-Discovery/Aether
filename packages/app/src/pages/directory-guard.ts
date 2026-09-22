@@ -26,6 +26,10 @@ export function remember(key: string, dirs: string[]) {
   seen.set(key, { dirs, at: Date.now() })
 }
 
-export function forget() {
+export function forget(key?: string) {
+  if (key !== undefined) {
+    seen.delete(key)
+    return
+  }
   seen.clear()
 }
