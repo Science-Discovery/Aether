@@ -1216,7 +1216,7 @@ export const WorkspaceSessionList = (props: {
           />
         </Show>
         <Show when={props.hasMore() && !props.selectMode()}>
-          <div class="relative w-full py-1 flex items-center justify-center gap-0.5">
+          <div class="relative w-full py-1 flex items-center gap-0.5 pl-9">
             <Tooltip value={props.language.t("common.loadMore")} placement="top">
               <IconButton
                 icon="chevron-double-down"
@@ -1232,9 +1232,9 @@ export const WorkspaceSessionList = (props: {
             <Show when={props.canCollapse()}>
               <Tooltip value={props.language.t("common.collapseAll")} placement="top">
                 <IconButton
-                  icon="chevron-double-down"
+                  icon="chevron-double-up"
                   variant="ghost"
-                  class="size-6 rounded-md rotate-180 text-text-weak"
+                  class="size-6 rounded-md text-text-weak"
                   aria-label={props.language.t("common.collapseAll")}
                   onClick={(e: MouseEvent) => {
                     void props.collapseAll()

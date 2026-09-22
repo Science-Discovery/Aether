@@ -121,7 +121,7 @@ describe("WorkspaceSessionList load-more row", () => {
     expect(load).not.toBeNull()
     expect(collapse).not.toBeNull()
     expect(load!.dataset.icon).toBe("chevron-double-down")
-    expect(collapse!.dataset.icon).toBe("chevron-double-down")
+    expect(collapse!.dataset.icon).toBe("chevron-double-up")
 
     load!.click()
     await Promise.resolve()
