@@ -38,6 +38,7 @@ test("webServer commands carry the dynamically allocated ports", async () => {
 test("external server env keeps the throwaway backend out of webServer", async () => {
   const res = await probe({ PLAYWRIGHT_SERVER_PORT: "4096" })
   expect(res.servers).toHaveLength(1)
+  expect(res.serverPort).toBe("4096")
   expect(res.servers[0]?.command).toContain("--port")
   expect(res.servers[0]?.env?.VITE_OPENCODE_SERVER_PORT).toBe("4096")
 }, 30_000)
