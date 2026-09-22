@@ -1,13 +1,5 @@
 import { join } from "node:path"
-
-type Link = {
-  url: string
-  contentType: string
-}
-
-type Upload = Link & {
-  objectKey: string
-}
+import { isUpload, planWebUploads, webItems, type Upload } from "./upload-plan"
 
 type DesktopPresign = {
   files: Upload[]
@@ -77,14 +69,6 @@ const desktopMainPackages = [
   "aether-desktop-linux-arm64.deb",
 ]
 
-const webItems = {
-  mac: { archive: "aether-darwin-arm64.dmg", installer: "update_darwin.command" },
-  macIntel: { archive: "aether-darwin-x64.dmg", installer: "update_darwin.command" },
-  windows: { archive: "aether-windows-x64.zip", installer: "update_windows.bat" },
-  linux: { archive: "aether-linux-x64.zip", installer: "update_linux.sh" },
-  linuxArm64: { archive: "aether-linux-arm64.zip", installer: "update_linux.sh" },
-} satisfies Record<string, { archive: string; installer: string }>
-
 function fail(msg: string): never {
   console.error(msg)
   process.exit(1)
@@ -106,14 +90,6 @@ async function json(res: Response) {
   return await res.json().catch(() => fail(`Invalid JSON response from ${res.url}: ${res.status}`))
 }
 
-function upload(val: unknown): val is Upload {
-  if (!val || typeof val !== "object") return false
-  if (!("url" in val) || typeof val.url !== "string" || !val.url) return false
-  if (!("contentType" in val) || typeof val.contentType !== "string") return false
-  if (!("objectKey" in val) || typeof val.objectKey !== "string" || !val.objectKey) return false
-  return true
-}
-
 async function post(root: string, path: string, pass: string, body: Record<string, unknown>) {
   const res = await fetch(url(root, path), {
     method: "POST",
@@ -130,9 +106,10 @@ async function post(root: string, path: string, pass: string, body: Record<strin
 
 const uploadTimeoutMs = Number(process.env.UPLOAD_TIMEOUT_MS) || 900_000
 const uploadAttempts = 3
+const backoff = Number(process.env.UPLOAD_RETRY_DELAY_MS) || 15_000
 const sleep = (ms: number) => new Promise((done) => setTimeout(done, ms))
 
-async function put(file: string, name: string, represign: (name: string) => Promise<Upload>, link: Upload) {
+async function put(file: string, key: string, represign: (key: string) => Promise<Upload>, link: Upload) {
   for (let n = 1; ; n++) {
     try {
       const res = await fetch(link.url, {
@@ -142,25 +119,24 @@ async function put(file: string, name: string, represign: (name: string) => Prom
         signal: AbortSignal.timeout(uploadTimeoutMs),
       })
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      console.log(`uploaded ${name}`)
+      console.log(`uploaded ${key}`)
       return
     } catch (err) {
-      if (n >= uploadAttempts) fail(`Upload failed after ${n} attempts: ${name}: ${err}`)
-      console.error(`Retrying ${name} (attempt ${n} failed): ${err}`)
-      await sleep(n * 15_000)
-      link = await represign(name)
+      if (n >= uploadAttempts) fail(`Upload failed after ${n} attempts: ${key}: ${err}`)
+      console.error(`Retrying ${key} (attempt ${n} failed): ${err}`)
+      await sleep(n * backoff)
+      link = await represign(key)
     }
   }
 }
 
-async function uploadAll(tasks: Array<[string, Upload]>, represign: (name: string) => Promise<Upload>) {
+async function uploadAll(tasks: Array<[string, Upload]>, represign: (key: string) => Promise<Upload>) {
   const queue = [...tasks]
   const workers = Array.from({ length: 3 }, async () => {
     for (;;) {
       const task = queue.shift()
       if (!task) return
-      const name = task[1].objectKey.split("/").pop() ?? ""
-      await put(task[0], name, represign, task[1])
+      await put(task[0], task[1].objectKey, represign, task[1])
     }
   })
   await Promise.all(workers)
@@ -210,7 +186,7 @@ if (promoteDesktop) {
     if (!pre.ok || !pre.desktop) fail("Invalid desktop presign response")
     const links = new Map<string, Upload>()
     for (const file of pre.desktop.files) {
-      if (!upload(file)) fail(`Invalid desktop presign entry: ${JSON.stringify(file).slice(0, 200)}`)
+      if (!isUpload(file)) fail(`Invalid desktop presign entry: ${JSON.stringify(file).slice(0, 200)}`)
       links.set(file.objectKey.split("/").pop() ?? "", file)
     }
     const badKeys = desktopFiles.filter((name) => {
@@ -221,7 +197,7 @@ if (promoteDesktop) {
     return links
   }
   const links = await presignDesktop()
-  const represignDesktop = async (name: string) => (await presignDesktop()).get(name)!
+  const represignDesktop = async (key: string) => (await presignDesktop()).get(key.split("/").pop() ?? "")!
 
   await uploadAll(
     desktopFiles.map((name) => [join(assets, name), links.get(name)!]),
@@ -269,31 +245,19 @@ if (promoteWeb) {
   const presignWeb = async () => {
     const pre = await post(root, "/api/download/admin/presign", pass, body)
     if (!pre.ok || !pre.platforms) fail("Invalid web presign response")
-    const links = new Map<string, Upload>()
-    for (const [key, item] of Object.entries(webItems)) {
-      const entry = pre.platforms[key]
-      if (!entry || !upload(entry.archive) || !upload(entry.installer)) {
-        fail(`Invalid web presign entry for ${key}`)
-      }
-      if (!entry.archive.objectKey.startsWith(`${ver}/`) || !entry.installer.objectKey.startsWith(`${ver}/`)) {
-        fail(`Unexpected web presign object keys for ${key}`)
-      }
-      links.set(entry.archive.objectKey.split("/").pop() ?? "", entry.archive)
-      links.set(entry.installer.objectKey.split("/").pop() ?? "", entry.installer)
-    }
-    return links
+    const planned = planWebUploads(pre.platforms, ver, assets, updates)
+    if (planned.status === "error") fail(planned.error)
+    return planned
   }
-  const links = await presignWeb()
-  const represignWeb = async (name: string) => (await presignWeb()).get(name)!
-  const tasks: Array<[string, Upload]> = []
-  for (const item of Object.values(webItems)) {
-    const archive = links.get(item.archive)
-    const installer = links.get(item.installer)
-    if (!archive || !installer) fail(`Missing web presign link for ${item.archive}`)
-    tasks.push([join(assets, item.archive), archive], [join(updates, item.installer), installer])
+  const planned = await presignWeb()
+  const represignWeb = async (key: string) => {
+    const next = await presignWeb()
+    const link = next.links.get(key)
+    if (!link) fail(`Missing web presign link for ${key}`)
+    return link
   }
 
-  await uploadAll(tasks, represignWeb)
+  await uploadAll(planned.tasks, represignWeb)
 
   const done = await post(root, "/api/download/admin/commit", pass, {
     ...body,
@@ -302,10 +266,16 @@ if (promoteWeb) {
   if (!done.ok) fail("Invalid web commit response")
   const files = done.files ?? []
   if (files.length < Object.keys(webItems).length) fail("Web commit response is missing files")
+  if (files.some((file) => !file.installerUrl)) fail("Web commit response is missing installer URLs")
   const urls = files.flatMap((file) =>
-    [file.url, file.latestUrl, file.manifestUrl, file.latestManifestUrl].filter(
-      (x): x is string => typeof x === "string" && x.length > 0,
-    ),
+    [
+      file.url,
+      file.latestUrl,
+      file.manifestUrl,
+      file.latestManifestUrl,
+      file.installerUrl,
+      file.latestInstallerUrl,
+    ].filter((x): x is string => typeof x === "string" && x.length > 0),
   )
   if (urls.length === 0) fail("Web commit response includes no URLs")
   if (!urls.every(isPublic)) failPublic(files, "Web")

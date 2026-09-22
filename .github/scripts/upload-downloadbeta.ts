@@ -190,9 +190,10 @@ async function post(root: string, path: string, pass: string, body: Record<strin
 
 const uploadTimeoutMs = Number(process.env.UPLOAD_TIMEOUT_MS) || 900_000
 const uploadAttempts = 3
+const backoff = Number(process.env.UPLOAD_RETRY_DELAY_MS) || 15_000
 const sleep = (ms: number) => new Promise((done) => setTimeout(done, ms))
 
-async function put(file: string, name: string, represign: (name: string) => Promise<Upload>, link: Upload) {
+async function put(file: string, key: string, represign: (key: string) => Promise<Upload>, link: Upload) {
   for (let n = 1; ; n++) {
     try {
       const res = await fetch(link.url, {
@@ -202,13 +203,13 @@ async function put(file: string, name: string, represign: (name: string) => Prom
         signal: AbortSignal.timeout(uploadTimeoutMs),
       })
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      console.log(`uploaded ${name}`)
+      console.log(`uploaded ${key}`)
       return
     } catch (err) {
-      if (n >= uploadAttempts) fail(`Upload failed after ${n} attempts: ${name}: ${err}`)
-      console.error(`Retrying ${name} (attempt ${n} failed): ${err}`)
-      await sleep(n * 15_000)
-      link = await represign(name)
+      if (n >= uploadAttempts) fail(`Upload failed after ${n} attempts: ${key}: ${err}`)
+      console.error(`Retrying ${key} (attempt ${n} failed): ${err}`)
+      await sleep(n * backoff)
+      link = await represign(key)
     }
   }
 }
@@ -234,36 +235,32 @@ const presignBeta = async () => {
   return pre
 }
 
-function pickLink(pre: Presign, name: string): Upload {
-  const desktopFile = pre.desktop.files.find((file) => file.objectKey.endsWith(`/${name}`))
+function pickLink(pre: Presign, objectKey: string): Upload {
+  const desktopFile = pre.desktop.files.find((file) => file.objectKey === objectKey)
   if (desktopFile) return desktopFile
   const platformFile = Object.values(pre.platforms)
     .flatMap((platform) => [platform.archive, platform.installer])
-    .find((file) => (file as Upload).objectKey?.endsWith(`/${name}`))
-  return (platformFile as Upload) ?? fail(`Missing presign: ${name}`)
+    .find((file) => (file as Upload).objectKey === objectKey)
+  return (platformFile as Upload) ?? fail(`Missing presign: ${objectKey}`)
 }
 
 const pre = await presignBeta()
-const represign = async (name: string) => pickLink(await presignBeta(), name)
+const represign = async (objectKey: string) => pickLink(await presignBeta(), objectKey)
 
 const tasks = [
-  ...Object.entries(items).flatMap(([key, item]) => [
-    () =>
-      put(
-        item.archive,
-        pre.platforms[key]!.archive.objectKey.split("/").pop() ?? "",
-        represign,
-        pre.platforms[key]!.archive as Upload,
-      ),
-    () =>
-      put(
-        item.installer,
-        pre.platforms[key]!.installer.objectKey.split("/").pop() ?? "",
-        represign,
-        pre.platforms[key]!.installer as Upload,
-      ),
-  ]),
-  ...desktop.map((name) => () => put(`dist/${name}`, name, represign, pickLink(pre, name))),
+  ...Object.entries(items).flatMap(([key, item]) => {
+    const archive = pre.platforms[key]!.archive as Upload
+    const installer = pre.platforms[key]!.installer as Upload
+    return [
+      () => put(item.archive, archive.objectKey, represign, archive),
+      () => put(item.installer, installer.objectKey, represign, installer),
+    ]
+  }),
+  ...desktop.map((name) => {
+    const entry =
+      pre.desktop.files.find((file) => file.objectKey.endsWith(`/${name}`)) ?? fail(`Missing presign: ${name}`)
+    return () => put(`dist/${name}`, entry.objectKey, represign, entry)
+  }),
 ]
 
 await Promise.all(
