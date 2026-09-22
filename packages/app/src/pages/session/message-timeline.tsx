@@ -1245,6 +1245,7 @@ export function MessageTimeline(props: {
           style={{
             "--session-title-height": showHeader() ? "40px" : "0px",
             "--sticky-accordion-top": showHeader() ? "48px" : "0px",
+            "--session-title-block": showHeader() ? "64px" : "0px",
           }}
         >
           <div ref={props.setContentRef} class="min-w-0 w-full">
