@@ -174,7 +174,7 @@ export namespace SessionPrompt {
   // the request happened to arrive on. Otherwise busy status, tool cwd,
   // snapshots, abort state and event streams all land on the wrong workspace.
   async function home<R>(sessionID: SessionID, fn: (session: Session.Info) => Promise<R>): Promise<R> {
-    const session = await Session.get(sessionID)
+    const session = await Session.getGlobal(sessionID)
     if (Filesystem.resolve(session.directory) !== Instance.directory) {
       return Instance.provide({ directory: session.directory, fn: () => fn(session) })
     }
@@ -286,7 +286,14 @@ export namespace SessionPrompt {
   export async function cancel(sessionID: SessionID): Promise<void> {
     // The abort signal lives in the session's own instance; cancelling from
     // another workspace's instance would silently miss the running loop.
-    const session = await Session.get(sessionID).catch(() => undefined)
+    // Resolution is cross-project. A missing session skips the rebind: the
+    // cleanup below only ever aborts state entries in this instance, so it is
+    // a no-op everywhere except the session's own home. Real resolution
+    // failures must propagate, not be swallowed into a wrong-instance cleanup.
+    const session = await Session.getGlobal(sessionID).catch((error) => {
+      if (!NotFoundError.isInstance(error)) throw error
+      return undefined
+    })
     if (session && Filesystem.resolve(session.directory) !== Instance.directory) {
       return Instance.provide({ directory: session.directory, fn: () => cancel(sessionID) })
     }

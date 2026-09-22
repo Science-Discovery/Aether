@@ -913,6 +913,25 @@ export namespace Session {
     return fromRow(row)
   })
 
+  // Resolve a session regardless of which project's instance the request
+  // arrived on: check the current project DB first, then scan every project DB.
+  export const getGlobal = fn(SessionID.zod, async (id) => {
+    const pid = Instance.maybe?.project.id
+    if (pid) {
+      const row = Database.useProject(pid, (db) => db.select().from(SessionTable).where(eq(SessionTable.id, id)).get())
+      if (row) return fromRow(row)
+    }
+    for (const pPath of Database.projectPaths()) {
+      const match = /^aether-([0-9a-f]+)\.db$/.exec(path.basename(pPath))
+      if (!match || match[1] === pid) continue
+      const row = Database.useProject(match[1] as ProjectID, (db) =>
+        db.select().from(SessionTable).where(eq(SessionTable.id, id)).get(),
+      )
+      if (row) return fromRow(row)
+    }
+    throw new NotFoundError({ message: `Session not found: ${id}` })
+  })
+
   export const share = fn(SessionID.zod, async (id) => {
     const cfg = await Config.get()
     if (cfg.share === "disabled") {
