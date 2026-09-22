@@ -45,6 +45,15 @@ export namespace Todo {
     Bus.publish(Event.Updated, input)
   }
 
+  // todo.updated is fire-and-forget, so any client that misses the event (SSE
+  // gap, late join, follow-up turn) stays on a stale list forever. Re-assert
+  // current truth on the same ordered stream; idempotent for up-to-date clients.
+  export async function publish(sessionID: SessionID) {
+    const todos = get(sessionID)
+    if (todos.length === 0) return
+    await Bus.publish(Event.Updated, { sessionID, todos })
+  }
+
   export function get(sessionID: SessionID) {
     const rows = Database.useProject(Instance.project.id, (db) =>
       db.select().from(TodoTable).where(eq(TodoTable.session_id, sessionID)).orderBy(asc(TodoTable.position)).all(),
