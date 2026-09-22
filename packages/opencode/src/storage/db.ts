@@ -913,33 +913,42 @@ export namespace Database {
     }
   }
 
-  /** End timestamp of the previous reconciliation pass. Rows touched after it
-   *  were re-registered by a live instance boot and must survive a repeat pass. */
-  let lastReconcileAt = 0
-
   let reconcilingProjects: Promise<void> | undefined
 
   /**
    * Reconcile every project DB against the main DB (directory_meta backfill,
    * stale-row cleanup, identity re-resolution). With hundreds of project DBs
    * this opens and integrity-checks each one, so callers on the open path
-   * fire-and-forget it; the returned promise resolves when the pass completes
-   * (tests await it). Idempotent — a killed run is completed by the next
+   * fire-and-forget it; the returned promise resolves when the caller's own
+   * pass completes (tests await it). Concurrent callers each get a full pass
+   * so nobody joins a stale pass that snapshotted older state; while a pass
+   * is running at most one follow-up is queued and shared by everyone who
+   * arrived during it. Idempotent — a killed run is completed by the next
    * process start.
    */
   export function registerUntrackedProjects(db: DrizzleClient): Promise<void> {
-    // a pass already in flight answers both callers
-    if (!reconcilingProjects) {
-      reconcilingProjects = reconcileProjects(db)
-        .catch((error) => log.error("project reconciliation failed", { error: String(error) }))
-        .finally(() => (reconcilingProjects = undefined))
-    }
-    return reconcilingProjects
+    const prev = reconcilingProjects
+    const chained = (prev ?? Promise.resolve())
+      .then(() =>
+        reconcileProjects(db).catch((error) => log.error("project reconciliation failed", { error: String(error) })),
+      )
+      .finally(() => {
+        // only clear if no newer caller re-queued behind this pass
+        if (reconcilingProjects === chained) reconcilingProjects = undefined
+      })
+    reconcilingProjects = chained
+    return chained
   }
 
   async function reconcileProjects(db: DrizzleClient) {
     const sqlite = db.$client
-    const cutoff = lastReconcileAt
+    // Cutoff is persisted in the main DB (raw exec, matching the inline
+    // main-DB fixup style) so it survives restarts: process-local state made
+    // the only boot pass ever run with cutoff 0, exempting every row forever.
+    sqlite.exec("CREATE TABLE IF NOT EXISTS reconcile_state (id integer PRIMARY KEY, last_at integer NOT NULL)")
+    const cutoff =
+      (sqlite.prepare("SELECT last_at FROM reconcile_state WHERE id = 1").get() as { last_at: number } | undefined)
+        ?.last_at ?? 0
     const breathe = () => new Promise<void>((resolve) => setImmediate(resolve))
 
     cleanupQuarantinedOriginals()
@@ -991,6 +1000,10 @@ export namespace Database {
         }
 
         const pSqlite = new BunSqlite(fullPath)
+        // reconciliation runs in the background against live project DBs;
+        // without a busy timeout a transient lock would surface as an error
+        // and look like corruption below
+        pSqlite.exec("PRAGMA busy_timeout = 5000")
         let closed = false
         try {
           const projectRow = pSqlite.prepare("SELECT worktree FROM project WHERE id = ?").get(pid) as
@@ -1075,6 +1088,12 @@ export namespace Database {
           }
         }
       } catch (err) {
+        // a lock/contention error is transient (concurrent attach in this
+        // process, another instance) — quarantining a live DB destroys it
+        if (/locked|busy/i.test(String(err))) {
+          log.warn("project db busy, skipping this pass", { pid, error: String(err) })
+          continue
+        }
         log.error("failed to process project db, quarantining", { pid, error: String(err) })
         quarantine(fullPath, "project", pid)
         corruptedIds.add(pid)
@@ -1084,12 +1103,12 @@ export namespace Database {
     }
     if (synced > 0) log.info("directory_meta sync complete", { synced })
 
-    // Freshly touched rows may belong to projects whose DB file has not been
-    // created yet (it is created on first attach) — now that reconciliation
-    // runs in the background, a row touched after the previous pass (cutoff)
-    // must never be deleted by this pass. On the first pass (cutoff 0) this
-    // exempts everything, which matches the classic synchronous behavior
-    // where the first pass ran before any user row existed.
+    // cutoff is the end of the previous COMPLETED pass (persisted in the main
+    // DB). Rows touched since then were written by a live registration
+    // (instance boot, touchActivity) and are presumed live: exempt from every
+    // purge phase exactly until the next pass re-evaluates them. On a true
+    // first pass (cutoff 0) everything is fresh, which matches the classic
+    // synchronous behavior where the first pass ran before user rows existed.
     const fresh = (at: number) => at > cutoff
 
     // Phase 2: Verify global_project_map + project_recent against
@@ -1172,7 +1191,11 @@ export namespace Database {
       const wt = worktreeByPid.get(row.project_id)
       const wsDirs = workspaceDirsByPid.get(row.project_id)
       const internal = wt !== undefined && norm(row.directory) !== norm(wt) && !wsDirs?.has(norm(row.directory))
-      const inactive = !activeByPid.get(row.project_id) && (!cutoff || row.time_updated <= cutoff)
+      // a row minted mid-pass always has time_updated > cutoff, so gating
+      // inactivity by the cutoff never deletes a touchActivity row written
+      // while this pass was running; on cutoff 0 (true first pass) nothing is
+      // inactive, matching the classic before-user-rows first pass
+      const inactive = !activeByPid.get(row.project_id) && row.time_updated <= cutoff
       // a no-DB row may be a fresh registration whose DB file has not been
       // created yet (first attach) — purge those only once stale
       if (noDb && fresh(row.time_updated)) continue
@@ -1221,7 +1244,11 @@ export namespace Database {
     }
     if (mapRemoved > 0) log.info("removed stale/duplicate global_project_map entries", { mapRemoved })
 
-    lastReconcileAt = Date.now()
+    sqlite
+      .prepare(
+        "INSERT INTO reconcile_state (id, last_at) VALUES (1, ?) ON CONFLICT(id) DO UPDATE SET last_at = excluded.last_at",
+      )
+      .run(Date.now())
   }
 
   export function transaction<T>(

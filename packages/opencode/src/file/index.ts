@@ -361,7 +361,12 @@ export namespace File {
   }
 
   interface State {
+    /** composed view of tracked + untracked entries that consumers read */
     cache: Entry
+    /** tracked entries from the git index, or a full walk without git */
+    tracked: Entry
+    /** untracked entries, filled inline or carried over until the background merge lands */
+    untracked: Entry
     /** fingerprint of the last scan (git index/HEAD mtimes), set once scanned */
     key?: string
     /** wall clock of the last scan, used as TTL fallback when no fingerprint exists */
@@ -370,12 +375,8 @@ export namespace File {
     gitdir?: string
     /** armed single-flight scan shared by concurrent ensure() callers */
     pending?: Effect.Effect<void>
-    /** background untracked merge in flight */
+    /** single-flight gate for the background untracked merge */
     merging?: Promise<void>
-    /** scan generation, bumps on each rescan so stale background merges are dropped */
-    gen: number
-    /** directory paths already in cache.dirs, for incremental merges */
-    seen: Set<string>
     /** duration of the last untracked enumeration; above SLOW_MS it moves to the background */
     walkMs: number
   }
@@ -676,9 +677,9 @@ export namespace File {
         Effect.fn("File.state")(() =>
           Effect.succeed({
             cache: { files: [], dirs: [] } as Entry,
+            tracked: { files: [], dirs: [] },
+            untracked: { files: [], dirs: [] },
             at: 0,
-            gen: 0,
-            seen: new Set<string>(),
             walkMs: 0,
           }),
         ),
@@ -727,7 +728,6 @@ export namespace File {
           if (item.endsWith("/")) collapsed.push(item.slice(0, -1))
           else files.push(item)
         }
-        const idle: string[] = []
         if (collapsed.length && files.length < UNTRACKED_MAX) {
           const ac = new AbortController()
           try {
@@ -746,30 +746,37 @@ export namespace File {
           } finally {
             ac.abort()
           }
-          idle.push(...collapsed.slice(DIRS_MAX))
-        } else {
-          idle.push(...collapsed)
         }
-        return { files, idle }
+        // collapsed dirs stay listed even when the rg expansion above throws
+        // or is skipped; the scan dedupes dir entries against expanded files
+        return { files, idle: collapsed }
       }
 
-      const add = (s: State, file: string) => {
-        s.cache.files.push(file)
-        let current = file
-        while (true) {
-          const dir = path.dirname(current)
-          if (dir === "." || dir === current) break
-          current = dir
-          if (s.seen.has(dir)) continue
-          s.seen.add(dir)
-          s.cache.dirs.push(dir + "/")
+      // build the untracked overlay from an lsOthers result: the files, their
+      // ancestor dirs, and the collapsed dirs, with dir entries deduped
+      const overlay = (list: { files: string[]; idle: string[] }): Entry => {
+        const dirs = new Set<string>()
+        for (const file of list.files) {
+          let current = file
+          while (true) {
+            const dir = path.dirname(current)
+            if (dir === "." || dir === current) break
+            current = dir
+            dirs.add(dir + "/")
+          }
         }
+        for (const dir of list.idle) dirs.add(dir + "/")
+        return { files: list.files, dirs: [...dirs] }
       }
 
-      const merge = (s: State, dir: string) => {
-        if (s.seen.has(dir)) return
-        s.seen.add(dir)
-        s.cache.dirs.push(dir + "/")
+      // recompose the view consumers read; untracked data never depends on the
+      // tracked base, so a landing background merge can recompose against
+      // whatever tracked snapshot is current at that moment
+      const compose = (s: State) => {
+        s.cache = {
+          files: [...s.tracked.files, ...s.untracked.files],
+          dirs: [...new Set([...s.tracked.dirs, ...s.untracked.dirs])],
+        }
       }
 
       const scan = Effect.fn("File.scan")(function* () {
@@ -796,12 +803,10 @@ export namespace File {
             next.dirs.push(dir + "/")
           }
         }
-        const place = (dir: string) => {
-          if (seen.has(dir)) return
-          seen.add(dir)
-          next.dirs.push(dir + "/")
-        }
         let defer = false
+        // fresh untracked walk of this scan; left empty on the global-home and
+        // non-git paths where next is already complete
+        let fresh: { files: string[]; idle: string[] } = { files: [], idle: [] }
 
         if (isGlobalHome) {
           yield* Effect.promise(async () => {
@@ -845,12 +850,8 @@ export namespace File {
               defer = true
             } else {
               const began = Date.now()
-              const others = yield* Effect.promise(() => lsOthers())
+              fresh = (yield* Effect.promise(() => lsOthers())) ?? { files: [], idle: [] }
               pre.walkMs = Date.now() - began
-              if (others) {
-                for (const file of others.files) put(file)
-                for (const dir of others.idle) place(dir)
-              }
             }
           } else {
             // Non-git fallback: full ripgrep walk.
@@ -861,23 +862,26 @@ export namespace File {
         }
 
         const s = yield* InstanceState.get(state)
-        s.gen++
-        const gen = s.gen
-        s.cache = next
-        s.seen = seen
+        s.tracked = next
+        // in deferred mode the previous merge result carries over so untracked
+        // entries never vanish from the cache while the new merge is in flight
+        if (!defer) s.untracked = overlay(fresh)
         s.at = Date.now()
         s.key = yield* Effect.promise(() => stamp(s))
+        compose(s)
 
         // Background top-up for slow repositories: untracked enumeration can
-        // cost seconds on huge trees; drop the merge if a newer scan started.
+        // cost seconds on huge trees. The merge always applies: it recomposes
+        // against the tracked base current when it lands, so an overlapping
+        // scan can neither invalidate nor lose it.
         if (defer && !s.merging) {
           s.merging = (async () => {
             const began = Date.now()
-            const others = await lsOthers()
+            const result = await lsOthers()
             s.walkMs = Date.now() - began
-            if (!others || s.gen !== gen) return
-            for (const file of others.files) add(s, file)
-            for (const dir of others.idle) merge(s, dir)
+            if (!result) return
+            s.untracked = overlay(result)
+            compose(s)
           })().finally(() => (s.merging = undefined))
         }
       })
