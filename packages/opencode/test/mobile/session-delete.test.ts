@@ -177,4 +177,146 @@ describe("mobile delete session", () => {
     expect(existsSync(state)).toBe(false)
     expect(m._pollRunning).toBe(false)
   })
+
+  test("wechat: stop after delete does not resurrect ilink state", async () => {
+    await using tmp = await tmpdir()
+    const m = WeChatManager as any
+    const dir = platformDir("wechat")
+    await mkdir(dir, { recursive: true })
+    m._initialized = false
+    m._pollRunning = true
+    m._ilinkToken = "token"
+    m._cursor = "cursor-1"
+
+    const res = await deleteSession("wechat", tmp.path)
+    expect(res.status).toBe(200)
+    const state = join(dir, "ilink_state.json")
+    expect(existsSync(state)).toBe(false)
+
+    await Instance.provide({ directory: tmp.path, create: false, fn: () => m.stop() })
+    await Instance.provide({ directory: tmp.path, create: false, fn: () => m.stop() })
+
+    expect(existsSync(state)).toBe(false)
+    expect(await m.hasCredentials()).toBe(false)
+    expect(m._ilinkToken).toBe("")
+    expect(m._cursor).toBe("")
+  })
+
+  test("wechat: poll loop body save points are generation-guarded", async () => {
+    await using tmp = await tmpdir()
+    freshGate()
+    const m = WeChatManager as any
+    let calls = 0
+    mock.module("../../src/mobile/ilink", () => ({
+      ...ilink,
+      getUpdates: () => {
+        calls++
+        return gate.promise
+      },
+    }))
+
+    const original = m.saveILinkState.bind(m)
+    let saveCalls = 0
+    let parked = false
+    let releaseHold = () => {}
+    const hold = new Promise<void>((r) => (releaseHold = r))
+    spyOn(m, "saveILinkState").mockImplementation(async () => {
+      saveCalls++
+      await original()
+      if (saveCalls === 1) {
+        parked = true
+        await hold
+      }
+    })
+
+    const dir = platformDir("wechat")
+    await mkdir(dir, { recursive: true })
+    m._initialized = false
+    m._pollRunning = true
+    m._ilinkToken = "token"
+    m._cursor = "cursor-1"
+    const gen = ++m._pollGen
+    void m.pollLoop(gen)
+
+    const deadline = Date.now() + 5000
+    while (calls === 0 && Date.now() < deadline) await Bun.sleep(10)
+    expect(calls).toBe(1)
+
+    gate.release({
+      messages: [
+        { from_user_id: "u1", message_id: 101, item_list: [{ type: 1, text_item: { text: "a" } }] },
+        { from_user_id: "u1", message_id: 102, item_list: [{ type: 1, text_item: { text: "b" } }] },
+      ],
+      cursor: "cursor-2",
+      expired: false,
+    })
+    while (!parked && Date.now() < deadline) await Bun.sleep(10)
+    expect(parked).toBe(true)
+
+    const state = join(dir, "ilink_state.json")
+    expect(existsSync(state)).toBe(true)
+
+    const res = await deleteSession("wechat", tmp.path)
+    expect(res.status).toBe(200)
+    expect(existsSync(state)).toBe(false)
+
+    releaseHold()
+    await Bun.sleep(50)
+
+    expect(existsSync(state)).toBe(false)
+    expect(calls).toBe(1)
+    expect(m._pollRunning).toBe(false)
+  })
+
+  test("wechat: reconnect chain is generation-guarded so delete wins", async () => {
+    await using tmp = await tmpdir()
+    freshGate()
+    const m = WeChatManager as any
+    mock.module("../../src/mobile/ilink", () => ({
+      ...ilink,
+      getUpdates: () => gate.promise,
+    }))
+
+    const dir = platformDir("wechat")
+    await mkdir(dir, { recursive: true })
+    const path = join(dir, "ilink_state.json")
+    await Bun.write(path, JSON.stringify({ token: "token", cursor: "cursor-1", baseUrl: "https://ilink.example" }))
+
+    const original = m.loadILinkState.bind(m)
+    let parked = false
+    let releaseHold = () => {}
+    const hold = new Promise<void>((r) => (releaseHold = r))
+    spyOn(m, "loadILinkState").mockImplementation(async () => {
+      const state = await original()
+      parked = true
+      await hold
+      return state
+    })
+
+    await Instance.provide({
+      directory: tmp.path,
+      create: false,
+      fn: () => {
+        void m.reconnect(m._pollGen)
+      },
+    })
+
+    const deadline = Date.now() + 5000
+    while (!parked && Date.now() < deadline) await Bun.sleep(10)
+    expect(parked).toBe(true)
+
+    const res = await deleteSession("wechat", tmp.path)
+    expect(res.status).toBe(200)
+    expect(existsSync(path)).toBe(false)
+
+    releaseHold()
+    await Bun.sleep(50)
+
+    expect(existsSync(path)).toBe(false)
+    expect(existsSync(join(dir, "session.json"))).toBe(false)
+    expect(m._pollRunning).toBe(false)
+    expect(m.status).toBe("idle")
+    expect(m._wcSession).toBe(null)
+    expect(m._qrcode).toBe(null)
+  })
 })
