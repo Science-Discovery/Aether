@@ -12,7 +12,7 @@ const { autoUpdater } = pkg
 import type { InitStep, ServerReadyData, SqliteMigrationProgress, WslConfig } from "../preload/types"
 import { checkAppExists, resolveAppPath, wslPath } from "./apps"
 import type { CommandChild } from "./cli"
-import { installCli, killStaleSidecar, saveSidecarPid, syncCli } from "./cli"
+import { clearSidecarPid, installCli, killStaleSidecar, saveSidecarPid, syncCli } from "./cli"
 import { CHANNEL, UPDATER_ENABLED } from "./constants"
 import { registerIpcHandlers, sendDeepLinks, sendMenuCommand, sendSqliteMigrationProgress } from "./ipc"
 import { initLogging } from "./logging"
@@ -61,9 +61,13 @@ setupApp()
 // but NOT on SIGKILL (which is fundamentally uncatchable — killStaleSidecar
 // handles that on next startup). On macOS/Linux the detached process is in its
 // own process group (PGID = sidecarPid), so killing -PGID removes it entirely.
+// On Windows the sidecar cannot be killed here, so the pid file is left in
+// place for killStaleSidecar's identity check on the next startup — removing
+// it would strand a live sidecar with no cleanup path.
 process.on("exit", () => {
   if (sidecarPid === null) return
   if (process.platform !== "win32") {
+    clearSidecarPid()
     try {
       process.kill(-sidecarPid, "SIGKILL")
     } catch {
@@ -333,6 +337,7 @@ function killSidecar() {
   sidecar.kill()
   sidecar = null
   sidecarPid = null
+  clearSidecarPid()
   // tree-kill is async; also send process group signal as immediate fallback
   if (pid && process.platform !== "win32") {
     try {
