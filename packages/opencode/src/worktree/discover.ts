@@ -36,7 +36,11 @@ export namespace WorktreeDiscover {
    * startups, so this pass watches for newly appearing storage
    * subdirectories and routes them through Project.syncWorktrees — the same
    * bootstrap path startup reconciliation uses — keeping registration, dedup
-   * and ghost-quarantine semantics identical. Untracked residue can never be
+   * and ghost-quarantine semantics identical. Directory names are compared
+   * only against the last snapshot: paths are never matched textually here
+   * because git reports realpath'd worktree paths while the storage root may
+   * sit under a symlink; syncWorktrees is idempotent and remains the
+   * authority on what is already registered. Untracked residue can never be
    * resurrected: only directories git itself reports are registered, and
    * projects without a live database are skipped before any attach.
    */
@@ -48,18 +52,12 @@ export namespace WorktreeDiscover {
         if (!Database.hasProject(pid)) continue
         const project = Project.get(pid)
         if (!project || project.vcs !== "git" || Project.norm(project.worktree) === "/") continue
-        const dir = root(pid)
-        const names = new Set(subdirs(dir))
+        const names = new Set(subdirs(root(pid)))
         const prev = seen.get(pid)
-        const fresh = [...names].filter((name) => {
-          if (prev?.has(name)) return false
-          const directory = Project.norm(path.join(dir, name))
-          return !project.sandboxes.some((sandbox) => Project.norm(sandbox) === directory)
-        })
-        if (fresh.length) {
-          log.info("discovered external worktree directories", { pid, directories: fresh })
-          await Project.syncWorktrees(pid, project.worktree)
-        }
+        const added = prev ? [...names].filter((name) => !prev.has(name)) : [...names]
+        if (!added.length) continue
+        log.info("discovered external worktree directories", { pid, directories: added })
+        await Project.syncWorktrees(pid, project.worktree)
         // snapshot only after a successful pass so a failed sync is retried
         seen.set(pid, names)
       } catch (error) {

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import path from "path"
-import { existsSync, mkdirSync } from "fs"
+import { existsSync, mkdirSync, realpathSync } from "fs"
 import { $ } from "bun"
 import { Project } from "../../src/project/project"
 import { Database } from "../../src/storage/db"
@@ -18,6 +18,13 @@ Log.init({ print: false })
 
 function storageRoot(pid: string) {
   return path.join(Global.Path.data, "worktree", pid)
+}
+
+// git registers worktrees under their realpath, so on hosts where the data
+// dir sits behind a symlink (macOS /var/folders) assertions must compare
+// against the resolved path too
+function keyOf(dir: string) {
+  return Project.norm(realpathSync(dir))
 }
 
 describe("WorktreeDiscover", () => {
@@ -39,20 +46,20 @@ describe("WorktreeDiscover", () => {
       d
         .select()
         .from(DirectoryMetaTable)
-        .where(eq(DirectoryMetaTable.directory, Project.norm(external)))
+        .where(eq(DirectoryMetaTable.directory, keyOf(external)))
         .get(),
     )
     expect(meta).toBeDefined()
     expect(meta?.worktree).toBe(Project.norm(tmp.path))
 
     const sandboxes = await Project.sandboxes(project.id)
-    expect(sandboxes.some((s) => Project.norm(s) === Project.norm(external))).toBe(true)
+    expect(sandboxes.some((s) => Project.norm(s) === keyOf(external))).toBe(true)
 
     GlobalBus.off("event", on)
     const updated = events.find(
       (e) =>
         e.payload.type === Project.Event.Updated.type &&
-        e.payload.properties.sandboxes?.some((s: string) => Project.norm(s) === Project.norm(external)),
+        e.payload.properties.sandboxes?.some((s: string) => Project.norm(s) === keyOf(external)),
     )
     expect(updated).toBeDefined()
   })
@@ -69,11 +76,11 @@ describe("WorktreeDiscover", () => {
     await WorktreeDiscover.poll()
 
     const metas = Database.useProject(project.id, (d) => d.select().from(DirectoryMetaTable).all())
-    const rows = metas.filter((m) => Project.norm(m.directory) === Project.norm(external))
+    const rows = metas.filter((m) => Project.norm(m.directory) === keyOf(external))
     expect(rows.length).toBe(1)
 
     const sandboxes = await Project.sandboxes(project.id)
-    expect(sandboxes.filter((s) => Project.norm(s) === Project.norm(external)).length).toBe(1)
+    expect(sandboxes.filter((s) => Project.norm(s) === keyOf(external)).length).toBe(1)
   })
 
   test("poll alone registers an externally added worktree without bootstrap sync", async () => {
@@ -114,7 +121,7 @@ describe("WorktreeDiscover", () => {
       d
         .select()
         .from(DirectoryMetaTable)
-        .where(eq(DirectoryMetaTable.directory, Project.norm(external)))
+        .where(eq(DirectoryMetaTable.directory, keyOf(external)))
         .get(),
     )
     expect(meta).toBeDefined()
@@ -133,12 +140,12 @@ describe("WorktreeDiscover", () => {
       d
         .select()
         .from(DirectoryMetaTable)
-        .where(eq(DirectoryMetaTable.directory, Project.norm(residue)))
+        .where(eq(DirectoryMetaTable.directory, keyOf(residue)))
         .get(),
     )
     expect(meta).toBeUndefined()
     const sandboxes = await Project.sandboxes(project.id)
-    expect(sandboxes.some((s) => Project.norm(s) === Project.norm(residue))).toBe(false)
+    expect(sandboxes.some((s) => Project.norm(s) === keyOf(residue))).toBe(false)
   })
 
   test("storage directory of an unknown project is skipped without creating a database", async () => {
