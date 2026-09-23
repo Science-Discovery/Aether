@@ -197,7 +197,7 @@ export namespace SessionPrompt {
       })
 
       await SessionRevert.awaitPending(input.sessionID)
-      await SessionRevert.cleanup(session)
+      await SessionRevert.cleanup(await Session.get(input.sessionID))
 
       const message = await createUserMessage(input, claim)
       await Session.touch(input.sessionID)
@@ -1745,9 +1745,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       await using _ = defer(() => cancel(input.sessionID))
 
       await SessionRevert.awaitPending(input.sessionID)
-      if (session.revert) {
-        await SessionRevert.cleanup(session)
-      }
+      await SessionRevert.cleanup(await Session.get(input.sessionID))
       const agent = await Agent.get(input.agent)
       if (!agent) {
         const available = await Agent.list().then((agents) => agents.filter((a) => !a.hidden).map((a) => a.name))
