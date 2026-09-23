@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest"
 import { render } from "solid-js/web"
-import { createSignal } from "solid-js"
-import { WorkspaceSessionList, type WorkspaceSidebarContext } from "./sidebar-workspace"
+import { createSignal, type Accessor } from "solid-js"
+import { WorkspaceHeader, WorkspaceSessionList, type WorkspaceSidebarContext } from "./sidebar-workspace"
 import type { useLanguage } from "@/context/language"
 
 vi.mock("./sidebar-items", () => ({
@@ -174,6 +174,89 @@ describe("WorkspaceSessionList load-more row", () => {
 
     expect(host.querySelector('[aria-label="common.loadMore"]')).toBeNull()
     expect(host.querySelector('[aria-label="common.collapseAll"]')).toBeNull()
+
+    off()
+  })
+})
+
+const nullEditor = (() => null) as unknown as WorkspaceSidebarContext["InlineEditor"]
+
+function mountHeader(active: Accessor<boolean>, busy = false) {
+  const host = document.createElement("div")
+  document.body.append(host)
+  const off = render(
+    () => (
+      <WorkspaceHeader
+        busy={() => busy}
+        sessionBusy={() => false}
+        notify={() => false}
+        hasPermissions={() => false}
+        hasError={() => false}
+        open={() => true}
+        active={active}
+        directory="E:/repo/sandbox-1"
+        language={language}
+        branch={() => "dev"}
+        workspaceValue={() => "sandbox-1"}
+        workspaceEditActive={() => false}
+        branchEditActive={() => false}
+        InlineEditor={nullEditor}
+        renameWorkspace={() => undefined}
+        renameBranch={() => Promise.resolve()}
+        setEditor={() => undefined}
+      />
+    ),
+    host,
+  )
+  return { host, off }
+}
+
+describe("WorkspaceHeader active ring", () => {
+  test("frames the workspace icon while its session is open", () => {
+    const { host, off } = mountHeader(() => true)
+
+    const icon = host.querySelector<HTMLElement>("[data-active]")
+    expect(icon).not.toBeNull()
+    expect(icon!.dataset.active).toBe("true")
+    expect(icon!.className).toContain("ring-1")
+
+    off()
+  })
+
+  test("keeps no frame when the workspace is not the current one", () => {
+    const { host, off } = mountHeader(() => false)
+
+    expect(host.querySelector("[data-active]")).toBeNull()
+    expect(host.querySelector(".ring-1")).toBeNull()
+
+    off()
+  })
+
+  test("follows switching the open session between workspaces", () => {
+    const [active, setActive] = createSignal(false)
+    const { host, off } = mountHeader(active)
+
+    const icon = host.querySelector<HTMLElement>("div.relative")!
+    expect(icon.hasAttribute("data-active")).toBe(false)
+
+    setActive(true)
+    expect(icon.dataset.active).toBe("true")
+    expect(icon.className).toContain("ring-1")
+
+    setActive(false)
+    expect(icon.hasAttribute("data-active")).toBe(false)
+    expect(icon.className).not.toContain("ring-1")
+
+    off()
+  })
+
+  test("frames the icon even while the workspace shows a spinner", () => {
+    const { host, off } = mountHeader(() => true, true)
+
+    expect(host.querySelector("[data-component='spinner']")).not.toBeNull()
+    const icon = host.querySelector<HTMLElement>("[data-active]")
+    expect(icon).not.toBeNull()
+    expect(icon!.className).toContain("ring-1")
 
     off()
   })
