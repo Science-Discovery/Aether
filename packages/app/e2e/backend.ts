@@ -1,31 +1,13 @@
 import { spawn } from "node:child_process"
 import fs from "node:fs/promises"
-import net from "node:net"
 import os from "node:os"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
+import { freePort } from "./port"
 
 type Handle = {
   url: string
   stop: () => Promise<void>
-}
-
-function freePort() {
-  return new Promise<number>((resolve, reject) => {
-    const server = net.createServer()
-    server.once("error", reject)
-    server.listen(0, () => {
-      const address = server.address()
-      if (!address || typeof address === "string") {
-        server.close(() => reject(new Error("Failed to acquire a free port")))
-        return
-      }
-      server.close((err) => {
-        if (err) reject(err)
-        else resolve(address.port)
-      })
-    })
-  })
 }
 
 async function waitForHealth(url: string, probe = "/global/health") {
@@ -84,6 +66,8 @@ export async function startBackend(label: string, input?: { llmUrl?: string }): 
     XDG_STATE_HOME: path.join(sandbox, "state"),
     OPENCODE_CLIENT: "app",
     OPENCODE_STRICT_CONFIG_DEPS: "true",
+    OPENCODE_SERVER_USERNAME: "",
+    OPENCODE_SERVER_PASSWORD: "",
     OPENCODE_E2E_LLM_URL: input?.llmUrl,
   } satisfies Record<string, string | undefined>
   const out: string[] = []

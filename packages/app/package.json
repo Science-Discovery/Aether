@@ -16,7 +16,7 @@
     "serve": "vite preview",
     "test": "bun run test:unit",
     "test:unit": "bun run test:unit:bun && bun run test:unit:vitest",
-    "test:unit:bun": "bun test --preload ./happydom.ts ./src",
+    "test:unit:bun": "bun test --preload ./happydom.ts ./src ./e2e/config.test.ts ./e2e/port.test.ts",
     "test:unit:bun:watch": "bun test --watch --preload ./happydom.ts ./src",
     "test:unit:vitest": "bun run ./script/vitest.ts run --config ./vitest.config.ts",
     "test:unit:vitest:watch": "bun run ./script/vitest.ts --config ./vitest.config.ts",
