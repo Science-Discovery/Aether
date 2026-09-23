@@ -64,6 +64,15 @@ const resolveFile = (input: string) => {
   if (!Instance.containsPath(resolved)) throw new Error("Access denied: path escapes project directory")
   return resolved
 }
+const accessDenied = (err: unknown): err is Error => err instanceof Error && /Access denied/.test(err.message)
+
+const requireProjectDirectory = async (input: string) => {
+  const dir = await requireDirectory(input)
+  if (!Instance.containsPath(dir)) throw new Error("Access denied: path escapes project directory")
+  return dir
+}
+
+const opener = process.platform === "darwin" ? "open" : process.platform === "win32" ? "cmd.exe" : "xdg-open"
 
 const etag = (stat: Stats) => `W/"${Number(stat.size)}-${stat.mtimeMs}"`
 const pdfAnnotationInputError = (err: unknown): err is Error =>
@@ -640,8 +649,15 @@ export const FileRoutes = lazy(() =>
       async (c) => {
         const input = c.req.valid("json").path
         if (!path.isAbsolute(input)) return c.json({ error: "path must be absolute" }, 400)
-        await fs.mkdir(input, { recursive: true })
-        return c.json({ ok: true, path: input })
+        let dir: string
+        try {
+          dir = resolveFile(input)
+        } catch (err) {
+          if (!accessDenied(err)) throw err
+          return c.json({ error: err.message }, 400)
+        }
+        await fs.mkdir(dir, { recursive: true })
+        return c.json({ ok: true, path: dir })
       },
     )
     .post(
@@ -725,7 +741,13 @@ export const FileRoutes = lazy(() =>
       }),
       validator("json", z.object({ path: z.string() })),
       async (c) => {
-        const inputPath = c.req.valid("json").path
+        let inputPath: string
+        try {
+          inputPath = resolveFile(c.req.valid("json").path)
+        } catch (err) {
+          if (!accessDenied(err)) throw err
+          return c.json({ error: err.message }, 400)
+        }
         let stat: Stats | undefined
         try {
           stat = await Bun.file(inputPath).stat()
@@ -790,7 +812,22 @@ export const FileRoutes = lazy(() =>
       }),
       validator("json", z.object({ path: z.string(), app: z.string().optional() })),
       async (c) => {
-        const { path: inputPath, app } = c.req.valid("json")
+        const { path: input, app } = c.req.valid("json")
+        let inputPath: string
+        try {
+          inputPath = resolveFile(input)
+        } catch (err) {
+          if (!accessDenied(err)) throw err
+          return c.json({ error: err.message }, 400)
+        }
+
+        if (app) {
+          const openerPath = Bun.which(opener)
+          if (!openerPath || Filesystem.resolve(app) !== Filesystem.resolve(openerPath)) {
+            return c.json({ error: "app must resolve to the system file opener" }, 400)
+          }
+        }
+
         let stat: Stats | undefined
         try {
           stat = await Bun.file(inputPath).stat()
@@ -799,17 +836,6 @@ export const FileRoutes = lazy(() =>
         }
 
         try {
-          if (app) {
-            if (process.platform === "darwin") {
-              const proc = spawn(["open", "-a", app, inputPath])
-              await proc.exited
-            } else {
-              const proc = spawn([app, inputPath])
-              await proc.exited
-            }
-            return c.json({ ok: true })
-          }
-
           if (process.platform === "win32") {
             // Windows: start "" filepath
             const proc = spawn(["cmd.exe", "/c", "start", "", inputPath])
@@ -977,9 +1003,9 @@ export const FileRoutes = lazy(() =>
       ),
       async (c) => {
         const query = c.req.valid("query")
-        const absPath = resolvePath(query.path)
         try {
-          const outputDir = query.outputDir ? await requireDirectory(query.outputDir) : undefined
+          const absPath = resolveFile(query.path)
+          const outputDir = query.outputDir ? await requireProjectDirectory(query.outputDir) : undefined
           const parsed = await parsePDF(absPath)
           const outputPaths = computeOutputPaths(absPath, "merged", outputDir)
 
@@ -1078,9 +1104,13 @@ export const FileRoutes = lazy(() =>
           return c.json({ error: "页面范围不能超过 50 页" }, 400)
         }
 
-        const absPath = resolvePath(body.path)
-        const outputDir = body.outputDir ? await requireDirectory(body.outputDir).catch(() => undefined) : undefined
-        if (body.outputDir && !outputDir) {
+        let absPath: string
+        let outputDir: string | undefined
+        try {
+          absPath = resolveFile(body.path)
+          outputDir = body.outputDir ? await requireProjectDirectory(body.outputDir) : undefined
+        } catch (err) {
+          if (accessDenied(err)) return c.json({ error: err.message }, 400)
           return c.json({ error: "路径必须指向一个文件夹" }, 400)
         }
 
@@ -1241,7 +1271,10 @@ export const FileRoutes = lazy(() =>
         summary: "Get PDF annotations",
         operationId: "file.pdfAnnotations.get",
         responses: {
-          200: { description: "PDF annotation draft", content: { "application/json": { schema: resolver(z.unknown()) } } },
+          200: {
+            description: "PDF annotation draft",
+            content: { "application/json": { schema: resolver(z.unknown()) } },
+          },
           ...errors(400, 404),
         },
       }),
@@ -1261,7 +1294,10 @@ export const FileRoutes = lazy(() =>
         summary: "Replace PDF annotations",
         operationId: "file.pdfAnnotations.update",
         responses: {
-          200: { description: "Saved PDF annotation draft", content: { "application/json": { schema: resolver(PdfAnnotations.File) } } },
+          200: {
+            description: "Saved PDF annotation draft",
+            content: { "application/json": { schema: resolver(PdfAnnotations.File) } },
+          },
           ...errors(400, 404),
         },
       }),
@@ -1447,9 +1483,9 @@ export const FileRoutes = lazy(() =>
       ),
       async (c) => {
         const query = c.req.valid("query")
-        const absPath = resolvePath(query.path)
         try {
-          const outputDir = query.outputDir ? await requireDirectory(query.outputDir) : undefined
+          const absPath = resolveFile(query.path)
+          const outputDir = query.outputDir ? await requireProjectDirectory(query.outputDir) : undefined
           const stat = await Bun.file(absPath).stat()
           const fileSize = stat.size
 
@@ -1515,9 +1551,13 @@ export const FileRoutes = lazy(() =>
       ),
       async (c) => {
         const body = c.req.valid("json")
-        const absPath = resolvePath(body.path)
-        const outputDir = body.outputDir ? await requireDirectory(body.outputDir).catch(() => undefined) : undefined
-        if (body.outputDir && !outputDir) {
+        let absPath: string
+        let outputDir: string | undefined
+        try {
+          absPath = resolveFile(body.path)
+          outputDir = body.outputDir ? await requireProjectDirectory(body.outputDir) : undefined
+        } catch (err) {
+          if (accessDenied(err)) return c.json({ error: err.message }, 400)
           return c.json({ error: "路径必须指向一个文件夹" }, 400)
         }
 
