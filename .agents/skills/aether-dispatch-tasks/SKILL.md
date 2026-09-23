@@ -1,56 +1,86 @@
 ---
 name: aether-dispatch-tasks
-description: 在 Aether (aether-dev) 中把多个独立任务派发到现有 worktree 沙箱（sandbox/多工作区/multi-worktree/并行会话/parallel agents）并行执行并管理其全生命周期：派发任务书（含分支/测试/提交规范）、监控完成状态、派 subagent 逐个 review、review 结果作为 comment 发布到 GitHub PR、FAIL 返工循环到 PASS 放行。当用户提到把任务分配/派发给沙箱、sandbox、工作区、worktree 或多个会话/agents 并行执行时使用。
+description: 在 Aether (aether-dev) 中把多个独立任务派发到 worktree 沙箱（sandbox/多工作区/multi-worktree/并行会话/parallel agents）并行执行并管理其全生命周期：主 agent 在主工作区创建子会话，每个子会话领取一个任务并到主 agent 分配好的 worktree（复用或新建）中完成修复+测试+PR，随后子会话自身负责 review、PR comment、FAIL 返工循环到 PASS 放行（全自治）；主 agent 派发完只做看门监控：周期检查子会话是否还在工作、停了但没完成就发消息续跑、完成才移出监控。当用户提到把任务分配/派发给沙箱、sandbox、工作区、worktree 或多个会话/agents 并行执行时使用。
 ---
 
 # 多沙箱任务派发与监控
 
+## 架构总览
+
+```
+主 agent（主工作区）
+ ├─ 准备 worktree：已存在且干净→复用；被占用/不存在→git worktree add
+ ├─ 在主工作区 directory 下建 N 个子会话，每会话派发一个任务书（prompt_async，不阻塞）
+ └─ 看门监控：周期轮询子会话是否在工作（busy=正常）
+     ├─ 停止工作且任务未完成 → prompt_async 发续跑指令到该子会话，留在监控中
+     └─ 任务完成 → 读最终汇报确认放行，移出监控
+
+子会话 i（directory=主工作区，全自治）
+ ├─ 在分配的 worktree 里：fetch → checkout -b → 修复 → 回归测试 → issue+PR → CI 到绿
+ ├─ 派 subagent review 自己的 PR（阻塞的只是子会话自己，主 agent 不受影响）
+ ├─ review 结果发 PR comment（必发，公开审计）
+ ├─ FAIL → 自己返工（同一会话、同一 worktree）→ 复审循环，直到 PASS
+ └─ PASS → 发最终汇报，会话结束
+```
+
+关键设计：**不要用 `task` 工具在主 agent 层派 review subagent**（结果必须回传主 agent，只要有一个 subagent 在跑主 agent 就繁忙被阻塞）；也**不要为任务单独建 worktree 会话**。子会话统一建在主工作区，agent 用 bash 在 worktree 目录干活；review 放在子会话内部，阻塞的只有子会话自己——主 agent 始终空闲，可持续看门。偶发停止（模型中断、SSE 断连等）由看门循环兜底：不信任"会话从 status 消失=完成"，消失后必须读最终汇报核实。
+
 ## 适用前提
 
-- 有一批**相互独立**的任务（如 bug 修复列表），每任务一个沙箱（worktree）。
-- 沙箱必须**已存在**（`git worktree list` 确认）；本 skill 不新建 worktree。注意：沙箱目录上挂的分支名可能是旧任务残留，以任务书指定的**新分支**为准（从 `origin/dev` 切）。
-- 用户希望每个沙箱是一个可跟踪的"会话"——通过本地 server API 在沙箱目录下创建会话并 `prompt_async` 派发，与用户手动新建会话完全同构。
+- 有一批**相互独立**的任务（如 bug 修复列表），每任务一个子会话 + 一个 worktree。**即使只有一个任务，也完整走本流程**（建 1 个子会话 + 1 个 worktree、review 闭环、看门监控一样不少）——流程不为任务数量裁剪，保证质量门禁一致。
+- worktree 优先**复用已有的**（`git worktree list`）；被占用（有未提交改动）或不够时**新建**（见下）。沙箱目录上挂的分支名可能是旧任务残留，以任务书指定的**新分支**为准（从 `origin/dev` 切）。
+- 用户希望每个任务是一个可跟踪的"会话"（侧边栏可见、可随时点进去看进度）。
 
 ## 派发
 
-1. `git worktree list` 确认沙箱清单；`git fetch origin dev` 确认基线。
-2. 写派发脚本（见 `scripts/dispatch.py`，可按任务改 `TASKS` 表）：
-   - 在每个沙箱目录下 `POST /session?directory=<worktree>` 建会话，body 同时带 title 与 **permission 规则集（默认继承派发 agent 的权限，见下）**。
-   - `POST /session/<id>/prompt_async?directory=<worktree>` 派发任务书，立即返回 204，全部并行不阻塞；body 可带可选的 `model` 指定模型。
-   - 落盘 session↔sandbox↔任务 映射 JSON（供监控与后续回话用）。
-3. **权限与模型**（派发时设定）：
-   - **权限**：建会话 body 的 `permission` 是规则数组 `[{permission: "<工具名>", pattern: "*", action: "allow"}]`（工具名如 bash/edit/write/webfetch，pattern 可限定命令/路径）。**默认继承当前派发任务的 agent 的权限**：先 `GET /session/<当前sessionID>` 读出本会话的 `permission` 字段，原样传入新建会话的 body——沙箱 agent 获得与派发者一致的操作面。若派发者无显式规则集，则给出最小 allow 集（至少 bash/edit/write），否则 headless 会话会卡在默认 `ask` 上无人应答。注意：worktree 只隔离 git 历史，不隔离文件系统——`pattern: "*"` 的 allow 不限制路径，安全性取决于对 agent 的信任而非目录边界，需收紧时用 pattern 限定命令/路径。
-   - **模型**：`prompt_async` body 可带 `"model": {"providerID": "...", "modelID": "..."}` 指定该沙箱用的模型；**默认不传（用当前会话/项目默认模型）**，需要分模型跑任务时才设。
-4. 任务书必须包含（模板见 `references/task-prompt.md`）：
-   - 目标 + 参考报告路径；准备步骤（fetch origin/dev → `git checkout -b <branch> origin/dev`；fetch 遇 ref lock 等 2 秒重试最多 3 次）。
+1. `git worktree list` 确认现有沙箱清单；`git fetch origin dev` 确认基线。
+2. **分配 worktree**（每任务一个，路径记入任务书）：
+   - 复用判定：`git -C <worktree> status --porcelain` 为空（干净）→ 复用，无论当前挂的分支是什么（子会话会自己 `checkout -b`）。
+   - 不干净或数量不够 → 新建：`git worktree add --detach <worktree父目录>/sandbox-N origin/dev`（**N 从现有 `git worktree list` 中 sandbox 前缀的最大编号 +1 顺延**，不重号；`--detach` 不占分支名，子会话再 checkout -b）。**用 `git worktree add`，禁止走 Aether 的 Worktree.create API**（连续创建会触发 watcher.node Bun segfault 闪退；外部 git worktree add 由 WorktreeDiscover 5s 轮询自动注册进侧边栏，是安全路径）。
+3. 写派发脚本（见 `scripts/dispatch.py`，可按任务改 `TASKS` 表）：
+   - 全部子会话 `POST /session?directory=<URL编码的主工作区路径>` 建会话，body 带 title + **permission 规则集**。
+   - `POST /session/<id>/prompt_async?directory=<同主工作区>` 派发任务书（含分配的 worktree 路径），立即返回 204，全部并行不阻塞；body 可带可选 `model`。
+   - 落盘 task↔session↔worktree 映射 JSON（供监控与异常介入用）。
+4. **权限与模型**（派发时设定；默认继承，可按任务覆盖）：
+   - **权限**：`permission` 是规则数组 `[{permission: "<工具名>", pattern: "*", action: "allow"}]`。**默认继承当前派发 agent 的会话权限**：先 `GET /session/<当前sessionID>` 读出本会话 `permission` 字段，原样传入新会话 body（子会话获得与派发者一致的操作面；注意 worktree 只隔离 git 历史不隔离文件系统，`pattern: "*"` 的 allow 不限制路径，安全性取决于对 agent 的信任）。派发者无显式规则集时给最小 allow 集（bash/edit/write），否则 headless 会话卡在默认 `ask` 上无人应答。可按任务收紧/覆盖，如 edit/write 的 pattern 限定为 `<worktree>/**` 防止文件工具误改主工作区（但 bash `*` 全开时这只是防手滑，不是安全边界）。
+   - **模型**：`prompt_async` body 可带 `"model": {"providerID": "...", "modelID": "..."}`；**默认不传（子会话用当前默认模型）**，需要分模型跑任务时才按任务指定（派发脚本中 per-task MODEL，见 `scripts/dispatch.py` 的 TASKS 表）。
+5. 任务书必须包含（模板见 `references/task-prompt.md`）：
+   - 目标 + 参考报告路径 + **分配的 worktree 路径与工作目录约定**。
+   - 准备步骤（fetch origin/dev → `git checkout -b <branch> origin/dev`；fetch 遇 ref lock 等 2 秒重试最多 3 次）。
    - 先读码确认问题在当前基线仍存在；不存在则停下汇报，不开 issue/PR。
-   - 修复要求：优雅、健壮、最小侵入，遵循仓库 AGENTS.md 风格。
+   - **历史修复考古**（修 bug/功能类任务必做）：查 GitHub closed issue/PR 与 `git log -S` 历史修复提交；发现修过但 bug 仍在时，必须弄清"为什么没修好/为何复现"（补丁被绕过/覆盖窗口不同/后续改动破坏），结论写进 issue 与 PR——复现类 bug 优先从"上次为何没修住"找根因（见模板准备步骤第 4 条）。
+   - 修复要求：优雅、健壮、最小侵入，遵循仓库 AGENTS.md 风格；**边界条件专项检查**（概念+枚举清单都要传给子会话，枚举仅是起点须按功能语义自行补全，见模板"修复要求"）。
    - 测试要求：为失败场景写回归测试；bun test 从 package 目录跑（禁从仓库根）；Solid 响应式单测用 `*.vitest.ts`；bun typecheck 通过；需要时可用 Playwright e2e。
-   - 提交流程：按 aether-issue-pr skill——**若无 issue 就先建 issue 再开 PR**（复用已有 issue 则直接开），base=dev，`Closes #N`，跟踪 CI 到绿。
-   - 边界：只修自己的任务，不顺手修别的；最终汇报 issue/PR/分支/改动/测试/CI。
+   - 提交流程：按 aether-issue-pr skill——**若无 issue 就先建 issue 再开 PR**，base=dev，`Closes #N`，跟踪 CI 到绿。
+   - **review 自治闭环**（完成后在本会话内自行执行，见模板）：派 subagent review → 结果发 PR comment → FAIL 自返工循环 → PASS 才结束会话。
+   - 边界：只修自己的任务，不顺手修别的；最终汇报 issue/PR/分支/改动/测试/CI/review 结论。
    - 同文件相邻区域的多任务要互相注明冲突风险。
-5. 派发后抽查 status 确认全部 busy。
+6. 派发后抽查 status 确认全部 busy。
 
-## 监控
+## 看门监控（主 agent 持续职责，直到所有任务完成）
 
-- 轮询 `GET /session/status?directory=<worktree>`：`{"ses_xxx":{"type":"busy"}}`。busy=在跑；session 从 status 消失=完成。
-- 完成后读最终汇报：`GET /session/<id>/message?directory=<worktree>`，确认产出（issue/PR/CI 状态）再进入 review。
+主 agent 派发完不结束，周期性执行看门循环（间隔建议几分钟级，避免打爆 server）：
 
-## Review（必须派 subagent，禁止主 agent 自己审）
+1. `GET /session/status?directory=<主工作区>`：一次返回所有子会话状态，形如 `{"ses_xxx":{"type":"busy"}}`。
+2. **busy = 在正常工作**，跳过。
+3. **session 不在 status 里（停止工作）**：**不能直接当完成**——读最终汇报 `GET /session/<id>/message?directory=<主工作区>` 核实：
+   - 汇报中任务已完成（issue/PR/CI/review PASS 齐备）→ 放行，**移出监控，此后不再过问**。
+   - 任务未完成（没有最终汇报，或汇报显示中断/半途而废）→ `prompt_async` 发续跑指令到该子会话（`scripts/send-to-session.py`：提醒其继续当前任务、从头绪处续跑、完成完整闭环后才结束），留在监控中，下轮继续看门。偶发停止（模型中断、网络断连等）靠这个循环兜底恢复。
+   - 疑似卡死（busy 挂很久无产出，或续跑多轮仍停在同一处）→ 读 message 时间线定位卡点再决定介入方式；正常流程不要干预 review/返工循环——那是子会话自己的职责。
+4. 全部子会话都放行后，看门结束，派发任务整体收官（向用户总结各任务 PR/issue/review 结果）。
 
-每个完成的任务派一个独立 review subagent（`task` 工具，general 类型），任务书要点：
+监控期间主 agent 保持空闲可响应：子会话的 review subagent 只阻塞子会话自己，主 agent 不派任何 `task` subagent。子会话的 busy 状态全部显示在主工作区（会话属于主工作区 directory），worktree 沙箱行不会显示 busy——这是预期行为，不要误判为"沙箱没在干活"。
 
-- 只读审查：禁止修改文件、禁止提交。
-- 给出 worktree 路径、分支、head SHA、PR/issue 链接、bug 原文。
-- 审查清单：完整 diff（含测试/fixture）；修复语义与竞态推演；回归风险（非目标路径行为不变）；测试判别力（**实测**：基线代码上失败、修复后通过）；CI 与 PR 描述真实性。
-- 输出格式：**结论 PASS/FAIL** + 关键问题列表（file:line + 失败场景 + 修复建议；只有功能错误/回归/竞态/数据丢失/测试无效才算关键）+ 非关键建议 + 已验证项清单。
+## 子会话内的 review（模板 `references/task-prompt.md` 已含）
 
-**每份 review 结果必须作为 comment 发布到对应 GitHub PR**（`gh pr comment <N> --repo Science-Discovery/Aether --body-file <file>`），FAIL 的也要发（PR 上保留完整 review 历史）。
+子会话完成任务后**必须在本会话内闭环 review，不得跳过、不得把 review 交回主 agent**：
 
-## FAIL 返工与 PASS 放行
-
-- **FAIL**：把关键问题转达给该沙箱 agent 返工。消息必须发到**当初解决问题的原始会话**（`prompt_async` 到原 session ID），**不要新开会话**；附 review 评论链接、逐条问题定位与修复建议、回归测试要求、push 同一 PR、CI 到绿。返工完成后派新 subagent 复审，仍有关键问题继续循环，**直到 PASS 才放行**。
-- **PASS**：放行。同时把 review 结果（含非关键建议）发回**原始会话**（同样不开新会话），由该 agent 自行决定是否处理非关键建议；修不修都接受。此后**不再监控该任务**。
+- 派 `task` subagent（general 类型）review 自己的 PR——只读审查，禁止改文件/提交。阻塞的只是子会话自己，主 agent 不受影响。
+- 审查清单：完整 diff（含测试/fixture）；修复语义与竞态推演；回归风险；测试判别力（**实测**：基线代码上失败、修复后通过）；CI 与 PR 描述真实性。
+- 结论 PASS/FAIL；关键问题=功能错误/回归/竞态/数据丢失/测试无效（file:line + 失败场景 + 修复建议）。
+- **review 结果必须作为 comment 发布到对应 GitHub PR**（`gh pr comment <N> --repo Science-Discovery/Aether --body-file <file>`），FAIL 的也要发（公开审计，PR 上保留完整 review 历史）。
+- **FAIL**：子会话自己在同一 worktree 返工（附 PR 评论链接、逐条定位修复、补回归测试、push 同一 PR、CI 到绿），再派新 subagent 复审，循环到 PASS。
+- **PASS**：非关键建议自行决定修不修（都接受），发最终汇报，结束会话。
 
 ## 本地 server API 关键命令（Windows 实测）
 
@@ -59,15 +89,17 @@ description: 在 Aether (aether-dev) 中把多个独立任务派发到现有 wor
 netstat -ano | grep "$OPENCODE_PID"        # 找 LISTENING 端口
 # 认证：Basic auth，用户 opencode，密码取环境变量 OPENCODE_SERVER_PASSWORD
 
-# 1. 建会话：POST /session?directory=<URL编码的worktree路径>
-#            body {"title":"...", "permission":[<派发agent会话的permission规则，原样继承>]}
-#            （先 GET /session/<当前sessionID> 读自己的 permission 再传入；
-#              派发者无规则集时至少给 bash/edit/write allow，否则 headless 卡在权限询问）
-# 2. 派任务：POST /session/<sessionID>/prompt_async?directory=<同上>
-#            body {"parts":[{"type":"text","text":"<完整任务书>"}],
-#                  "model":{"providerID":"<可选>","modelID":"<可选>"}}   # model 不传=当前默认模型
-# 3. 监控：  GET /session/status?directory=<同上>            → {"ses_xxx":{"type":"busy"}}
-# 4. 读汇报：GET /session/<sessionID>/message?directory=<同上>
+# 1. 建子会话：POST /session?directory=<URL编码的主工作区路径>
+#              body {"title":"...", "permission":[<派发agent会话的permission规则，原样继承>]}
+#              （先 GET /session/<当前sessionID> 读自己的 permission 再传入；
+#                派发者无规则集时至少给 bash/edit/write allow，否则 headless 卡在权限询问）
+# 2. 派任务：  POST /session/<sessionID>/prompt_async?directory=<同主工作区>
+#              body {"parts":[{"type":"text","text":"<完整任务书>"}],
+#                    "model":{"providerID":"<可选>","modelID":"<可选>"}}   # model 不传=当前默认模型
+# 3. 看门监控：GET /session/status?directory=<同主工作区> → {"ses_xxx":{"type":"busy"}}（全部子会话一次可见；
+#              不在 status=停止工作：读 message 核实，未完成→发续跑指令（send-to-session.py），完成→移出监控）
+# 4. 读汇报：  GET /session/<sessionID>/message?directory=<同主工作区>
+# 5. 介入：    POST /session/<sessionID>/prompt_async?directory=<同主工作区>（scripts/send-to-session.py，续跑/叫停）
 ```
 
 **踩坑记录（Windows）**：
@@ -75,6 +107,8 @@ netstat -ano | grep "$OPENCODE_PID"        # 找 LISTENING 端口
 - python 处理含中文的 JSON/文件必须 `-X utf8`（默认 GBK 解码失败）。
 - API 长响应先落盘文件再解析（长响应走 stdout 管道会被截断）。
 - 消息接口是单数 `message`；`messages` 会命中前端路由返回 HTML。
-- URL 参数 `directory` 要对 worktree 完整路径做 quote（safe=""）。
+- URL 参数 `directory` 要对完整路径做 quote（safe=""）。
 - 多沙箱并行时 CI runner 资源紧张，重载测试（如 packages/opencode 的 30s 超时类）偶发 flaky：先对照 dev 基线 run 判断是否环境性，是则单次有限重跑并记录原因，不算回归。
-- 共享 worktree 上可能残留其他沙箱实验的未提交改动：review 以已推送的 HEAD 提交为准；返工前让 agent 确认基线是自己的 PR head。
+- 共享 worktree 上可能残留其他沙箱实验的未提交改动：分配时用 `git -C <worktree> status --porcelain` 检查，不干净就换/新建；review 以已推送的 HEAD 提交为准；返工前让 agent 确认基线是自己的 PR head。
+- 新建 worktree 用 `git worktree add --detach <path> origin/dev`，编号取 `git worktree list` 中 sandbox 前缀最大编号 +1（不重号）；**不要**用 Aether 的 Worktree.create/UI 创建（连续创建触发 watcher.node segfault 闪退）。
+- 子会话的 bash 默认 cwd 是主工作区：任务书必须明确"所有 git 用 `git -C <worktree>`、文件操作用 worktree 绝对路径"，防止误改主工作区。

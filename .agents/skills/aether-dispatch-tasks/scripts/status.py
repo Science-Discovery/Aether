@@ -1,8 +1,9 @@
 #!/usr/bin/env python
-"""轮询各沙箱会话状态 + 读完成会话的最终汇报。
+"""轮询子会话状态 + 读完成会话的最终汇报。
 用法：python -X utf8 status.py [status|report <task编号>]
 
-依赖 dispatch.py 落盘的映射 JSON；SERVER/WT/RESULTS 按本次任务实际路径改。
+依赖 dispatch.py 落盘的映射 JSON；SERVER/HOME/RESULTS 按本次任务实际路径改。
+子会话全在主工作区 directory 下，一次 status 查全部。
 """
 
 import base64
@@ -13,8 +14,11 @@ import urllib.parse
 import urllib.request
 
 SERVER = "http://127.0.0.1:19527"
+HOME = "E:/work/AI/Aether/aether-dev"  # 主工作区（与 dispatch.py 的 HOME 一致）
 RESULTS = "E:/work/AI/Aether/dispatch-results.json"
 MODE = sys.argv[1] if len(sys.argv) > 1 else "status"  # status | report <task编号>
+
+q = urllib.parse.quote(HOME, safe="")
 
 
 def api(path):
@@ -28,26 +32,24 @@ def api(path):
 
 
 results = json.load(open(RESULTS, encoding="utf-8"))
-WT = "C:/Users/yqma/.local/share/aether/worktree/<worktree-根>"
 
 if MODE == "status":
+    try:
+        st = api(f"/session/status?directory={q}")
+    except Exception as err:
+        st = {}
+        print(f"status error: {err}")
     for r in results:
-        q = urllib.parse.quote(f"{WT}/{r['sandbox']}", safe="")
-        try:
-            st = (
-                api(f"/session/status?directory={q}")
-                .get(r["session"], {})
-                .get("type", "not-found")
-            )
-        except Exception as err:
-            st = f"error: {err}"
-        print(f"task{r['task']} {r['session']}: {st}")
+        if "session" not in r:
+            print(f"task{r['task']}: dispatch FAILED")
+            continue
+        state = st.get(r["session"], {}).get("type", "not-found")
+        print(f"task{r['task']} {r['session']}: {state}")
 elif MODE == "report":
     target = sys.argv[2]
     for r in results:
-        if str(r["task"]) != target:
+        if str(r["task"]) != target or "session" not in r:
             continue
-        q = urllib.parse.quote(f"{WT}/{r['sandbox']}", safe="")
         msgs = api(f"/session/{r['session']}/message?directory={q}")
         texts = []
         for m in msgs:
@@ -56,3 +58,6 @@ elif MODE == "report":
                 if t and any(k in t for k in ("Issue", "PR", "github.com", "完成")):
                     texts.append(t)
         print(texts[-1][:2000] if texts else "NO_FINAL_REPORT")
+        break
+    else:
+        print(f"task{target} not found in {RESULTS}")
