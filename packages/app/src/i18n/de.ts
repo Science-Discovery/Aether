@@ -685,6 +685,8 @@ export const dict = {
   "settings.general.row.reasoningSummaries.title": "Reasoning-Zusammenfassungen anzeigen",
   "settings.general.row.reasoningSummaries.description":
     "Zusammenfassungen des Modell-Reasonings in der Timeline anzeigen",
+  "settings.general.row.autoGitInit.title": "Git-Repository automatisch erstellen",
+  "settings.general.row.autoGitInit.description": "Initialisiert ein Git-Repository und aktiviert Arbeitsbereiche für neue Projekte",
   "settings.general.row.shellToolPartsExpanded.title": "Shell-Tool-Abschnitte ausklappen",
   "settings.general.row.shellToolPartsExpanded.description":
     "Shell-Tool-Abschnitte standardmäßig in der Timeline ausgeklappt anzeigen",

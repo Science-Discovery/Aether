@@ -727,6 +727,8 @@ export const dict = {
   "settings.general.row.followup.option.steer": "Styr",
   "settings.general.row.reasoningSummaries.title": "Vis tænkeoversigter",
   "settings.general.row.reasoningSummaries.description": "Vis model tænkeoversigter i tidslinjen",
+  "settings.general.row.autoGitInit.title": "Opret Git-repository automatisk",
+  "settings.general.row.autoGitInit.description": "Initialiserer et Git-repository og aktiverer arbejdsområder for nye projekter",
 
   "settings.general.row.shellToolPartsExpanded.title": "Udvid shell-værktøjsdele",
   "settings.general.row.shellToolPartsExpanded.description": "Vis shell-værktøjsdele udvidet som standard i tidslinjen",

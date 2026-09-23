@@ -5,6 +5,7 @@ import { useGlobalSync } from "./global-sync"
 import { useGlobalSDK } from "./global-sdk"
 import { useServer } from "./server"
 import { usePlatform } from "./platform"
+import { useSettings } from "./settings"
 import { getFilename } from "@opencode-ai/util/path"
 import { Project } from "@opencode-ai/sdk/v2"
 import { Persist, persisted, removePersisted } from "@/utils/persist"
@@ -192,6 +193,7 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
     const globalSync = useGlobalSync()
     const server = useServer()
     const platform = usePlatform()
+    const settings = useSettings()
 
     const migrate = (value: unknown) => {
       if (!isRecord(value)) return value
@@ -508,6 +510,32 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
 
     setupSkillEvolutionAutoOpen(globalSync, server)
 
+    // Best-effort project bootstrap for newly added projects: create the git
+    // repository and enable workspaces so new projects are ready out of the
+    // box. The POST /project/git/init route is idempotent and refreshes the
+    // live instance in place, so running sessions are never interrupted.
+    const initGit = (directory: string) => {
+      void Promise.resolve(settings.ready.promise).then(() => {
+        if (!settings.general.autoGitInit()) return
+        return globalSdk
+          .createClient({ directory, throwOnError: true })
+          .project.initGit()
+          .then((x) => {
+            const next = x.data
+            if (!next) return
+            globalSync.project.upsert(next)
+            void globalSync.project.refreshRecent()
+            if (next.vcs !== "git") return
+            // Respect an explicit per-project workspace choice; seed only when unset.
+            if (store.sidebar.workspaces[directory] !== undefined) return
+            setStore("sidebar", "workspaces", directory, true)
+          })
+          .catch((error) => {
+            console.warn("auto git init failed", directory, error)
+          })
+      })
+    }
+
     const [demandPx, setDemandPx] = createSignal(0)
     const [rowPanes, setRowPanes] = createSignal<Pane[]>([])
 
@@ -533,6 +561,7 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
           if (server.projects.list().find((x) => x.worktree === directory)) return
           globalSync.project.loadSessions(directory)
           server.projects.open(directory)
+          initGit(directory)
         },
         close(directory: string) {
           server.projects.close(directory)

@@ -12,6 +12,7 @@ e2e/commands/tab-close.spec.ts
 e2e/files/file-open.spec.ts
 e2e/models/models-visibility.spec.ts
 e2e/projects/project-edit.spec.ts
+e2e/projects/project-init-git.spec.ts
 e2e/prompt/prompt-mention.spec.ts
 e2e/prompt/prompt-multiline.spec.ts
 e2e/prompt/prompt-slash-open.spec.ts

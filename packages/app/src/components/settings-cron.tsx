@@ -191,6 +191,9 @@ export const SettingsCron: Component = () => {
   const openSession = async (projectID: string | null | undefined, sessionID: string | null | undefined) => {
     const target = sessionTarget(projectID, sessionID)
     if (!target) return
+    // server.projects.open (not layout.projects.open) on purpose: this reveals
+    // an existing cron target, and automation must not trigger the new-project
+    // auto git init hook.
     server.projects.open(target.directory)
     globalSync.peek(target.directory, { bootstrap: true })
     await globalSync.project.loadSessions(target.directory, { force: true }).catch(() => undefined)

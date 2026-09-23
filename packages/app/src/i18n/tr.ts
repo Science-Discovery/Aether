@@ -747,6 +747,8 @@ export const dict = {
   "settings.general.row.followup.option.steer": "Yönlendir",
   "settings.general.row.reasoningSummaries.title": "Akıl yürütme özetlerini göster",
   "settings.general.row.reasoningSummaries.description": "Zaman çizelgesinde model akıl yürütme özetlerini görüntüle",
+  "settings.general.row.autoGitInit.title": "Git deposunu otomatik oluştur",
+  "settings.general.row.autoGitInit.description": "Yeni projeler için Git deposu başlatır ve çalışma alanlarını etkinleştirir",
   "settings.general.row.shellToolPartsExpanded.title": "Kabuk araç bileşenlerini genişlet",
   "settings.general.row.shellToolPartsExpanded.description":
     "Zaman çizelgesinde kabuk araç bileşenlerini varsayılan olarak genişletilmiş göster",
