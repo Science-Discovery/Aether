@@ -49,7 +49,7 @@ description: 在 Aether (aether-dev) 中把多个独立任务派发到 worktree 
    - 准备步骤（fetch origin/dev → `git checkout -b <branch> origin/dev`；fetch 遇 ref lock 等 2 秒重试最多 3 次）。
    - 先读码确认问题在当前基线仍存在；不存在则停下汇报，不开 issue/PR。
    - **历史修复考古**（修 bug/功能类任务必做）：查 GitHub closed issue/PR 与 `git log -S` 历史修复提交；发现修过但 bug 仍在时，必须弄清"为什么没修好/为何复现"（补丁被绕过/覆盖窗口不同/后续改动破坏），结论写进 issue 与 PR——复现类 bug 优先从"上次为何没修住"找根因（见模板准备步骤第 4 条）。
-   - 修复要求：优雅、健壮、最小侵入，遵循仓库 AGENTS.md 风格；**边界情况专项检查**（空/零/负/首末/并发时序/失败重试路径，逐项处理或声明不适用，见模板"修复要求"）。
+   - 修复要求：优雅、健壮、最小侵入，遵循仓库 AGENTS.md 风格；**边界条件专项检查**（概念+枚举清单都要传给子会话，枚举仅是起点须按功能语义自行补全，见模板"修复要求"）。
    - 测试要求：为失败场景写回归测试；bun test 从 package 目录跑（禁从仓库根）；Solid 响应式单测用 `*.vitest.ts`；bun typecheck 通过；需要时可用 Playwright e2e。
    - 提交流程：按 aether-issue-pr skill——**若无 issue 就先建 issue 再开 PR**，base=dev，`Closes #N`，跟踪 CI 到绿。
    - **review 自治闭环**（完成后在本会话内自行执行，见模板）：派 subagent review → 结果发 PR comment → FAIL 自返工循环 → PASS 才结束会话。
