@@ -86,20 +86,16 @@ test("disabling auto git init keeps new projects git-less", async ({ page }) => 
       )
       .toBe(directory)
 
-    await expect
-      .poll(
-        async () =>
-          (await hasGit(directory)) &&
-          !!(await sdk.project
-            .current()
-            .then((x) => x.data?.vcs)
-            .catch(() => undefined)),
-        {
-          timeout: 15_000,
-        },
-      )
-      .toBe(false)
+    // Auto git init is issued while the project opens, so once the instance is
+    // registered and this settle window passes, a broken gate would have
+    // already created .git. Absence after the window proves the gate held.
+    await new Promise((resolve) => setTimeout(resolve, 3_000))
     expect(await hasGit(directory)).toBe(false)
+    const vcs = await sdk.project
+      .current()
+      .then((x) => x.data?.vcs)
+      .catch(() => "error")
+    expect(vcs).toBeUndefined()
 
     await openSidebar(page)
     await expect(page.getByRole("button", { name: "New workspace" })).toHaveCount(0)
