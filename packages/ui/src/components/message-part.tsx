@@ -391,6 +391,11 @@ type PartGroup =
       type: "context"
       refs: PartRef[]
     }
+  | {
+      key: string
+      type: "error"
+      ref: PartRef
+    }
 
 function sameRef(a: PartRef, b: PartRef) {
   return a.messageID === b.messageID && a.partID === b.partID
@@ -400,6 +405,7 @@ function sameGroup(a: PartGroup, b: PartGroup) {
   if (a === b) return true
   if (a.key !== b.key) return false
   if (a.type !== b.type) return false
+  if (a.type === "error") return true
   if (a.type === "part") {
     if (b.type !== "part") return false
     return sameRef(a.ref, b.ref)
@@ -416,7 +422,18 @@ function sameGroups(a: readonly PartGroup[] | undefined, b: readonly PartGroup[]
   return a.every((item, i) => sameGroup(item, b[i]!))
 }
 
-function groupParts(parts: { messageID: string; part: PartType }[]) {
+type PartEntry = {
+  messageID: string
+  part: PartType
+}
+
+type ErrorEntry = {
+  messageID: string
+  part?: undefined
+  error: true
+}
+
+export function groupParts(parts: (PartEntry | ErrorEntry)[]) {
   const result: PartGroup[] = []
   let start = -1
 
@@ -424,7 +441,7 @@ function groupParts(parts: { messageID: string; part: PartType }[]) {
     if (start < 0) return
     const first = parts[start]
     const last = parts[end]
-    if (!first || !last) {
+    if (!first?.part || !last?.part) {
       start = -1
       return
     }
@@ -433,13 +450,26 @@ function groupParts(parts: { messageID: string; part: PartType }[]) {
       type: "context",
       refs: parts.slice(start, end + 1).map((item) => ({
         messageID: item.messageID,
-        partID: item.part.id,
+        partID: item.part!.id,
       })),
     })
     start = -1
   }
 
   parts.forEach((item, index) => {
+    if (!item.part) {
+      flush(index - 1)
+      result.push({
+        key: `error:${item.messageID}`,
+        type: "error",
+        ref: {
+          messageID: item.messageID,
+          partID: "",
+        },
+      })
+      return
+    }
+
     if (isContextGroupTool(item.part)) {
       if (start < 0) start = index
       return
@@ -462,6 +492,70 @@ function groupParts(parts: { messageID: string; part: PartType }[]) {
 
 function index<T extends { id: string }>(items: readonly T[]) {
   return new Map(items.map((item) => [item.id, item] as const))
+}
+
+function unwrap(message: string) {
+  const text = message.replace(/^Error:\s*/, "").trim()
+
+  const parse = (value: string) => {
+    try {
+      return JSON.parse(value) as unknown
+    } catch {
+      return undefined
+    }
+  }
+
+  const read = (value: string) => {
+    const first = parse(value)
+    if (typeof first !== "string") return first
+    return parse(first.trim())
+  }
+
+  let json = read(text)
+
+  if (json === undefined) {
+    const start = text.indexOf("{")
+    const end = text.lastIndexOf("}")
+    if (start !== -1 && end > start) {
+      json = read(text.slice(start, end + 1))
+    }
+  }
+
+  if (!record(json)) return message
+
+  const err = record(json.error) ? json.error : undefined
+  if (err) {
+    const type = typeof err.type === "string" ? err.type : undefined
+    const msg = typeof err.message === "string" ? err.message : undefined
+    if (type && msg) return `${type}: ${msg}`
+    if (msg) return msg
+    if (type) return type
+    const code = typeof err.code === "string" ? err.code : undefined
+    if (code) return code
+  }
+
+  const msg = typeof json.message === "string" ? json.message : undefined
+  if (msg) return msg
+
+  const reason = typeof json.error === "string" ? json.error : undefined
+  if (reason) return reason
+
+  return message
+}
+
+function record(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value)
+}
+
+function msgError(message: AssistantMessage) {
+  return !!message.error && message.error.name !== "MessageAbortedError"
+}
+
+function errorText(message: AssistantMessage) {
+  const msg = message.error?.data?.message
+  if (typeof msg === "string") return unwrap(msg)
+  if (msg === undefined || msg === null) return ""
+  return unwrap(String(msg))
 }
 
 function renderable(part: PartType, showReasoningSummaries = true) {
@@ -510,14 +604,16 @@ export function AssistantParts(props: {
   const grouped = createMemo(
     () =>
       groupParts(
-        props.messages.flatMap((message) =>
-          list(data.store.part?.[message.id], emptyParts)
+        props.messages.flatMap((message) => {
+          const entries: (PartEntry | ErrorEntry)[] = list(data.store.part?.[message.id], emptyParts)
             .filter((part) => renderable(part, props.showReasoningSummaries ?? true))
             .map((part) => ({
               messageID: message.id,
               part,
-            })),
-        ),
+            }))
+          if (msgError(message)) entries.push({ messageID: message.id, error: true })
+          return entries
+        }),
       ),
     [] as PartGroup[],
     { equals: sameGroups },
@@ -580,6 +676,23 @@ export function AssistantParts(props: {
                         defaultOpen={partDefaultOpen(item()!, props.shellToolDefaultOpen, props.editToolDefaultOpen)}
                       />
                     </Show>
+                  </Show>
+                )
+              })()}
+            </Match>
+            <Match when={entryType() === "error"}>
+              {(() => {
+                const message = createMemo(() => {
+                  const entry = entryAccessor()
+                  if (entry.type !== "error") return
+                  return msgs().get(entry.ref.messageID)
+                })
+
+                return (
+                  <Show when={message()}>
+                    <Card variant="error" class="error-card">
+                      {errorText(message()!)}
+                    </Card>
                   </Show>
                 )
               })()}

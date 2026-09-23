@@ -46,6 +46,7 @@ type LLMFixture = {
   inputs: () => Promise<Record<string, unknown>[]>
   pending: () => Promise<number>
   misses: () => Promise<Array<{ url: URL; body: Record<string, unknown> }>>
+  reset: () => Promise<void>
 }
 
 type LLMWorker = LLMFixture & {
@@ -231,6 +232,7 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
       inputs: _llm.inputs,
       pending: _llm.pending,
       misses: _llm.misses,
+      reset: () => _llm.reset(),
     })
     const pending = await _llm.pending()
     if (pending > 0) {
