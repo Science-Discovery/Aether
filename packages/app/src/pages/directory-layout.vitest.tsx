@@ -5,6 +5,7 @@ import { createStore } from "solid-js/store"
 import { render } from "solid-js/web"
 import { base64Encode } from "@opencode-ai/util/encode"
 import { OpenIntent } from "@/utils/open-intent"
+import { forget } from "./directory-guard"
 
 const state = vi.hoisted(() => ({
   path: "",
@@ -80,6 +81,7 @@ beforeEach(() => {
   state.mounts = []
   state.toast.mockClear()
   state.directories.mockReset().mockResolvedValue({ data: [] })
+  forget()
 })
 
 afterEach(() => disposers.splice(0).forEach((dispose) => dispose()))
@@ -296,5 +298,47 @@ describe("directory layout navigation", () => {
     pending.resolve({ data: [] })
     await vi.waitFor(() => expect(app.host.textContent).toBe("home"))
     expect(state.mounts).toEqual([dir])
+  })
+
+  test("shows a loading indicator while a new directory check is pending", async () => {
+    const dir = "F:/Desktop/Paper"
+    OpenIntent.mark(server.key, dir)
+    const app = mount(dir)
+    await vi.waitFor(() => expect(app.host.textContent).toBe("one"))
+    const pending = Promise.withResolvers<{ data: string[] }>()
+    state.directories.mockReturnValueOnce(pending.promise)
+    app.history.set({ value: `/${base64Encode("F:/Desktop/Other")}/session/two` })
+    await vi.waitFor(() => expect(app.host.querySelector('[aria-busy="true"]')).not.toBeNull())
+    expect(state.mounts).toEqual([dir])
+    pending.resolve({ data: ["F:/Desktop/Other"] })
+    await vi.waitFor(() => expect(app.host.textContent).toBe("two"))
+    expect(app.host.querySelector('[aria-busy="true"]')).toBeNull()
+    expect(state.mounts).toEqual([dir, "F:/Desktop/Other"])
+  })
+
+  test("reuses a recent directory list to switch instantly", async () => {
+    const dir = "F:/Desktop/Paper"
+    state.directories.mockResolvedValue({ data: [dir, "F:/Desktop/Other"] })
+    const app = mount(dir)
+    await vi.waitFor(() => expect(app.host.textContent).toBe("one"))
+    expect(state.directories).toHaveBeenCalledTimes(1)
+    app.history.set({ value: `/${base64Encode("F:/Desktop/Other")}/session/two` })
+    await vi.waitFor(() => expect(app.host.textContent).toBe("two"))
+    app.history.set({ value: `/${base64Encode(dir)}/session/three` })
+    await vi.waitFor(() => expect(app.host.textContent).toBe("three"))
+    expect(state.directories).toHaveBeenCalledTimes(1)
+    expect(state.toast).not.toHaveBeenCalled()
+  })
+
+  test("drops the cached directory list after leaving the project", async () => {
+    const dir = "F:/Desktop/Paper"
+    state.directories.mockResolvedValue({ data: [dir] })
+    const app = mount(dir)
+    await vi.waitFor(() => expect(app.host.textContent).toBe("one"))
+    app.history.set({ value: "/" })
+    await vi.waitFor(() => expect(app.host.textContent).toBe("home"))
+    app.history.set({ value: `/${base64Encode(dir)}/session/two` })
+    await vi.waitFor(() => expect(app.host.textContent).toBe("two"))
+    expect(state.directories).toHaveBeenCalledTimes(2)
   })
 })
