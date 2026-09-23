@@ -15,6 +15,7 @@ import { Log } from "@/util/log"
 import { ShareNext } from "@/share/share-next"
 import { PROJECT } from "@/persist/naming"
 import { SessionRecovery } from "@/session/recovery"
+import { SessionWatchdog } from "@/session/watchdog"
 import { DbRecovery } from "@/storage/db-recovery"
 import { ActiveInstance } from "@/project/active-instance"
 
@@ -31,6 +32,12 @@ export async function InstanceBootstrap() {
   // scales with session count — run it off the open path.
   void SessionRecovery.repairInterrupted().catch((error) => {
     Log.Default.warn("failed to repair interrupted assistant messages", { error })
+  })
+
+  // Resume connection-failure retry waits persisted before a restart: re-mark
+  // the sessions as waiting and re-arm their wake timers.
+  void SessionWatchdog.recover().catch((error) => {
+    Log.Default.warn("failed to recover session retry waits", { error })
   })
 
   const dir = Instance.directory

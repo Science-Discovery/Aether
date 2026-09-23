@@ -60,6 +60,7 @@ import { setKnowledgeConfig, hasKnowledge } from "../tool/knowledge"
 import { decodeDataUrl } from "@/util/data-url"
 import { Process } from "@/util/process"
 import { SessionRecovery } from "./recovery"
+import { SessionWatchdog } from "./watchdog"
 import { SkillEvolutionHook } from "../skill-evolution"
 import { isReviewSession } from "../skill-evolution/review-agent"
 import { reviewCharLimits, createReviewCharCounter } from "../skill-evolution/limits"
@@ -297,6 +298,14 @@ export namespace SessionPrompt {
     return s[sessionID].abort.signal
   }
 
+  // Drop the busy claim without the cancel() side effects (repair, idle
+  // status): used when the loop ends but a watchdog retry wait is pending, so
+  // the session stays usable while the wait is armed.
+  function release(sessionID: SessionID, signal: AbortSignal) {
+    const s = state()
+    if (s[sessionID]?.abort.signal === signal) delete s[sessionID]
+  }
+
   export async function cancel(sessionID: SessionID): Promise<void> {
     // The abort signal lives in the session's own instance; cancelling from
     // another workspace's instance would silently miss the running loop.
@@ -318,6 +327,8 @@ export namespace SessionPrompt {
       match.abort.abort()
       delete s[sessionID]
     }
+    // Canceling also stops a pending connection-failure retry wait.
+    await SessionWatchdog.clear(sessionID)
     await SessionRecovery.repairSession(sessionID)
     await SessionStatus.set(sessionID, { type: "idle" })
   }
@@ -339,7 +350,11 @@ export namespace SessionPrompt {
         throw new Session.BusyError(sessionID)
       }
 
-      await using _ = defer(() => cancel(sessionID))
+      // Set when the processor deferred a connection-failure retry wait: the
+      // loop ends but keeps the claim release free of cancel() side effects so
+      // the persisted wait survives (status stays "retry", record stays armed).
+      let retryQueued = false
+      await using _ = defer(() => (retryQueued ? release(sessionID, abort) : cancel(sessionID)))
 
       // Structured output state
       // Note: On session resumption, state is reset but outputFormat is preserved
@@ -615,6 +630,10 @@ export namespace SessionPrompt {
             overflow: task.overflow,
           })
           if (result === "stop") break
+          if (result === "retry") {
+            retryQueued = true
+            break
+          }
           continue
         }
 
@@ -792,6 +811,10 @@ export namespace SessionPrompt {
         }
 
         if (result === "stop") break
+        if (result === "retry") {
+          retryQueued = true
+          break
+        }
         if (result === "compact") {
           await SessionCompaction.create({
             sessionID,
