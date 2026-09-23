@@ -42,9 +42,11 @@ bun run test:e2e:local -- --grep "settings"
 
 Environment options:
 
-- `PLAYWRIGHT_SERVER_HOST` / `PLAYWRIGHT_SERVER_PORT` (target an external backend instead of starting one; without them both ports are auto-assigned)
-- `PLAYWRIGHT_PORT` (Vite dev server port, default: a free OS-assigned port)
+- `PLAYWRIGHT_SERVER_HOST` / `PLAYWRIGHT_SERVER_PORT` (target an external backend instead of starting one; they must be set together — `HOST` without `PORT` is rejected instead of silently pinning a shared backend port; without them both ports are auto-assigned)
+- `PLAYWRIGHT_PORT` (Vite dev server port, default: a free OS-assigned port; setting it explicitly opts into reusing an already-running dev server outside CI — auto-assigned ports never reuse)
 - `PLAYWRIGHT_BASE_URL` (override base URL, default: `http://127.0.0.1:<PLAYWRIGHT_PORT>`)
+
+Auto-assigned ports fail loudly on collisions (no silent reuse of another run's server), and the throwaway backend only answers a health probe carrying this run's id.
 
 ## Deployment
 

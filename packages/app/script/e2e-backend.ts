@@ -1,8 +1,7 @@
 import { rmSync } from "node:fs"
-import fs from "node:fs/promises"
-import os from "node:os"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
+import { create, rmOpts, sweep } from "../e2e/sandbox"
 
 const appDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..")
 const repoDir = path.resolve(appDir, "../..")
@@ -14,30 +13,18 @@ if (!Number.isInteger(port) || port <= 0) {
   process.exit(1)
 }
 
-const staleMs = 24 * 3600_000
-
-const sweep = async () => {
-  const names = await fs.readdir(os.tmpdir()).catch(() => [])
-  await Promise.allSettled(
-    names
-      .filter((name) => name.startsWith("opencode-e2e-server-"))
-      .map(async (name) => {
-        const dir = path.join(os.tmpdir(), name)
-        const stat = await fs.stat(dir).catch(() => undefined)
-        if (!stat?.mtime || Date.now() - stat.mtimeMs < staleMs) return
-        await fs.rm(dir, { recursive: true, force: true }).catch(() => undefined)
-      }),
-  )
-}
+const run = process.argv[3]
+if (run) process.env.OPENCODE_E2E_RUN_ID = run
 
 await sweep()
 
-const sandbox = await fs.mkdtemp(path.join(os.tmpdir(), "opencode-e2e-server-"))
+const sandbox = await create("server", process.pid)
 
 Object.assign(process.env, {
   OPENCODE_DISABLE_SHARE: process.env.OPENCODE_DISABLE_SHARE ?? "true",
   OPENCODE_DISABLE_LSP_DOWNLOAD: "true",
   OPENCODE_DISABLE_DEFAULT_PLUGINS: "true",
+  OPENCODE_DISABLE_MOBILE: "true",
   OPENCODE_EXPERIMENTAL_DISABLE_FILEWATCHER: "true",
   OPENCODE_TEST_HOME: path.join(sandbox, "home"),
   XDG_DATA_HOME: path.join(sandbox, "share"),
@@ -68,10 +55,9 @@ await servermod.Server.listen({ port, hostname: "127.0.0.1" })
 console.log(`opencode server listening on http://127.0.0.1:${port}`)
 
 process.on("exit", () => {
-  rmSync(sandbox, {
-    recursive: true,
-    force: true,
-    maxRetries: process.platform === "win32" ? 10 : 3,
-    retryDelay: process.platform === "win32" ? 500 : 100,
-  })
+  try {
+    rmSync(sandbox, rmOpts)
+  } catch (err) {
+    console.error(`[e2e-backend] failed to remove sandbox ${sandbox}: ${err}`)
+  }
 })

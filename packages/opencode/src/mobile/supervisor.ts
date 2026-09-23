@@ -13,6 +13,7 @@ class SupervisorImpl {
   private running = false
 
   start() {
+    if (process.env.OPENCODE_DISABLE_MOBILE === "true") return
     if (this.timer) return
     this.first = setTimeout(() => {
       this.first = null
