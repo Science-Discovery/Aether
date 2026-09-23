@@ -55,10 +55,10 @@ export namespace SafeZone {
           out.push({ permission: "external_read", pattern, action })
           out.push({ permission: "external_directory", pattern, action })
         }
-        if (!isAncestor(expanded, worktree)) {
-          const rel = relative ? slash(expanded) : slash(path.relative(worktree, expanded))
-          out.push({ permission: "edit", pattern: rel, action })
-        }
+        if (action !== "deny") continue
+        if (isAncestor(expanded, worktree)) continue
+        const rel = relative ? slash(expanded) : slash(path.relative(worktree, expanded))
+        out.push({ permission: "edit", pattern: rel, action })
       }
     }
     return out
@@ -68,9 +68,20 @@ export namespace SafeZone {
     const cut = glob.search(/[*?]/)
     const dir = cut === -1 ? glob : glob.slice(0, cut)
     const tail = cut === -1 ? "" : glob.slice(cut)
+    if (!path.isAbsolute(dir)) return [glob]
     const resolved = await fs.realpath(dir).catch(() => undefined)
     if (!resolved || slash(resolved) === slash(dir)) return [glob]
     return [glob, slash(path.join(resolved, tail))]
+  }
+
+  async function expandZones(globs: string[]): Promise<string[]> {
+    const out: string[] = []
+    for (const glob of globs) {
+      for (const form of await real(glob)) {
+        if (!out.includes(form)) out.push(form)
+      }
+    }
+    return out
   }
 
   export async function builtins(): Promise<Required<Config>> {
@@ -95,11 +106,17 @@ export namespace SafeZone {
   }
 
   // Order matters: findLast evaluation means later layers win.
-  // built-in open < built-in private < user open < user private (fail-closed).
-  export async function rules(safeZone: Config | undefined, worktree: string): Promise<Permission.Ruleset> {
+  // built-in open < built-in private < user open < user private < user denies
+  // (fail-closed: an explicit permission-config deny always wins, so the
+  // safe-tier blanket external_read allow can never resurrect it).
+  export async function rules(
+    safeZone: Config | undefined,
+    worktree: string,
+    denies: Permission.Ruleset = [],
+  ): Promise<Permission.Ruleset> {
     const zone: Required<Config> = {
-      open: safeZone?.open ?? [],
-      private: safeZone?.private ?? [],
+      open: await expandZones(safeZone?.open ?? []),
+      private: await expandZones(safeZone?.private ?? []),
     }
     const inner = await builtins()
     return [
@@ -108,6 +125,7 @@ export namespace SafeZone {
       ...zoneRules(inner.private, "deny", worktree),
       ...zoneRules(zone.open, "allow", worktree),
       ...zoneRules(zone.private, "deny", worktree),
+      ...denies,
     ]
   }
 }

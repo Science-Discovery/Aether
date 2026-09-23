@@ -67,6 +67,9 @@ export function createModeOverrides(max = 500) {
       if (serverMode === mode) map.delete(key)
       return mode
     },
+    drop(sessionID: string, directory: string | undefined) {
+      map.delete(acceptKey(sessionID, directory))
+    },
   }
 }
 

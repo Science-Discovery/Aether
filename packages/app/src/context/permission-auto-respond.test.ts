@@ -179,6 +179,14 @@ describe("createModeOverrides", () => {
     expect(overrides.get("ses_2", "/tmp/a")).toBeUndefined()
   })
 
+  test("drop removes the optimistic override so server state takes over", () => {
+    const overrides = createModeOverrides()
+    overrides.set("ses_1", "/tmp/a", "full")
+    overrides.drop("ses_1", "/tmp/a")
+
+    expect(overrides.get("ses_1", "/tmp/a")).toBeUndefined()
+  })
+
   test("replaces the entry on repeated clicks so cycling sees the newest mode", () => {
     const overrides = createModeOverrides()
     overrides.set("ses_1", "/tmp/a", "safe")

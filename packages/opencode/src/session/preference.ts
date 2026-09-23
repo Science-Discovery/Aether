@@ -70,13 +70,18 @@ export namespace SessionPreference {
   export async function rulesFor(mode: Mode): Promise<Permission.Ruleset> {
     if (mode === "full") return [{ permission: "*", pattern: "*", action: "allow" }]
     if (mode === "off") return []
-    const [{ Config }, { SafeZone }, { Instance }] = await Promise.all([
+    const [{ Config }, { SafeZone }, { Instance }, { Permission }] = await Promise.all([
       import("@/config/config"),
       import("@/permission/safe-zone"),
       import("@/project/instance"),
+      import("@/permission"),
     ])
     const cfg = await Config.get()
-    return SafeZone.rules(cfg.safeZone, Instance.worktree)
+    const denied = Permission.fromConfig(cfg.permission ?? {}).filter((item) => item.action === "deny")
+    const readTwins = denied
+      .filter((item) => item.permission === "external_directory")
+      .map((item) => ({ permission: "external_read", pattern: item.pattern, action: "deny" as const }))
+    return SafeZone.rules(cfg.safeZone, Instance.worktree, [...denied, ...readTwins])
   }
 
   export async function update(patch: Patch): Promise<Info> {

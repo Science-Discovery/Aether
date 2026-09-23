@@ -1,4 +1,4 @@
-import { createSignal } from "solid-js"
+import { createSignal, onCleanup } from "solid-js"
 import { Button } from "@opencode-ai/ui/button"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { Dialog } from "@opencode-ai/ui/dialog"
@@ -42,8 +42,8 @@ export function DialogSafeZone(props: { onDone: () => void }) {
     const openGlobs = globs(open())
     const safeZone = {
       ...globalSync.data.config.safeZone,
-      ...(next.length > 0 ? { private: next } : {}),
-      ...(openGlobs.length > 0 ? { open: openGlobs } : {}),
+      private: next,
+      open: openGlobs,
     }
     globalSync
       .updateConfig({ safeZone })
@@ -99,10 +99,14 @@ export function useSafeZoneOnboarding() {
     { ...Persist.serverGlobal("permission.safezone", ["permission.safezone.v1"]) },
     createStore({ onboarded: false }),
   )
-  show = () => {
+  const open = () => {
     if (store.onboarded) return
     dialog.show(() => <DialogSafeZone onDone={() => setStore("onboarded", true)} />)
   }
+  show = open
+  onCleanup(() => {
+    if (show === open) show = undefined
+  })
   return openSafeZoneOnboarding
 }
 

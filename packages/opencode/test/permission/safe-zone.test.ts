@@ -5,6 +5,8 @@ import path from "path"
 import { SafeZone } from "../../src/permission/safe-zone"
 import { Wildcard } from "../../src/util/wildcard"
 import { Global } from "../../src/global"
+import { Instance } from "../../src/project/instance"
+import { tmpdir } from "../fixture/fixture"
 import type { Permission } from "../../src/permission"
 
 function lastAction(rules: Permission.Ruleset, permission: string, pattern: string) {
@@ -100,7 +102,58 @@ describe("SafeZone.rules", () => {
 
     const open = await SafeZone.rules({ open: [`${zoneDir}/notes/**`] }, worktree)
     const relNote = path.relative(worktree, path.join(zoneDir, "notes", "todo.md"))
-    expect(lastAction(open, "edit", relNote)).toBe("allow")
+    expect(lastAction(open, "edit", relNote)).toBeUndefined()
+    expect(lastAction(open, "external_directory", path.join(zoneDir, "notes", "*"))).toBe("allow")
+  })
+
+  test("open zones emit no edit rules so plan-mode edit deny survives", async () => {
+    await using tmp = await tmpdir({ git: true })
+    const { Agent } = await import("../../src/agent/agent")
+    const { Permission } = await import("../../src/permission")
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const worktree = tmp.path
+        const rules = await SafeZone.rules({ open: ["dist/**", "D:/notes/**"] }, worktree)
+        const plan = await Agent.get("plan")
+        const merged = Permission.merge(plan!.permission, rules)
+        expect(Permission.evaluate("edit", "dist/app.js", merged).action).toBe("deny")
+        expect(Permission.evaluate("edit", "D:/notes/todo.md", merged).action).toBe("deny")
+        expect(Permission.evaluate("read", path.join(worktree, "dist", "app.js"), merged).action).toBe("allow")
+        const build = await Agent.get("build")
+        const buildMerged = Permission.merge(build!.permission, rules)
+        expect(Permission.evaluate("edit", path.join(worktree, "dist", "app.js"), buildMerged).action).toBe("allow")
+      },
+    })
+  })
+
+  test("worktree inside an open zone emits no collapsing edit pattern", async () => {
+    const worktree = path.join(os.tmpdir(), "worktree")
+    const rules = await SafeZone.rules(undefined, worktree)
+    const collapsing = rules.filter((r) => r.permission === "edit" && /^(\.\.\/)+\*+$/.test(r.pattern))
+    expect(collapsing).toEqual([])
+  })
+
+  test("user permission denies beat the safe-tier blanket external_read allow", async () => {
+    const worktree = path.join(os.tmpdir(), "worktree")
+    const denies: Permission.Ruleset = [
+      { permission: "external_read", pattern: "**/secrets/**", action: "deny" },
+      { permission: "external_directory", pattern: "**/secrets/**", action: "deny" },
+      { permission: "read", pattern: "*.pem", action: "deny" },
+    ]
+    const rules = await SafeZone.rules(undefined, worktree, denies)
+    expect(lastAction(rules, "external_read", "D:/proj/secrets/a.txt")).toBe("deny")
+    expect(lastAction(rules, "external_directory", "D:/proj/secrets/*")).toBe("deny")
+    expect(lastAction(rules, "read", "D:/anywhere/key.pem")).toBe("deny")
+    expect(lastAction(rules, "external_read", "D:/proj/other/a.txt")).toBe("allow")
+  })
+
+  test("user denies win even over user open zones (fail-closed)", async () => {
+    const worktree = path.join(os.tmpdir(), "worktree")
+    const denies: Permission.Ruleset = [{ permission: "external_directory", pattern: "**/secrets/**", action: "deny" }]
+    const rules = await SafeZone.rules({ open: ["D:/secrets/**"] }, worktree, denies)
+    expect(lastAction(rules, "external_directory", "D:/secrets/*")).toBe("deny")
+    expect(lastAction(rules, "read", "D:/secrets/a.txt")).toBe("allow")
   })
 
   test("edit rules use relative form for in-worktree zones", async () => {
@@ -110,15 +163,16 @@ describe("SafeZone.rules", () => {
     expect(lastAction(rules, "read", path.join(worktree, "secrets", "key.pem"))).toBe("deny")
   })
 
-  test("user open overrides built-in private (user open compiled after built-in private)", async () => {
+  test("user open overrides built-in private for reads, writes stay denied (fail-closed)", async () => {
     const rules = await SafeZone.rules(
       { open: [`${data.replaceAll("\\", "/")}/auth.json`] },
       path.join(os.tmpdir(), "worktree"),
     )
     expect(lastAction(rules, "read", path.join(data, "auth.json"))).toBe("allow")
+    expect(lastAction(rules, "external_directory", path.join(data, "auth.json"))).toBe("allow")
     expect(
       lastAction(rules, "edit", path.relative(path.join(os.tmpdir(), "worktree"), path.join(data, "auth.json"))),
-    ).toBe("allow")
+    ).toBe("deny")
   })
 
   test("user private overrides built-in open and user open (fail-closed)", async () => {

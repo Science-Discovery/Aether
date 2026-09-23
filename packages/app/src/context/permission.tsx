@@ -1,11 +1,13 @@
 import { createEffect, createMemo, onCleanup } from "solid-js"
 import { createStore, produce } from "solid-js/store"
 import { createSimpleContext } from "@opencode-ai/ui/context"
+import { showToast } from "@opencode-ai/ui/toast"
 import type { PermissionRequest } from "@opencode-ai/sdk/v2/client"
 import { Persist, persisted } from "@/utils/persist"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useSettings } from "@/context/settings"
 import { useGlobalSync } from "./global-sync"
+import { useLanguage } from "@/context/language"
 import { useParams } from "@solidjs/router"
 import { decode64 } from "@/utils/base64"
 import {
@@ -65,6 +67,7 @@ export const { use: usePermission, provider: PermissionProvider } = createSimple
     const globalSDK = useGlobalSDK()
     const globalSync = useGlobalSync()
     const settings = useSettings()
+    const language = useLanguage()
 
     const permissionsEnabled = createMemo(() => {
       const directory = decode64(params.dir)
@@ -235,8 +238,9 @@ export const { use: usePermission, provider: PermissionProvider } = createSimple
     }
 
     function setMode(sessionID: string, directory: string, mode: PermissionMode) {
-      overrides.set(sessionID, directory, mode)
       const key = acceptKey(sessionID, directory)
+      const prevMirror = store.autoAccept[key]
+      overrides.set(sessionID, directory, mode)
       const version = bumpEnableVersion(sessionID, directory)
       setStore(
         produce((draft) => {
@@ -248,7 +252,16 @@ export const { use: usePermission, provider: PermissionProvider } = createSimple
       globalSDK
         .createClient({ directory, throwOnError: true })
         .session.preference.update({ sessionID, mode })
-        .catch(() => undefined)
+        .catch(() => {
+          overrides.drop(sessionID, directory)
+          setStore(
+            produce((draft) => {
+              if (prevMirror === undefined) delete draft.autoAccept[key]
+              else draft.autoAccept[key] = prevMirror
+            }),
+          )
+          showToast({ variant: "error", title: language.t("common.requestFailed") })
+        })
 
       if (mode !== "full") return
       sweepPending(sessionID, directory, key, version)

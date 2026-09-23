@@ -8,6 +8,8 @@ import { Session } from "../../src/session"
 import { SessionID } from "../../src/session/schema"
 import { ProviderID, ModelID } from "../../src/provider/schema"
 import { Log } from "../../src/util/log"
+import { Wildcard } from "../../src/util/wildcard"
+import type { Permission } from "../../src/permission"
 import { tmpdir } from "../fixture/fixture"
 
 Log.init({ print: false })
@@ -360,6 +362,54 @@ describe("SessionPreference permission tier", () => {
           events.length = 0
           await SessionPreference.update({ sessionID: id, variant: "high" })
           expect(lastWritten(events)).toBeUndefined()
+        } finally {
+          unsub()
+        }
+      },
+    })
+  })
+})
+
+describe("SessionPreference safe tier vs user denies", () => {
+  test("permission-config denies survive the safe-tier blanket allow", async () => {
+    await using tmp = await tmpdir({
+      config: {
+        permission: {
+          external_directory: {
+            "**/secrets/**": "deny",
+          },
+        },
+      },
+    })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const session = await Session.create({})
+        const events: any[] = []
+        const unsub = Bus.subscribe(Session.Event.Updated, (e) => events.push(e.properties))
+        try {
+          await SessionPreference.update({ sessionID: session.id, mode: "safe" })
+          const rules = (events.filter((e) => e?.info?.permission !== undefined).at(-1)?.info?.permission ??
+            []) as Permission.Ruleset
+          const hit = (permission: string, pattern: string) => {
+            let action
+            for (const rule of rules) {
+              if (Wildcard.match(permission, rule.permission) && Wildcard.match(pattern, rule.pattern))
+                action = rule.action
+            }
+            return action
+          }
+          expect(rules[0]).toEqual({ permission: "external_read", pattern: "*", action: "allow" })
+          expect(hit("external_read", "D:/proj/secrets/a.txt")).toBe("deny")
+          expect(hit("external_directory", "D:/proj/secrets/b.txt")).toBe("deny")
+          expect(hit("external_read", "D:/proj/other/a.txt")).toBe("allow")
+
+          const { Agent } = await import("../../src/agent/agent")
+          const { Permission } = await import("../../src/permission")
+          const agent = await Agent.get("build")
+          const merged = Permission.merge(agent!.permission, rules)
+          expect(Permission.evaluate("external_read", "D:/proj/secrets/a.txt", merged).action).toBe("deny")
+          expect(Permission.evaluate("external_read", "D:/proj/other/a.txt", merged).action).toBe("allow")
         } finally {
           unsub()
         }
