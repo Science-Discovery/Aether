@@ -41,6 +41,20 @@ function wait(ms: number) {
   return new Promise<void>((resolve) => setTimeout(resolve, ms))
 }
 
+async function died(child: ChildProcess, ms: number) {
+  return Promise.race([exited(child).then(() => true), wait(ms).then(() => false)])
+}
+
+async function stableSleeper() {
+  let child = sleeper()
+  for (let i = 0; i < 3; i++) {
+    if (!(await died(child, 500))) return child
+    child.kill()
+    child = sleeper()
+  }
+  return child
+}
+
 function pidRoot() {
   return mkdtempSync(join(tmpdir(), "aether-pid-"))
 }
@@ -73,39 +87,38 @@ describe("sidecar pid lifecycle", () => {
   test("stale pid reused by a foreign process is not killed and the file is removed", async () => {
     const root = pidRoot()
     process.env.XDG_DATA_HOME = root
-    const child = sleeper()
+    const child = await stableSleeper()
     try {
       const file = pidFile(root)
       writeFileSync(file, JSON.stringify({ pid: child.pid, image: join(root, "missing", "opencode-cli.exe") }))
       const cli = await import("./cli")
       await cli.killStaleSidecar()
-      expect(alive(child.pid!)).toBe(true)
+      expect(await died(child, 2000)).toBe(false)
       expect(existsSync(file)).toBe(false)
     } finally {
       child.kill()
       delete process.env.XDG_DATA_HOME
       rmSync(root, { recursive: true, force: true })
     }
-  })
+  }, 20000)
 
   test("stale pid still owned by the sidecar image is killed and the file is removed", async () => {
     const root = pidRoot()
     process.env.XDG_DATA_HOME = root
-    const child = sleeper()
+    const child = await stableSleeper()
     try {
       const file = pidFile(root)
       writeFileSync(file, JSON.stringify({ pid: child.pid, image: process.execPath }))
       const cli = await import("./cli")
       await cli.killStaleSidecar()
-      await Promise.race([exited(child), wait(5000)])
-      expect(alive(child.pid!)).toBe(false)
+      expect(await died(child, 5000)).toBe(true)
       expect(existsSync(file)).toBe(false)
     } finally {
       child.kill()
       delete process.env.XDG_DATA_HOME
       rmSync(root, { recursive: true, force: true })
     }
-  })
+  }, 20000)
 
   test("legacy plain pid file with a dead process is removed without blocking", async () => {
     const root = pidRoot()

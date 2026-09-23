@@ -67,13 +67,10 @@ export namespace Log {
     )
     await fs.truncate(logpath).catch(() => {})
     const stream = createWriteStream(logpath, { flags: "a" })
-    write = async (msg: any) => {
-      return new Promise((resolve, reject) => {
-        stream.write(msg, (err) => {
-          if (err) reject(err)
-          else resolve(msg.length)
-        })
-      })
+    stream.on("error", () => undefined)
+    write = (msg: any) => {
+      stream.write(msg)
+      return msg.length
     }
   }
 

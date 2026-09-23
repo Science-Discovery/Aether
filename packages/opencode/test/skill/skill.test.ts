@@ -7,6 +7,8 @@ import fs from "fs/promises"
 import { Global } from "../../src/global"
 import { Config } from "../../src/config/config"
 
+const realExecPath = process.execPath
+
 afterEach(async () => {
   await Instance.disposeAll()
 })
@@ -482,7 +484,6 @@ description: A skill in the ignored config dir skill directory.
 
 test("discovers skills from binary config roots", async () => {
   await using tmp = await tmpdir({ git: true })
-  const prev = process.execPath
   Object.defineProperty(process, "execPath", { value: path.join(tmp.path, "bin", "aether"), configurable: true })
 
   try {
@@ -517,7 +518,7 @@ description: A skill in the ignored binary skill directory.
     })
   } finally {
     await Instance.disposeAll()
-    Object.defineProperty(process, "execPath", { value: prev, configurable: true })
+    Object.defineProperty(process, "execPath", { value: realExecPath, configurable: true })
   }
 })
 

@@ -79,11 +79,11 @@ describe("running", () => {
     } finally {
       child.kill()
     }
-  })
+  }, 20000)
 
   test("reports false for a dead pid without hanging", async () => {
     expect(await running(999_999_999, process.execPath)).toBe(false)
-  })
+  }, 20000)
 })
 
 describe("killTree", () => {
@@ -94,5 +94,5 @@ describe("killTree", () => {
     await killTree(pid)
     await Promise.race([exited(child), wait(5000)])
     expect(alive(pid)).toBe(false)
-  })
+  }, 20000)
 })

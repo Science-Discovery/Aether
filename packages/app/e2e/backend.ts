@@ -10,10 +10,13 @@ type Handle = {
   stop: () => Promise<void>
 }
 
-async function waitForHealth(url: string, probe = "/global/health") {
+async function waitForHealth(url: string, proc: ReturnType<typeof spawn>, probe = "/global/health") {
   const end = Date.now() + 120_000
   let last = ""
   while (Date.now() < end) {
+    if (done(proc)) {
+      throw new Error(`backend exited with code ${proc.exitCode ?? "signal " + proc.signalCode}`)
+    }
     try {
       const res = await fetch(`${url}${probe}`)
       if (res.ok) return
@@ -49,6 +52,15 @@ function tail(input: string[]) {
 }
 
 export async function startBackend(label: string, input?: { llmUrl?: string }): Promise<Handle> {
+  try {
+    return await launch(label, input)
+  } catch (first) {
+    console.warn(`[e2e] backend start failed for ${label}, retrying once`, first)
+    return await launch(label, input)
+  }
+}
+
+async function launch(label: string, input?: { llmUrl?: string }): Promise<Handle> {
   const port = await freePort()
   const sandbox = await fs.mkdtemp(path.join(os.tmpdir(), `opencode-e2e-${label}-`))
   const appDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..")
@@ -92,9 +104,10 @@ export async function startBackend(label: string, input?: { llmUrl?: string }): 
 
   const url = `http://127.0.0.1:${port}`
   try {
-    await waitForHealth(url)
+    await waitForHealth(url, proc)
   } catch (error) {
     proc.kill("SIGTERM")
+    await waitExit(proc)
     await fs.rm(sandbox, { recursive: true, force: true }).catch(() => undefined)
     throw new Error(
       [
