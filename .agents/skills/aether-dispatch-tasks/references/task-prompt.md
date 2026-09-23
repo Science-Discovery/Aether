@@ -42,7 +42,7 @@
 - bun test 必须在对应 package 目录运行（如 `{WORKTREE}/packages/opencode`），禁止从仓库根运行。
 - 涉及 Solid 响应式（createMemo/store/effect）的单测必须命名为 \*.vitest.ts 放 vitest 目录（bun test 下 solid-js 解析为 server build，会假通过）。
 - bun typecheck 在对应 package 目录运行并通过。
-- Playwright e2e 可以正常运行。
+- Playwright e2e 可以正常运行。多沙箱并行时：**禁止设置 `PLAYWRIGHT_SERVER_HOST`**（会把后端端口钉死 4096，并行必串台）；e2e 偶发失败先对照 dev 基线判断是否端口竞态/资源挤兑等环境性问题，是则单次有限重跑并记录，不要直接当回归修。
 
 ## 提交与 PR（必须按序执行）
 

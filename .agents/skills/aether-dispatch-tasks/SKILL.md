@@ -66,7 +66,7 @@ description: 在 Aether (aether-dev) 中执行开发任务（修复 bug/漏洞/�
    - 先读码确认问题在当前基线仍存在；不存在则停下汇报，不开 issue/PR。
    - **历史修复考古**（修 bug/功能类任务必做）：查 GitHub closed issue/PR 与 `git log -S` 历史修复提交；发现修过但 bug 仍在时，必须弄清"为什么没修好/为何复现"（补丁被绕过/覆盖窗口不同/后续改动破坏），结论写进 issue 与 PR——复现类 bug 优先从"上次为何没修住"找根因（见模板准备步骤第 4 条）。
    - 修复要求：优雅、健壮、最小侵入，遵循仓库 AGENTS.md 风格；**边界条件专项检查**（概念+枚举清单都要传给子会话，枚举仅是起点须按功能语义自行补全，见模板"修复要求"）。
-   - 测试要求分两层：验证本次修改正确的临时测试（**必须**，工作验证手段，不必入库）+ 放入仓库保护相关功能的回归测试（**按需**自行决定，易复发/修复过又复现/竞态类建议入库，见模板"测试要求"）；bun test 从 package 目录跑（禁从仓库根）；Solid 响应式单测用 `*.vitest.ts`；bun typecheck 通过；需要时可用 Playwright e2e。
+   - 测试要求分两层：验证本次修改正确的临时测试（**必须**，工作验证手段，不必入库）+ 放入仓库保护相关功能的回归测试（**按需**自行决定，易复发/修复过又复现/竞态类建议入库，见模板"测试要求"）；bun test 从 package 目录跑（禁从仓库根）；Solid 响应式单测用 `*.vitest.ts`；bun typecheck 通过；需要时可用 Playwright e2e（多沙箱并行跑 e2e 的注意事项见踩坑记录）。
    - 提交流程：按 aether-issue-pr skill——**若无 issue 就先建 issue 再开 PR**，base=dev，`Closes #N`，跟踪 CI 到绿。
    - **review 自治闭环**（完成后在本会话内自行执行，见模板）：派 subagent review → 结果发 PR comment → FAIL 自返工循环 → PASS 才结束会话。
    - 边界：只修自己的任务，不顺手修别的；最终汇报 issue/PR/分支/改动/测试/CI/review 结论。
@@ -128,3 +128,4 @@ netstat -ano | grep "$OPENCODE_PID"        # 找 LISTENING 端口
 - 共享 worktree 上可能残留其他沙箱实验的未提交改动：分配时用 `git -C <worktree> status --porcelain` 检查，不干净就换/新建；review 以已推送的 HEAD 提交为准；返工前让 agent 确认基线是自己的 PR head。
 - 新建 worktree 用 `git worktree add --detach <path> origin/dev`，编号取 `git worktree list` 中 sandbox 前缀最大编号 +1（不重号）；**不要**用 Aether 的 Worktree.create/UI 创建（连续创建触发 watcher.node segfault 闪退）。
 - 子会话的 bash 默认 cwd 是主工作区：任务书必须明确"所有 git 用 `git -C <worktree>`、文件操作用 worktree 绝对路径"，防止误改主工作区。
+- 多沙箱并行跑 Playwright e2e：端口与数据沙箱本就按 run 隔离（freePort 动态端口、mkdtemp+XDG\_\* 沙箱、脚本 LLM 绑 port 0），但 ① `freePort()` 探测到真正 bind 之间有竞态窗口，本地 `reuseExistingServer=true` 会静默复用别的 run 起的服务——测试跑到别人 worktree 的代码上；② **禁止设置 `PLAYWRIGHT_SERVER_HOST`**（未配 PORT 时后端端口被硬编码为 4096，并行必串台）；③ 并行 vite 冷启动与 Windows 沙箱清理有资源挤兑/已知 flaky 面——e2e 失败先对照 dev 基线判断是否环境性（端口竞态/资源挤兑），单次有限重跑并记录，不要直接当回归修（风险点详见 issue：并行 e2e 隔离加固）。
