@@ -387,10 +387,7 @@ export const SettingsGeneral: Component = () => {
           />
         </SettingsRow>
 
-        <SettingsRow
-          title={language.t("settings.general.row.voiceModel.title")}
-          description={desc()}
-        >
+        <SettingsRow title={language.t("settings.general.row.voiceModel.title")} description={desc()}>
           <Select
             data-action="settings-voice-model"
             options={voiceModelOptions()}
@@ -632,6 +629,18 @@ export const SettingsGeneral: Component = () => {
             <Switch
               checked={settings.general.editToolPartsExpanded()}
               onChange={(checked) => settings.general.setEditToolPartsExpanded(checked)}
+            />
+          </div>
+        </SettingsRow>
+
+        <SettingsRow
+          title={language.t("settings.general.row.autoGitInit.title")}
+          description={language.t("settings.general.row.autoGitInit.description")}
+        >
+          <div data-action="settings-auto-git-init">
+            <Switch
+              checked={settings.general.autoGitInit()}
+              onChange={(checked) => settings.general.setAutoGitInit(checked)}
             />
           </div>
         </SettingsRow>

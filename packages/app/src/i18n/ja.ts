@@ -672,6 +672,8 @@ export const dict = {
   "settings.general.row.followup.option.steer": "即座に実行 (Steer)",
   "settings.general.row.reasoningSummaries.title": "推論の要約を表示",
   "settings.general.row.reasoningSummaries.description": "タイムラインにモデルの推論の要約を表示します",
+  "settings.general.row.autoGitInit.title": "Git リポジトリを自動作成",
+  "settings.general.row.autoGitInit.description": "プロジェクト作成時に Git リポジトリを初期化し、ワークスペースを有効化します",
   "settings.general.row.shellToolPartsExpanded.title": "shell ツールパーツを展開",
   "settings.general.row.shellToolPartsExpanded.description":
     "タイムラインで shell ツールパーツをデフォルトで展開して表示します",

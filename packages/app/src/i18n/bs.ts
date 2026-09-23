@@ -732,6 +732,8 @@ export const dict = {
   "settings.general.row.followup.option.steer": "Usmjeri",
   "settings.general.row.reasoningSummaries.title": "Prikaži sažetke rasuđivanja",
   "settings.general.row.reasoningSummaries.description": "Prikaži sažetke rasuđivanja modela na vremenskoj traci",
+  "settings.general.row.autoGitInit.title": "Automatski kreiraj Git repozitorij",
+  "settings.general.row.autoGitInit.description": "Inicijalizira Git repozitorij i omogućava radne prostore za nove projekte",
 
   "settings.general.row.shellToolPartsExpanded.title": "Proširi dijelove shell alata",
   "settings.general.row.shellToolPartsExpanded.description":

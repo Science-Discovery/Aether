@@ -666,6 +666,8 @@ export const dict = {
   "settings.general.row.followup.option.steer": "Sterowanie",
   "settings.general.row.reasoningSummaries.title": "Pokaż podsumowania wnioskowania",
   "settings.general.row.reasoningSummaries.description": "Wyświetlaj podsumowania wnioskowania modelu na osi czasu",
+  "settings.general.row.autoGitInit.title": "Automatycznie twórz repozytorium Git",
+  "settings.general.row.autoGitInit.description": "Inicjuje repozytorium Git i włącza przestrzenie robocze dla nowych projektów",
   "settings.general.row.shellToolPartsExpanded.title": "Rozwijaj elementy narzędzia shell",
   "settings.general.row.shellToolPartsExpanded.description":
     "Domyślnie pokazuj rozwinięte elementy narzędzia shell na osi czasu",

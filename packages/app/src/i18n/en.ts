@@ -1298,6 +1298,8 @@ export const dict = {
     "How many file changes the review panel loads at a time. The same count is used by Load more.",
   "settings.general.row.reasoningSummaries.title": "Show reasoning summaries",
   "settings.general.row.reasoningSummaries.description": "Display model reasoning summaries in the timeline",
+  "settings.general.row.autoGitInit.title": "Automatically create Git repositories",
+  "settings.general.row.autoGitInit.description": "Initialize a Git repository and enable workspaces for new projects",
   "settings.general.row.debugBar.title": "Show debug bar",
   "settings.general.row.debugBar.description":
     "Display the development performance debug bar in the bottom-right corner",

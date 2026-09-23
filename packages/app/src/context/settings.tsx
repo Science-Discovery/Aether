@@ -33,6 +33,7 @@ export interface Settings {
     showReasoningSummaries: boolean
     shellToolPartsExpanded: boolean
     editToolPartsExpanded: boolean
+    autoGitInit: boolean
   }
   updates: {
     startup: boolean
@@ -67,6 +68,7 @@ const defaultSettings: Settings = {
     showReasoningSummaries: false,
     shellToolPartsExpanded: true,
     editToolPartsExpanded: false,
+    autoGitInit: true,
   },
   updates: {
     startup: true,
@@ -225,6 +227,10 @@ export const { use: useSettings, provider: SettingsProvider } = createSimpleCont
         ),
         setEditToolPartsExpanded(value: boolean) {
           setStore("general", "editToolPartsExpanded", value)
+        },
+        autoGitInit: withFallback(() => store.general?.autoGitInit, defaultSettings.general.autoGitInit),
+        setAutoGitInit(value: boolean) {
+          setStore("general", "autoGitInit", value)
         },
       },
       updates: {

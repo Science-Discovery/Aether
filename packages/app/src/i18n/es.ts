@@ -744,6 +744,8 @@ export const dict = {
   "settings.general.row.reasoningSummaries.title": "Mostrar resúmenes de razonamiento",
   "settings.general.row.reasoningSummaries.description":
     "Mostrar resúmenes del razonamiento del modelo en la línea de tiempo",
+  "settings.general.row.autoGitInit.title": "Crear repositorio Git automáticamente",
+  "settings.general.row.autoGitInit.description": "Inicializa un repositorio Git y habilita los espacios de trabajo en proyectos nuevos",
   "settings.general.row.shellToolPartsExpanded.title": "Expandir partes de la herramienta shell",
   "settings.general.row.shellToolPartsExpanded.description":
     "Mostrar las partes de la herramienta shell expandidas por defecto en la línea de tiempo",
