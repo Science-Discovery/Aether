@@ -146,10 +146,28 @@ describe("WorkspaceSessionList load-more row", () => {
     off()
   })
 
-  test("renders no icons when there are no more sessions", () => {
+  test("shows only collapse-all icon when all sessions are loaded but list is expanded", async () => {
+    const collapseAll = vi.fn(() => Promise.resolve())
+    const loadMore = vi.fn(() => Promise.resolve())
+    const { host, off } = mount({ hasMore: false, canCollapse: true, loadMore, collapseAll })
+
+    expect(host.querySelector('[aria-label="common.loadMore"]')).toBeNull()
+    const collapse = host.querySelector<HTMLButtonElement>('[aria-label="common.collapseAll"]')
+    expect(collapse).not.toBeNull()
+    expect(collapse!.dataset.icon).toBe("chevron-double-up")
+
+    collapse!.click()
+    await Promise.resolve()
+    expect(collapseAll).toHaveBeenCalledTimes(1)
+    expect(loadMore).not.toHaveBeenCalled()
+
+    off()
+  })
+
+  test("renders no icons when fully loaded and not expanded", () => {
     const { host, off } = mount({
       hasMore: false,
-      canCollapse: true,
+      canCollapse: false,
       loadMore: () => Promise.resolve(),
       collapseAll: () => Promise.resolve(),
     })

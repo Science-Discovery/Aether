@@ -1215,20 +1215,22 @@ export const WorkspaceSessionList = (props: {
             children={props.children}
           />
         </Show>
-        <Show when={props.hasMore() && !props.selectMode()}>
+        <Show when={(props.hasMore() || props.canCollapse()) && !props.selectMode()}>
           <div class="relative w-full py-1 flex items-center gap-0.5 pl-9">
-            <Tooltip value={props.language.t("common.loadMore")} placement="top">
-              <IconButton
-                icon="chevron-double-down"
-                variant="ghost"
-                class="size-6 rounded-md text-text-weak"
-                aria-label={props.language.t("common.loadMore")}
-                onClick={(e: MouseEvent) => {
-                  void props.loadMore()
-                  ;(e.currentTarget as HTMLButtonElement).blur()
-                }}
-              />
-            </Tooltip>
+            <Show when={props.hasMore()}>
+              <Tooltip value={props.language.t("common.loadMore")} placement="top">
+                <IconButton
+                  icon="chevron-double-down"
+                  variant="ghost"
+                  class="size-6 rounded-md text-text-weak"
+                  aria-label={props.language.t("common.loadMore")}
+                  onClick={(e: MouseEvent) => {
+                    void props.loadMore()
+                    ;(e.currentTarget as HTMLButtonElement).blur()
+                  }}
+                />
+              </Tooltip>
+            </Show>
             <Show when={props.canCollapse()}>
               <Tooltip value={props.language.t("common.collapseAll")} placement="top">
                 <IconButton
