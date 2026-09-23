@@ -705,6 +705,9 @@ export const dict = {
   "sidebar.project.recentSessions": "Son oturumlar",
   "sidebar.project.viewAllSessions": "Tüm oturumları görüntüle",
   "sidebar.project.clearNotifications": "Bildirimleri temizle",
+  "sidebar.project.errorSessions": "Hata oturumlarını aç",
+  "sidebar.project.errorSessionDeleted": "Oturum silindi",
+  "workspace.errorTooltip": "{{count}} görülmemiş hata · {{summary}}",
 
   "app.name.desktop": "Aether Masaüstü",
 

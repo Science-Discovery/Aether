@@ -12,8 +12,10 @@ import { Binary } from "@opencode-ai/util/binary"
 import { base64Encode } from "@opencode-ai/util/encode"
 import { decode64 } from "@/utils/base64"
 import { EventSessionError } from "@opencode-ai/sdk/v2"
+import type { Session } from "@opencode-ai/sdk/v2/client"
 import { Persist, persisted } from "@/utils/persist"
 import { playSoundById } from "@/utils/sound"
+import { zombieTargets } from "./notification-helpers"
 
 type NotificationBase = {
   directory?: string
@@ -132,7 +134,7 @@ export const { use: useNotification, provider: NotificationProvider } = createSi
     )
     const [index, setIndex] = createStore<NotificationIndex>(buildNotificationIndex(store.list))
 
-    const meta = { pruned: false, disposed: false }
+    const meta = { pruned: false, reconciled: false, disposed: false }
 
     const updateUnseen = (scope: "session" | "project", key: string, unseen: Notification[]) => {
       setIndex(scope, "unseen", key, unseen)
@@ -183,6 +185,48 @@ export const { use: useNotification, provider: NotificationProvider } = createSi
       }
     }
 
+    const same = (a: Notification, b: Notification) =>
+      a.type === b.type && a.time === b.time && a.directory === b.directory && a.session === b.session
+
+    const remove = (target: Notification) => {
+      batch(() => {
+        if (target.session) {
+          setIndex("session", "all", target.session, (all = []) => all.filter((n) => !same(n, target)))
+          if (!target.viewed)
+            updateUnseen(
+              "session",
+              target.session,
+              (index.session.unseen[target.session] ?? empty).filter((n) => !same(n, target)),
+            )
+        }
+        if (target.directory) {
+          setIndex("project", "all", target.directory, (all = []) => all.filter((n) => !same(n, target)))
+          if (!target.viewed)
+            updateUnseen(
+              "project",
+              target.directory,
+              (index.project.unseen[target.directory] ?? empty).filter((n) => !same(n, target)),
+            )
+        }
+        setStore("list", (list) => list.filter((n) => !same(n, target)))
+      })
+    }
+
+    const purge = async () => {
+      const unseen = [...store.list]
+      const groups = zombieTargets(unseen)
+      await Promise.all(
+        [...groups].flatMap(([directory, ids]) =>
+          [...ids].map(async (sessionID) => {
+            const found = await probe(directory, sessionID)
+            if (meta.disposed) return
+            if (found !== null) return
+            unseen.filter((n) => n.directory === directory && n.session === sessionID && !n.viewed).forEach(remove)
+          }),
+        ),
+      )
+    }
+
     createEffect(() => {
       if (!ready()) return
       if (meta.pruned) return
@@ -192,6 +236,13 @@ export const { use: useNotification, provider: NotificationProvider } = createSi
         setStore("list", list)
         setIndex(reconcile(buildNotificationIndex(list), { merge: false }))
       })
+    })
+
+    createEffect(() => {
+      if (!ready()) return
+      if (meta.reconciled) return
+      meta.reconciled = true
+      void purge()
     })
 
     const append = (notification: Notification) => {
@@ -215,6 +266,22 @@ export const { use: useNotification, provider: NotificationProvider } = createSi
         .get({ directory, sessionID })
         .then((x) => x.data)
         .catch(() => undefined)
+    }
+
+    const probe = async (directory: string, sessionID: string) => {
+      const resp = await fetch(`${globalSDK.url}/session/${encodeURIComponent(sessionID)}`, {
+        headers: {
+          "x-opencode-directory": encodeURIComponent(directory),
+          ...globalSDK.auth(),
+        },
+      }).then(
+        (r) => r,
+        () => undefined,
+      )
+      if (!resp) return undefined
+      if (resp.status === 404) return null
+      if (!resp.ok) return undefined
+      return (await resp.json()) as Session | undefined
     }
 
     const viewedInCurrentSession = (directory: string, sessionID?: string) => {
@@ -315,6 +382,8 @@ export const { use: useNotification, provider: NotificationProvider } = createSi
 
     return {
       ready,
+      remove,
+      probe,
       session: {
         all(session: string) {
           return index.session.all[session] ?? empty

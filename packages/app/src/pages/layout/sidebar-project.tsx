@@ -1,5 +1,7 @@
-import { createEffect, createMemo, For, Show, type Accessor, type JSX } from "solid-js"
+import { createEffect, createMemo, createSignal, For, Show, type Accessor, type JSX } from "solid-js"
 import { createStore } from "solid-js/store"
+import { useNavigate } from "@solidjs/router"
+import { Binary } from "@opencode-ai/util/binary"
 import { base64Encode } from "@opencode-ai/util/encode"
 import { getFilename } from "@opencode-ai/util/path"
 import { Button } from "@opencode-ai/ui/button"
@@ -11,6 +13,7 @@ import { useLayout, type LocalProject } from "@/context/layout"
 import { useGlobalSync } from "@/context/global-sync"
 import { useLanguage } from "@/context/language"
 import { useNotification } from "@/context/notification"
+import { errorText, type Notification } from "@/context/notification-helpers"
 import { ProjectIcon, SessionItem, type SessionItemProps } from "./sidebar-items"
 import { childMapByParent, displayName, sortedRootSessions } from "./helpers"
 
@@ -54,6 +57,14 @@ export const ProjectDragOverlay = (props: {
   )
 }
 
+type Probe = { gone?: boolean; title?: string }
+
+const stamp = (time: number) => {
+  const date = new Date(time)
+  const pad = (n: number) => String(n).padStart(2, "0")
+  return `${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
+}
+
 const ProjectTile = (props: {
   project: LocalProject
   sidebarHovering: Accessor<boolean>
@@ -78,9 +89,66 @@ const ProjectTile = (props: {
 }): JSX.Element => {
   const notification = useNotification()
   const layout = useLayout()
+  const globalSync = useGlobalSync()
+  const navigate = useNavigate()
   const unseenCount = createMemo(() =>
     props.dirs().reduce((total, directory) => total + notification.project.unseenCount(directory), 0),
   )
+  const errors = createMemo(() =>
+    props
+      .dirs()
+      .flatMap((directory) => notification.project.unseen(directory))
+      .filter((n) => n.type === "error"),
+  )
+  const [checked, setChecked] = createSignal(new Map<string, Probe>())
+
+  const key = (n: Notification) => `${n.directory}|${n.session}`
+
+  const verify = () => {
+    errors().forEach((n) => {
+      if (!n.directory || !n.session || n.session === "global") return
+      const id = key(n)
+      if (checked().has(id)) return
+      void notification.probe(n.directory, n.session).then((found) => {
+        const next = new Map(checked())
+        next.set(id, { gone: found === null, title: found?.title })
+        setChecked(next)
+      })
+    })
+  }
+
+  const title = (n: Notification) => {
+    if (!n.directory || !n.session || n.session === "global") return undefined
+    const [store] = globalSync.child(n.directory, { bootstrap: false })
+    const match = Binary.search(store.session, n.session, (s) => s.id)
+    if (match.found) return store.session[match.index]?.title
+    return checked().get(key(n))?.title
+  }
+
+  const label = (n: Notification) => {
+    const summary = errorText(n)
+    const time = stamp(n.time)
+    const gone = checked().get(key(n))?.gone
+    const head = gone ? props.language.t("sidebar.project.errorSessionDeleted") : (title(n) ?? summary)
+    return head === summary ? `${head} · ${time}` : `${head} · ${time} · ${summary}`
+  }
+
+  const open = (n: Notification) => {
+    const directory = n.directory
+    if (!directory) return
+    const sessionID = n.session
+    if (!sessionID || sessionID === "global") {
+      navigate(`/${base64Encode(directory)}`)
+      return
+    }
+    void notification.probe(directory, sessionID).then((found) => {
+      if (found === null) {
+        notification.remove(n)
+        return
+      }
+      navigate(`/${base64Encode(directory)}/session/${sessionID}`)
+    })
+  }
 
   const clear = () =>
     props
@@ -94,7 +162,10 @@ const ProjectTile = (props: {
       onOpenChange={(value) => {
         props.setMenu(value)
         props.setSuppressHover(value)
-        if (value) props.setOpen(false)
+        if (value) {
+          props.setOpen(false)
+          verify()
+        }
       }}
     >
       <ContextMenu.Trigger
@@ -173,6 +244,41 @@ const ProjectTile = (props: {
                 : props.language.t("sidebar.workspaces.enable")}
             </ContextMenu.ItemLabel>
           </ContextMenu.Item>
+          <ContextMenu.Item
+            data-action="project-error-session"
+            data-project={base64Encode(props.project.worktree)}
+            classList={{ hidden: errors().length !== 1 }}
+            onSelect={() => {
+              const target = errors()[0]
+              if (target) open(target)
+            }}
+          >
+            <ContextMenu.ItemLabel>{errors().length === 1 ? label(errors()[0]) : ""}</ContextMenu.ItemLabel>
+          </ContextMenu.Item>
+          <ContextMenu.Sub>
+            <ContextMenu.SubTrigger
+              data-action="project-error-sessions"
+              data-project={base64Encode(props.project.worktree)}
+              classList={{ hidden: errors().length <= 1 }}
+            >
+              {props.language.t("sidebar.project.errorSessions")}
+            </ContextMenu.SubTrigger>
+            <ContextMenu.Portal>
+              <ContextMenu.SubContent>
+                <For each={errors()}>
+                  {(n) => (
+                    <ContextMenu.Item
+                      data-action="project-error-session-item"
+                      data-session={n.session}
+                      onSelect={() => open(n)}
+                    >
+                      <ContextMenu.ItemLabel>{label(n)}</ContextMenu.ItemLabel>
+                    </ContextMenu.Item>
+                  )}
+                </For>
+              </ContextMenu.SubContent>
+            </ContextMenu.Portal>
+          </ContextMenu.Sub>
           <ContextMenu.Item
             data-action="project-clear-notifications"
             data-project={base64Encode(props.project.worktree)}

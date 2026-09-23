@@ -737,6 +737,9 @@ export const dict = {
   "sidebar.project.recentSessions": "最近工作階段",
   "sidebar.project.viewAllSessions": "查看全部工作階段",
   "sidebar.project.clearNotifications": "清除通知",
+  "sidebar.project.errorSessions": "進入報錯會話",
+  "sidebar.project.errorSessionDeleted": "會話已刪除",
+  "workspace.errorTooltip": "{{count}} 條未查看錯誤 · {{summary}}",
 
   "app.name.desktop": "Aether Desktop",
   "settings.section.desktop": "桌面",

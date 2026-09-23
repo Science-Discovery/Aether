@@ -700,6 +700,9 @@ export const dict = {
   "sidebar.project.recentSessions": "Недавние сессии",
   "sidebar.project.viewAllSessions": "Посмотреть все сессии",
   "sidebar.project.clearNotifications": "Очистить уведомления",
+  "sidebar.project.errorSessions": "Открыть сессии с ошибками",
+  "sidebar.project.errorSessionDeleted": "Сессия удалена",
+  "workspace.errorTooltip": "Непросмотренные ошибки: {{count}} · {{summary}}",
 
   "app.name.desktop": "Aether Desktop",
   "settings.section.desktop": "Приложение",

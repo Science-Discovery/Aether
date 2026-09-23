@@ -695,6 +695,9 @@ export const dict = {
   "sidebar.project.recentSessions": "Nylige sesjoner",
   "sidebar.project.viewAllSessions": "Vis alle sesjoner",
   "sidebar.project.clearNotifications": "Fjern varsler",
+  "sidebar.project.errorSessions": "Åpne økter med feil",
+  "sidebar.project.errorSessionDeleted": "Økt slettet",
+  "workspace.errorTooltip": "{{count}} usette feil · {{summary}}",
 
   "app.name.desktop": "Aether Desktop",
 

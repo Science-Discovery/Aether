@@ -686,6 +686,9 @@ export const dict = {
   "sidebar.project.recentSessions": "เซสชันล่าสุด",
   "sidebar.project.viewAllSessions": "ดูเซสชันทั้งหมด",
   "sidebar.project.clearNotifications": "ล้างการแจ้งเตือน",
+  "sidebar.project.errorSessions": "เปิดเซสชันที่มีข้อผิดพลาด",
+  "sidebar.project.errorSessionDeleted": "ลบเซสชันแล้ว",
+  "workspace.errorTooltip": "ข้อผิดพลาดที่ยังไม่ได้ดู {{count}} รายการ · {{summary}}",
 
   "app.name.desktop": "Aether Desktop",
 

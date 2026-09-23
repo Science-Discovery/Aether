@@ -1024,6 +1024,9 @@ export const dict = {
   "sidebar.project.recentSessions": "最近会话",
   "sidebar.project.viewAllSessions": "查看全部会话",
   "sidebar.project.clearNotifications": "清除通知",
+  "sidebar.project.errorSessions": "进入报错会话",
+  "sidebar.project.errorSessionDeleted": "会话已删除",
+  "workspace.errorTooltip": "{{count}} 条未查看错误 · {{summary}}",
 
   "app.name.desktop": "Aether Desktop",
 

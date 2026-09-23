@@ -1114,6 +1114,9 @@ export const dict = {
   "sidebar.project.recentSessions": "Recent sessions",
   "sidebar.project.viewAllSessions": "View all sessions",
   "sidebar.project.clearNotifications": "Clear notifications",
+  "sidebar.project.errorSessions": "Error sessions",
+  "sidebar.project.errorSessionDeleted": "Session deleted",
+  "workspace.errorTooltip": "{{count}} unseen errors · {{summary}}",
   "sidebar.empty.title": "No projects open",
   "sidebar.empty.description": "Open a project to get started",
 

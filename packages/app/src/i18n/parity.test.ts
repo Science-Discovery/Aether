@@ -31,6 +31,9 @@ const keys = [
   "command.sidebar.close",
   "session.tab.moreFiles",
   "common.collapseAll",
+  "sidebar.project.errorSessions",
+  "sidebar.project.errorSessionDeleted",
+  "workspace.errorTooltip",
 ] as const
 
 describe("i18n parity", () => {
