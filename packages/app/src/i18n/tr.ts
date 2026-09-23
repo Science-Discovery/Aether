@@ -691,6 +691,7 @@ export const dict = {
   "common.close": "Kapat",
   "common.edit": "Düzenle",
   "common.loadMore": "Daha fazla yükle",
+  "common.collapseAll": "Tümünü daralt",
   "common.key.esc": "ESC",
 
   "sidebar.menu.toggle": "Menüyü aç/kapat",

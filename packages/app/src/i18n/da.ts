@@ -674,6 +674,7 @@ export const dict = {
   "common.close": "Luk",
   "common.edit": "Rediger",
   "common.loadMore": "Indlæs flere",
+  "common.collapseAll": "Skjul alle",
 
   "common.key.esc": "ESC",
   "sidebar.menu.toggle": "Skift menu",

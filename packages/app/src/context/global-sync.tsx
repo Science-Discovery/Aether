@@ -36,6 +36,7 @@ import {
   estimateRootSessionTotal,
   loadDescendantsForRoots,
   loadRootSessionsWithFallback,
+  planSessionLoad,
 } from "./global-sync/session-load"
 import { trimSessions } from "./global-sync/session-trim"
 import type { ProjectMeta } from "./global-sync/types"
@@ -308,7 +309,11 @@ function createGlobalSync() {
         })
     if (opts?.force) sessionMeta.delete(directory)
     const meta = sessionMeta.get(directory)
-    if (meta && meta.limit >= store.limit) {
+    if (planSessionLoad(meta, store.limit) === "trim") {
+      // The cache was trimmed below the recorded fetch cap (e.g. collapse-all
+      // lowered store.limit); record the new cap so a later raise refetches
+      // from the server instead of trimming an already-smaller cache.
+      sessionMeta.set(directory, { limit: store.limit })
       const next = trimSessions(store.session, {
         limit: store.limit,
         permission: store.permission,

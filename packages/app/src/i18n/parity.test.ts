@@ -30,6 +30,7 @@ const keys = [
   "command.sidebar.open",
   "command.sidebar.close",
   "session.tab.moreFiles",
+  "common.collapseAll",
 ] as const
 
 describe("i18n parity", () => {

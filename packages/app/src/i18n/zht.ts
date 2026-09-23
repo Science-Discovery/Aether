@@ -723,6 +723,7 @@ export const dict = {
   "common.close": "關閉",
   "common.edit": "編輯",
   "common.loadMore": "載入更多",
+  "common.collapseAll": "全部收起",
 
   "common.key.esc": "ESC",
   "sidebar.menu.toggle": "切換選單",
