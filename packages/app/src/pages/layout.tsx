@@ -57,6 +57,7 @@ import { setNavigate } from "@/utils/notification-click"
 import { Worktree as WorktreeState } from "@/utils/worktree"
 import { setSessionHandoff } from "@/pages/session/handoff"
 import { SIDEBAR_MIN } from "@/pages/session/reading-layout"
+import { cascade } from "@/pages/session/cascade"
 import type { E2EWindow } from "@/testing/terminal"
 import { OpenIntent } from "@/utils/open-intent"
 import { MessageOrder } from "@/utils/message-order"
@@ -2398,6 +2399,12 @@ export default function Layout(props: ParentProps) {
     if (demand <= 0) return stored
     return Math.max(SIDEBAR_MIN, Math.min(stored, viewport() - demand))
   })
+  const sidebarMax = createMemo(() => {
+    const panes = layout.row.panes()
+    if (panes.length === 0) return viewport()
+    const slack = panes.reduce((sum, pane) => sum + Math.max(0, pane.width - pane.min), 0)
+    return Math.max(SIDEBAR_MIN, side() + slack)
+  })
   const panel = createMemo(() => Math.max(side() - 45, 0))
 
   createEffect(() => {
@@ -3031,12 +3038,23 @@ export default function Layout(props: ParentProps) {
                   direction="horizontal"
                   size={side()}
                   min={SIDEBAR_MIN}
-                  max={typeof window === "undefined" ? 3000 : window.innerWidth}
+                  max={sidebarMax()}
                   onResize={(w) => {
                     setState("sizing", true)
                     if (sizet !== undefined) clearTimeout(sizet)
                     sizet = window.setTimeout(() => setState("sizing", false), 120)
-                    layout.sidebar.resize(w)
+                    const panes = layout.row.panes()
+                    const delta = w - side()
+                    if (panes.length === 0 || delta === 0) {
+                      layout.sidebar.resize(w)
+                      return
+                    }
+                    const out = cascade([{ width: side(), min: SIDEBAR_MIN }, ...panes], 1, delta)
+                    layout.sidebar.resize(out.widths[0])
+                    layout.session.resize(out.widths[1])
+                    panes.forEach((pane, i) => {
+                      if (pane.key === "fileTree") layout.fileTree.resize(out.widths[i + 1])
+                    })
                   }}
                 />
               </div>

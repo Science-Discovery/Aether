@@ -13,6 +13,7 @@ import { same } from "@/utils/same"
 import { createScrollPersistence, type SessionScroll } from "./layout-scroll"
 import { createPathHelpers } from "./file/path"
 import { setupSkillEvolutionAutoOpen } from "@/skill-evolution/auto-open"
+import type { Pane } from "@/pages/session/cascade"
 
 const AVATAR_COLOR_KEYS = ["pink", "mint", "orange", "purple", "cyan", "lime"] as const
 const DEFAULT_PANEL_WIDTH = 344
@@ -508,6 +509,7 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
     setupSkillEvolutionAutoOpen(globalSync, server)
 
     const [demandPx, setDemandPx] = createSignal(0)
+    const [rowPanes, setRowPanes] = createSignal<Pane[]>([])
 
     return {
       ready,
@@ -517,6 +519,12 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
           const next = Math.max(0, Math.floor(px))
           if (next === demandPx()) return
           setDemandPx(next)
+        },
+      },
+      row: {
+        panes: rowPanes,
+        set(panes: Pane[]) {
+          setRowPanes(panes)
         },
       },
       projects: {
