@@ -109,3 +109,8 @@ export function estimateRootSessionTotal(input: { count: number; limit: number; 
   if (input.count < input.limit) return input.count
   return input.count + 1
 }
+
+export function planSessionLoad(meta: { limit: number } | undefined, limit: number) {
+  if (meta && meta.limit >= limit) return "trim" as const
+  return "fetch" as const
+}
