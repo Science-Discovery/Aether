@@ -95,7 +95,7 @@ async function visit(page: Page, url: string) {
   throw err
 }
 
-async function promptSend(page: Page) {
+export async function promptSend(page: Page) {
   return page
     .evaluate(() => {
       const win = window as E2EWindow
@@ -108,6 +108,28 @@ async function promptSend(page: Page) {
       }
     })
     .catch(() => ({ started: 0, count: 0, sessionID: undefined, directory: undefined }))
+}
+
+export async function confirmSubmit(page: Page, prev: { started: number }) {
+  await page.keyboard.press("Enter")
+  const started = await expect
+    .poll(async () => (await promptSend(page)).started, { timeout: 5_000 })
+    .toBeGreaterThan(prev.started)
+    .then(() => true)
+    .catch(() => false)
+  if (started) return
+  const send = page.getByRole("button", { name: "Send" }).first()
+  const enabled = await send
+    .isEnabled()
+    .then((value) => value)
+    .catch(() => false)
+  if (enabled) {
+    await send.click()
+    return
+  }
+  await page.locator(promptSelector).first().click()
+  await page.keyboard.press("Enter")
+  await expect.poll(async () => (await promptSend(page)).started, { timeout: 5_000 }).toBeGreaterThan(prev.started)
 }
 
 type ProjectHandle = {
@@ -469,25 +491,7 @@ function makeProject(
       }
       await page.keyboard.type(text)
       await expect.poll(async () => clean(await prompt.textContent())).toBe(text)
-      await page.keyboard.press("Enter")
-      const started = await expect
-        .poll(async () => (await promptSend(page)).started, { timeout: 5_000 })
-        .toBeGreaterThan(prev.started)
-        .then(() => true)
-        .catch(() => false)
-      if (started) return
-      const send = page.getByRole("button", { name: "Send" }).first()
-      const enabled = await send
-        .isEnabled()
-        .then((value) => value)
-        .catch(() => false)
-      if (enabled) {
-        await send.click()
-        return
-      }
-      await prompt.click()
-      await page.keyboard.press("Enter")
-      await expect.poll(async () => (await promptSend(page)).started, { timeout: 5_000 }).toBeGreaterThan(prev.started)
+      await confirmSubmit(page, prev)
     }
 
     await submit()
