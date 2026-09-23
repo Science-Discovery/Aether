@@ -27,6 +27,17 @@ export namespace SafeZone {
     return slash(joined)
   }
 
+  // A zone that contains the worktree would compile to a `../*`-style edit
+  // pattern which over-matches (wildcards cross separators), so the relative
+  // edit form is only emitted for zones that are not ancestors of the worktree.
+  function isAncestor(zoneGlob: string, worktree: string): boolean {
+    const cut = zoneGlob.search(/[*?]/)
+    const dir = cut === -1 ? zoneGlob : zoneGlob.slice(0, cut)
+    const abs = path.isAbsolute(dir) ? dir : path.join(worktree, dir)
+    const rel = slash(path.relative(worktree, abs))
+    return /^(?:\.\.(?:\/|$))+$/.test(rel)
+  }
+
   function zoneRules(globs: string[], action: "allow" | "deny", worktree: string): Permission.Ruleset {
     const out: Permission.Ruleset = []
     for (const raw of globs) {
@@ -39,13 +50,15 @@ export namespace SafeZone {
         // Basename/relative globs must also match anywhere, like permission-config
         // globs; the worktree-joined form adds scoped coverage for dir globs.
         const abs = relative ? [slash(expanded), slash(path.join(worktree, expanded))] : [slash(expanded)]
-        const rel = relative ? slash(expanded) : slash(path.relative(worktree, expanded))
         for (const pattern of abs) {
           out.push({ permission: "read", pattern, action })
           out.push({ permission: "external_read", pattern, action })
           out.push({ permission: "external_directory", pattern, action })
         }
-        out.push({ permission: "edit", pattern: rel, action })
+        if (!isAncestor(expanded, worktree)) {
+          const rel = relative ? slash(expanded) : slash(path.relative(worktree, expanded))
+          out.push({ permission: "edit", pattern: rel, action })
+        }
       }
     }
     return out

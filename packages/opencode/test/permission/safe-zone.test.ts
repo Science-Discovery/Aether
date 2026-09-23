@@ -24,6 +24,7 @@ function allActions(rules: Permission.Ruleset, permission: string, pattern: stri
 }
 
 const data = Global.Path.data
+const slash = (p: string) => p.replaceAll("\\", "/")
 
 describe("SafeZone.rules", () => {
   test("external reads are allowed by default outside all zones", async () => {
@@ -89,16 +90,16 @@ describe("SafeZone.rules", () => {
 
   test("edit rules are compiled to worktree-relative patterns", async () => {
     const worktree = path.join(os.tmpdir(), "worktree")
+    const zoneDir = slash(path.join(os.homedir(), "sz-zone-test"))
     const rules = await SafeZone.rules(undefined, worktree)
-    const outside = "D:/secrets/keys.txt"
-    const rel = path.relative(worktree, outside)
+    const rel = path.relative(worktree, path.join(zoneDir, "keys.txt"))
     expect(lastAction(rules, "edit", rel)).toBeUndefined()
 
-    const zone = await SafeZone.rules({ private: ["D:/secrets/**"] }, worktree)
+    const zone = await SafeZone.rules({ private: [`${zoneDir}/**`] }, worktree)
     expect(lastAction(zone, "edit", rel)).toBe("deny")
 
-    const open = await SafeZone.rules({ open: ["D:/notes/**"] }, worktree)
-    const relNote = path.relative(worktree, "D:/notes/todo.md")
+    const open = await SafeZone.rules({ open: [`${zoneDir}/notes/**`] }, worktree)
+    const relNote = path.relative(worktree, path.join(zoneDir, "notes", "todo.md"))
     expect(lastAction(open, "edit", relNote)).toBe("allow")
   })
 
@@ -136,6 +137,7 @@ describe("SafeZone.rules", () => {
   })
 
   test("windows-style backslash globs from config are normalized", async () => {
+    if (process.platform !== "win32") return
     const rules = await SafeZone.rules({ private: ["D:\\secrets\\**"] }, path.join(os.tmpdir(), "worktree"))
     expect(lastAction(rules, "read", "D:/secrets/a.txt")).toBe("deny")
     expect(lastAction(rules, "edit", path.relative(path.join(os.tmpdir(), "worktree"), "D:/secrets/a.txt"))).toBe(
