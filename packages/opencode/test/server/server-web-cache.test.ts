@@ -14,6 +14,9 @@ const wait = async (fn: () => boolean, ms = 5000) => {
   throw new Error("timeout waiting for server event")
 }
 
+const realExecPath = process.execPath
+const realBasePath = process.env.VITE_BASE_PATH
+
 describe("web cache headers", () => {
   test("serves hashed assets as immutable", async () => {
     await using tmp = await tmpdir()
@@ -22,7 +25,6 @@ describe("web cache headers", () => {
     await writeFile(path.join(root, "index.html"), "<!doctype html>")
     await writeFile(path.join(root, "assets", "index-ABCDEFGH.js"), "console.log('ok')")
 
-    const old = process.execPath
     Object.defineProperty(process, "execPath", { value: path.join(tmp.path, "bin", "aether"), configurable: true })
 
     try {
@@ -33,7 +35,7 @@ describe("web cache headers", () => {
       expect(res.headers.get("etag")).toBeTruthy()
       expect(res.headers.get("last-modified")).toBeTruthy()
     } finally {
-      Object.defineProperty(process, "execPath", { value: old, configurable: true })
+      Object.defineProperty(process, "execPath", { value: realExecPath, configurable: true })
     }
   })
 
@@ -43,7 +45,6 @@ describe("web cache headers", () => {
     await mkdir(root, { recursive: true })
     await writeFile(path.join(root, "index.html"), "<!doctype html>")
 
-    const old = process.execPath
     Object.defineProperty(process, "execPath", { value: path.join(tmp.path, "bin", "aether"), configurable: true })
 
     try {
@@ -61,7 +62,7 @@ describe("web cache headers", () => {
       expect(next.headers.get("cache-control")).toBe("no-cache")
       expect(next.headers.get("etag")).toBe(tag)
     } finally {
-      Object.defineProperty(process, "execPath", { value: old, configurable: true })
+      Object.defineProperty(process, "execPath", { value: realExecPath, configurable: true })
     }
   })
 
@@ -72,8 +73,6 @@ describe("web cache headers", () => {
     await writeFile(path.join(root, "index.html"), "<!doctype html><html><head></head><body></body></html>")
     await writeFile(path.join(root, "assets", "index-ABCDEFGH.js"), "console.log('ok')")
 
-    const old = process.execPath
-    const env = process.env.VITE_BASE_PATH
     Object.defineProperty(process, "execPath", { value: path.join(tmp.path, "bin", "aether"), configurable: true })
     process.env.VITE_BASE_PATH = "/aether"
 
@@ -95,11 +94,11 @@ describe("web cache headers", () => {
       expect(route.status).toBe(200)
       expect(await route.text()).toContain(`<base href="/aether/">`)
     } finally {
-      Object.defineProperty(process, "execPath", { value: old, configurable: true })
-      if (env === undefined) {
+      Object.defineProperty(process, "execPath", { value: realExecPath, configurable: true })
+      if (realBasePath === undefined) {
         delete process.env.VITE_BASE_PATH
       } else {
-        process.env.VITE_BASE_PATH = env
+        process.env.VITE_BASE_PATH = realBasePath
       }
     }
   })
@@ -109,7 +108,6 @@ describe("web cache headers", () => {
 
     await using tmp = await tmpdir({ git: true })
 
-    const env = process.env.VITE_BASE_PATH
     process.env.VITE_BASE_PATH = "/aether"
     const server = Server.listen({ port: 0, hostname: "127.0.0.1" })
     const root = `http://127.0.0.1:${server.port}/aether`
@@ -148,10 +146,10 @@ describe("web cache headers", () => {
       ws?.close()
       if (id) await fetch(`${root}/pty/${id}?${query}`, { method: "DELETE" }).catch(() => undefined)
       await server.stop(true)
-      if (env === undefined) {
+      if (realBasePath === undefined) {
         delete process.env.VITE_BASE_PATH
       } else {
-        process.env.VITE_BASE_PATH = env
+        process.env.VITE_BASE_PATH = realBasePath
       }
     }
   })
