@@ -12,16 +12,78 @@ import { Filesystem } from "../../util/filesystem"
 import { setKnowledgeConfig, getKnowledgeConfig } from "../../tool/knowledge"
 import path from "path"
 import os from "os"
-import { readdir, mkdir } from "fs/promises"
+import { readdir, mkdir, rename } from "fs/promises"
 
 const log = Log.create({ service: "knowledge" })
 
+// Knowledge state lives in its own file so the desktop electron-store, which
+// rewrites aether.global.dat whole from an in-memory copy, can never drop or
+// roll back keys written here.
+const STATE_KEY = "knowledge-state"
+const STATE_FILE = "aether.knowledge.dat"
+const LEGACY_STATE_FILE = "aether.global.dat"
+const EMPTY_STATE = { knowledgeBases: [], activeIds: [] }
+
 function dataDir() {
-  const home = os.homedir()
+  const home = process.env.OPENCODE_TEST_HOME || os.homedir()
   if (process.platform === "darwin") return path.join(home, ".local", "share", "aether")
   if (process.platform === "win32")
     return path.join(process.env.LOCALAPPDATA || path.join(home, "AppData", "Local"), "aether")
   return path.join(home, ".local", "share", "aether")
+}
+
+function stateFile() {
+  return path.join(dataDir(), STATE_FILE)
+}
+
+function legacyFile() {
+  return path.join(dataDir(), LEGACY_STATE_FILE)
+}
+
+async function readStore(file: string): Promise<Record<string, unknown> | undefined> {
+  try {
+    return await Filesystem.readJson(file)
+  } catch {
+    return undefined
+  }
+}
+
+let pending: Promise<unknown> = Promise.resolve()
+
+function serialize<T>(task: () => Promise<T>): Promise<T> {
+  const next = pending.then(task, task)
+  pending = next.then(
+    () => undefined,
+    () => undefined,
+  )
+  return next
+}
+
+async function writeStore(file: string, store: Record<string, unknown>) {
+  const tmp = `${file}.${process.pid}.tmp`
+  await Filesystem.writeJson(tmp, store)
+  await rename(tmp, file)
+}
+
+async function loadState(): Promise<unknown> {
+  const file = stateFile()
+  const store = await readStore(file)
+  const state = store?.[STATE_KEY]
+  if (state !== undefined && state !== null) return state
+  if (store !== undefined) return EMPTY_STATE
+  const legacy = (await readStore(legacyFile()))?.[STATE_KEY]
+  if (legacy === undefined || legacy === null) return EMPTY_STATE
+  await writeStore(file, { [STATE_KEY]: legacy }).catch(() => undefined)
+  return legacy
+}
+
+async function saveState(data: unknown) {
+  const dir = dataDir()
+  const file = stateFile()
+  await mkdir(dir, { recursive: true })
+  const store = (await readStore(file)) ?? {}
+  store[STATE_KEY] = data
+  await writeStore(file, store)
 }
 
 // 请求/响应 schemas
@@ -171,7 +233,8 @@ export const KnowledgeRoutes = lazy(() =>
         return c.json({ found })
       },
     )
-    // 获取/保存全局知识库状态（统一持久化到 ~/.local/share/aether/aether.global.dat）
+    // 获取/保存全局知识库状态（持久化到数据目录下的独立文件 aether.knowledge.dat，
+    // 旧版数据存于 aether.global.dat 的 knowledge-state 键，首次读取时自动迁移）
     .get(
       "/state",
       describeRoute({
@@ -196,16 +259,7 @@ export const KnowledgeRoutes = lazy(() =>
         },
       }),
       async (c) => {
-        const file = path.join(dataDir(), "aether.global.dat")
-        try {
-          let store: Record<string, unknown> = {}
-          try {
-            store = await Filesystem.readJson(file)
-          } catch {}
-          return c.json(store["knowledge-state"] ?? { knowledgeBases: [], activeIds: [] })
-        } catch {
-          return c.json({ knowledgeBases: [], activeIds: [] })
-        }
+        return c.json(await serialize(loadState).catch(() => EMPTY_STATE))
       },
     )
     .post(
@@ -228,20 +282,9 @@ export const KnowledgeRoutes = lazy(() =>
       validator("json", z.object({ data: z.any() })),
       async (c) => {
         const { data } = c.req.valid("json")
-        const dir = dataDir()
-        const file = path.join(dir, "aether.global.dat")
-        await mkdir(dir, { recursive: true })
-        try {
-          let store: Record<string, unknown> = {}
-          try {
-            store = await Filesystem.readJson(file)
-          } catch {}
-          store["knowledge-state"] = data
-          await Filesystem.writeJson(file, store)
-          return c.json({ ok: true })
-        } catch {
-          return c.json({ error: "Failed to save state" }, 500)
-        }
+        return serialize(() => saveState(data))
+          .then(() => c.json({ ok: true }))
+          .catch(() => c.json({ error: "Failed to save state" }, 500))
       },
     )
     // 创建知识库
