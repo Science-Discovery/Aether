@@ -23,13 +23,10 @@ MONITOR_TMPL = os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "..", "references", "monitor-prompt.md"
 )
 
-# 权限默认继承派发 agent 的会话：GET /session/<当前sessionID> 读出 permission 字段后填到这里；
-# 派发者无显式规则集时给最小 allow 集（headless 无人应答 ask，必须显式 allow）
-PERMISSION = [
-    {"permission": "bash", "pattern": "*", "action": "allow"},
-    {"permission": "edit", "pattern": "*", "action": "allow"},
-    {"permission": "write", "pattern": "*", "action": "allow"},
-]
+# 权限必须全开（通配 allow）：任务/监视会话都是 headless，任何落到默认 ask 的工具调用
+# 会永远等待无人应答，会话停摆并卡住整条看护链。最小 bash/edit/write 集不够——
+# task/webfetch/部分读路径同样触发 ask。信任不足时再按任务收紧（如 edit/write 限定 <沙箱>/**）。
+PERMISSION = [{"permission": "*", "pattern": "*", "action": "allow"}]
 
 # (编号, worktree绝对路径, 分支, 会话标题, 任务书正文, 参考报告路径,
 #  可选 per-task 覆盖: {"model": {...}, "permission": [...]})
