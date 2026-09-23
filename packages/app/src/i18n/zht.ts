@@ -660,6 +660,8 @@ export const dict = {
   "session.header.search.placeholder": "搜尋 {{project}}",
   "session.header.searchFiles": "搜尋檔案",
   "session.header.open.menu": "開啟選項",
+  "session.header.open.directory": "開啟：{{name}}",
+  "session.header.open.ariaLabel": "在{{app}}中開啟",
   "session.header.open.copyPath": "複製路徑",
 
   "status.popover.trigger": "狀態",

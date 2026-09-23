@@ -624,6 +624,8 @@ export const dict = {
   "session.header.search.placeholder": "ค้นหา {{project}}",
   "session.header.searchFiles": "ค้นหาไฟล์",
   "session.header.open.menu": "ตัวเลือกการเปิด",
+  "session.header.open.directory": "เปิด: {{name}}",
+  "session.header.open.ariaLabel": "เปิดใน {{app}}",
   "session.header.open.copyPath": "คัดลอกเส้นทาง",
 
   "status.popover.trigger": "สถานะ",

@@ -578,6 +578,8 @@ export const dict = {
   "session.header.search.placeholder": "{{project}} 검색",
   "session.header.searchFiles": "파일 검색",
   "session.header.open.menu": "열기 옵션",
+  "session.header.open.directory": "열기: {{name}}",
+  "session.header.open.ariaLabel": "{{app}}에서 열기",
   "session.header.open.copyPath": "경로 복사",
   "status.popover.trigger": "상태",
   "status.popover.ariaLabel": "서버 구성",

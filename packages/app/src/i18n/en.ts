@@ -1002,6 +1002,8 @@ export const dict = {
   "session.header.search.placeholder": "Search {{project}}",
   "session.header.searchFiles": "Search files",
   "session.header.open.menu": "Open options",
+  "session.header.open.directory": "Open: {{name}}",
+  "session.header.open.ariaLabel": "Open in {{app}}",
   "session.header.open.copyPath": "Copy path",
   "session.header.open.finder": "Finder",
   "session.header.open.fileExplorer": "File Explorer",

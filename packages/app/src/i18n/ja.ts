@@ -576,6 +576,8 @@ export const dict = {
   "session.header.search.placeholder": "{{project}}を検索",
   "session.header.searchFiles": "ファイルを検索",
   "session.header.open.menu": "開くオプション",
+  "session.header.open.directory": "開く: {{name}}",
+  "session.header.open.ariaLabel": "{{app}}で開く",
   "session.header.open.copyPath": "パスをコピー",
   "status.popover.trigger": "ステータス",
   "status.popover.ariaLabel": "サーバー設定",

@@ -567,6 +567,8 @@ export const dict = {
   "session.header.search.placeholder": "بحث {{project}}",
   "session.header.searchFiles": "بحث عن الملفات",
   "session.header.open.menu": "خيارات الفتح",
+  "session.header.open.directory": "فتح: {{name}}",
+  "session.header.open.ariaLabel": "فتح في {{app}}",
   "session.header.open.copyPath": "نسخ المسار",
   "status.popover.trigger": "الحالة",
   "status.popover.ariaLabel": "إعدادات الخوادم",

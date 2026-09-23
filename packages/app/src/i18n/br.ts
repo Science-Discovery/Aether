@@ -579,6 +579,8 @@ export const dict = {
   "session.header.search.placeholder": "Buscar {{project}}",
   "session.header.searchFiles": "Buscar arquivos",
   "session.header.open.menu": "Opções de abertura",
+  "session.header.open.directory": "Abrir: {{name}}",
+  "session.header.open.ariaLabel": "Abrir em {{app}}",
   "session.header.open.copyPath": "Copiar caminho",
   "status.popover.trigger": "Status",
   "status.popover.ariaLabel": "Configurações de servidores",

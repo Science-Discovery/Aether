@@ -630,6 +630,8 @@ export const dict = {
   "session.header.search.placeholder": "Søk i {{project}}",
   "session.header.searchFiles": "Søk etter filer",
   "session.header.open.menu": "Åpne alternativer",
+  "session.header.open.directory": "Åpne: {{name}}",
+  "session.header.open.ariaLabel": "Åpne i {{app}}",
   "session.header.open.copyPath": "Kopier bane",
 
   "status.popover.trigger": "Status",

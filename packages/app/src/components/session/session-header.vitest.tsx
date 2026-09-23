@@ -86,7 +86,9 @@ vi.mock("@/context/file", () => ({
 }))
 
 vi.mock("@/context/language", () => ({
-  useLanguage: () => ({ t: (key: string) => key }),
+  useLanguage: () => ({
+    t: (key: string, params?: Record<string, string>) => (params ? `${key} ${Object.values(params).join(" ")}` : key),
+  }),
 }))
 
 vi.mock("@/context/layout", () => ({
@@ -158,9 +160,7 @@ const chevron = (left: HTMLElement) =>
   left.querySelector('[aria-label="session.header.open.menu"]') as HTMLButtonElement
 
 const rootRow = (left: HTMLElement) =>
-  left.querySelector(
-    '[aria-label="session.header.open.finder"],[aria-label="session.header.open.fileExplorer"],[aria-label="session.header.open.fileManager"]',
-  ) as HTMLButtonElement
+  left.querySelector('[aria-label^="session.header.open.ariaLabel"]') as HTMLButtonElement
 
 beforeEach(() => {
   state.platform = "web"
@@ -180,7 +180,7 @@ describe("session header folder open merge", () => {
     expect(chevron(left)).not.toBeNull()
 
     expect(right.querySelector('[aria-label="session.header.open.menu"]')).toBeNull()
-    expect(document.querySelector('[aria-label="session.header.open.ariaLabel"]')).toBeNull()
+    expect(right.querySelector('[aria-label^="session.header.open.ariaLabel"]')).toBeNull()
     expect(document.querySelector('[aria-label="session.header.open.folder"]')).toBeNull()
 
     off()
@@ -192,7 +192,8 @@ describe("session header folder open merge", () => {
     chevron(left).click()
     const row = rootRow(left)
     expect(row).not.toBeNull()
-    expect(row.textContent).toBe("proj-a")
+    expect(row.textContent).toBe("session.header.open.directory proj-a")
+    expect(row.getAttribute("aria-label")).toBe("session.header.open.ariaLabel session.header.open.fileExplorer")
 
     row.click()
 

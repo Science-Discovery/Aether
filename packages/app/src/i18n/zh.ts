@@ -943,6 +943,8 @@ export const dict = {
   "session.header.search.placeholder": "搜索 {{project}}",
   "session.header.searchFiles": "搜索文件",
   "session.header.open.menu": "打开选项",
+  "session.header.open.directory": "打开：{{name}}",
+  "session.header.open.ariaLabel": "在{{app}}中打开",
   "session.header.open.copyPath": "复制路径",
 
   "status.popover.trigger": "状态",

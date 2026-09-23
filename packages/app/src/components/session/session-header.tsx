@@ -118,6 +118,10 @@ export function SessionHeader() {
     return { label: "session.header.open.fileManager", icon: "finder" as const }
   })
 
+  const rowLabel = createMemo(() =>
+    language.t("session.header.open.ariaLabel", { app: language.t(fileManager().label) }),
+  )
+
   const toggleTerminal = () => {
     const next = !view().terminal.opened()
     view().terminal.toggle()
@@ -283,15 +287,15 @@ export function SessionHeader() {
                   >
                     <div class="flex flex-col w-[320px]">
                       <div class="flex h-8 shrink-0 items-center gap-1 pl-2.5 pr-0.5 border-b border-border-weak-base">
-                        <Tooltip placement="bottom" value={language.t(fileManager().label)}>
+                        <Tooltip placement="bottom" value={rowLabel()}>
                           <button
                             type="button"
                             class="flex-1 min-w-0 h-full truncate text-12-medium text-text-strong text-left rounded-sm hover:bg-surface-raised-base-hover"
                             onClick={openDir}
                             disabled={!canOpen() || pending.open}
-                            aria-label={language.t(fileManager().label)}
+                            aria-label={rowLabel()}
                           >
-                            {name()}
+                            {language.t("session.header.open.directory", { name: name() })}
                           </button>
                         </Tooltip>
                         <Tooltip placement="bottom" value={language.t("session.header.open.copyPath")}>

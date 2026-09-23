@@ -641,6 +641,8 @@ export const dict = {
   "session.header.search.placeholder": "{{project}} ara",
   "session.header.searchFiles": "Dosya ara",
   "session.header.open.menu": "Açma seçenekleri",
+  "session.header.open.directory": "Aç: {{name}}",
+  "session.header.open.ariaLabel": "{{app}} ile aç",
   "session.header.open.copyPath": "Yolu kopyala",
 
   "status.popover.trigger": "Durum",
