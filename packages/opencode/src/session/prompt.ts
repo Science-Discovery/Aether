@@ -221,10 +221,9 @@ export namespace SessionPrompt {
         return message
       }
 
-      // cancel() may have dropped the claim while the prompt was being prepared;
-      // re-claim so the persisted message still gets its reply
-      if (!state()[input.sessionID]) start(input.sessionID)
-      return await loop({ sessionID: input.sessionID, resume_existing: true })
+      // cancel() may have dropped our claim while the prompt was being
+      // prepared; runLoop re-claims unless a newer prompt already took over
+      return await runLoop({ sessionID: input.sessionID, resume_existing: true }, claim)
     })
   }
 
@@ -291,11 +290,13 @@ export namespace SessionPrompt {
     return controller.signal
   }
 
-  function resume(sessionID: SessionID) {
+  // Return the signal only if it is still the live claim, so a caller can
+  // never adopt a claim taken by a newer prompt after cancel() dropped its own
+  function resume(sessionID: SessionID, signal: AbortSignal | undefined) {
     const s = state()
-    if (!s[sessionID]) return
+    if (!signal || s[sessionID]?.abort.signal !== signal) return
 
-    return s[sessionID].abort.signal
+    return signal
   }
 
   // Drop the busy claim without the cancel() side effects (repair, idle
@@ -338,14 +339,15 @@ export namespace SessionPrompt {
     resume_existing: z.boolean().optional(),
   })
   export type LoopInput = z.output<typeof LoopInput>
-  async function runLoop(input: LoopInput): Promise<MessageV2.WithParts> {
+  async function runLoop(input: LoopInput, claim?: AbortSignal): Promise<MessageV2.WithParts> {
     return home(input.sessionID, async (session) => {
       const { sessionID, resume_existing } = input
 
-      // cancel() racing the prompt prep may have removed the caller's claim
-      // between the re-claim above and here; re-claim so the persisted message
-      // still gets its reply instead of surfacing BusyError after the fact
-      const abort = resume_existing ? (resume(sessionID) ?? start(sessionID)) : start(sessionID)
+      // cancel() racing the prompt prep may have removed the caller's claim;
+      // re-claim so the persisted message still gets its reply instead of
+      // surfacing BusyError after the fact, but never adopt a claim taken by
+      // a newer prompt (two concurrent loops would corrupt the session)
+      const abort = resume_existing ? (resume(sessionID, claim) ?? start(sessionID)) : start(sessionID)
       if (!abort) {
         throw new Session.BusyError(sessionID)
       }
