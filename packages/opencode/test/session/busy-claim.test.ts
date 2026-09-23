@@ -233,6 +233,70 @@ describe("session.prompt busy claim", () => {
     server.stop(true)
   }, 30000)
 
+  test("cancel during prep does not let the stale prompt adopt a newer prompt's claim", async () => {
+    const server = await harness.llm(1500)
+    await using tmp = await tmpdir({
+      git: true,
+      init: async (dir) => {
+        await Bun.write(path.join(dir, "opencode.json"), JSON.stringify(harness.providerConfig(server.url.origin)))
+        await harness.seedKnowledgeBase(dir)
+      },
+    })
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const session = await Session.create({})
+
+        const stale = SessionPrompt.prompt({
+          sessionID: session.id,
+          agent: "build",
+          model: harness.model,
+          knowledgeBase: { paths: [tmp.path], apiKey: "test-key", baseURL: server.url.origin },
+          parts: [{ type: "text", text: "stale prompt" }],
+        }).then(
+          () => undefined,
+          (e) => e,
+        )
+
+        for (let i = 0; i < 100 && !hasKnowledge(session.id); i++) await sleep(20)
+        expect(hasKnowledge(session.id)).toBe(true)
+        await sleep(100)
+
+        await SessionPrompt.cancel(session.id)
+
+        const newer = await SessionPrompt.prompt({
+          sessionID: session.id,
+          agent: "build",
+          model: harness.model,
+          parts: [{ type: "text", text: "newer prompt" }],
+        })
+        expect(newer.info.role).toBe("assistant")
+
+        const outcome = await stale
+        expect(outcome).toBeInstanceOf(Session.BusyError)
+
+        const msgs = await Session.messages({ sessionID: session.id })
+        expect(msgs.filter((m) => m.info.role === "user").length).toBe(2)
+        // the single active loop also answers the stale persisted message, so
+        // every user message gets exactly one reply (the adoption bug would
+        // have two loops replying, producing an extra assistant message)
+        expect(msgs.filter((m) => m.info.role === "assistant").length).toBe(2)
+
+        const again = await SessionPrompt.prompt({
+          sessionID: session.id,
+          agent: "build",
+          model: harness.model,
+          parts: [{ type: "text", text: "after" }],
+        })
+        expect(again.info.role).toBe("assistant")
+
+        await Session.remove(session.id)
+      },
+    })
+    server.stop(true)
+  }, 30000)
+
   test("noReply prompt releases the busy claim", async () => {
     const server = await harness.llm(0)
     await using tmp = await tmpdir({
