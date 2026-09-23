@@ -692,6 +692,9 @@ export const dict = {
   "sidebar.project.recentSessions": "Nedavne sesije",
   "sidebar.project.viewAllSessions": "Prikaži sve sesije",
   "sidebar.project.clearNotifications": "Očisti obavijesti",
+  "sidebar.project.errorSessions": "Otvori sesije s greškama",
+  "sidebar.project.errorSessionDeleted": "Sesija obrisana",
+  "workspace.errorTooltip": "{{count}} nepregledanih grešaka · {{summary}}",
 
   "app.name.desktop": "Aether Desktop",
 

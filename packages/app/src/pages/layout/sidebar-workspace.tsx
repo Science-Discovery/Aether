@@ -34,6 +34,7 @@ import { useGlobalSDK } from "@/context/global-sdk"
 import { SESSION_BASE_LIMIT } from "@/context/global-sync/types"
 import { loadDescendantsForRoots } from "@/context/global-sync/session-load"
 import { useLanguage } from "@/context/language"
+import { errorText, type Notification } from "@/context/notification-helpers"
 import { useNotification } from "@/context/notification"
 import { usePermission } from "@/context/permission"
 import { useSettings } from "@/context/settings"
@@ -450,6 +451,7 @@ export const WorkspaceHeader = (props: {
   notify: Accessor<boolean>
   hasPermissions: Accessor<boolean>
   hasError: Accessor<boolean>
+  errorTooltip: Accessor<string>
   open: Accessor<boolean>
   active: Accessor<boolean>
   directory: string
@@ -473,11 +475,15 @@ export const WorkspaceHeader = (props: {
         <Spinner class="size-[15px]" />
       </Show>
       <Show when={props.notify()}>
-        <StatusDot
-          hasPermissions={props.hasPermissions()}
-          hasError={props.hasError()}
-          class="absolute -top-1 -right-1 z-10"
-        />
+        <Tooltip
+          value={props.errorTooltip()}
+          placement="top"
+          gutter={2}
+          inactive={!props.errorTooltip()}
+          class="absolute -top-1 -right-1 z-10 -m-1 p-1"
+        >
+          <StatusDot hasPermissions={props.hasPermissions()} hasError={props.hasError()} />
+        </Tooltip>
       </Show>
     </div>
     <props.InlineEditor
@@ -1305,6 +1311,18 @@ export const SortableWorkspace = (props: {
     hasProjectPermissions(workspaceStore.permission, (item) => !permission.autoResponds(item, props.directory)),
   )
   const hasError = createMemo(() => notification.project.unseenHasError(props.directory))
+  const errors = createMemo(() => notification.project.unseen(props.directory).filter((n) => n.type === "error"))
+  const latest = createMemo(() =>
+    errors().reduce<Notification | undefined>((a, b) => (!a || b.time > a.time ? b : a), undefined),
+  )
+  const errorTooltip = createMemo(() =>
+    errors().length === 0
+      ? ""
+      : language.t("workspace.errorTooltip", {
+          count: errors().length,
+          summary: errorText(latest()),
+        }),
+  )
   const notify = createMemo(() => hasPermissions() || notification.project.unseenCount(props.directory) > 0)
   const touch = createMediaQuery("(hover: none)")
   const showNew = createMemo(() => !loading())
@@ -1347,6 +1365,7 @@ export const SortableWorkspace = (props: {
       notify={notify}
       hasPermissions={hasPermissions}
       hasError={hasError}
+      errorTooltip={errorTooltip}
       open={open}
       active={active}
       directory={props.directory}

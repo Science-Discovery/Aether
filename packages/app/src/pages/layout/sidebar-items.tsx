@@ -28,6 +28,7 @@ const OPENCODE_PROJECT_ID = "4b0ea68d7af9a6031a7ffda7ad66e0cb83315750"
 
 export const StatusDot = (props: { hasPermissions?: boolean; hasError?: boolean; class?: string }): JSX.Element => (
   <div
+    data-slot="status-dot"
     class={`size-1.5 rounded-full ${props.class ?? ""}`}
     classList={{
       "bg-surface-warning-strong": !!props.hasPermissions,
