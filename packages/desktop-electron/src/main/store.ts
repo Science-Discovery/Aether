@@ -1,12 +1,13 @@
 import Store from "electron-store"
 import { SETTINGS_STORE } from "./constants"
 import { ensureDesktopPersist, ensureStoreFile } from "./persist"
-import { shared } from "./persist-names"
+import { shared, valid } from "./persist-names"
 import { userDataDir, aetherDataDir } from "./paths"
 
 const cache = new Map<string, Store>()
 
 export function getStore(name = SETTINGS_STORE) {
+  if (!valid(name)) throw new Error(`Invalid store name: ${String(name).slice(0, 64)}`)
   const cached = cache.get(name)
   if (cached) return cached
   ensureDesktopPersist()
