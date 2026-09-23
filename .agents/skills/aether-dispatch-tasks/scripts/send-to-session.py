@@ -1,9 +1,10 @@
 #!/usr/bin/env python
-"""把消息（异常介入指令/叫停/补充信息）发回某个子会话，不新开会话。
-用法：python -X utf8 send-to-session.py <task编号> <消息文件路径>
+"""把消息发回某个会话，不新开会话。
+用法：python -X utf8 send-to-session.py <task编号> <task|monitor> <消息文件路径>
 
+task    → 沙箱里的任务会话（directory=沙箱路径）：续跑指令/返工指令一般由监视会话发，主 agent 异常介入时也可用。
+monitor → 主工作区的监视子会话（directory=主工作区路径）：看门续跑指令。
 依赖 dispatch.py 落盘的映射 JSON；SERVER/HOME/RESULTS 按本次任务实际路径改。
-正常 review/返工流程不需要本脚本——那是子会话自己的职责；仅异常介入时用。
 """
 
 import base64
@@ -34,21 +35,25 @@ def api(method, path, body=None):
 
 
 def main():
-    target, msg_file = sys.argv[1], sys.argv[2]
+    target, role, msg_file = sys.argv[1], sys.argv[2], sys.argv[3]
+    if role not in ("task", "monitor"):
+        print(f"bad role: {role} (use task|monitor)")
+        return
     text = open(msg_file, encoding="utf-8").read()
     results = json.load(open(RESULTS, encoding="utf-8"))
+    key = "session" if role == "task" else "monitor"
     for r in results:
-        if str(r["task"]) != target or "session" not in r:
+        if str(r["task"]) != target or key not in r:
             continue
-        q = urllib.parse.quote(HOME, safe="")
+        q = urllib.parse.quote(HOME if role == "monitor" else r["worktree"], safe="")
         api(
             "POST",
-            f"/session/{r['session']}/prompt_async?directory={q}",
+            f"/session/{r[key]}/prompt_async?directory={q}",
             {"parts": [{"type": "text", "text": text}]},
         )
-        print(f"task{target} -> session {r['session']}: sent")
+        print(f"task{target} -> {role} session {r[key]}: sent")
         return
-    print(f"task{target} not found in {RESULTS}")
+    print(f"task{target} ({role}) not found in {RESULTS}")
 
 
 if __name__ == "__main__":

@@ -1,9 +1,11 @@
 #!/usr/bin/env python
-"""轮询子会话状态 + 读完成会话的最终汇报。
-用法：python -X utf8 status.py [status|report <task编号>]
+"""轮询状态 + 读完成会话的汇报。
+用法：python -X utf8 status.py [status|report <task编号>|mreport <task编号>]
 
+status：监视会话状态（主工作区一次查全部）+ 各任务会话状态（各自沙箱 directory 单查；
+        /session/status 按 directory 实例隔离，沙箱里的任务会话必须用沙箱路径查）。
+report <n>：任务会话最新汇报；mreport <n>：监视会话最新汇报。
 依赖 dispatch.py 落盘的映射 JSON；SERVER/HOME/RESULTS 按本次任务实际路径改。
-子会话全在主工作区 directory 下，一次 status 查全部。
 """
 
 import base64
@@ -16,9 +18,11 @@ import urllib.request
 SERVER = "http://127.0.0.1:19527"
 HOME = "E:/work/AI/Aether/aether-dev"  # 主工作区（与 dispatch.py 的 HOME 一致）
 RESULTS = "E:/work/AI/Aether/dispatch-results.json"
-MODE = sys.argv[1] if len(sys.argv) > 1 else "status"  # status | report <task编号>
+MODE = (
+    sys.argv[1] if len(sys.argv) > 1 else "status"
+)  # status | report <n> | mreport <n>
 
-q = urllib.parse.quote(HOME, safe="")
+home_q = urllib.parse.quote(HOME, safe="")
 
 
 def api(path):
@@ -31,33 +35,56 @@ def api(path):
         return json.loads(r.read().decode("utf-8"))
 
 
+def state(directory_q, sid):
+    try:
+        return (
+            api(f"/session/status?directory={directory_q}")
+            .get(sid, {})
+            .get("type", "not-found")
+        )
+    except Exception as err:
+        return f"status-error: {err}"
+
+
+def report(sid, directory_q, label):
+    msgs = api(f"/session/{sid}/message?directory={directory_q}")
+    keys = ("Issue", "PR", "github.com", "完成", "PASS", "受阻")
+    texts = [
+        p.get("text", "")
+        for m in msgs
+        for p in m.get("parts", [])
+        if p.get("text") and any(k in p.get("text") for k in keys)
+    ]
+    print(texts[-1][:2000] if texts else f"NO_FINAL_REPORT ({label})")
+
+
 results = json.load(open(RESULTS, encoding="utf-8"))
 
 if MODE == "status":
     try:
-        st = api(f"/session/status?directory={q}")
+        mons = api(f"/session/status?directory={home_q}")
     except Exception as err:
-        st = {}
-        print(f"status error: {err}")
+        mons = {}
+        print(f"monitor status error: {err}")
     for r in results:
-        if "session" not in r:
+        if "monitor" not in r:
             print(f"task{r['task']}: dispatch FAILED")
             continue
-        state = st.get(r["session"], {}).get("type", "not-found")
-        print(f"task{r['task']} {r['session']}: {state}")
-elif MODE == "report":
+        mon = mons.get(r["monitor"], {}).get("type", "not-found")
+        task = state(urllib.parse.quote(r["worktree"], safe=""), r["session"])
+        print(
+            f"task{r['task']}: monitor {r['monitor']}={mon} | task {r['session']}={task}"
+        )
+elif MODE in ("report", "mreport"):
     target = sys.argv[2]
+    key = "session" if MODE == "report" else "monitor"
     for r in results:
-        if str(r["task"]) != target or "session" not in r:
+        if str(r["task"]) != target or key not in r:
             continue
-        msgs = api(f"/session/{r['session']}/message?directory={q}")
-        texts = []
-        for m in msgs:
-            for p in m.get("parts", []):
-                t = p.get("text", "")
-                if t and any(k in t for k in ("Issue", "PR", "github.com", "完成")):
-                    texts.append(t)
-        print(texts[-1][:2000] if texts else "NO_FINAL_REPORT")
+        q = home_q if MODE == "mreport" else urllib.parse.quote(r["worktree"], safe="")
+        report(r[key], q, MODE)
         break
     else:
-        print(f"task{target} not found in {RESULTS}")
+        print(f"task{target} ({key}) not found in {RESULTS}")
+else:
+    print(f"bad mode: {MODE}")
