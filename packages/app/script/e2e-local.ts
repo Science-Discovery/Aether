@@ -41,6 +41,7 @@ const serverEnv = {
   OPENCODE_DISABLE_SHARE: process.env.OPENCODE_DISABLE_SHARE ?? "true",
   OPENCODE_DISABLE_LSP_DOWNLOAD: "true",
   OPENCODE_DISABLE_DEFAULT_PLUGINS: "true",
+  OPENCODE_DISABLE_MOBILE: "true",
   OPENCODE_EXPERIMENTAL_DISABLE_FILEWATCHER: "true",
   OPENCODE_TEST_HOME: path.join(sandbox, "home"),
   XDG_DATA_HOME: path.join(sandbox, "share"),
@@ -66,7 +67,7 @@ const runnerEnv = {
   PLAYWRIGHT_SERVER_PORT: String(serverPort),
   VITE_OPENCODE_SERVER_HOST: "127.0.0.1",
   VITE_OPENCODE_SERVER_PORT: String(serverPort),
-  PLAYWRIGHT_PORT: String(webPort),
+  PLAYWRIGHT_PORT_RESOLVED: String(webPort),
 } satisfies Record<string, string>
 
 let seed: ReturnType<typeof Bun.spawn> | undefined

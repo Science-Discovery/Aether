@@ -293,6 +293,10 @@ export const GlobalRoutes = lazy(() =>
         },
       }),
       async (c) => {
+        const run = c.req.query("run")
+        if (run && process.env.OPENCODE_E2E_RUN_ID && run !== process.env.OPENCODE_E2E_RUN_ID) {
+          return c.json({ error: "run mismatch" }, 404)
+        }
         return c.json({
           healthy: true as const,
           version: await readWebCurrentVersion(),

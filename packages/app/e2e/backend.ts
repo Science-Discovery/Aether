@@ -1,12 +1,13 @@
 import { spawn } from "node:child_process"
-import fs from "node:fs/promises"
-import os from "node:os"
+import { randomUUID } from "node:crypto"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 import { freePort } from "./port"
+import { claim, create, remove, sweep } from "./sandbox"
 
 type Handle = {
   url: string
+  run: string
   stop: () => Promise<void>
 }
 
@@ -52,6 +53,7 @@ function tail(input: string[]) {
 }
 
 export async function startBackend(label: string, input?: { llmUrl?: string }): Promise<Handle> {
+  await sweep()
   try {
     return await launch(label, input)
   } catch (first) {
@@ -62,7 +64,8 @@ export async function startBackend(label: string, input?: { llmUrl?: string }): 
 
 async function launch(label: string, input?: { llmUrl?: string }): Promise<Handle> {
   const port = await freePort()
-  const sandbox = await fs.mkdtemp(path.join(os.tmpdir(), `opencode-e2e-${label}-`))
+  const run = randomUUID()
+  const sandbox = await create(label)
   const appDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..")
   const repoDir = path.resolve(appDir, "../..")
   const opencodeDir = path.join(repoDir, "packages", "opencode")
@@ -70,6 +73,7 @@ async function launch(label: string, input?: { llmUrl?: string }): Promise<Handl
     ...process.env,
     OPENCODE_DISABLE_LSP_DOWNLOAD: "true",
     OPENCODE_DISABLE_DEFAULT_PLUGINS: "true",
+    OPENCODE_DISABLE_MOBILE: "true",
     OPENCODE_EXPERIMENTAL_DISABLE_FILEWATCHER: "true",
     OPENCODE_TEST_HOME: path.join(sandbox, "home"),
     XDG_DATA_HOME: path.join(sandbox, "share"),
@@ -80,6 +84,7 @@ async function launch(label: string, input?: { llmUrl?: string }): Promise<Handl
     OPENCODE_STRICT_CONFIG_DEPS: "true",
     OPENCODE_SERVER_USERNAME: "",
     OPENCODE_SERVER_PASSWORD: "",
+    OPENCODE_E2E_RUN_ID: run,
     OPENCODE_E2E_LLM_URL: input?.llmUrl,
   } satisfies Record<string, string | undefined>
   const out: string[] = []
@@ -101,14 +106,19 @@ async function launch(label: string, input?: { llmUrl?: string }): Promise<Handl
     err.push(String(chunk))
     trim(err)
   })
+  await claim(sandbox, proc.pid)
 
   const url = `http://127.0.0.1:${port}`
   try {
-    await waitForHealth(url, proc)
+    await waitForHealth(url, proc, `/global/health?run=${run}`)
   } catch (error) {
     proc.kill("SIGTERM")
     await waitExit(proc)
-    await fs.rm(sandbox, { recursive: true, force: true }).catch(() => undefined)
+    if (!done(proc)) {
+      proc.kill("SIGKILL")
+      await waitExit(proc)
+    }
+    await remove(sandbox)
     throw new Error(
       [
         `Failed to start isolated e2e backend for ${label}`,
@@ -123,6 +133,7 @@ async function launch(label: string, input?: { llmUrl?: string }): Promise<Handl
 
   return {
     url,
+    run,
     async stop() {
       if (!done(proc)) {
         proc.kill("SIGTERM")
@@ -132,7 +143,11 @@ async function launch(label: string, input?: { llmUrl?: string }): Promise<Handl
         proc.kill("SIGKILL")
         await waitExit(proc)
       }
-      await fs.rm(sandbox, { recursive: true, force: true }).catch(() => undefined)
+      if (!done(proc)) {
+        console.warn(`[e2e] backend ${label} (pid ${proc.pid}) did not exit; sandbox ${sandbox} left for sweep`)
+        return
+      }
+      await remove(sandbox)
     },
   }
 }
