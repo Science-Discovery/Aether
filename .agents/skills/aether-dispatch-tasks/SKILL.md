@@ -70,11 +70,12 @@ description: 在 Aether (aether-dev) 中执行开发任务（修复 bug/漏洞/�
    - 全部 `prompt_async` 立即返回 204，并行不阻塞；body 可带可选 `model`（一般只给任务会话指定模型，监视会话用默认即可）。
    - 落盘 task↔任务会话↔监视会话↔worktree 映射 JSON（供监控与异常介入用）。
 4. **权限与模型**（派发时设定；默认继承，可按任务覆盖）：
-   - **权限**：`permission` 是规则数组 `[{permission: "<工具名>", pattern: "*", action: "allow"}]`。**默认继承当前派发 agent 的会话权限**：先 `GET /session/<当前sessionID>` 读出本会话 `permission` 字段，原样传入新会话 body（任务会话与监视会话都传；注意 worktree 只隔离 git 历史不隔离文件系统，`pattern: "*"` 的 allow 不限制路径，安全性取决于对 agent 的信任）。派发者无显式规则集时给最小 allow 集（bash/edit/write），否则 headless 会话卡在默认 `ask` 上无人应答。可按任务收紧/覆盖，如任务会话的 edit/write pattern 限定为 `<沙箱>/**` 防手滑（但 bash `*` 全开时这只是防手滑，不是安全边界）。
+   - **权限（必须全开，否则卡死一大片）**：任务/监视会话都是 headless，任何落到默认 `ask` 的工具调用都会永久等待、该会话停摆并卡住看护链。推荐直接通配 `[{"permission": "*", "pattern": "*", "action": "allow"}]`（9+9 会话实测零卡权限；最小 bash/edit/write 集不够，`task`/`webfetch` 等同样触发 ask）。也可 `GET /session/<当前sessionID>` 继承派发者权限（派发者本就 `*` 全开时等价）。`pattern: "*"` 不限路径、worktree 不隔离文件系统，信任不足时再按任务收紧（仅防手滑，非安全边界）。
    - **模型**：`prompt_async` body 可带 `"model": {"providerID": "...", "modelID": "..."}`；**默认不传（子会话用当前默认模型）**，需要分模型跑任务时才按任务指定（派发脚本中 per-task MODEL，见 `scripts/dispatch.py` 的 TASKS 表）。
 5. 任务书必须包含（模板见 `references/task-prompt.md`）：
    - 目标 + 参考报告路径 + 沙箱路径说明（会话已建在沙箱内，cwd 即沙箱）。
    - 准备步骤（`git fetch origin dev` → `git checkout -b <branch> origin/dev`；fetch 遇 ref lock 等 2 秒重试最多 3 次）。
+   - **全新实现（禁止复用残留）**：每个沙箱对分配的任务必须基于 `origin/dev` 新分支**从零实现**。历史残留（上批中断留下的本地/远端分支、已关闭 PR、他人旧实现）**只可读作参考**——禁止 checkout 残留分支继续写、禁止把残留提交作为 PR head、禁止"验证一下没问题就采纳"。PR 中可以（也应该）引用残留实现做对照说明（采纳了什么思路、为什么重做），但代码必须是本会话新写并由自己的测试验证。
    - 先读码确认问题在当前基线仍存在；不存在则停下汇报，不开 issue/PR。
    - **历史修复考古**（修 bug/功能类任务必做）：查 GitHub closed issue/PR 与 `git log -S` 历史修复提交；发现修过但 bug 仍在时，必须弄清"为什么没修好/为何复现"（补丁被绕过/覆盖窗口不同/后续改动破坏），结论写进 issue 与 PR——复现类 bug 优先从"上次为何没修住"找根因（见模板准备步骤第 4 条）。
    - 修复要求：优雅、健壮、最小侵入，遵循仓库 AGENTS.md 风格；**边界条件专项检查**（概念+枚举清单都要传给任务会话，枚举仅是起点须按功能语义自行补全，见模板"修复要求"）。
@@ -88,7 +89,15 @@ description: 在 Aether (aether-dev) 中执行开发任务（修复 bug/漏洞/�
 
 ## 看门监控（主 agent 持续职责，直到所有任务完成）
 
-主 agent 只看门**监视子会话**（都建在主工作区 directory，一次 status 查全部）；沙箱里任务会话的看护是监视子会话的职责，主 agent 不直接管：
+**保活前提（必须）**：会话以工具调用存活——**用文字结束回合 = 会话结束 = 没人看门**。看门期间不许输出文字后停回合，用 sleep 轮询循环持续调用工具（主 agent 与监视子会话同理，后者模板已内置 `bash sleep 90` 循环）。建议脚本（单条 sleep ≤115s 防撞 2 分钟命令超时；Bash 工具 `timeout` 参数设大于循环总时长，如 420000ms）：
+
+```bash
+# watchdog.py 自备：读 dispatch-results.json 逐个查监视会话，busy/retry 跳过；
+# 消失的读最终汇报——review PASS 记入 released，否则给出续跑依据
+for i in 1 2 3; do sleep 115; python -X utf8 <workdir>/watchdog.py; done
+```
+
+主 agent 只看门**监视子会话**（都在主工作区，一次 status 查全部）；任务会话的看护是监视子会话的职责（按 `references/monitor-prompt.md` 全自动循环：轮询→续跑→核实 CI→subagent review→PR comment→返工循环到 PASS→最终汇报），主 agent 不干预其内部循环：
 
 1. `GET /session/status?directory=<主工作区>`：一次返回所有监视子会话状态，形如 `{"ses_xxx":{"type":"busy"}}`。
 2. **busy = 在正常工作**（轮询任务会话，或 review 循环中），跳过。
@@ -99,10 +108,6 @@ description: 在 Aether (aether-dev) 中执行开发任务（修复 bug/漏洞/�
 4. 全部监视子会话都放行后，看门结束，派发任务整体收官（向用户总结各任务 PR/issue/review 结果）。
 
 监控期间主 agent 保持空闲可响应：监视会话的 review subagent 只阻塞监视会话自己，主 agent 不派任何 `task` subagent。侧边栏状态语义：任务会话的 busy 显示在**沙箱行**，监视子会话的 busy 显示在**主工作区**；沙箱行不 busy 而监视会话 busy = 监视会话在轮询等待（正常），两边同时长时间不 busy 才需要警惕。
-
-## 监视子会话的职责（了解即可，主 agent 不介入）
-
-监视子会话按 `references/monitor-prompt.md` 全自动工作（dispatch.py 派发时已把模板发给它）：轮询任务会话 → 停止未完成则发续跑 → PR 就绪后核实 CI 真绿 → 派只读 subagent review → 结果发 PR comment（FAIL 也发）→ FAIL 发返工指令给任务会话，复审循环到 PASS。主 agent 不干预其内部循环，只按上文看门监控判断放行/续跑；判"整体完成"的依据是监视会话最终汇报里 issue/PR/CI/review PASS 齐备。
 
 ## 本地 server API 关键命令（Windows 实测）
 
@@ -135,7 +140,9 @@ netstat -ano | grep "$OPENCODE_PID"        # 找 LISTENING 端口
 - 消息接口是单数 `message`；`messages` 会命中前端路由返回 HTML。
 - URL 参数 `directory` 要对完整路径做 quote（safe=""）。**任务会话的一切 API（status/message/prompt_async）都要带沙箱路径作 directory**；`/session/status` 的状态按 directory（实例）隔离，用主工作区路径查不到沙箱里任务会话的 busy。
 - 会话 directory 决定 bash cwd 与文件工具默认作用域：任务会话建在沙箱后 git/文件操作直接做（无需 git -C）；**监视子会话 cwd 仍是主工作区**——只许读文件与跑 gh/API 命令，禁止改主工作区与沙箱的业务文件。
-- 多沙箱并行时 CI runner 资源紧张，重载测试（如 packages/opencode 的 30s 超时类）偶发 flaky：先对照 dev 基线 run 判断是否环境性，是则单次有限重跑并记录原因，不算回归。
-- 共享 worktree 上可能残留其他沙箱实验的未提交改动：分配时用 `git -C <worktree> status --porcelain` 检查，不干净就换/新建；review 以已推送的 HEAD 提交为准；返工前让任务会话确认基线是自己的 PR head。
-- 新建 worktree 用 `git worktree add --detach <path> origin/dev`，编号取 `git worktree list` 中 sandbox 前缀最大编号 +1（不重号）；**不要**用 Aether 的 Worktree.create/UI 创建（连续创建触发 watcher.node segfault 闪退）。
-- 多沙箱并行跑 Playwright e2e：端口与数据沙箱本就按 run 隔离（freePort 动态端口、mkdtemp+XDG\_\* 沙箱、脚本 LLM 绑 port 0），但 ① `freePort()` 探测到真正 bind 之间有竞态窗口，本地 `reuseExistingServer=true` 会静默复用别的 run 起的服务——测试跑到别人 worktree 的代码上；② **禁止设置 `PLAYWRIGHT_SERVER_HOST`**（未配 PORT 时后端端口被硬编码为 4096，并行必串台）；③ 并行 vite 冷启动与 Windows 沙箱清理有资源挤兑/已知 flaky 面——e2e 失败先对照 dev 基线判断是否环境性（端口竞态/资源挤兑），单次有限重跑并记录，不要直接当回归修（风险点详见 issue：并行 e2e 隔离加固）。
+- 多沙箱并行时 CI 偶发 flaky（重载测试超时、vite 冷启动、runner 资源挤兑）：先对照 dev 基线 run 判断是否环境性，是则单次有限重跑并记录原因，不算回归。
+- 并行 e2e 隔离已由 PR #1376（issue #1363）在代码层闭环：自动分配端口永不复用、冲突报错（复用 dev server 须显式设 `PLAYWRIGHT_PORT`）；后端健康探测按 run id 门禁；`PLAYWRIGHT_SERVER_HOST` 必须配 `PORT` 否则快速报错；临时沙箱 claim(pid)/sweep 生命周期管理。无特殊注意，只需上一条的 flaky 判定流程。
+- **abort 语义**：subagent 工具调用挂死时，只 abort subagent 解除不了父会话的 `task` 等待——必须再 abort 父会话当前轮次；且 busy 期间 `prompt_async` 排队的消息 abort 后**不会自动处理**，会话空闲后要重发。介入序：abort subagent → abort 父会话 → 确认 GONE → 重发指令 → 确认重新 busy。
+- **挂死判读用 tool part 时间戳**，不是文本尾部（长工具调用本来就没文本）：`read`/`grep` 卡 `running` 几分钟即挂死，每 10-15 分钟巡检一次；文本不动而 tool parts 持续更新 = 正常长任务。
+- **`busy` 与 `retry` 都算活着**（retry=限流自动重试），从 status 消失才读汇报核实；会话查询必须用**完整 session ID**（截断前缀会 404 "Session not found" 误导排障）。
+- **账户限流是并行批次第一杀手**：症状为空响应、批量 `read:error`、会话无声停止。派发与唤醒都错峰（~75s 间隔）；命中后等窗口过去再错峰重发续跑指令。任务会话限流多能被内置 retry 自愈，监视会话停摆才需主 agent 介入。
