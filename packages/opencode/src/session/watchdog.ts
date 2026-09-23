@@ -17,8 +17,33 @@ export namespace SessionWatchdog {
 
   type Row = typeof SessionRetryTable.$inferSelect
 
+  // Old project DBs never receive migrations added after their creation
+  // (initAndSetupProject backfills the drizzle journal as-applied), so the
+  // session_retry table may be missing. Every access must ensure it exists
+  // first: a missing table here breaks cancel() — the session stays busy
+  // forever and the stop button dies with it.
+  function ensure(projectID: string) {
+    const db = Database.projectClient(projectID)
+    const has = db.$client.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='session_retry'").get()
+    if (has) return
+    db.$client.exec(`
+      CREATE TABLE IF NOT EXISTS \`session_retry\` (
+        \`session_id\` text PRIMARY KEY,
+        \`message_id\` text NOT NULL,
+        \`started_at\` integer NOT NULL,
+        \`next_at\` integer NOT NULL,
+        \`attempts\` integer NOT NULL,
+        \`message\` text NOT NULL,
+        \`time_created\` integer NOT NULL,
+        \`time_updated\` integer NOT NULL,
+        CONSTRAINT \`fk_session_retry_session_id_session_id_fk\` FOREIGN KEY (\`session_id\`) REFERENCES \`session\`(\`id\`) ON DELETE CASCADE
+      );
+    `)
+  }
+
   async function record(sessionID: SessionID) {
     const session = await Session.getGlobal(sessionID)
+    ensure(session.projectID)
     return Database.useProject(session.projectID, (db) =>
       db.select().from(SessionRetryTable).where(eq(SessionRetryTable.session_id, sessionID)).get(),
     )
@@ -103,6 +128,7 @@ export namespace SessionWatchdog {
       return undefined
     })
     if (!session) return
+    ensure(session.projectID)
     await Database.useProject(session.projectID, (db) =>
       db.delete(SessionRetryTable).where(eq(SessionRetryTable.session_id, sessionID)),
     )
@@ -171,6 +197,7 @@ export namespace SessionWatchdog {
   // Re-arm waits persisted before a restart and re-publish their retry status
   // so the UI shows the session as still waiting. Runs inside instance boot.
   export async function recover() {
+    ensure(Instance.project.id)
     const rows = Database.useProject(Instance.project.id, (db) => db.select().from(SessionRetryTable).all())
     const now = Date.now()
     for (const row of rows) {
