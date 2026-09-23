@@ -47,6 +47,7 @@ import { Tool } from "@/tool/tool"
 import { Permission } from "@/permission"
 import { SessionPreference } from "./preference"
 import { SessionStatus } from "./status"
+import { Todo } from "./todo"
 import { LLM } from "./llm"
 import { iife } from "@/util/iife"
 import { Shell } from "@/shell/shell"
@@ -358,6 +359,8 @@ export namespace SessionPrompt {
         await SessionStatus.set(sessionID, { type: "busy" })
         log.info("loop", { step, sessionID })
         if (abort.aborted) break
+        // clients that missed todo.updated events converge here (see Todo.publish)
+        await Todo.publish(sessionID)
         let msgs = await MessageV2.filterCompacted(MessageV2.stream(sessionID))
 
         let lastUser: MessageV2.User | undefined
