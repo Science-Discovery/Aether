@@ -12,9 +12,25 @@ import { Filesystem } from "../../util/filesystem"
 import { setKnowledgeConfig, getKnowledgeConfig } from "../../tool/knowledge"
 import path from "path"
 import os from "os"
-import { readdir, mkdir, rename } from "fs/promises"
+import { readdir, mkdir, rename, realpath } from "fs/promises"
 
 const log = Log.create({ service: "knowledge" })
+
+// Constrain a user-supplied path to knowledge base directories: the path (or,
+// after symlink resolution, one of its ancestors) must be a real knowledge
+// base root on disk. Returns the resolved path when allowed.
+async function confine(target: string): Promise<string | undefined> {
+  if (!path.isAbsolute(target)) return undefined
+  const resolved = path.resolve(target)
+  const real = (await realpath(resolved).catch(() => undefined)) ?? resolved
+  let dir = real
+  while (true) {
+    if (await Storage.isKnowledgeBase(dir)) return real
+    const parent = path.dirname(dir)
+    if (parent === dir) return undefined
+    dir = parent
+  }
+}
 
 // Knowledge state lives in its own file so the desktop electron-store, which
 // rewrites aether.global.dat whole from an in-memory copy, can never drop or
@@ -417,6 +433,58 @@ export const KnowledgeRoutes = lazy(() =>
         return c.json(config ?? {})
       },
     )
+    // 获取文档文件内容 - 用于在网页中预览
+    // NOTE: 必须在 /:path{.+} 之前注册，否则会被 catch-all 路由拦截（Hono 按注册顺序匹配）
+    .get("/file", async (c) => {
+      const url = new URL(c.req.url)
+      const filePath = url.searchParams.get("path")
+
+      if (!filePath) {
+        return c.json({ error: "Missing path parameter" }, 400)
+      }
+
+      const allowed = await confine(filePath)
+      if (!allowed) {
+        return c.json({ error: "Access denied: path is outside knowledge base directories" }, 403)
+      }
+
+      try {
+        const file = Bun.file(allowed)
+        const exists = await file.exists()
+
+        if (!exists) {
+          return c.json({ error: "File not found" }, 404)
+        }
+
+        const data = await file.arrayBuffer()
+        const filename = path.basename(allowed) || "document.pdf"
+        const ext = filename.split(".").pop()?.toLowerCase() || ""
+        const type =
+          ext === "pdf"
+            ? "application/pdf"
+            : ext === "md" || ext === "markdown"
+              ? "text/markdown; charset=utf-8"
+              : ext === "txt" || ext === "tex" || ext === "rst"
+                ? "text/plain; charset=utf-8"
+                : ext === "json"
+                  ? "application/json; charset=utf-8"
+                  : ext === "yaml" || ext === "yml"
+                    ? "application/yaml; charset=utf-8"
+                    : ext === "csv"
+                      ? "text/csv; charset=utf-8"
+                      : "application/octet-stream"
+
+        return new Response(data, {
+          headers: {
+            "Content-Type": type,
+            "Content-Disposition": `inline; filename="${filename}"`,
+          },
+        })
+      } catch (err) {
+        log.error("Failed to read document file", { path: allowed, error: err })
+        return c.json({ error: "Failed to read file" }, 500)
+      }
+    })
     // 获取知识库统计信息
     // NOTE: 必须在 GET /:path{.+} 之前注册！否则 /:path{.+} 会贪婪匹配整个路径
     // 包括 /stats 后缀，导致 stats 请求被错误地路由到 GET /:path{.+} 处理器，
@@ -614,6 +682,13 @@ export const KnowledgeRoutes = lazy(() =>
         const errors: string[] = []
 
         for (const src of opts.paths) {
+          const from = await confine(src)
+          if (!from) {
+            skipped++
+            errors.push(`Source is outside knowledge base directories: ${src}`)
+            continue
+          }
+
           const ext = path.extname(src).toLowerCase()
           if (!allow.has(ext)) {
             skipped++
@@ -621,8 +696,7 @@ export const KnowledgeRoutes = lazy(() =>
             continue
           }
 
-          const from = Bun.file(src)
-          if (!(await from.exists())) {
+          if (!(await Bun.file(from).exists())) {
             skipped++
             errors.push(`File not found: ${src}`)
             continue
@@ -641,7 +715,7 @@ export const KnowledgeRoutes = lazy(() =>
           }
 
           try {
-            const data = await from.arrayBuffer()
+            const data = await Bun.file(from).arrayBuffer()
             await Bun.write(to, new Uint8Array(data))
             added++
           } catch (err: any) {
@@ -677,6 +751,10 @@ export const KnowledgeRoutes = lazy(() =>
       async (c) => {
         const dir = decodeURIComponent(c.req.param("path"))
         log.info("deleting knowledge base", { path: dir })
+
+        if (!path.isAbsolute(dir) || !(await Storage.isKnowledgeBase(dir))) {
+          return c.json({ error: "Knowledge base not found" }, 404)
+        }
 
         await Knowledge.remove(dir)
         return c.json({ ok: true })
@@ -826,51 +904,5 @@ export const KnowledgeRoutes = lazy(() =>
         const updatedIndex = await Knowledge.removeDocument(dir, index, documentId)
         return c.json(updatedIndex)
       },
-    )
-    // 获取文档文件内容 - 用于在网页中预览
-    .get("/file", async (c) => {
-      const url = new URL(c.req.url)
-      const filePath = url.searchParams.get("path")
-
-      if (!filePath) {
-        return c.json({ error: "Missing path parameter" }, 400)
-      }
-
-      try {
-        const file = Bun.file(filePath)
-        const exists = await file.exists()
-
-        if (!exists) {
-          return c.json({ error: "File not found" }, 404)
-        }
-
-        const data = await file.arrayBuffer()
-        const filename = filePath.split("/").pop() || "document.pdf"
-        const ext = filename.split(".").pop()?.toLowerCase() || ""
-        const type =
-          ext === "pdf"
-            ? "application/pdf"
-            : ext === "md" || ext === "markdown"
-              ? "text/markdown; charset=utf-8"
-              : ext === "txt" || ext === "tex" || ext === "rst"
-                ? "text/plain; charset=utf-8"
-                : ext === "json"
-                  ? "application/json; charset=utf-8"
-                  : ext === "yaml" || ext === "yml"
-                    ? "application/yaml; charset=utf-8"
-                    : ext === "csv"
-                      ? "text/csv; charset=utf-8"
-                      : "application/octet-stream"
-
-        return new Response(data, {
-          headers: {
-            "Content-Type": type,
-            "Content-Disposition": `inline; filename="${filename}"`,
-          },
-        })
-      } catch (err) {
-        log.error("Failed to read document file", { path: filePath, error: err })
-        return c.json({ error: "Failed to read file" }, 500)
-      }
-    }),
+    ),
 )
