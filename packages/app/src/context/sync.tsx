@@ -1,4 +1,4 @@
-import { batch, createMemo } from "solid-js"
+import { batch, createMemo, onCleanup } from "solid-js"
 import { createStore, produce, reconcile } from "solid-js/store"
 import { Binary } from "@opencode-ai/util/binary"
 import { base64Encode } from "@opencode-ai/util/encode"
@@ -217,6 +217,24 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
       complete: {} as Record<string, boolean>,
       loading: {} as Record<string, boolean>,
     })
+
+    // SSE reconnects replay no missed events: drop cached message paging state so
+    // the next sync refetches from the server. Message stores stay visible and
+    // optimistic entries are untouched until fresh data confirms them.
+    onCleanup(
+      globalSync.onReconnect(() => {
+        for (const [directory, sessions] of seen) {
+          clearSessionPrefetch(directory, sessions)
+          setMeta(
+            produce((draft) => {
+              for (const sessionID of sessions) {
+                invalidateSessionMessageCacheMeta(draft, { directory, sessionID })
+              }
+            }),
+          )
+        }
+      }),
+    )
 
     const downgrade = (directory: string, sessionID: string, err: unknown) => {
       if (!scopeError(err)) throw err

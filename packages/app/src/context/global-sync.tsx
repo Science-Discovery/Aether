@@ -29,6 +29,7 @@ import { useGlobalSDK } from "./global-sdk"
 import { bootstrapDirectory, bootstrapGlobal } from "./global-sync/bootstrap"
 import { createChildStoreManager } from "./global-sync/child-store"
 import { applyDirectoryEvent, applyGlobalEvent, cleanupDroppedSessionCaches } from "./global-sync/event-reducer"
+import { createReconnectTracker } from "./global-sync/reconnect"
 import { createRefreshQueue } from "./global-sync/queue"
 import { createProviderRefresh } from "./global-sync/provider-refresh"
 import { clearSessionPrefetchDirectory, resetSessionPrefetch } from "./global-sync/session-prefetch"
@@ -202,6 +203,8 @@ function createGlobalSync() {
   }
 
   const paused = () => untrack(() => globalStore.reload) !== undefined
+
+  const reconnects = createReconnectTracker()
 
   const queue = createRefreshQueue({
     paused,
@@ -463,6 +466,7 @@ function createGlobalSync() {
         for (const directory of Object.keys(children.children)) {
           queue.push(directory)
         }
+        if (event.type === "server.connected") reconnects.fire()
       }
       return
     }
@@ -643,6 +647,10 @@ function createGlobalSync() {
     peek: children.peek,
     bootstrap,
     updateConfig,
+    onReconnect: (hook: () => void) => reconnects.listen(hook),
+    get reconnected() {
+      return reconnects.count
+    },
     provider: {
       refresh: refreshProviders,
     },

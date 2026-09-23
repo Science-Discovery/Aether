@@ -11,10 +11,13 @@ type Handle = {
   stop: () => Promise<void>
 }
 
-async function waitForHealth(url: string, probe = "/global/health") {
+async function waitForHealth(url: string, proc: ReturnType<typeof spawn>, probe = "/global/health") {
   const end = Date.now() + 120_000
   let last = ""
   while (Date.now() < end) {
+    if (done(proc)) {
+      throw new Error(`backend exited with code ${proc.exitCode ?? "signal " + proc.signalCode}`)
+    }
     try {
       const res = await fetch(`${url}${probe}`)
       if (res.ok) return
@@ -51,6 +54,15 @@ function tail(input: string[]) {
 
 export async function startBackend(label: string, input?: { llmUrl?: string }): Promise<Handle> {
   await sweep()
+  try {
+    return await launch(label, input)
+  } catch (first) {
+    console.warn(`[e2e] backend start failed for ${label}, retrying once`, first)
+    return await launch(label, input)
+  }
+}
+
+async function launch(label: string, input?: { llmUrl?: string }): Promise<Handle> {
   const port = await freePort()
   const run = randomUUID()
   const sandbox = await create(label)
@@ -98,7 +110,7 @@ export async function startBackend(label: string, input?: { llmUrl?: string }): 
 
   const url = `http://127.0.0.1:${port}`
   try {
-    await waitForHealth(url, `/global/health?run=${run}`)
+    await waitForHealth(url, proc, `/global/health?run=${run}`)
   } catch (error) {
     proc.kill("SIGTERM")
     await waitExit(proc)

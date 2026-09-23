@@ -409,7 +409,7 @@ export function DialogSelectDirectory(props: DialogSelectDirectoryProps) {
       dialog.show(() => <DialogCreateDirectory path={path} onClose={done} />)
     })
 
-  const fetchApi = async (urlPath: string, options: RequestInit = {}): Promise<Response> => {
+  const fetchApi = async (urlPath: string, options: RequestInit = {}, contextDir?: string): Promise<Response> => {
     const baseUrl = sdk.url
     const s = server.current?.http
     const authHeader: Record<string, string> = s?.password
@@ -421,7 +421,7 @@ export function DialogSelectDirectory(props: DialogSelectDirectoryProps) {
       ...((options.headers as Record<string, string>) ?? {}),
     }
     const separator = urlPath.includes("?") ? "&" : "?"
-    const dir = sync.data.path.directory || start() || ""
+    const dir = contextDir ?? (sync.data.path.directory || start() || "")
     return fetch(`${baseUrl}${urlPath}${separator}directory=${encodeURIComponent(dir)}`, {
       ...options,
       headers,
@@ -440,7 +440,9 @@ export function DialogSelectDirectory(props: DialogSelectDirectoryProps) {
       absolute = trimTrailing(joinPath(start() ?? "", raw))
     }
 
-    const check = await fetchApi(`/file/check-directory?path=${encodeURIComponent(absolute)}`).catch(() => null)
+    const check = await fetchApi(`/file/check-directory?path=${encodeURIComponent(absolute)}`, {}, absolute).catch(
+      () => null,
+    )
     if (!check) {
       showToast({ variant: "error", title: language.t("common.requestFailed") })
       return
@@ -458,10 +460,14 @@ export function DialogSelectDirectory(props: DialogSelectDirectoryProps) {
 
     setCreating(true)
     try {
-      const res = await fetchApi("/file/ensure-directory", {
-        method: "POST",
-        body: JSON.stringify({ path: absolute }),
-      })
+      const res = await fetchApi(
+        "/file/ensure-directory",
+        {
+          method: "POST",
+          body: JSON.stringify({ path: absolute }),
+        },
+        absolute,
+      )
       if (!res.ok) {
         const body = await res.json().catch(() => ({}))
         showToast({ variant: "error", title: body.error ?? language.t("common.requestFailed") })

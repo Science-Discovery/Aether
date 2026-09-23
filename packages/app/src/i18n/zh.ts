@@ -1131,6 +1131,8 @@ export const dict = {
     "设置审查栏每次加载多少个文件变更，“加载更多”也会按这个数量继续加载。",
   "settings.general.row.reasoningSummaries.title": "显示推理摘要",
   "settings.general.row.reasoningSummaries.description": "在时间线中显示模型推理摘要",
+  "settings.general.row.autoGitInit.title": "自动创建 Git 仓库",
+  "settings.general.row.autoGitInit.description": "创建项目时自动初始化 Git 仓库并启用工作区",
   "settings.general.row.debugBar.title": "显示调试栏",
   "settings.general.row.debugBar.description": "在右下角显示开发性能调试栏",
   "settings.general.row.shellToolPartsExpanded.title": "展开 shell 工具部分",

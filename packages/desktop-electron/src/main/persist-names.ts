@@ -9,6 +9,12 @@ function scoped(name: string, from: string, to: string) {
   return `${to}${name.slice(from.length)}`
 }
 
+const PATTERN = /^[A-Za-z0-9._-]+$/
+
+export function valid(name: unknown) {
+  return typeof name === "string" && PATTERN.test(name) && name !== "." && name !== ".."
+}
+
 export function storeName(name: string) {
   if (name === LEGACY_SETTINGS_STORE) return SETTINGS_STORE
   if (name === SETTINGS_STORE) return SETTINGS_STORE

@@ -672,6 +672,8 @@ export const dict = {
   "settings.general.row.followup.option.steer": "조종",
   "settings.general.row.reasoningSummaries.title": "추론 요약 표시",
   "settings.general.row.reasoningSummaries.description": "타임라인에 모델 추론 요약 표시",
+  "settings.general.row.autoGitInit.title": "Git 저장소 자동 생성",
+  "settings.general.row.autoGitInit.description": "프로젝트 생성 시 Git 저장소를 자동으로 초기화하고 작업 공간을 활성화합니다",
   "settings.general.row.shellToolPartsExpanded.title": "shell 도구 파트 펼치기",
   "settings.general.row.shellToolPartsExpanded.description":
     "타임라인에서 기본적으로 shell 도구 파트를 펼친 상태로 표시합니다",

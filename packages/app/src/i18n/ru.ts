@@ -740,6 +740,8 @@ export const dict = {
   "settings.general.row.followup.option.steer": "Направлять",
   "settings.general.row.reasoningSummaries.title": "Показывать сводки рассуждений",
   "settings.general.row.reasoningSummaries.description": "Отображать сводки рассуждений модели в ленте",
+  "settings.general.row.autoGitInit.title": "Автоматически создавать репозиторий Git",
+  "settings.general.row.autoGitInit.description": "Инициализирует репозиторий Git и включает рабочие пространства для новых проектов",
 
   "settings.general.row.shellToolPartsExpanded.title": "Разворачивать элементы инструмента shell",
   "settings.general.row.shellToolPartsExpanded.description":

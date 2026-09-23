@@ -1057,7 +1057,7 @@ function SessionPageContent(props: SessionPageProps = {}) {
   const hasScrollGesture = () => Date.now() - ui.scrollGesture < scrollGestureWindowMs
 
   createEffect(
-    on([() => sdk.directory, () => params.id] as const, ([, id]) => {
+    on([() => sdk.directory, () => params.id, () => globalSync.reconnected] as const, ([, id]) => {
       if (refreshFrame !== undefined) cancelAnimationFrame(refreshFrame)
       if (refreshTimer !== undefined) window.clearTimeout(refreshTimer)
       refreshFrame = undefined

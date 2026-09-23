@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { LEGACY_SETTINGS_STORE, SETTINGS_STORE, legacyStoreName, storeName } from "./persist-names"
+import { LEGACY_SETTINGS_STORE, SETTINGS_STORE, legacyStoreName, storeName, valid } from "./persist-names"
 
 describe("persist names", () => {
   test("maps settings store to aether", () => {
@@ -16,5 +16,41 @@ describe("persist names", () => {
   test("leaves neutral names unchanged", () => {
     expect(storeName("default.dat")).toBe("default.dat")
     expect(legacyStoreName("default.dat")).toBeUndefined()
+  })
+})
+
+describe("store name validation", () => {
+  test("accepts every name the app uses", () => {
+    const names = [
+      SETTINGS_STORE,
+      LEGACY_SETTINGS_STORE,
+      "default.dat",
+      "opencode.global.dat",
+      "aether.global.dat",
+      "opencode.workspace.abcdefgh1234.1a2b3c.dat",
+      "aether.workspace.x.y.dat",
+      ".hidden",
+      "a..b.dat",
+    ]
+    for (const name of names) expect(valid(name)).toBe(true)
+  })
+
+  test("rejects traversal and non-name inputs", () => {
+    const names: unknown[] = [
+      "",
+      "..",
+      ".",
+      "../../.config/aether/update-config.jsonc",
+      "a/../../b.dat",
+      "..\\evil.dat",
+      "C:\\Users\\x\\evil",
+      "/etc/passwd",
+      "..dat\\..\\x",
+      42,
+      null,
+      undefined,
+      {},
+    ]
+    for (const name of names) expect(valid(name)).toBe(false)
   })
 })
