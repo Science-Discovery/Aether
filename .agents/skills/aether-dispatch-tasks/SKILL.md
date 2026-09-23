@@ -1,11 +1,27 @@
 ---
 name: aether-dispatch-tasks
-description: 在 Aether (aether-dev) 中把多个独立任务派发到 worktree 沙箱（sandbox/多工作区/multi-worktree/并行会话/parallel agents）并行执行并管理其全生命周期：主 agent 在主工作区创建子会话，每个子会话领取一个任务并到主 agent 分配好的 worktree（复用或新建）中完成修复+测试+PR，随后子会话自身负责 review、PR comment、FAIL 返工循环到 PASS 放行（全自治）；主 agent 派发完只做看门监控：周期检查子会话是否还在工作、停了但没完成就发消息续跑、完成才移出监控。当用户提到把任务分配/派发给沙箱、sandbox、工作区、worktree 或多个会话/agents 并行执行时使用。
+description: 在 Aether (aether-dev) 中执行开发任务（修复 bug/漏洞/缺陷、实现/添加功能等）并管理全生命周期（修复+测试+issue+PR+review 闭环）。两种模式按用户措辞判定：用户强调"分配/派发"任务（到沙箱/工作区/多会话/并行 agents）→ 多沙箱模式（主 agent 在主工作区建子会话，每任务一个 worktree，全自治修复+review，主 agent 看门监控）；用户未强调分配派发 → 当前会话模式（不创建子会话、不创建沙箱，在当前会话直接完成同一套标准，含 subagent review 与返工决策）。当用户提到把任务分配/派发给沙箱、sandbox、工作区、worktree、多个会话/agents 并行执行，或要求修复 bug/漏洞、实现/添加功能等开发任务时使用。
 ---
 
-# 多沙箱任务派发与监控
+# 开发任务派发与执行
 
-## 架构总览
+## 模式判定（先于一切）
+
+- 用户明确要求**分配/派发**任务（提到派给沙箱、工作区、worktree、多个会话/agents 并行）→ **多沙箱模式**：走下文全流程（建子会话 + 分配 worktree + 看门监控）。
+- 用户只要求**修复 bug/漏洞/缺陷、实现/添加功能**等开发任务，**未强调分配派发** → **当前会话模式**：不创建子会话、不创建任何新会话、不创建沙箱/worktree，就在当前会话直接完成；其余标准与多沙箱模式完全一致（见下一节）。
+
+## 当前会话模式（未要求派发时的默认路径）
+
+不开子会话、不建沙箱/worktree、无看门监控；在当前会话、当前仓库工作区直接执行，质量标准与多沙箱模式一致：
+
+1. `git fetch origin dev` → `git checkout -b <branch> origin/dev` 在当前工作区切新分支（无 worktree，任务书里的 `git -C` / worktree 路径约定不适用）。
+2. 沿用 `references/task-prompt.md` 的全部标准节（把"分配的 worktree"换成当前工作区）：准备步骤含**历史修复考古**；修复要求含**边界条件专项检查**；测试要求两层（验证测试必须、入库回归测试按需）；提交与 PR 走 aether-issue-pr skill（禁止无 issue 的 PR，CI 跟踪到绿）。
+3. **review 闭环在当前会话内**：派 `task` subagent（general 类型，只读审查）review PR 代码 → 结果回传当前会话，**由当前会话做进一步决策** → review 结果必须发 PR comment（FAIL 也要发，公开审计）→ FAIL 则自己在当前会话返工（同一分支 push 同一 PR、CI 到绿）再派新 subagent 复审，循环到 PASS。subagent 阻塞当前会话没有关系——单任务没有可并行的工作。
+4. 完成后向用户最终汇报：issue/PR/分支/改动摘要/测试/CI/review 结论（PASS 与轮数）/考古结论。
+
+`scripts/dispatch.py`、`status.py`、`send-to-session.py` 与看门监控均不适用（没有子会话可监控）。
+
+## 架构总览（多沙箱模式）
 
 ```
 主 agent（主工作区）
@@ -16,18 +32,18 @@ description: 在 Aether (aether-dev) 中把多个独立任务派发到 worktree 
      └─ 任务完成 → 读最终汇报确认放行，移出监控
 
 子会话 i（directory=主工作区，全自治）
- ├─ 在分配的 worktree 里：fetch → checkout -b → 修复 → 回归测试 → issue+PR → CI 到绿
+ ├─ 在分配的 worktree 里：fetch → checkout -b → 修复 → 测试验证 → issue+PR → CI 到绿
  ├─ 派 subagent review 自己的 PR（阻塞的只是子会话自己，主 agent 不受影响）
  ├─ review 结果发 PR comment（必发，公开审计）
  ├─ FAIL → 自己返工（同一会话、同一 worktree）→ 复审循环，直到 PASS
  └─ PASS → 发最终汇报，会话结束
 ```
 
-关键设计：**不要用 `task` 工具在主 agent 层派 review subagent**（结果必须回传主 agent，只要有一个 subagent 在跑主 agent 就繁忙被阻塞）；也**不要为任务单独建 worktree 会话**。子会话统一建在主工作区，agent 用 bash 在 worktree 目录干活；review 放在子会话内部，阻塞的只有子会话自己——主 agent 始终空闲，可持续看门。偶发停止（模型中断、SSE 断连等）由看门循环兜底：不信任"会话从 status 消失=完成"，消失后必须读最终汇报核实。
+关键设计（多沙箱模式）：**不要用 `task` 工具在主 agent 层派 review subagent**（结果必须回传主 agent，只要有一个 subagent 在跑主 agent 就繁忙被阻塞）；也**不要为任务单独建 worktree 会话**。子会话统一建在主工作区，agent 用 bash 在 worktree 目录干活；review 放在子会话内部，阻塞的只有子会话自己——主 agent 始终空闲，可持续看门。（当前会话模式相反：review 就是用 `task` 工具在当前会话派，阻塞无妨。）偶发停止（模型中断、SSE 断连等）由看门循环兜底：不信任"会话从 status 消失=完成"，消失后必须读最终汇报核实。
 
-## 适用前提
+## 多沙箱模式适用前提
 
-- 有一批**相互独立**的任务（如 bug 修复列表），每任务一个子会话 + 一个 worktree。**即使只有一个任务，也完整走本流程**（建 1 个子会话 + 1 个 worktree、review 闭环、看门监控一样不少）——流程不为任务数量裁剪，保证质量门禁一致。
+- 用户要求把任务**分配/派发**出去，且有一批**相互独立**的任务（如 bug 修复列表），每任务一个子会话 + 一个 worktree。**即使只有一个任务，也完整走本流程**（建 1 个子会话 + 1 个 worktree、review 闭环、看门监控一样不少）——流程不为任务数量裁剪，保证质量门禁一致。
 - worktree 优先**复用已有的**（`git worktree list`）；被占用（有未提交改动）或不够时**新建**（见下）。沙箱目录上挂的分支名可能是旧任务残留，以任务书指定的**新分支**为准（从 `origin/dev` 切）。
 - 用户希望每个任务是一个可跟踪的"会话"（侧边栏可见、可随时点进去看进度）。
 
@@ -50,7 +66,7 @@ description: 在 Aether (aether-dev) 中把多个独立任务派发到 worktree 
    - 先读码确认问题在当前基线仍存在；不存在则停下汇报，不开 issue/PR。
    - **历史修复考古**（修 bug/功能类任务必做）：查 GitHub closed issue/PR 与 `git log -S` 历史修复提交；发现修过但 bug 仍在时，必须弄清"为什么没修好/为何复现"（补丁被绕过/覆盖窗口不同/后续改动破坏），结论写进 issue 与 PR——复现类 bug 优先从"上次为何没修住"找根因（见模板准备步骤第 4 条）。
    - 修复要求：优雅、健壮、最小侵入，遵循仓库 AGENTS.md 风格；**边界条件专项检查**（概念+枚举清单都要传给子会话，枚举仅是起点须按功能语义自行补全，见模板"修复要求"）。
-   - 测试要求：为失败场景写回归测试；bun test 从 package 目录跑（禁从仓库根）；Solid 响应式单测用 `*.vitest.ts`；bun typecheck 通过；需要时可用 Playwright e2e。
+   - 测试要求分两层：验证本次修改正确的临时测试（**必须**，工作验证手段，不必入库）+ 放入仓库保护相关功能的回归测试（**按需**自行决定，易复发/修复过又复现/竞态类建议入库，见模板"测试要求"）；bun test 从 package 目录跑（禁从仓库根）；Solid 响应式单测用 `*.vitest.ts`；bun typecheck 通过；需要时可用 Playwright e2e。
    - 提交流程：按 aether-issue-pr skill——**若无 issue 就先建 issue 再开 PR**，base=dev，`Closes #N`，跟踪 CI 到绿。
    - **review 自治闭环**（完成后在本会话内自行执行，见模板）：派 subagent review → 结果发 PR comment → FAIL 自返工循环 → PASS 才结束会话。
    - 边界：只修自己的任务，不顺手修别的；最终汇报 issue/PR/分支/改动/测试/CI/review 结论。
@@ -76,10 +92,10 @@ description: 在 Aether (aether-dev) 中把多个独立任务派发到 worktree 
 子会话完成任务后**必须在本会话内闭环 review，不得跳过、不得把 review 交回主 agent**：
 
 - 派 `task` subagent（general 类型）review 自己的 PR——只读审查，禁止改文件/提交。阻塞的只是子会话自己，主 agent 不受影响。
-- 审查清单：完整 diff（含测试/fixture）；修复语义与竞态推演；回归风险；测试判别力（**实测**：基线代码上失败、修复后通过）；CI 与 PR 描述真实性。
+- 审查清单：完整 diff（含测试/fixture）；修复语义与竞态推演；回归风险；测试判别力（**实测**：仓库内测试在基线代码上失败、修复后通过；未入库时核实验证测试的说明）；CI 与 PR 描述真实性。
 - 结论 PASS/FAIL；关键问题=功能错误/回归/竞态/数据丢失/测试无效（file:line + 失败场景 + 修复建议）。
 - **review 结果必须作为 comment 发布到对应 GitHub PR**（`gh pr comment <N> --repo Science-Discovery/Aether --body-file <file>`），FAIL 的也要发（公开审计，PR 上保留完整 review 历史）。
-- **FAIL**：子会话自己在同一 worktree 返工（附 PR 评论链接、逐条定位修复、补回归测试、push 同一 PR、CI 到绿），再派新 subagent 复审，循环到 PASS。
+- **FAIL**：子会话自己在同一 worktree 返工（附 PR 评论链接、逐条定位修复、补对应测试——验证测试必补、按需补入库回归测试、push 同一 PR、CI 到绿），再派新 subagent 复审，循环到 PASS。
 - **PASS**：非关键建议自行决定修不修（都接受），发最终汇报，结束会话。
 
 ## 本地 server API 关键命令（Windows 实测）
