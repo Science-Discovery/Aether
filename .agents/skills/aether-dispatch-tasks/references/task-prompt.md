@@ -21,6 +21,11 @@
 1. `git -C {WORKTREE} fetch origin dev`（如遇 ref lock 冲突，等 2 秒重试，最多 3 次）
 2. `git -C {WORKTREE} checkout -b {BRANCH} origin/dev`
 3. 读报告相关条目 + 相关源码（都在 `{WORKTREE}` 下），确认问题存在；若已不存在或与描述严重不符，停止修复，不开 issue 不开 PR，最终汇报里说明原因。
+4. **历史修复考古（修 bug/功能类任务必做）**：在 GitHub 仓库查这个 bug 之前有没有被修过：
+   - 搜 closed issue/PR：`gh search issues --repo Science-Discovery/Aether --state closed "<关键词>"`、`gh search prs --repo Science-Discovery/Aether --state closed "<关键词>"`；再 `git -C {WORKTREE} log --oneline origin/dev -S"<关键标识>" -- <相关文件>` 找历史修复提交。
+   - 找到过修复尝试 → 弄清楚**为什么 bug 仍然存在**（修了没修好/修好又复现）：读该 PR 的 diff 与讨论，对照当前代码确认补丁是否还在、覆盖路径是否与你观察到的失败场景一致（条件分支不同/竞态窗口/另一条调用路径绕过/后续改动又破坏了它）；把结论写进本任务的 issue 与 PR（说明与历史修复的关系、本次为何能真正修住，如新增回归测试锁定该场景）。
+   - 完全没有修复历史 → 跳过此步，正常流程。
+   - 这一步的结论影响修复方向：复现类 bug 优先排查"上次为什么没修住"（根因常在假设失效处），再决定补丁位置。
 
 ## 修复要求
 
@@ -53,7 +58,7 @@
 
 - 只修本任务，不要顺手修其他问题；不要修改参考报告文件本身；不要改动主工作区与其他 worktree 的文件。
 - {同文件相邻区域的其他并行任务提示（如有）：改动尽量局部化，PR 中注明可能冲突区域。}
-- 最终汇报：issue 链接、PR 链接、分支名、改动摘要、测试清单与结果、CI 状态、review 结论（PASS 与轮数）、PR comment 链接。
+- 最终汇报：issue 链接、PR 链接、分支名、改动摘要、测试清单与结果、CI 状态、review 结论（PASS 与轮数）、PR comment 链接、历史修复考古结论（有无过往修复尝试、bug 为何仍存在）。
 
 ## 任务原文
 
