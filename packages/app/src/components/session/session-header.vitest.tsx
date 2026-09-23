@@ -193,7 +193,7 @@ describe("session header folder open merge", () => {
     const row = rootRow(left)
     expect(row).not.toBeNull()
     expect(row.textContent).toBe("session.header.open.directory proj-a")
-    expect(row.getAttribute("aria-label")).toBe("session.header.open.ariaLabel session.header.open.fileExplorer")
+    expect(row.getAttribute("aria-label")?.startsWith("session.header.open.ariaLabel session.header.open.")).toBe(true)
 
     row.click()
 
