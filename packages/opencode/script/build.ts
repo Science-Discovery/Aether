@@ -3,8 +3,11 @@
 import { $ } from "bun"
 import fs from "fs"
 import path from "path"
+import { createInterface } from "readline"
 import { fileURLToPath } from "url"
 import solidPlugin from "@opentui/solid/bun-plugin"
+import { childArg } from "../src/file/watcher-child"
+import { Process } from "../src/util/process"
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -149,7 +152,9 @@ async function watcher(item: { os: string; arch: "arm64" | "x64" }, out: string)
   if (item.os !== "linux") return
   const dir = path.resolve(__dirname, "../../go-watcher")
   fs.mkdirSync(path.dirname(out), { recursive: true })
-  await $`CGO_ENABLED=0 GOOS=linux GOARCH=${go(item)} go build -ldflags="-s -w" -o ${out} ./cmd/opencode-watcher`.cwd(dir)
+  await $`CGO_ENABLED=0 GOOS=linux GOARCH=${go(item)} go build -ldflags="-s -w" -o ${out} ./cmd/opencode-watcher`.cwd(
+    dir,
+  )
 }
 
 const desired = rust(process.env.RUST_TARGET)
@@ -279,6 +284,34 @@ for (const item of targets) {
     } catch (e) {
       console.error(`Smoke test failed for ${name}:`, e)
       process.exit(1)
+    }
+
+    // The packaged binary has no watcher-child.ts on disk, so jsSidecar()
+    // falls back to self-exec; prove the embedded sidecar actually comes up
+    // in this artifact, otherwise Windows installs silently lose crash
+    // containment and run watcher.node in-process.
+    console.log(`Running smoke test: ${binaryPath} ${childArg}`)
+    const child = Process.spawn([binaryPath, childArg], { stdin: "pipe", stdout: "pipe", stderr: "pipe" })
+    try {
+      child.stdin!.write(
+        JSON.stringify({ v: 1, type: "start", root: dir, ignore: [], filter: [], mode: "full", dirs: [] }) + "\n",
+      )
+      const out = createInterface({ input: child.stdout!, crlfDelay: Infinity })
+      const reply = new Promise<string>((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error("watcher child never became ready")), 30_000)
+        out.once("line", (line) => {
+          clearTimeout(timer)
+          resolve(line)
+        })
+      })
+      const msg = JSON.parse(await reply) as { type?: string }
+      if (msg.type !== "ready") throw new Error(`unexpected watcher child message: ${JSON.stringify(msg)}`)
+      console.log("Watcher child smoke passed")
+    } catch (e) {
+      console.error(`Smoke test failed for ${name} (${childArg}):`, e)
+      process.exit(1)
+    } finally {
+      child.kill()
     }
   }
 

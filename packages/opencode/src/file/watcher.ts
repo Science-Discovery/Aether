@@ -18,6 +18,7 @@ import { Instance } from "@/project/instance"
 import { lazy } from "@/util/lazy"
 import { Config } from "../config/config"
 import { FileIgnore } from "./ignore"
+import { childArg } from "./watcher-child"
 import { Protected } from "./protected"
 import { Process } from "../util/process"
 import { Log } from "../util/log"
@@ -119,13 +120,21 @@ export namespace FileWatcher {
   // JS sidecar (watcher-child.ts): hosts @parcel/watcher in a child process
   // so a watcher.node segfault cannot kill the server. On Windows this is
   // the default because the in-process backend has proven crash-prone;
-  // OPENCODE_WATCHER_SIDECAR=0 restores the in-process backend. Only
-  // available when running from source (the script must exist on disk).
+  // OPENCODE_WATCHER_SIDECAR=0 restores the in-process backend. From source
+  // the child runs watcher-child.ts directly; a packaged binary has no
+  // source file on disk, so it re-executes itself with --watcher-child and
+  // the bundled copy of the sidecar hosts the watcher instead.
   function jsSidecar(): string | undefined {
     if (process.platform !== "win32") return undefined
     if (process.env.OPENCODE_WATCHER_SIDECAR === "0") return undefined
     const file = Bun.fileURLToPath(new URL("./watcher-child.ts", import.meta.url))
-    return existsSync(file) ? file : undefined
+    if (existsSync(file)) return file
+    // Packaged binaries have no source files on disk: import.meta.url then
+    // points into the embedded bunfs instead of a real path, so the sidecar
+    // runs by re-executing this binary with --watcher-child.
+    const url = import.meta.url.toLowerCase()
+    if (url.includes("%7ebun") || url.includes("/$bunfs/")) return childArg
+    return undefined
   }
 
   function protecteds(dir: string) {

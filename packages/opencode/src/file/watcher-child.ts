@@ -14,6 +14,12 @@ import type ParcelWatcher from "@parcel/watcher"
 // Protocol: one "start" message on stdin, then "ready" once, then "event"
 // lines, "error" lines for failures (fatal before ready). Closing stdin or
 // a signal unsubscribes and exits.
+//
+// Two ways to reach main(): spawn this file directly (source checkouts via
+// `bun watcher-child.ts`), or run a packaged binary with --watcher-child so
+// the bundled copy self-executes (a compiled binary has no source file on
+// disk to spawn).
+export const childArg = "--watcher-child"
 
 function send(msg: Record<string, unknown>) {
   process.stdout.write(JSON.stringify(msg) + "\n")
@@ -39,54 +45,58 @@ function binding(): typeof import("@parcel/watcher") {
   return require("@parcel/watcher") as typeof import("@parcel/watcher")
 }
 
-let sub: ParcelWatcher.AsyncSubscription | undefined
+export function main() {
+  let sub: ParcelWatcher.AsyncSubscription | undefined
 
-async function start(msg: { root: string; ignore?: string[]; backend?: ParcelWatcher.BackendType }) {
-  const watcher = binding()
-  const dir = path.resolve(msg.root)
-  // On Windows the native backend neither rejects nor fires events for a
-  // missing directory; fail fast so the parent can fall back instead of
-  // waiting on a subscription that will never report anything.
-  if (!existsSync(dir)) throw new Error(`directory does not exist: ${dir}`)
-  sub = await watcher.subscribe(
-    dir,
-    (_err, events) => {
-      for (const evt of events) {
-        send({
-          type: "event",
-          path: evt.path,
-          event: evt.type === "create" ? "add" : evt.type === "update" ? "change" : "unlink",
-        })
-      }
-    },
-    { ignore: msg.ignore ?? [], backend: msg.backend },
-  )
-  send({ type: "ready", watched: 1, ignored: (msg.ignore ?? []).length })
-}
-
-const lines = createInterface({ input: process.stdin, crlfDelay: Infinity })
-lines.on("line", (line) => {
-  if (!line.trim()) return
-  let msg: { type?: string; root?: string; ignore?: string[]; backend?: ParcelWatcher.BackendType }
-  try {
-    msg = JSON.parse(line)
-  } catch {
-    return
+  const start = async (msg: { root: string; ignore?: string[]; backend?: ParcelWatcher.BackendType }) => {
+    const watcher = binding()
+    const dir = path.resolve(msg.root)
+    // On Windows the native backend neither rejects nor fires events for a
+    // missing directory; fail fast so the parent can fall back instead of
+    // waiting on a subscription that will never report anything.
+    if (!existsSync(dir)) throw new Error(`directory does not exist: ${dir}`)
+    sub = await watcher.subscribe(
+      dir,
+      (_err, events) => {
+        for (const evt of events) {
+          send({
+            type: "event",
+            path: evt.path,
+            event: evt.type === "create" ? "add" : evt.type === "update" ? "change" : "unlink",
+          })
+        }
+      },
+      { ignore: msg.ignore ?? [], backend: msg.backend },
+    )
+    send({ type: "ready", watched: 1, ignored: (msg.ignore ?? []).length })
   }
-  if (msg.type !== "start" || !msg.root) return
-  start(msg as { root: string; ignore?: string[]; backend?: ParcelWatcher.BackendType }).catch((e) => {
-    send({ type: "error", stage: "start", error: e instanceof Error ? e.message : String(e), fatal: true })
-    // A fatal start failure must terminate the process: stdin stays open and
-    // would otherwise keep this sidecar alive forever.
-    setTimeout(() => process.exit(1), 100)
-  })
-})
 
-function stop() {
-  sub?.unsubscribe().catch(() => undefined)
-  process.exit(0)
+  const stop = () => {
+    sub?.unsubscribe().catch(() => undefined)
+    process.exit(0)
+  }
+
+  const lines = createInterface({ input: process.stdin, crlfDelay: Infinity })
+  lines.on("line", (line) => {
+    if (!line.trim()) return
+    let msg: { type?: string; root?: string; ignore?: string[]; backend?: ParcelWatcher.BackendType }
+    try {
+      msg = JSON.parse(line)
+    } catch {
+      return
+    }
+    if (msg.type !== "start" || !msg.root) return
+    start(msg as { root: string; ignore?: string[]; backend?: ParcelWatcher.BackendType }).catch((e) => {
+      send({ type: "error", stage: "start", error: e instanceof Error ? e.message : String(e), fatal: true })
+      // A fatal start failure must terminate the process: stdin stays open and
+      // would otherwise keep this sidecar alive forever.
+      setTimeout(() => process.exit(1), 100)
+    })
+  })
+
+  process.stdin.on("end", stop)
+  process.on("SIGINT", stop)
+  process.on("SIGTERM", stop)
 }
 
-process.stdin.on("end", stop)
-process.on("SIGINT", stop)
-process.on("SIGTERM", stop)
+if (import.meta.main) main()

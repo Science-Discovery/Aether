@@ -4,11 +4,13 @@ import { Readable } from "node:stream"
 import fs from "fs/promises"
 import os from "os"
 import path from "path"
+import { childArg } from "./watcher-child"
 
 // End-to-end test of the JS watcher sidecar protocol: start message in,
 // ready + file events out, clean exit on stdin close.
 
 const script = path.join(import.meta.dir, "watcher-child.ts")
+const entry = path.join(import.meta.dir, "..", "index.ts")
 
 function startChild(root: string, expectReady = true) {
   const proc = Bun.spawn([process.execPath, script], { stdin: "pipe", stdout: "pipe", stderr: "pipe" })
@@ -60,8 +62,9 @@ async function until(
   lines: Array<Record<string, any>>,
   predicate: (msg: Record<string, any>) => boolean,
   what: string,
+  ms = 10_000,
 ) {
-  const deadline = Date.now() + 10_000
+  const deadline = Date.now() + ms
   while (Date.now() < deadline) {
     const found = lines.find(predicate)
     if (found) return found
@@ -116,5 +119,46 @@ describe("watcher js sidecar", () => {
       child.kill()
     },
     30_000,
+  )
+
+  // A packaged binary has no watcher-child.ts on disk to spawn; it must reach
+  // the bundled sidecar by re-executing itself with --watcher-child. This
+  // drives the same dispatch through the real CLI entrypoint.
+  test.skipIf(process.platform !== "win32")(
+    "runs through the self-exec dispatch (index.ts " + childArg + ")",
+    async () => {
+      const proc = Bun.spawn([process.execPath, entry, childArg], {
+        stdin: "pipe",
+        stdout: "pipe",
+        stderr: "pipe",
+      })
+      const lines: Array<Record<string, any>> = []
+      const out = createInterface({ input: Readable.fromWeb(proc.stdout as any), crlfDelay: Infinity })
+      out.on("line", (line) => {
+        if (!line.trim()) return
+        lines.push(JSON.parse(line))
+      })
+      const stderr: string[] = []
+      const errOut = createInterface({ input: Readable.fromWeb(proc.stderr as any), crlfDelay: Infinity })
+      errOut.on("line", (line) => stderr.push(line))
+      proc.stdin.write(JSON.stringify({ v: 1, type: "start", root: tmp, ignore: [], mode: "full", dirs: [] }) + "\n")
+
+      // Loading the CLI entrypoint pulls the whole app graph; allow a cold
+      // transpile cache plus subscribe time, but fail fast if the child dies.
+      const died = proc.exited.then((code) => code)
+      const ready = until(lines, (m) => m.type === "ready", "dispatched sidecar ready", 30_000)
+      const code = await Promise.race([ready.then(() => undefined as number | undefined), died])
+      if (code !== undefined) throw new Error(`dispatched sidecar exited ${code}: ${stderr.join("\n")}`)
+
+      await fs.writeFile(path.join(tmp, "dispatch.txt"), "hi")
+      const create = await until(lines, (m) => m.type === "event" && m.event === "add", "dispatched create event")
+      expect(create.path).toContain("dispatch.txt")
+
+      proc.stdin.end()
+      expect(await proc.exited).toBe(0)
+      out.close()
+      errOut.close()
+    },
+    60_000,
   )
 })
