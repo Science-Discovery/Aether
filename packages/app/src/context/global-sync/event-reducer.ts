@@ -14,6 +14,7 @@ import type {
 import type { State, VcsCache } from "./types"
 import { trimSessions } from "./session-trim"
 import { dropSessionCaches, dropSessionStatus } from "./session-cache"
+import { isViewing, viewingIDs } from "./viewing"
 import { MessageOrder } from "@/utils/message-order"
 
 const SKIP_PARTS = new Set(["patch", "step-start", "step-finish"])
@@ -89,7 +90,7 @@ export function cleanupDroppedSessionCaches(
   next: Session[],
   setSessionTodo?: (sessionID: string, todos: Todo[] | undefined) => void,
 ) {
-  const keep = new Set(next.map((item) => item.id))
+  const keep = new Set([...next.map((item) => item.id), ...viewingIDs()])
   const stale = [
     ...Object.keys(store.message),
     ...Object.keys(store.session_diff),
@@ -137,7 +138,11 @@ export function applyDirectoryEvent(input: {
       }
       const next = input.store.session.slice()
       next.splice(result.index, 0, info)
-      const trimmed = trimSessions(next, { limit: input.store.limit, permission: input.store.permission })
+      const trimmed = trimSessions(next, {
+        limit: input.store.limit,
+        permission: input.store.permission,
+        keep: viewingIDs(),
+      })
       input.setStore("session", reconcile(trimmed, { key: "id" }))
       cleanupDroppedSessionCaches(input.store, input.setStore, trimmed, input.setSessionTodo)
       if (!info.parentID) input.setStore("sessionTotal", (value) => value + 1)
@@ -173,7 +178,11 @@ export function applyDirectoryEvent(input: {
       }
       const next = input.store.session.slice()
       next.splice(result.index, 0, info)
-      const trimmed = trimSessions(next, { limit: input.store.limit, permission: input.store.permission })
+      const trimmed = trimSessions(next, {
+        limit: input.store.limit,
+        permission: input.store.permission,
+        keep: viewingIDs(),
+      })
       input.setStore("session", reconcile(trimmed, { key: "id" }))
       cleanupDroppedSessionCaches(input.store, input.setStore, trimmed, input.setSessionTodo)
       if (isRootVisible) {

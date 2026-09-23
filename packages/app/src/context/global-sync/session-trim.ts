@@ -32,7 +32,12 @@ export function takeRecentSessions(sessions: Session[], limit: number, cutoff: n
 
 export function trimSessions(
   input: Session[],
-  options: { limit: number; permission: Record<string, PermissionRequest[]>; now?: number },
+  options: {
+    limit: number
+    permission: Record<string, PermissionRequest[]>
+    now?: number
+    keep?: Iterable<string>
+  },
 ) {
   const limit = Math.max(0, options.limit)
   const cutoff = (options.now ?? Date.now()) - SESSION_RECENT_WINDOW
@@ -55,5 +60,26 @@ export function trimSessions(
     if (perms.length > 0) return true
     return sessionUpdatedAt(s) > cutoff
   })
-  return [...keepRoots, ...keepChildren].sort((a, b) => cmp(a.id, b.id))
+  const pinned = pinnedIDs(all, options.keep)
+  const kept = new Map<string, Session>()
+  for (const s of [...keepRoots, ...keepChildren]) kept.set(s.id, s)
+  for (const s of all) {
+    if (!pinned.has(s.id)) continue
+    kept.set(s.id, s)
+  }
+  return [...kept.values()].sort((a, b) => cmp(a.id, b.id))
+}
+
+function pinnedIDs(sessions: Session[], keep?: Iterable<string>) {
+  const pinned = new Set<string>()
+  if (!keep) return pinned
+  const parentOf = new Map(sessions.map((s) => [s.id, s.parentID] as const))
+  for (const id of keep) {
+    let current: string | undefined = id
+    while (current && !pinned.has(current)) {
+      pinned.add(current)
+      current = parentOf.get(current)
+    }
+  }
+  return pinned
 }

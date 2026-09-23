@@ -73,4 +73,55 @@ describe("trimSessions", () => {
       "root-2",
     ])
   })
+
+  test("keep retains a stale root that would otherwise be trimmed", () => {
+    const now = 100_000_000
+    const list = [
+      session({ id: "recent-1", created: now - 1000, updated: now - 100 }),
+      session({ id: "recent-2", created: now - 2000, updated: now - 200 }),
+      session({ id: "ses_old", created: now - 30_000_000, updated: now - 30_000_000 }),
+    ]
+
+    const result = trimSessions(list, { limit: 2, permission: {}, now, keep: ["ses_old"] })
+    expect(result.map((x) => x.id)).toEqual(["recent-1", "recent-2", "ses_old"])
+  })
+
+  test("keep retains a viewed child together with its root ancestor", () => {
+    const now = 100_000_000
+    const list = [
+      session({ id: "recent-1", created: now - 1000, updated: now - 100 }),
+      session({ id: "recent-2", created: now - 2000, updated: now - 200 }),
+      session({ id: "z-root", created: now - 30_000_000, updated: now - 30_000_000 }),
+      session({ id: "z-child", parentID: "z-root", created: now - 30_000_000, updated: now - 30_000_000 }),
+    ]
+
+    const result = trimSessions(list, { limit: 2, permission: {}, now, keep: ["z-child"] })
+    const ids = result.map((x) => x.id)
+    expect(ids).toContain("z-child")
+    expect(ids).toContain("z-root")
+  })
+
+  test("keep of an archived session does not resurrect it", () => {
+    const now = 100_000_000
+    const list = [
+      session({ id: "recent-1", created: now - 1000, updated: now - 100 }),
+      session({ id: "recent-2", created: now - 2000, updated: now - 200 }),
+      session({ id: "ses_old", created: now - 30_000_000, updated: now - 30_000_000, archived: now - 10 }),
+    ]
+
+    const result = trimSessions(list, { limit: 2, permission: {}, now, keep: ["ses_old"] })
+    expect(result.map((x) => x.id)).not.toContain("ses_old")
+  })
+
+  test("keep of an unknown id changes nothing", () => {
+    const now = 100_000_000
+    const list = [
+      session({ id: "recent-1", created: now - 1000, updated: now - 100 }),
+      session({ id: "recent-2", created: now - 2000, updated: now - 200 }),
+      session({ id: "ses_old", created: now - 30_000_000, updated: now - 30_000_000 }),
+    ]
+
+    const result = trimSessions(list, { limit: 2, permission: {}, now, keep: ["ses_missing"] })
+    expect(result.map((x) => x.id)).toEqual(["recent-1", "recent-2"])
+  })
 })
