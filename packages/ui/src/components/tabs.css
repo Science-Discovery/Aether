@@ -211,7 +211,7 @@
 
       &[data-value="review"] {
         padding-left: 8px;
-        padding-right: 8px;
+        padding-right: 4px;
       }
 
       [data-slot="tabs-trigger"] {

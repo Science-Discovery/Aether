@@ -690,8 +690,9 @@ export function SessionSidePanel(props: {
     if (!list) return
     const mount = list.closest<HTMLElement>("#opencode-titlebar-tabs")
     if (!mount) return
-    // The file tabs may occupy at most 60% of the tab strip.
-    const budget = mount.clientWidth * 0.6
+    // The file tabs may occupy at most 60% of the header.
+    const header = mount.closest<HTMLElement>("header")
+    const budget = header ? Math.min(mount.clientWidth, header.clientWidth * 0.6) : mount.clientWidth
     if (budget <= 0) return
     const gap = Number.parseFloat(getComputedStyle(list).columnGap) || 0
     const kids = [...list.children] as HTMLElement[]

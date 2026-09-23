@@ -287,7 +287,7 @@ export function Titlebar() {
       <div
         classList={{
           "flex items-center min-w-0 justify-start gap-1 transition-transform": true,
-          "pr-2": !windows(),
+          "pr-1": !windows(),
           "translate-x-0": !layout.sidebar.opened() || !hasProjects(),
           "-translate-x-[36px]": layout.sidebar.opened() && hasProjects(),
           "duration-180 ease-out": !layout.sidebar.opened(),
