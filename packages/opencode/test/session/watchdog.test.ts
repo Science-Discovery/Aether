@@ -10,6 +10,7 @@ import { SessionPrompt } from "../../src/session/prompt"
 import { SessionRetry } from "../../src/session/retry"
 import { SessionWatchdog } from "../../src/session/watchdog"
 import { SessionStatus } from "../../src/session/status"
+import { Database } from "../../src/storage/db"
 import { tmpdir } from "../fixture/fixture"
 import { serve } from "../lib/server"
 
@@ -195,6 +196,81 @@ function stream(text: string) {
   ].join("")
   return new Response(body, { headers: { "Content-Type": "text/event-stream" } })
 }
+
+describe("session.watchdog missing table on old project DBs", () => {
+  test("loop teardown still reaches idle and heals the table lazily", async () => {
+    const server = await serve({
+      port: 0,
+      async fetch(req) {
+        await req.json().catch(() => undefined)
+        return stream("done")
+      },
+    })
+    servers.push(server)
+
+    const tmp = await tmpdir({
+      init: async (dir) => {
+        await Bun.write(
+          path.join(dir, "opencode.json"),
+          JSON.stringify({
+            $schema: "https://opencode.ai/config.json",
+            enabled_providers: [pid],
+            provider: {
+              [pid]: {
+                npm: "@ai-sdk/openai-compatible",
+                models: {
+                  [mid]: {
+                    name: "GLM-5.2",
+                    tool_call: true,
+                    temperature: true,
+                    limit: { context: 1_000_000, output: 131_072 },
+                    modalities: { input: ["text"], output: ["text"] },
+                  },
+                },
+                options: {
+                  apiKey: "test-key",
+                  baseURL: `${server.url.origin}/v1`,
+                },
+              },
+            },
+          }),
+        )
+      },
+    })
+    await using _tmp = tmp
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        // Simulate a project DB created before the retry migration: the
+        // journal backfill in initAndSetupProject means migrations never add
+        // the table later, so drop it after the instance booted.
+        Database.projectClient(Instance.project.id).$client.exec("DROP TABLE session_retry")
+
+        const session = await Session.create({ title: "old db" })
+        const done = await SessionPrompt.prompt({
+          sessionID: session.id,
+          agent: "build",
+          model,
+          parts: [{ type: "text", text: "Answer briefly." }],
+        })
+        expect((done.info as MessageV2.Assistant).finish).toBe("stop")
+
+        // cancel() runs in the loop disposer; before the ensure-table guard
+        // its session_retry delete threw and the status stayed busy forever.
+        expect((await SessionStatus.get(session.id)).type).toBe("idle")
+
+        const healed = Database.projectClient(Instance.project.id)
+          .$client.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='session_retry'")
+          .get()
+        expect(healed).toBeDefined()
+
+        await SessionWatchdog.clear(session.id)
+        await Instance.dispose()
+      },
+    })
+  })
+})
 
 describe("session.watchdog recovery loop", () => {
   test("parks the task on upstream outage and resumes automatically on recovery", async () => {
