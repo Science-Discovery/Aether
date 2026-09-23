@@ -690,9 +690,9 @@ export function SessionSidePanel(props: {
     if (!list) return
     const mount = list.closest<HTMLElement>("#opencode-titlebar-tabs")
     if (!mount) return
-    // The file tabs + review group may occupy at most half of the header.
+    // The file tabs may occupy at most 60% of the header.
     const header = mount.closest<HTMLElement>("header")
-    const budget = header ? Math.min(mount.clientWidth, header.clientWidth / 2) : mount.clientWidth
+    const budget = header ? Math.min(mount.clientWidth, header.clientWidth * 0.6) : mount.clientWidth
     if (budget <= 0) return
     const gap = Number.parseFloat(getComputedStyle(list).columnGap) || 0
     const kids = [...list.children] as HTMLElement[]
@@ -802,16 +802,6 @@ export function SessionSidePanel(props: {
                   onCleanup(() => observer.disconnect())
                 }}
               >
-                <Show when={reviewTab()}>
-                  <Tabs.Trigger value="review">
-                    <div class="flex items-center gap-1.5">
-                      <div>{language.t("session.tab.review")}</div>
-                      <Show when={props.hasReview()}>
-                        <div>{props.reviewCount()}</div>
-                      </Show>
-                    </div>
-                  </Tabs.Trigger>
-                </Show>
                 <Show when={contextOpen()}>
                   <Tabs.Trigger
                     value="context"
@@ -909,6 +899,16 @@ export function SessionSidePanel(props: {
                     </DropdownMenu.Portal>
                   </DropdownMenu>
                 </div>
+                <Show when={reviewTab()}>
+                  <Tabs.Trigger value="review">
+                    <div class="flex items-center gap-1.5">
+                      <div>{language.t("session.tab.review")}</div>
+                      <Show when={props.hasReview()}>
+                        <div>{props.reviewCount()}</div>
+                      </Show>
+                    </div>
+                  </Tabs.Trigger>
+                </Show>
               </Tabs.List>
             </Tabs>
             <DragOverlay>
