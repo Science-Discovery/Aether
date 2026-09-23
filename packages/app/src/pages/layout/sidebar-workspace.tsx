@@ -475,15 +475,17 @@ export const WorkspaceHeader = (props: {
         <Spinner class="size-[15px]" />
       </Show>
       <Show when={props.notify()}>
-        <Tooltip
-          value={props.errorTooltip()}
-          placement="top"
-          gutter={2}
-          inactive={!props.errorTooltip()}
-          class="absolute -top-1 -right-1 z-10 -m-1 p-1"
-        >
-          <StatusDot hasPermissions={props.hasPermissions()} hasError={props.hasError()} />
-        </Tooltip>
+        <div class="absolute -top-1 -right-1 z-10">
+          <Tooltip
+            value={props.errorTooltip()}
+            placement="top"
+            gutter={2}
+            inactive={!props.errorTooltip()}
+            class="-m-1 p-1"
+          >
+            <StatusDot hasPermissions={props.hasPermissions()} hasError={props.hasError()} />
+          </Tooltip>
+        </div>
       </Show>
     </div>
     <props.InlineEditor

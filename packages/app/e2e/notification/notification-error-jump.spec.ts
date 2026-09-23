@@ -23,7 +23,7 @@ const storedList = (page: import("@playwright/test").Page) =>
 
 const seed = async (page: import("@playwright/test").Page, args: { directory: string; list: unknown[] }) => {
   await page.addInitScript(
-    ([key, layoutKey, list, directory]: [string, string, unknown[], string]) => {
+    ([key, layoutKey, list, directory]: [string, string, unknown, string]) => {
       localStorage.setItem(key, JSON.stringify({ list }))
       const raw = localStorage.getItem(layoutKey)
       const parsed = raw ? (JSON.parse(raw) as Record<string, any>) : {}
@@ -39,6 +39,17 @@ const workspaceDot = (page: import("@playwright/test").Page, directory: string) 
   page
     .locator(`[data-component="workspace-item"][data-workspace="${dirSlug(directory)}"] [data-slot="status-dot"]`)
     .first()
+
+const dotAnchored = (page: import("@playwright/test").Page, directory: string) =>
+  workspaceDot(page, directory).evaluate((el) => {
+    const root = el.closest('[data-component="workspace-item"]')
+    let node: HTMLElement | null = el.parentElement
+    while (node && node !== root?.parentElement) {
+      if (getComputedStyle(node).position === "absolute") return true
+      node = node.parentElement
+    }
+    return false
+  })
 
 test("zombie error notification for a deleted session is purged on hydration", async ({
   page,
@@ -83,6 +94,30 @@ test("workspace error dot tooltip shows count and latest summary", async ({ page
   await workspaceDot(page, directory).hover()
   await expect(page.locator("[data-component='tooltip']")).toContainText("2 unseen errors")
   await expect(page.locator("[data-component='tooltip']")).toContainText("boom beta")
+  expect(await dotAnchored(page, directory)).toBe(true)
+})
+
+test("notification dot without errors keeps corner anchor and shows no tooltip", async ({
+  page,
+  sdk,
+  gotoSession,
+  directory,
+}) => {
+  const live = await sdk.session.create({ directory, title: "turn done" }).then((r) => r.data?.id)
+  expect(live).toBeDefined()
+  await seed(page, {
+    directory,
+    list: [{ type: "turn-complete", directory, session: live, time: Date.now(), viewed: false }],
+  })
+
+  await gotoSession()
+  await openSidebar(page)
+
+  await expect(workspaceDot(page, directory)).toBeVisible()
+  expect(await dotAnchored(page, directory)).toBe(true)
+
+  await workspaceDot(page, directory).hover()
+  await expect(page.locator("[data-component='tooltip']")).toHaveCount(0)
 })
 
 test("error sessions submenu lists entries and jumps to the session", async ({ page, sdk, gotoSession, directory }) => {

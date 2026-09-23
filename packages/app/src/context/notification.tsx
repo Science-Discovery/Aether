@@ -216,7 +216,7 @@ export const { use: useNotification, provider: NotificationProvider } = createSi
       const unseen = [...store.list]
       const groups = zombieTargets(unseen)
       await Promise.all(
-        [...groups].map(([directory, ids]) =>
+        [...groups].flatMap(([directory, ids]) =>
           [...ids].map(async (sessionID) => {
             const found = await probe(directory, sessionID)
             if (meta.disposed) return
@@ -269,11 +269,11 @@ export const { use: useNotification, provider: NotificationProvider } = createSi
     }
 
     const probe = async (directory: string, sessionID: string) => {
-      const [syncStore] = globalSync.child(directory, { bootstrap: false })
-      const match = Binary.search(syncStore.session, sessionID, (s) => s.id)
-      if (match.found) return syncStore.session[match.index]
       const resp = await fetch(`${globalSDK.url}/session/${encodeURIComponent(sessionID)}`, {
-        headers: { "x-opencode-directory": encodeURIComponent(directory) },
+        headers: {
+          "x-opencode-directory": encodeURIComponent(directory),
+          ...globalSDK.auth(),
+        },
       }).then(
         (r) => r,
         () => undefined,

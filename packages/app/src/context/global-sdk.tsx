@@ -24,6 +24,7 @@ const abortError = z.object({
 
 export type GlobalSDKValue = {
   url: string
+  auth: () => Record<string, string>
   client: AppClient
   event: ReturnType<typeof createGlobalEmitter<{ [key: string]: Event }>>
   createClient: (opts: Omit<Parameters<typeof createSdkForServer>[0], "server" | "fetch">) => AppClient
@@ -238,6 +239,7 @@ export const { use: useGlobalSDK, provider: GlobalSDKProvider } = createSimpleCo
 
     return {
       url: currentServer.http.url,
+      auth: () => authHeader(currentServer.http) ?? {},
       client: sdk,
       event: emitter,
       createClient(opts: Omit<Parameters<typeof createSdkForServer>[0], "server" | "fetch">) {
