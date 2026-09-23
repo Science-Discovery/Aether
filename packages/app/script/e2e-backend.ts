@@ -44,6 +44,9 @@ Object.assign(process.env, {
   XDG_CACHE_HOME: path.join(sandbox, "cache"),
   XDG_CONFIG_HOME: path.join(sandbox, "config"),
   XDG_STATE_HOME: path.join(sandbox, "state"),
+  // Windows persists app state under APPDATA; without redirecting it, an
+  // enabled mobile bridge on the host leaks into the e2e backend and kills it.
+  ...(process.platform === "win32" ? { APPDATA: path.join(sandbox, "appdata") } : {}),
   OPENCODE_MODELS_PATH: path.join(opencodeDir, "test", "tool", "fixtures", "models-api.json"),
   ANTHROPIC_API_KEY: "",
   OPENCODE_CLIENT: "app",
