@@ -864,7 +864,7 @@ export const dict = {
   "workspace.reset.success.description": "Espaço de trabalho agora corresponde ao branch padrão.",
   "workspace.error.stillPreparing": "O espaço de trabalho ainda está sendo preparado",
   "workspace.status.checking": "Verificando alterações não mescladas...",
-  "workspace.status.error": "Não foi possível verificar o status do git.",
+  "workspace.status.error": "Não foi possível verificar o status do git. O espaço de trabalho pode conter alterações não confirmadas.",
   "workspace.status.clean": "Nenhuma alteração não mesclada detectada.",
   "workspace.status.dirty": "Alterações não mescladas detectadas neste espaço de trabalho.",
   "workspace.delete.title": "Excluir espaço de trabalho",

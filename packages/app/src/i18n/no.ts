@@ -934,7 +934,7 @@ export const dict = {
   "workspace.reset.success.description": "Arbeidsområdet samsvarer nå med standardgrenen.",
   "workspace.error.stillPreparing": "Arbeidsområdet klargjøres fortsatt",
   "workspace.status.checking": "Sjekker for ikke-sammenslåtte endringer...",
-  "workspace.status.error": "Kunne ikke bekrefte git-status.",
+  "workspace.status.error": "Kunne ikke verifisere git-status. Arbeidsområdet kan inneholde ukommitterte endringer.",
   "workspace.status.clean": "Ingen ikke-sammenslåtte endringer oppdaget.",
   "workspace.status.dirty": "Ikke-sammenslåtte endringer oppdaget i dette arbeidsområdet.",
   "workspace.delete.title": "Slett arbeidsområde",

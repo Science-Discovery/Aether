@@ -854,7 +854,7 @@ export const dict = {
   "workspace.reset.success.description": "Przestrzeń robocza odpowiada teraz domyślnej gałęzi.",
   "workspace.error.stillPreparing": "Przestrzeń robocza jest wciąż przygotowywana",
   "workspace.status.checking": "Sprawdzanie niezscalonych zmian...",
-  "workspace.status.error": "Nie można zweryfikować statusu git.",
+  "workspace.status.error": "Nie można zweryfikować stanu git. Obszar roboczy może zawierać niezatwierdzone zmiany.",
   "workspace.status.clean": "Nie wykryto niezscalonych zmian.",
   "workspace.status.dirty": "Wykryto niezscalone zmiany w tej przestrzeni roboczej.",
   "workspace.delete.title": "Usuń przestrzeń roboczą",

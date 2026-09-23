@@ -872,7 +872,7 @@ export const dict = {
   "workspace.reset.success.description": "L'espace de travail correspond maintenant à la branche par défaut.",
   "workspace.error.stillPreparing": "L'espace de travail est encore en cours de préparation",
   "workspace.status.checking": "Vérification des modifications non fusionnées...",
-  "workspace.status.error": "Impossible de vérifier le statut git.",
+  "workspace.status.error": "Impossible de vérifier l'état git. L'espace de travail contient peut-être des modifications non validées.",
   "workspace.status.clean": "Aucune modification non fusionnée détectée.",
   "workspace.status.dirty": "Modifications non fusionnées détectées dans cet espace de travail.",
   "workspace.delete.title": "Supprimer l'espace de travail",

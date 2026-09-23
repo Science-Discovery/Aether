@@ -950,7 +950,7 @@ export const dict = {
   "workspace.reset.success.description": "Çalışma alanı artık varsayılan dalla eşleşiyor.",
   "workspace.error.stillPreparing": "Çalışma alanı hâlâ hazırlanıyor",
   "workspace.status.checking": "Birleşmemiş değişiklikler kontrol ediliyor...",
-  "workspace.status.error": "Git durumu doğrulanamadı.",
+  "workspace.status.error": "Git durumu doğrulanamadı. Çalışma alanında commit edilmemiş değişiklikler olabilir.",
   "workspace.status.clean": "Birleşmemiş değişiklik algılanmadı.",
   "workspace.status.dirty": "Bu çalışma alanında birleşmemiş değişiklikler algılandı.",
   "workspace.delete.title": "Çalışma alanını sil",

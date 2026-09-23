@@ -927,7 +927,7 @@ export const dict = {
   "workspace.reset.success.description": "Arbejdsområdet matcher nu hovedgrenen.",
   "workspace.error.stillPreparing": "Arbejdsområdet er stadig ved at blive klargjort",
   "workspace.status.checking": "Tjekker for uflettede ændringer...",
-  "workspace.status.error": "Kunne ikke bekræfte git-status.",
+  "workspace.status.error": "Kunne ikke bekræfte git-status. Arbejdsområdet indeholder muligvis ukommitterede ændringer.",
   "workspace.status.clean": "Ingen uflettede ændringer fundet.",
   "workspace.status.dirty": "Uflettede ændringer fundet i dette arbejdsområde.",
   "workspace.delete.title": "Slet arbejdsområde",

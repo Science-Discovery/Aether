@@ -858,7 +858,7 @@ export const dict = {
   "workspace.reset.success.description": "작업 공간이 이제 기본 브랜치와 일치합니다.",
   "workspace.error.stillPreparing": "작업 공간이 아직 준비 중입니다",
   "workspace.status.checking": "병합되지 않은 변경 사항 확인 중...",
-  "workspace.status.error": "Git 상태를 확인할 수 없습니다.",
+  "workspace.status.error": "git 상태를 확인할 수 없습니다. 작업 공간에 커밋되지 않은 변경 사항이 있을 수 있습니다.",
   "workspace.status.clean": "병합되지 않은 변경 사항이 감지되지 않았습니다.",
   "workspace.status.dirty": "이 작업 공간에서 병합되지 않은 변경 사항이 감지되었습니다.",
   "workspace.delete.title": "작업 공간 삭제",

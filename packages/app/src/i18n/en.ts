@@ -1555,7 +1555,7 @@ export const dict = {
   "workspace.reset.success.description": "Workspace now matches the default branch.",
   "workspace.error.stillPreparing": "Workspace is still preparing",
   "workspace.status.checking": "Checking for uncommitted changes...",
-  "workspace.status.error": "Unable to verify git status.",
+  "workspace.status.error": "Unable to verify git status. The workspace may have uncommitted changes.",
   "workspace.status.clean": "Workspace is clean.",
   "workspace.status.dirty":
     "Uncommitted changes detected. Please commit or discard them before deleting the workspace.",
@@ -1574,6 +1574,9 @@ export const dict = {
   "workspace.delete.stale.description":
     "The .git file is missing — this directory is no longer a valid git worktree. Force deletion will remove the directory and clean up git metadata.",
   "workspace.delete.stale.button": "Force delete",
+  "workspace.delete.unverified.title": "Workspace status unverified",
+  "workspace.delete.unverified.confirm": 'Git status of workspace "{{name}}" could not be verified, and it may contain uncommitted changes. Force delete this directory?',
+  "workspace.delete.unverified.description": "Force delete will permanently remove the directory and all uncommitted changes in it.",
   "workspace.delete.branch.title": "Delete branch",
   "workspace.delete.branch.confirm": 'Do you also want to delete branch "{{branch}}"?',
   "workspace.delete.branch.keep": "Keep branch",

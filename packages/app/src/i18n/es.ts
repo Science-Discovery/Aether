@@ -947,7 +947,7 @@ export const dict = {
   "workspace.reset.success.description": "El espacio de trabajo ahora coincide con la rama predeterminada.",
   "workspace.error.stillPreparing": "El espacio de trabajo aún se está preparando",
   "workspace.status.checking": "Comprobando cambios no fusionados...",
-  "workspace.status.error": "No se pudo verificar el estado de git.",
+  "workspace.status.error": "No se pudo verificar el estado de git. El espacio de trabajo puede contener cambios sin confirmar.",
   "workspace.status.clean": "No se detectaron cambios no fusionados.",
   "workspace.status.dirty": "Cambios no fusionados detectados en este espacio de trabajo.",
   "workspace.delete.title": "Eliminar espacio de trabajo",

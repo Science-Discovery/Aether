@@ -943,7 +943,7 @@ export const dict = {
   "workspace.reset.success.description": "Рабочее пространство теперь соответствует ветке по умолчанию.",
   "workspace.error.stillPreparing": "Рабочее пространство всё ещё подготавливается",
   "workspace.status.checking": "Проверка незафиксированных изменений...",
-  "workspace.status.error": "Не удалось проверить статус git.",
+  "workspace.status.error": "Не удалось проверить состояние git. В рабочей области могут быть незакоммиченные изменения.",
   "workspace.status.clean": "Незафиксированных изменений не обнаружено.",
   "workspace.status.dirty": "В этом рабочем пространстве обнаружены незафиксированные изменения.",
   "workspace.delete.title": "Удалить рабочее пространство",
