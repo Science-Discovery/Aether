@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, test, vi } from "vitest"
 import { render } from "solid-js/web"
-import type { Message, Part as PartType } from "@opencode-ai/sdk/v2"
+import type { AssistantMessage, Message, Part as PartType } from "@opencode-ai/sdk/v2"
 import { DataProvider } from "../context"
-import { Part } from "./message-part"
+import { MarkedProvider } from "../context/marked"
+import { AssistantParts, Part, groupParts } from "./message-part"
 
 vi.mock("@solidjs/router", () => ({
   useLocation: () => ({ pathname: "/workspace/session/root" }),
@@ -153,5 +154,177 @@ describe("task session links", () => {
     expect(nav).toHaveBeenCalledWith("child")
 
     off()
+  })
+})
+
+const assistant = (id: string, error?: AssistantMessage["error"]): AssistantMessage => ({
+  ...message(),
+  id,
+  error,
+})
+
+const textPart = (id: string, messageID: string, value: string): PartType =>
+  ({
+    id,
+    type: "text",
+    text: value,
+    messageID,
+    sessionID: "root",
+    time: { start: 1, end: 2 },
+  }) as PartType
+
+function mountAssistant(messages: AssistantMessage[], parts: Record<string, PartType[]>) {
+  const host = document.createElement("div")
+  document.body.append(host)
+  const data = store()
+  data.part = parts
+  const off = render(
+    () => (
+      <DataProvider data={data} directory="/tmp">
+        <MarkedProvider>
+          <AssistantParts messages={messages} />
+        </MarkedProvider>
+      </DataProvider>
+    ),
+    host,
+  )
+  return { host, off }
+}
+
+function textNode(root: ParentNode, value: string) {
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    if (node.textContent?.trim() === value) return node.parentElement!
+  }
+  return undefined
+}
+
+const follows = (a: Node, b: Node) => !!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING)
+
+describe("assistant error placement", () => {
+  test("renders the error card at the errored message, before later recovery content", async () => {
+    const parts = {
+      m1: [textPart("p1", "m1", "before error")],
+      m3: [textPart("p3", "m3", "recovered response")],
+    }
+    const messages = [
+      assistant("m1"),
+      assistant("m2", { name: "APIError", data: { message: "unknown certificate verification error" } }),
+      assistant("m3"),
+    ]
+    const { host, off } = mountAssistant(messages, parts)
+
+    await vi.waitFor(() => {
+      expect(textNode(host, "before error")).toBeTruthy()
+      expect(textNode(host, "recovered response")).toBeTruthy()
+    })
+    const before = textNode(host, "before error")!
+    const after = textNode(host, "recovered response")!
+    const card = host.querySelector(".error-card")
+    expect(card?.textContent).toContain("unknown certificate verification error")
+    expect(follows(before, card!)).toBe(true)
+    expect(follows(card!, after)).toBe(true)
+
+    off()
+  })
+
+  test("keeps each card at its own position when several errors hit one turn", async () => {
+    const parts = {
+      m1: [textPart("p1", "m1", "first")],
+      m3: [textPart("p3", "m3", "second")],
+      m4: [textPart("p4", "m4", "third")],
+    }
+    const messages = [
+      assistant("m1"),
+      assistant("m2", { name: "APIError", data: { message: "rate limit hit" } }),
+      assistant("m3"),
+      assistant("m4", { name: "APIError", data: { message: "connection lost" } }),
+      assistant("m5"),
+    ]
+    const { host, off } = mountAssistant(messages, parts)
+
+    await vi.waitFor(() => {
+      expect(textNode(host, "first")).toBeTruthy()
+      expect(textNode(host, "second")).toBeTruthy()
+      expect(textNode(host, "third")).toBeTruthy()
+    })
+    const cards = [...host.querySelectorAll(".error-card")]
+    expect(cards.length).toBe(2)
+    const second = textNode(host, "second")!
+    const third = textNode(host, "third")!
+    expect(follows(cards[0]!, second)).toBe(true)
+    expect(follows(second, cards[1]!)).toBe(true)
+    expect(follows(third, cards[1]!)).toBe(true)
+
+    off()
+  })
+
+  test("renders no card for aborted messages", async () => {
+    const parts = { m1: [textPart("p1", "m1", "before error")] }
+    const messages = [
+      assistant("m1"),
+      assistant("m2", { name: "MessageAbortedError", data: { message: "Interrupted" } }),
+    ]
+    const { host, off } = mountAssistant(messages, parts)
+
+    await vi.waitFor(() => expect(textNode(host, "before error")).toBeTruthy())
+    expect(host.querySelector(".error-card")).toBeNull()
+
+    off()
+  })
+
+  test("keeps a card for an errored message without renderable parts", async () => {
+    const parts = { m2: [textPart("p2", "m2", "later")] }
+    const messages = [
+      assistant("m1", { name: "APIError", data: { message: "boom before any output" } }),
+      assistant("m2"),
+    ]
+    const { host, off } = mountAssistant(messages, parts)
+
+    await vi.waitFor(() => expect(textNode(host, "later")).toBeTruthy())
+    const card = host.querySelector(".error-card")
+    expect(card?.textContent).toContain("boom before any output")
+    const later = textNode(host, "later")!
+    expect(follows(card!, later)).toBe(true)
+
+    off()
+  })
+})
+
+describe("groupParts error markers", () => {
+  const text = (id: string, messageID: string): PartType =>
+    ({ id, type: "text", text: "x", messageID, sessionID: "root" }) as PartType
+  const read = (id: string, messageID: string): PartType =>
+    ({ id, type: "tool", tool: "read", messageID, sessionID: "root" }) as unknown as PartType
+
+  test("inserts an error group after the errored message parts", () => {
+    const groups = groupParts([
+      { messageID: "m1", part: text("p1", "m1") },
+      { messageID: "m2", part: undefined, error: true },
+      { messageID: "m3", part: text("p3", "m3") },
+    ])
+    expect(groups.map((group) => group.type)).toEqual(["part", "error", "part"])
+    expect(groups[1]?.key).toBe("error:m2")
+  })
+
+  test("splits a spanning context group at an error marker", () => {
+    const groups = groupParts([
+      { messageID: "m1", part: read("p1", "m1") },
+      { messageID: "m1", part: read("p2", "m1") },
+      { messageID: "m2", part: undefined, error: true },
+      { messageID: "m3", part: read("p3", "m3") },
+    ])
+    expect(groups.map((group) => group.type)).toEqual(["context", "error", "context"])
+    if (groups[0]?.type !== "context" || groups[2]?.type !== "context") throw new Error("expected context groups")
+    expect(groups[0].refs.length).toBe(2)
+    expect(groups[2].refs.length).toBe(1)
+  })
+
+  test("flushes a trailing context group before a final error marker", () => {
+    const groups = groupParts([
+      { messageID: "m1", part: read("p1", "m1") },
+      { messageID: "m1", part: undefined, error: true },
+    ])
+    expect(groups.map((group) => group.type)).toEqual(["context", "error"])
   })
 })
