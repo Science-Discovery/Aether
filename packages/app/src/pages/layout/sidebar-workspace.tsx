@@ -444,13 +444,14 @@ const RunScriptButton = (props: {
   )
 }
 
-const WorkspaceHeader = (props: {
+export const WorkspaceHeader = (props: {
   busy: Accessor<boolean>
   sessionBusy: Accessor<boolean>
   notify: Accessor<boolean>
   hasPermissions: Accessor<boolean>
   hasError: Accessor<boolean>
   open: Accessor<boolean>
+  active: Accessor<boolean>
   directory: string
   language: ReturnType<typeof useLanguage>
   branch: Accessor<string | undefined>
@@ -463,7 +464,11 @@ const WorkspaceHeader = (props: {
   setEditor: WorkspaceSidebarContext["setEditor"]
 }): JSX.Element => (
   <div class="flex items-center gap-1 min-w-0 flex-1">
-    <div class="relative flex items-center justify-center shrink-0 size-6">
+    <div
+      class="relative flex items-center justify-center shrink-0 size-6 rounded-full"
+      classList={{ "ring-1 ring-icon-interactive-base": props.active() }}
+      data-active={props.active() ? "true" : undefined}
+    >
       <Show when={props.busy() || props.sessionBusy()} fallback={<Icon name="branch" size="small" />}>
         <Spinner class="size-[15px]" />
       </Show>
@@ -1343,6 +1348,7 @@ export const SortableWorkspace = (props: {
       hasPermissions={hasPermissions}
       hasError={hasError}
       open={open}
+      active={active}
       directory={props.directory}
       language={language}
       branch={() => workspaceStore.vcs?.branch}
