@@ -16,6 +16,7 @@ import { DialogSelectModel } from "@/components/dialog-select-model"
 import { DialogSelectMcp } from "@/components/dialog-select-mcp"
 import { DialogFork } from "@/components/dialog-fork"
 import { DialogReadingMode } from "@/components/dialog-reading-mode"
+import { openSafeZoneOnboarding, useSafeZoneOnboarding } from "@/components/dialog-safe-zone"
 import { showToast } from "@opencode-ai/ui/toast"
 import { findLast } from "@opencode-ai/util/array"
 import { childMapByParent } from "@/pages/layout/helpers"
@@ -38,6 +39,27 @@ const withCategory = (category: string) => {
     category,
   })
 }
+
+const modeLabel = {
+  off: "command.permissions.mode.off",
+  safe: "command.permissions.mode.safe",
+  full: "command.permissions.mode.full",
+} as const
+
+const modeToast = {
+  off: {
+    title: "toast.permissions.autoaccept.off.title",
+    description: "toast.permissions.autoaccept.off.description",
+  },
+  safe: {
+    title: "toast.permissions.mode.safe.title",
+    description: "toast.permissions.mode.safe.description",
+  },
+  full: {
+    title: "toast.permissions.autoaccept.on.title",
+    description: "toast.permissions.autoaccept.on.description",
+  },
+} as const
 
 export const useSessionCommands = (actions: SessionCommandContext) => {
   const command = useCommand()
@@ -146,11 +168,7 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
   const agentCommand = withCategory(language.t("command.category.agent"))
   const permissionsCommand = withCategory(language.t("command.category.permissions"))
 
-  const isAutoAcceptActive = () => {
-    const sessionID = params.id
-    if (sessionID) return permission.isAutoAccepting(sessionID, sdk.directory)
-    return permission.isAutoAcceptingDirectory(sdk.directory)
-  }
+  useSafeZoneOnboarding()
   command.register("session", () => {
     const share =
       sync.data.config.share === "disabled"
@@ -416,26 +434,17 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
       }),
       permissionsCommand({
         id: "permissions.autoaccept",
-        title: isAutoAcceptActive()
-          ? language.t("command.permissions.autoaccept.disable")
-          : language.t("command.permissions.autoaccept.enable"),
+        title: language.t(modeLabel[permission.effectiveMode(params.id, sdk.directory)]),
         keybind: "mod+shift+a",
         disabled: false,
         onSelect: () => {
-          const sessionID = params.id
-          if (sessionID) permission.toggleAutoAccept(sessionID, sdk.directory)
-          else permission.toggleAutoAcceptDirectory(sdk.directory)
+          const prev = permission.effectiveMode(params.id, sdk.directory)
+          const next = permission.cycleMode(params.id, sdk.directory)
+          if (next === "safe" && prev !== "safe") openSafeZoneOnboarding()
 
-          const active = sessionID
-            ? permission.isAutoAccepting(sessionID, sdk.directory)
-            : permission.isAutoAcceptingDirectory(sdk.directory)
           showToast({
-            title: active
-              ? language.t("toast.permissions.autoaccept.on.title")
-              : language.t("toast.permissions.autoaccept.off.title"),
-            description: active
-              ? language.t("toast.permissions.autoaccept.on.description")
-              : language.t("toast.permissions.autoaccept.off.description"),
+            title: language.t(modeToast[next].title),
+            description: language.t(modeToast[next].description),
           })
         },
       }),

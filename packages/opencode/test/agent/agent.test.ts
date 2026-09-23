@@ -716,3 +716,61 @@ test("defaultAgent throws when all primary agents are disabled", async () => {
     },
   })
 })
+
+test("external_read defaults mirror external_directory baseline", async () => {
+  const { Truncate } = await import("../../src/tool/truncate")
+  await using tmp = await tmpdir()
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const build = await Agent.get("build")
+      expect(Permission.evaluate("external_read", "/some/other/path", build!.permission).action).toBe("ask")
+      expect(Permission.evaluate("external_read", Truncate.GLOB, build!.permission).action).toBe("allow")
+      const explore = await Agent.get("explore")
+      expect(Permission.evaluate("external_read", "/some/other/path", explore!.permission).action).toBe("ask")
+    },
+  })
+})
+
+test("user external_directory rules are mirrored onto external_read", async () => {
+  await using tmp = await tmpdir({
+    config: {
+      permission: {
+        external_directory: {
+          "D:/refs/**": "allow",
+        },
+      },
+    },
+  })
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const build = await Agent.get("build")
+      expect(Permission.evaluate("external_directory", "D:/refs/x.txt", build!.permission).action).toBe("allow")
+      expect(Permission.evaluate("external_read", "D:/refs/x.txt", build!.permission).action).toBe("allow")
+      expect(Permission.evaluate("external_read", "D:/other/x.txt", build!.permission).action).toBe("ask")
+    },
+  })
+})
+
+test("explicit external_read config suppresses the mirror", async () => {
+  await using tmp = await tmpdir({
+    config: {
+      permission: {
+        external_directory: {
+          "D:/refs/**": "allow",
+        },
+        external_read: {
+          "D:/refs/**": "deny",
+        },
+      },
+    },
+  })
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const build = await Agent.get("build")
+      expect(Permission.evaluate("external_read", "D:/refs/x.txt", build!.permission).action).toBe("deny")
+    },
+  })
+})

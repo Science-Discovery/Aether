@@ -167,13 +167,16 @@ export namespace Permission {
         let needsAsk = false
 
         for (const pattern of request.patterns) {
-          const rule = evaluate(request.permission, pattern, ruleset, approved)
-          log.info("evaluated", { permission: request.permission, pattern, action: rule })
-          if (rule.action === "deny") {
+          // Explicit ruleset deny wins even when persisted "always" approvals match
+          // the same pattern - approvals must never resurrect a denied action.
+          const explicit = evaluate(request.permission, pattern, ruleset)
+          if (explicit.action === "deny") {
             return yield* new DeniedError({
               ruleset: ruleset.filter((rule) => Wildcard.match(request.permission, rule.permission)),
             })
           }
+          const rule = evaluate(request.permission, pattern, ruleset, approved)
+          log.info("evaluated", { permission: request.permission, pattern, action: rule })
           if (rule.action === "allow") continue
           needsAsk = true
         }

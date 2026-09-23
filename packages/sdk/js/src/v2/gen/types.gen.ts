@@ -153,6 +153,29 @@ export type EventLspUpdated = {
   }
 }
 
+export type EventFileWatcherUpdated = {
+  type: "file.watcher.updated"
+  properties: {
+    file: string
+    event: "add" | "change" | "unlink"
+  }
+}
+
+export type EventFileWatcherLimited = {
+  type: "file.watcher.limited"
+  properties: {
+    dir: string
+    reason: "limit" | "timeout" | "error"
+  }
+}
+
+export type EventFileWatcherNotfound = {
+  type: "file.watcher.notfound"
+  properties: {
+    dir: string
+  }
+}
+
 export type EventMessagePartDelta = {
   type: "message.part.delta"
   properties: {
@@ -300,29 +323,6 @@ export type EventSessionCompacted = {
   }
 }
 
-export type EventFileWatcherUpdated = {
-  type: "file.watcher.updated"
-  properties: {
-    file: string
-    event: "add" | "change" | "unlink"
-  }
-}
-
-export type EventFileWatcherLimited = {
-  type: "file.watcher.limited"
-  properties: {
-    dir: string
-    reason: "limit" | "timeout" | "error"
-  }
-}
-
-export type EventFileWatcherNotfound = {
-  type: "file.watcher.notfound"
-  properties: {
-    dir: string
-  }
-}
-
 export type EventFileEdited = {
   type: "file.edited"
   properties: {
@@ -444,6 +444,7 @@ export type EventSessionPreferenceUpdated = {
         modelID: string
       }
       variant?: string | null
+      mode?: "off" | "safe" | "full"
       autoAccept?: boolean
     }
   }
@@ -1116,6 +1117,9 @@ export type Event =
   | EventGlobalDisposed
   | EventLspClientDiagnostics
   | EventLspUpdated
+  | EventFileWatcherUpdated
+  | EventFileWatcherLimited
+  | EventFileWatcherNotfound
   | EventMessagePartDelta
   | EventPermissionAsked
   | EventPermissionReplied
@@ -1125,9 +1129,6 @@ export type Event =
   | EventQuestionReplied
   | EventQuestionRejected
   | EventSessionCompacted
-  | EventFileWatcherUpdated
-  | EventFileWatcherLimited
-  | EventFileWatcherNotfound
   | EventFileEdited
   | EventTodoUpdated
   | EventTuiPromptAppend
@@ -1864,6 +1865,19 @@ export type Config = {
   instructions?: Array<string>
   layout?: LayoutConfig
   permission?: PermissionConfig
+  /**
+   * Safe-zone zones used by the safe permission tier
+   */
+  safeZone?: {
+    /**
+     * Private zone globs - reads and writes are always denied while the safe permission tier is on
+     */
+    private?: Array<string>
+    /**
+     * Open zone globs - reads and writes are always allowed, including outside the workspace
+     */
+    open?: Array<string>
+  }
   tools?: {
     [key: string]: boolean
   }
@@ -5615,6 +5629,7 @@ export type SessionPreferenceGetResponses = {
       modelID: string
     }
     variant?: string | null
+    mode?: "off" | "safe" | "full"
     autoAccept?: boolean
   } | null
 }
@@ -5629,6 +5644,7 @@ export type SessionPreferenceUpdateData = {
       modelID: string
     }
     variant?: string | null
+    mode?: "off" | "safe" | "full"
     autoAccept?: boolean
   }
   path: {
@@ -5666,6 +5682,7 @@ export type SessionPreferenceUpdateResponses = {
       modelID: string
     }
     variant?: string | null
+    mode?: "off" | "safe" | "full"
     autoAccept?: boolean
   }
 }

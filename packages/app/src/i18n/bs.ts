@@ -81,6 +81,9 @@ export const dict = {
   "command.prompt.mode.normal": "Prompt",
   "command.permissions.autoaccept.enable": "Automatski prihvati dozvole",
   "command.permissions.autoaccept.disable": "Zaustavi automatsko prihvatanje dozvola",
+  "command.permissions.mode.off": "Dozvole: potvrdi sve",
+  "command.permissions.mode.safe": "Dozvole: sigurna zona",
+  "command.permissions.mode.full": "Dozvole: automatski prihvati sve",
   "command.workspace.toggle": "Prikaži/sakrij radne prostore",
   "command.workspace.toggle.description": "Omogući ili onemogući više radnih prostora u bočnoj traci",
   "command.session.undo": "Poništi",
@@ -299,6 +302,16 @@ export const dict = {
   "prompt.toast.promptSendFailed.title": "Neuspješno slanje upita",
   "prompt.toast.promptSendFailed.description": "Nije moguće dohvatiti sesiju",
 
+  "prompt.permissions.safezone.title": "Sigurna zona",
+  "prompt.permissions.safezone.description":
+    "Datoteke izvan radnog prostora mogu se čitati, privatne se zone nikada ne čitaju ni u njih ne piše, a pisanje izvan radnog prostora i dalje traži potvrdu. Otvorene zone su u potpunosti dopuštene.",
+  "prompt.permissions.safezone.private.label": "Privatne zone (jedan glob po retku)",
+  "prompt.permissions.safezone.private.hint": "*.env",
+  "prompt.permissions.safezone.open.label": "Otvorene zone (jedan glob po retku)",
+  "prompt.permissions.safezone.open.hint": "dist/**",
+  "prompt.permissions.safezone.save": "Sačuvaj",
+  "prompt.permissions.safezone.skip": "Preskoči",
+
   "dialog.mcp.title": "MCP-ovi",
   "dialog.mcp.description": "{{enabled}} od {{total}} omogućeno",
   "dialog.mcp.empty": "Nema konfigurisnih MCP-ova",
@@ -432,6 +445,9 @@ export const dict = {
   "toast.permissions.autoaccept.on.description": "Zahtjevi za dozvole će biti automatski odobreni",
   "toast.permissions.autoaccept.off.title": "Zaustavljeno automatsko prihvatanje dozvola",
   "toast.permissions.autoaccept.off.description": "Zahtjevi za dozvole će zahtijevati odobrenje",
+  "toast.permissions.mode.safe.title": "Sigurna zona je omogućena",
+  "toast.permissions.mode.safe.description":
+    "Datoteke izvan radnog prostora mogu se čitati, privatne zone su zaštićene, ostale radnje i dalje traže potvrdu",
 
   "toast.model.none.title": "Nije odabran model",
   "toast.model.none.description": "Poveži provajdera da sažmeš ovu sesiju",
@@ -733,10 +749,16 @@ export const dict = {
   "settings.general.row.followup.description": "Odaberi da li upiti nadovezivanja usmjeravaju odmah ili čekaju u redu",
   "settings.general.row.followup.option.queue": "Red čekanja",
   "settings.general.row.followup.option.steer": "Usmjeri",
+  "settings.general.defaultPermission.title": "Zadani režim dozvola",
+  "settings.general.defaultPermission.description": "Nivo dozvola primijenjen na nove sesije",
+  "settings.general.defaultPermission.option.off": "Potvrdi sve",
+  "settings.general.defaultPermission.option.safe": "Sigurna zona",
+  "settings.general.defaultPermission.option.full": "Automatski prihvati sve",
   "settings.general.row.reasoningSummaries.title": "Prikaži sažetke rasuđivanja",
   "settings.general.row.reasoningSummaries.description": "Prikaži sažetke rasuđivanja modela na vremenskoj traci",
   "settings.general.row.autoGitInit.title": "Automatski kreiraj Git repozitorij",
-  "settings.general.row.autoGitInit.description": "Inicijalizira Git repozitorij i omogućava radne prostore za nove projekte",
+  "settings.general.row.autoGitInit.description":
+    "Inicijalizira Git repozitorij i omogućava radne prostore za nove projekte",
 
   "settings.general.row.shellToolPartsExpanded.title": "Proširi dijelove shell alata",
   "settings.general.row.shellToolPartsExpanded.description":

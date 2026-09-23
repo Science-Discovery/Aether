@@ -38,6 +38,7 @@ export const ReadTool = Tool.define("read", {
     await assertExternalDirectory(ctx, filepath, {
       bypass: Boolean(ctx.extra?.["bypassCwdCheck"]),
       kind: stat?.isDirectory() ? "directory" : "file",
+      access: "read",
     })
 
     await ctx.ask({
@@ -74,15 +75,14 @@ export const ReadTool = Tool.define("read", {
     if (stat.isDirectory()) {
       const dirents = await fs.readdir(filepath, { withFileTypes: true })
       const entries = await Promise.all(
-        dirents
-          .map(async (dirent) => {
-            if (dirent.isDirectory()) return dirent.name + "/"
-            if (dirent.isSymbolicLink()) {
-              const target = await fs.stat(path.join(filepath, dirent.name)).catch(() => undefined)
-              if (target?.isDirectory()) return dirent.name + "/"
-            }
-            return dirent.name
-          }),
+        dirents.map(async (dirent) => {
+          if (dirent.isDirectory()) return dirent.name + "/"
+          if (dirent.isSymbolicLink()) {
+            const target = await fs.stat(path.join(filepath, dirent.name)).catch(() => undefined)
+            if (target?.isDirectory()) return dirent.name + "/"
+          }
+          return dirent.name
+        }),
       )
       entries.sort((a, b) => a.localeCompare(b))
 

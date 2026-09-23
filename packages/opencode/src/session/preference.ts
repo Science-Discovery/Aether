@@ -7,12 +7,16 @@ import { ModelID, ProviderID } from "@/provider/schema"
 import { Log } from "@/util/log"
 import { Global } from "@/global"
 import { Filesystem } from "@/util/filesystem"
+import type { Permission } from "@/permission"
 
 const log = Log.create({ service: "session.preference" })
 
 const store = new Map<string, SessionPreference.Info>()
 
 export namespace SessionPreference {
+  export const Mode = z.enum(["off", "safe", "full"])
+  export type Mode = z.output<typeof Mode>
+
   export const Info = z.object({
     sessionID: SessionID.zod,
     agent: z.string().optional(),
@@ -23,6 +27,7 @@ export namespace SessionPreference {
       })
       .optional(),
     variant: z.string().nullable().optional(),
+    mode: Mode.optional(),
     autoAccept: z.boolean().optional(),
   })
 
@@ -38,6 +43,7 @@ export namespace SessionPreference {
       })
       .optional(),
     variant: z.string().nullable().optional(),
+    mode: Mode.optional(),
     autoAccept: z.boolean().optional(),
   })
 
@@ -55,11 +61,32 @@ export namespace SessionPreference {
     return store.get(sessionID)
   }
 
+  function resolveMode(patch: Patch, prev: Info | undefined): Mode | undefined {
+    if (patch.mode !== undefined) return patch.mode
+    if (patch.autoAccept !== undefined) return patch.autoAccept ? "full" : "off"
+    return prev?.mode
+  }
+
+  export async function rulesFor(mode: Mode): Promise<Permission.Ruleset> {
+    if (mode === "full") return [{ permission: "*", pattern: "*", action: "allow" }]
+    if (mode === "off") return []
+    const [{ Config }, { SafeZone }, { Instance }] = await Promise.all([
+      import("@/config/config"),
+      import("@/permission/safe-zone"),
+      import("@/project/instance"),
+    ])
+    const cfg = await Config.get()
+    return SafeZone.rules(cfg.safeZone, Instance.worktree)
+  }
+
   export async function update(patch: Patch): Promise<Info> {
     const prev = store.get(patch.sessionID)
     const modelChanged =
       patch.model &&
       (patch.model.providerID !== prev?.model?.providerID || patch.model.modelID !== prev?.model?.modelID)
+    const mode = resolveMode(patch, prev)
+    const modeChanged = mode !== undefined && mode !== prev?.mode
+    const autoMirror = mode === undefined ? undefined : mode === "full"
     const merged: Info = {
       sessionID: patch.sessionID,
       agent: patch.agent ?? prev?.agent,
@@ -72,7 +99,8 @@ export namespace SessionPreference {
             : modelChanged
               ? undefined
               : prev?.variant,
-      autoAccept: patch.autoAccept ?? prev?.autoAccept,
+      mode,
+      autoAccept: patch.autoAccept ?? autoMirror ?? prev?.autoAccept,
     }
     store.set(patch.sessionID, merged)
     log.info("update", { sessionID: patch.sessionID })
@@ -82,19 +110,12 @@ export namespace SessionPreference {
       preference: { ...merged, variant: merged.variant ?? null },
     })
 
-    if (patch.autoAccept !== undefined && patch.autoAccept !== prev?.autoAccept) {
+    if (modeChanged) {
       const { Session } = await import(".")
-      if (patch.autoAccept) {
-        await Session.setPermission({
-          sessionID: patch.sessionID,
-          permission: [{ permission: "*", pattern: "*", action: "allow" }],
-        })
-      } else {
-        await Session.setPermission({
-          sessionID: patch.sessionID,
-          permission: [],
-        })
-      }
+      await Session.setPermission({
+        sessionID: patch.sessionID,
+        permission: await rulesFor(mode),
+      })
     }
 
     if (modelChanged && merged.model) {

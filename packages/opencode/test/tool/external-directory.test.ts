@@ -125,4 +125,51 @@ describe("tool.assertExternalDirectory", () => {
 
     expect(requests.length).toBe(0)
   })
+
+  test("asks external_read when access=read", async () => {
+    const requests: Array<Omit<Permission.Request, "id" | "sessionID" | "tool">> = []
+    const ctx: Tool.Context = {
+      ...baseCtx,
+      ask: async (req) => {
+        requests.push(req)
+      },
+    }
+
+    const target = "/tmp/outside/file.txt"
+    const expected = path.join(path.dirname(target), "*").replaceAll("\\", "/")
+
+    await Instance.provide({
+      directory: "/tmp/project",
+      fn: async () => {
+        await assertExternalDirectory(ctx, target, { access: "read" })
+      },
+    })
+
+    expect(requests.length).toBe(1)
+    expect(requests[0]!.permission).toBe("external_read")
+    expect(requests[0]!.patterns).toEqual([expected])
+  })
+
+  test("asks external_directory when access=write or unset", async () => {
+    const requests: Array<Omit<Permission.Request, "id" | "sessionID" | "tool">> = []
+    const ctx: Tool.Context = {
+      ...baseCtx,
+      ask: async (req) => {
+        requests.push(req)
+      },
+    }
+
+    await Instance.provide({
+      directory: "/tmp/project",
+      fn: async () => {
+        await assertExternalDirectory(ctx, "/tmp/outside/file.txt", { access: "write" })
+        await assertExternalDirectory(ctx, "/tmp/outside2/file.txt")
+      },
+    })
+
+    expect(requests.length).toBe(2)
+    for (const req of requests) {
+      expect(req.permission).toBe("external_directory")
+    }
+  })
 })

@@ -31,7 +31,7 @@ export const GlobTool = Tool.define("glob", {
     })
 
     const search = resolveInput(Instance.directory, params.path ?? Instance.directory)
-    await assertExternalDirectory(ctx, search, { kind: "directory" })
+    await assertExternalDirectory(ctx, search, { kind: "directory", access: "read" })
 
     const limit = 100
     const files = []

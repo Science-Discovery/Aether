@@ -75,6 +75,9 @@ export const dict = {
   "command.prompt.mode.normal": "プロンプト",
   "command.permissions.autoaccept.enable": "権限を自動承認する",
   "command.permissions.autoaccept.disable": "権限の自動承認を停止する",
+  "command.permissions.mode.off": "権限: すべて確認",
+  "command.permissions.mode.safe": "権限: セーフゾーン",
+  "command.permissions.mode.full": "権限: すべて自動承認",
   "command.workspace.toggle": "ワークスペースを切り替え",
   "command.workspace.toggle.description": "サイドバーでの複数のワークスペースの有効化・無効化",
   "command.session.undo": "元に戻す",
@@ -283,6 +286,17 @@ export const dict = {
   "prompt.toast.commandSendFailed.title": "コマンドの送信に失敗しました",
   "prompt.toast.promptSendFailed.title": "プロンプトの送信に失敗しました",
   "prompt.toast.promptSendFailed.description": "セッションを取得できませんでした",
+
+  "prompt.permissions.safezone.title": "セーフゾーン",
+  "prompt.permissions.safezone.description":
+    "ワークスペース外のファイルは読み取ることができ、プライベートゾーンは決して読み書きされず、ワークスペース外への書き込みは引き続き確認を求めます。オープンゾーンは完全に許可されます。",
+  "prompt.permissions.safezone.private.label": "プライベートゾーン（1行に1つのglob）",
+  "prompt.permissions.safezone.private.hint": "*.env",
+  "prompt.permissions.safezone.open.label": "オープンゾーン（1行に1つのglob）",
+  "prompt.permissions.safezone.open.hint": "dist/**",
+  "prompt.permissions.safezone.save": "保存",
+  "prompt.permissions.safezone.skip": "スキップ",
+
   "dialog.mcp.title": "MCP",
   "dialog.mcp.description": "{{total}}個中{{enabled}}個が有効",
   "dialog.mcp.empty": "MCPが設定されていません",
@@ -400,6 +414,10 @@ export const dict = {
   "toast.permissions.autoaccept.on.description": "権限の要求は自動的に承認されます",
   "toast.permissions.autoaccept.off.title": "権限の自動承認を停止しました",
   "toast.permissions.autoaccept.off.description": "権限の要求には承認が必要になります",
+  "toast.permissions.mode.safe.title": "セーフゾーンが有効になりました",
+  "toast.permissions.mode.safe.description":
+    "ワークスペース外のファイルは読み取り可能で、プライベートゾーンは保護され、その他の操作は引き続き確認を求めます",
+
   "toast.model.none.title": "モデルが選択されていません",
   "toast.model.none.description": "このセッションを要約するにはプロバイダーを接続してください",
   "toast.file.loadFailed.title": "ファイルの読み込みに失敗しました",
@@ -673,10 +691,16 @@ export const dict = {
     "フォローアッププロンプトを即座に実行するか、キューで待機させるかを選択します",
   "settings.general.row.followup.option.queue": "キューに追加",
   "settings.general.row.followup.option.steer": "即座に実行 (Steer)",
+  "settings.general.defaultPermission.title": "デフォルトの権限モード",
+  "settings.general.defaultPermission.description": "新しいセッションに適用される権限レベル",
+  "settings.general.defaultPermission.option.off": "すべて確認",
+  "settings.general.defaultPermission.option.safe": "セーフゾーン",
+  "settings.general.defaultPermission.option.full": "すべて自動承認",
   "settings.general.row.reasoningSummaries.title": "推論の要約を表示",
   "settings.general.row.reasoningSummaries.description": "タイムラインにモデルの推論の要約を表示します",
   "settings.general.row.autoGitInit.title": "Git リポジトリを自動作成",
-  "settings.general.row.autoGitInit.description": "プロジェクト作成時に Git リポジトリを初期化し、ワークスペースを有効化します",
+  "settings.general.row.autoGitInit.description":
+    "プロジェクト作成時に Git リポジトリを初期化し、ワークスペースを有効化します",
   "settings.general.row.shellToolPartsExpanded.title": "shell ツールパーツを展開",
   "settings.general.row.shellToolPartsExpanded.description":
     "タイムラインで shell ツールパーツをデフォルトで展開して表示します",

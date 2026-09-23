@@ -81,6 +81,9 @@ export const dict = {
   "command.prompt.mode.normal": "Prompt",
   "command.permissions.autoaccept.enable": "Accepter tilladelser automatisk",
   "command.permissions.autoaccept.disable": "Stop med at acceptere tilladelser automatisk",
+  "command.permissions.mode.off": "Tilladelser: bekræft alle",
+  "command.permissions.mode.safe": "Tilladelser: sikker zone",
+  "command.permissions.mode.full": "Tilladelser: acceptér alle automatisk",
   "command.workspace.toggle": "Skift arbejdsområder",
   "command.workspace.toggle.description": "Aktiver eller deaktiver flere arbejdsområder i sidebjælken",
   "command.session.undo": "Fortryd",
@@ -297,6 +300,16 @@ export const dict = {
   "prompt.toast.promptSendFailed.title": "Kunne ikke sende forespørgsel",
   "prompt.toast.promptSendFailed.description": "Kunne ikke hente session",
 
+  "prompt.permissions.safezone.title": "Sikker zone",
+  "prompt.permissions.safezone.description":
+    "Filer uden for arbejdsområdet kan læses, private zoner læses eller skrives aldrig, og skrivning uden for arbejdsområdet kræver stadig bekræftelse. Åbne zoner er fuldt tilladt.",
+  "prompt.permissions.safezone.private.label": "Private zoner (ét glob pr. linje)",
+  "prompt.permissions.safezone.private.hint": "*.env",
+  "prompt.permissions.safezone.open.label": "Åbne zoner (ét glob pr. linje)",
+  "prompt.permissions.safezone.open.hint": "dist/**",
+  "prompt.permissions.safezone.save": "Gem",
+  "prompt.permissions.safezone.skip": "Spring over",
+
   "dialog.mcp.title": "MCP'er",
   "dialog.mcp.description": "{{enabled}} af {{total}} aktiveret",
   "dialog.mcp.empty": "Ingen MCP'er konfigureret",
@@ -425,6 +438,9 @@ export const dict = {
   "toast.permissions.autoaccept.on.description": "Anmodninger om tilladelse godkendes automatisk",
   "toast.permissions.autoaccept.off.title": "Stoppet med at acceptere tilladelser automatisk",
   "toast.permissions.autoaccept.off.description": "Anmodninger om tilladelse vil kræve godkendelse",
+  "toast.permissions.mode.safe.title": "Sikker zone aktiveret",
+  "toast.permissions.mode.safe.description":
+    "Filer uden for arbejdsområdet kan læses, private zoner er beskyttet, andre handlinger spørger stadig",
 
   "toast.workspace.enabled.title": "Arbejdsområder aktiveret",
   "toast.workspace.enabled.description": "Flere worktrees vises nu i sidepanelet",
@@ -728,10 +744,16 @@ export const dict = {
   "settings.general.row.followup.description": "Vælg om opfølgende forespørgsler skal styre straks eller vente i kø",
   "settings.general.row.followup.option.queue": "Kø",
   "settings.general.row.followup.option.steer": "Styr",
+  "settings.general.defaultPermission.title": "Standardtilstand for tilladelser",
+  "settings.general.defaultPermission.description": "Tilladelsesniveau anvendt på nye sessioner",
+  "settings.general.defaultPermission.option.off": "Bekræft alle",
+  "settings.general.defaultPermission.option.safe": "Sikker zone",
+  "settings.general.defaultPermission.option.full": "Acceptér alle automatisk",
   "settings.general.row.reasoningSummaries.title": "Vis tænkeoversigter",
   "settings.general.row.reasoningSummaries.description": "Vis model tænkeoversigter i tidslinjen",
   "settings.general.row.autoGitInit.title": "Opret Git-repository automatisk",
-  "settings.general.row.autoGitInit.description": "Initialiserer et Git-repository og aktiverer arbejdsområder for nye projekter",
+  "settings.general.row.autoGitInit.description":
+    "Initialiserer et Git-repository og aktiverer arbejdsområder for nye projekter",
 
   "settings.general.row.shellToolPartsExpanded.title": "Udvid shell-værktøjsdele",
   "settings.general.row.shellToolPartsExpanded.description": "Vis shell-værktøjsdele udvidet som standard i tidslinjen",

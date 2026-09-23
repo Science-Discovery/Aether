@@ -2456,6 +2456,7 @@ export class Preference extends HeyApiClient {
         modelID: string
       }
       variant?: string | null
+      mode?: "off" | "safe" | "full"
       autoAccept?: boolean
     },
     options?: Options<never, ThrowOnError>,
@@ -2471,6 +2472,7 @@ export class Preference extends HeyApiClient {
             { in: "body", key: "agent" },
             { in: "body", key: "model" },
             { in: "body", key: "variant" },
+            { in: "body", key: "mode" },
             { in: "body", key: "autoAccept" },
           ],
         },

@@ -107,6 +107,9 @@ export const dict = {
 
   "command.permissions.autoaccept.enable": "自动接受权限",
   "command.permissions.autoaccept.disable": "停止自动接受权限",
+  "command.permissions.mode.off": "权限：全部确认",
+  "command.permissions.mode.safe": "权限：安全区",
+  "command.permissions.mode.full": "权限：全部自动接受",
 
   "command.workspace.toggle": "切换工作区",
   "command.workspace.toggle.description": "在侧边栏启用或禁用多个工作区",
@@ -365,6 +368,16 @@ export const dict = {
   "prompt.toast.promptSendFailed.description": "无法获取会话",
   "prompt.toast.serverUnavailable.title": "服务器暂时不可用",
   "prompt.toast.serverUnavailable.description": "请等待服务器恢复后再发送消息",
+
+  "prompt.permissions.safezone.title": "安全区",
+  "prompt.permissions.safezone.description":
+    "工作区外的文件可以被读取，私有区不会被读取或写入，工作区外的写入仍会请求确认。开放区完全允许。",
+  "prompt.permissions.safezone.private.label": "私有区（每行一个 glob）",
+  "prompt.permissions.safezone.private.hint": "*.env",
+  "prompt.permissions.safezone.open.label": "开放区（每行一个 glob）",
+  "prompt.permissions.safezone.open.hint": "dist/**",
+  "prompt.permissions.safezone.save": "保存",
+  "prompt.permissions.safezone.skip": "跳过",
 
   "dialog.mcp.title": "MCPs",
   "dialog.mcp.description": "已启用 {{enabled}} / {{total}}",
@@ -695,6 +708,9 @@ export const dict = {
   "toast.permissions.autoaccept.on.description": "权限请求将被自动批准",
   "toast.permissions.autoaccept.off.title": "已停止自动接受权限",
   "toast.permissions.autoaccept.off.description": "权限请求将需要批准",
+  "toast.permissions.mode.safe.title": "安全区已启用",
+  "toast.permissions.mode.safe.description": "工作区外的文件可以读取，私有区受保护，其他操作仍会询问",
+
   "toast.model.none.title": "未选择模型",
   "toast.model.none.description": "请先连接提供商以总结此会话",
   "toast.file.loadFailed.title": "加载文件失败",
@@ -1104,6 +1120,11 @@ export const dict = {
   "settings.general.row.followup.description": "选择跟进提示是立即引导还是在队列中等待",
   "settings.general.row.followup.option.queue": "排队",
   "settings.general.row.followup.option.steer": "引导",
+  "settings.general.defaultPermission.title": "默认权限模式",
+  "settings.general.defaultPermission.description": "应用于新会话的权限级别",
+  "settings.general.defaultPermission.option.off": "全部确认",
+  "settings.general.defaultPermission.option.safe": "安全区",
+  "settings.general.defaultPermission.option.full": "全部自动接受",
   "settings.general.row.branchesTab.title": "启用对话树",
   "settings.general.row.branchesTab.description": "在会话列表侧栏中内联显示对话树视图",
   "settings.general.row.branchGraphCompact.title": "对话树视图",

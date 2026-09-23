@@ -1,4 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test"
+import os from "os"
+import path from "path"
 import { Bus } from "../../src/bus"
 import { SessionPreference } from "../../src/session/preference"
 import { Instance } from "../../src/project/instance"
@@ -237,6 +239,131 @@ describe("SessionPreference", () => {
           expect(SessionPreference.get(id2)).toBeUndefined()
         },
       })
+    })
+  })
+})
+
+describe("SessionPreference permission tier", () => {
+  function lastWritten(events: any[]) {
+    const withPermission = events.filter((e) => e?.info?.permission !== undefined)
+    return withPermission.at(-1)?.info?.permission
+  }
+
+  test("mode=full writes allow-all rules and mirrors autoAccept", async () => {
+    await using tmp = await tmpdir()
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const session = await Session.create({})
+        const id = session.id
+        const events: any[] = []
+        const unsub = Bus.subscribe(Session.Event.Updated, (e) => events.push(e.properties))
+        try {
+          const pref = await SessionPreference.update({ sessionID: id, mode: "full" })
+          expect(pref.mode).toBe("full")
+          expect(pref.autoAccept).toBe(true)
+          expect(lastWritten(events)).toEqual([{ permission: "*", pattern: "*", action: "allow" }])
+        } finally {
+          unsub()
+        }
+      },
+    })
+  })
+
+  test("mode=off clears session rules", async () => {
+    await using tmp = await tmpdir()
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const session = await Session.create({})
+        const id = session.id
+        const events: any[] = []
+        const unsub = Bus.subscribe(Session.Event.Updated, (e) => events.push(e.properties))
+        try {
+          await SessionPreference.update({ sessionID: id, mode: "full" })
+          const pref = await SessionPreference.update({ sessionID: id, mode: "off" })
+          expect(pref.mode).toBe("off")
+          expect(pref.autoAccept).toBe(false)
+          expect(lastWritten(events)).toEqual([])
+        } finally {
+          unsub()
+        }
+      },
+    })
+  })
+
+  test("mode=safe writes safe-zone rules with external_read baseline", async () => {
+    await using tmp = await tmpdir()
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const session = await Session.create({})
+        const id = session.id
+        const events: any[] = []
+        const unsub = Bus.subscribe(Session.Event.Updated, (e) => events.push(e.properties))
+        try {
+          const pref = await SessionPreference.update({ sessionID: id, mode: "safe" })
+          expect(pref.mode).toBe("safe")
+          const rules = lastWritten(events)
+          expect(Array.isArray(rules)).toBe(true)
+          expect(rules[0]).toEqual({ permission: "external_read", pattern: "*", action: "allow" })
+          expect(rules.length).toBeGreaterThan(1)
+          expect(rules).toContainEqual({
+            permission: "read",
+            pattern: `${path.join(os.tmpdir(), "**").replaceAll("\\", "/")}`,
+            action: "allow",
+          })
+        } finally {
+          unsub()
+        }
+      },
+    })
+  })
+
+  test("legacy autoAccept=true behaves as full tier", async () => {
+    await using tmp = await tmpdir()
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const session = await Session.create({})
+        const id = session.id
+        const events: any[] = []
+        const unsub = Bus.subscribe(Session.Event.Updated, (e) => events.push(e.properties))
+        try {
+          const pref = await SessionPreference.update({ sessionID: id, autoAccept: true })
+          expect(pref.mode).toBe("full")
+          expect(pref.autoAccept).toBe(true)
+          expect(lastWritten(events)).toEqual([{ permission: "*", pattern: "*", action: "allow" }])
+
+          const off = await SessionPreference.update({ sessionID: id, autoAccept: false })
+          expect(off.mode).toBe("off")
+          expect(off.autoAccept).toBe(false)
+          expect(lastWritten(events)).toEqual([])
+        } finally {
+          unsub()
+        }
+      },
+    })
+  })
+
+  test("no-tier patches do not rewrite rules", async () => {
+    await using tmp = await tmpdir()
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const session = await Session.create({})
+        const id = session.id
+        const events: any[] = []
+        const unsub = Bus.subscribe(Session.Event.Updated, (e) => events.push(e.properties))
+        try {
+          await SessionPreference.update({ sessionID: id, mode: "safe" })
+          events.length = 0
+          await SessionPreference.update({ sessionID: id, variant: "high" })
+          expect(lastWritten(events)).toBeUndefined()
+        } finally {
+          unsub()
+        }
+      },
     })
   })
 })

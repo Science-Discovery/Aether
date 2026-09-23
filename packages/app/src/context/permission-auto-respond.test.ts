@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import type { PermissionRequest, Session } from "@opencode-ai/sdk/v2/client"
 import { base64Encode } from "@opencode-ai/util/encode"
-import { autoRespondsPermission, isDirectoryAutoAccepting } from "./permission-auto-respond"
+import { autoRespondsPermission, createModeOverrides, isDirectoryAutoAccepting } from "./permission-auto-respond"
 
 const session = (input: { id: string; parentID?: string }) =>
   ({
@@ -105,6 +105,50 @@ describe("autoRespondsPermission", () => {
 
     expect(autoRespondsPermission(autoAccept, sessions, permission("child"), "/tmp/project", preference)).toBe(true)
   })
+
+  test("treats preference mode full as auto-respond", () => {
+    const sessions = [session({ id: "root" })]
+    const preference = { root: { mode: "full" as const } }
+
+    expect(autoRespondsPermission({}, sessions, permission("root"), "/tmp/project", preference)).toBe(true)
+  })
+
+  test("treats preference mode safe as not auto-responding even with store fallback", () => {
+    const sessions = [session({ id: "root" })]
+    const preference = { root: { mode: "safe" as const } }
+
+    expect(autoRespondsPermission({ root: true }, sessions, permission("root"), "/tmp/project", preference)).toBe(false)
+  })
+
+  test("treats preference mode off as not auto-responding", () => {
+    const sessions = [session({ id: "root" })]
+    const preference = { root: { mode: "off" as const } }
+
+    expect(autoRespondsPermission({ root: true }, sessions, permission("root"), "/tmp/project", preference)).toBe(false)
+  })
+
+  test("prefers preference mode over legacy autoAccept", () => {
+    const sessions = [session({ id: "root" })]
+    const preference = { root: { mode: "off" as const, autoAccept: true } }
+
+    expect(autoRespondsPermission({}, sessions, permission("root"), "/tmp/project", preference)).toBe(false)
+  })
+
+  test("falls back to local autoAccept when preference mode is undefined", () => {
+    const sessions = [session({ id: "root" })]
+    const preference = { root: { autoAccept: undefined, mode: undefined } }
+
+    expect(autoRespondsPermission({ root: true }, sessions, permission("root"), "/tmp/project", preference)).toBe(true)
+  })
+
+  test("inherits preference mode from parent session", () => {
+    const sessions = [session({ id: "root" }), session({ id: "child", parentID: "root" })]
+    const preference = { root: { mode: "safe" as const } }
+
+    expect(autoRespondsPermission({ root: true }, sessions, permission("child"), "/tmp/project", preference)).toBe(
+      false,
+    )
+  })
 })
 
 describe("isDirectoryAutoAccepting", () => {
@@ -122,5 +166,63 @@ describe("isDirectoryAutoAccepting", () => {
     const directory = "/tmp/project"
     const autoAccept = { [`${base64Encode(directory)}/*`]: false }
     expect(isDirectoryAutoAccepting(autoAccept, directory)).toBe(false)
+  })
+})
+
+describe("createModeOverrides", () => {
+  test("returns the last locally-requested mode per session and directory", () => {
+    const overrides = createModeOverrides()
+    overrides.set("ses_1", "/tmp/a", "safe")
+
+    expect(overrides.get("ses_1", "/tmp/a")).toBe("safe")
+    expect(overrides.get("ses_1", "/tmp/b")).toBeUndefined()
+    expect(overrides.get("ses_2", "/tmp/a")).toBeUndefined()
+  })
+
+  test("replaces the entry on repeated clicks so cycling sees the newest mode", () => {
+    const overrides = createModeOverrides()
+    overrides.set("ses_1", "/tmp/a", "safe")
+    overrides.set("ses_1", "/tmp/a", "full")
+
+    expect(overrides.get("ses_1", "/tmp/a")).toBe("full")
+  })
+
+  test("clears the override once the server reports the same mode", () => {
+    const overrides = createModeOverrides()
+    overrides.set("ses_1", "/tmp/a", "safe")
+
+    expect(overrides.get("ses_1", "/tmp/a", "safe")).toBe("safe")
+    expect(overrides.get("ses_1", "/tmp/a")).toBeUndefined()
+  })
+
+  test("keeps the override when the server reports a different mode", () => {
+    const overrides = createModeOverrides()
+    overrides.set("ses_1", "/tmp/a", "full")
+
+    expect(overrides.get("ses_1", "/tmp/a", "safe")).toBe("full")
+    expect(overrides.get("ses_1", "/tmp/a", "safe")).toBe("full")
+  })
+
+  test("evicts the oldest entry beyond the cap", () => {
+    const overrides = createModeOverrides(2)
+    overrides.set("ses_1", undefined, "safe")
+    overrides.set("ses_2", undefined, "safe")
+    overrides.set("ses_3", undefined, "safe")
+
+    expect(overrides.get("ses_1", undefined)).toBeUndefined()
+    expect(overrides.get("ses_2", undefined)).toBe("safe")
+    expect(overrides.get("ses_3", undefined)).toBe("safe")
+  })
+
+  test("refreshes insertion order when an entry is re-set", () => {
+    const overrides = createModeOverrides(2)
+    overrides.set("ses_1", undefined, "safe")
+    overrides.set("ses_2", undefined, "safe")
+    overrides.set("ses_1", undefined, "full")
+    overrides.set("ses_3", undefined, "safe")
+
+    expect(overrides.get("ses_1", undefined)).toBe("full")
+    expect(overrides.get("ses_2", undefined)).toBeUndefined()
+    expect(overrides.get("ses_3", undefined)).toBe("safe")
   })
 })

@@ -81,6 +81,9 @@ export const dict = {
   "command.prompt.mode.normal": "Промпт",
   "command.permissions.autoaccept.enable": "Автоматически принимать разрешения",
   "command.permissions.autoaccept.disable": "Остановить автоматическое принятие разрешений",
+  "command.permissions.mode.off": "Разрешения: подтверждать все",
+  "command.permissions.mode.safe": "Разрешения: безопасная зона",
+  "command.permissions.mode.full": "Разрешения: принимать все автоматически",
   "command.workspace.toggle": "Переключить рабочие пространства",
   "command.workspace.toggle.description": "Включить или отключить несколько рабочих пространств в боковой панели",
   "command.session.undo": "Отменить",
@@ -305,6 +308,16 @@ export const dict = {
   "prompt.toast.promptSendFailed.title": "Не удалось отправить запрос",
   "prompt.toast.promptSendFailed.description": "Не удалось получить сессию",
 
+  "prompt.permissions.safezone.title": "Безопасная зона",
+  "prompt.permissions.safezone.description":
+    "Файлы вне рабочего пространства можно читать, приватные зоны никогда не читаются и не записываются, а запись вне рабочего пространства по-прежнему требует подтверждения. Открытые зоны полностью разрешены.",
+  "prompt.permissions.safezone.private.label": "Приватные зоны (один glob на строку)",
+  "prompt.permissions.safezone.private.hint": "*.env",
+  "prompt.permissions.safezone.open.label": "Открытые зоны (один glob на строку)",
+  "prompt.permissions.safezone.open.hint": "dist/**",
+  "prompt.permissions.safezone.save": "Сохранить",
+  "prompt.permissions.safezone.skip": "Пропустить",
+
   "dialog.mcp.title": "MCP",
   "dialog.mcp.description": "{{enabled}} из {{total}} включено",
   "dialog.mcp.empty": "MCP не настроены",
@@ -434,6 +447,9 @@ export const dict = {
   "toast.permissions.autoaccept.on.description": "Запросы на разрешения будут одобряться автоматически",
   "toast.permissions.autoaccept.off.title": "Автоматическое принятие разрешений остановлено",
   "toast.permissions.autoaccept.off.description": "Запросы на разрешения будут требовать одобрения",
+  "toast.permissions.mode.safe.title": "Безопасная зона включена",
+  "toast.permissions.mode.safe.description":
+    "Файлы вне рабочего пространства можно читать, приватные зоны защищены, другие действия по-прежнему требуют подтверждения",
 
   "toast.workspace.enabled.title": "Рабочие пространства включены",
   "toast.workspace.enabled.description": "В боковой панели теперь отображаются несколько рабочих деревьев",
@@ -741,10 +757,16 @@ export const dict = {
     "Выберите, отправлять ли уточняющие вопросы сразу или помещать их в очередь",
   "settings.general.row.followup.option.queue": "Очередь",
   "settings.general.row.followup.option.steer": "Направлять",
+  "settings.general.defaultPermission.title": "Режим разрешений по умолчанию",
+  "settings.general.defaultPermission.description": "Уровень разрешений для новых сессий",
+  "settings.general.defaultPermission.option.off": "Подтверждать все",
+  "settings.general.defaultPermission.option.safe": "Безопасная зона",
+  "settings.general.defaultPermission.option.full": "Принимать все автоматически",
   "settings.general.row.reasoningSummaries.title": "Показывать сводки рассуждений",
   "settings.general.row.reasoningSummaries.description": "Отображать сводки рассуждений модели в ленте",
   "settings.general.row.autoGitInit.title": "Автоматически создавать репозиторий Git",
-  "settings.general.row.autoGitInit.description": "Инициализирует репозиторий Git и включает рабочие пространства для новых проектов",
+  "settings.general.row.autoGitInit.description":
+    "Инициализирует репозиторий Git и включает рабочие пространства для новых проектов",
 
   "settings.general.row.shellToolPartsExpanded.title": "Разворачивать элементы инструмента shell",
   "settings.general.row.shellToolPartsExpanded.description":

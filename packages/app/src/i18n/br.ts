@@ -75,6 +75,9 @@ export const dict = {
   "command.prompt.mode.normal": "Prompt",
   "command.permissions.autoaccept.enable": "Aceitar permissões automaticamente",
   "command.permissions.autoaccept.disable": "Parar de aceitar permissões automaticamente",
+  "command.permissions.mode.off": "Permissões: confirmar todas",
+  "command.permissions.mode.safe": "Permissões: zona segura",
+  "command.permissions.mode.full": "Permissões: aceitar todas automaticamente",
   "command.workspace.toggle": "Alternar espaços de trabalho",
   "command.workspace.toggle.description": "Habilitar ou desabilitar múltiplos espaços de trabalho na barra lateral",
   "command.session.undo": "Desfazer",
@@ -284,6 +287,17 @@ export const dict = {
   "prompt.toast.commandSendFailed.title": "Falha ao enviar comando",
   "prompt.toast.promptSendFailed.title": "Falha ao enviar prompt",
   "prompt.toast.promptSendFailed.description": "Não foi possível recuperar a sessão",
+
+  "prompt.permissions.safezone.title": "Zona segura",
+  "prompt.permissions.safezone.description":
+    "Arquivos fora do espaço de trabalho podem ser lidos, zonas privadas nunca são lidas ou gravadas, e gravações fora do espaço de trabalho ainda pedem confirmação. Zonas abertas são totalmente permitidas.",
+  "prompt.permissions.safezone.private.label": "Zonas privadas (um glob por linha)",
+  "prompt.permissions.safezone.private.hint": "*.env",
+  "prompt.permissions.safezone.open.label": "Zonas abertas (um glob por linha)",
+  "prompt.permissions.safezone.open.hint": "dist/**",
+  "prompt.permissions.safezone.save": "Salvar",
+  "prompt.permissions.safezone.skip": "Pular",
+
   "dialog.mcp.title": "MCPs",
   "dialog.mcp.description": "{{enabled}} of {{total}} habilitados",
   "dialog.mcp.empty": "Nenhum MCP configurado",
@@ -401,6 +415,10 @@ export const dict = {
   "toast.permissions.autoaccept.on.description": "Solicitações de permissão serão aprovadas automaticamente",
   "toast.permissions.autoaccept.off.title": "Parou de aceitar permissões automaticamente",
   "toast.permissions.autoaccept.off.description": "Solicitações de permissão exigirão aprovação",
+  "toast.permissions.mode.safe.title": "Zona segura ativada",
+  "toast.permissions.mode.safe.description":
+    "Arquivos fora do espaço de trabalho podem ser lidos, zonas privadas são protegidas, outras ações ainda pedem confirmação",
+
   "toast.model.none.title": "Nenhum modelo selecionado",
   "toast.model.none.description": "Conecte um provedor para resumir esta sessão",
   "toast.file.loadFailed.title": "Falha ao carregar arquivo",
@@ -676,10 +694,16 @@ export const dict = {
     "Escolha se os prompts de acompanhamento orientam imediatamente ou esperam na fila",
   "settings.general.row.followup.option.queue": "Fila",
   "settings.general.row.followup.option.steer": "Orientar",
+  "settings.general.defaultPermission.title": "Modo de permissão padrão",
+  "settings.general.defaultPermission.description": "Nível de permissão aplicado a novas sessões",
+  "settings.general.defaultPermission.option.off": "Confirmar todas",
+  "settings.general.defaultPermission.option.safe": "Zona segura",
+  "settings.general.defaultPermission.option.full": "Aceitar todas automaticamente",
   "settings.general.row.reasoningSummaries.title": "Mostrar resumos de raciocínio",
   "settings.general.row.reasoningSummaries.description": "Exibir resumos de raciocínio do modelo na linha do tempo",
   "settings.general.row.autoGitInit.title": "Criar repositório Git automaticamente",
-  "settings.general.row.autoGitInit.description": "Inicializa um repositório Git e habilita espaços de trabalho em novos projetos",
+  "settings.general.row.autoGitInit.description":
+    "Inicializa um repositório Git e habilita espaços de trabalho em novos projetos",
   "settings.general.row.shellToolPartsExpanded.title": "Expandir partes da ferramenta shell",
   "settings.general.row.shellToolPartsExpanded.description":
     "Mostrar partes da ferramenta shell expandidas por padrão na linha do tempo",

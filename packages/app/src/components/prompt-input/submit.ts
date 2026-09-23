@@ -10,6 +10,7 @@ import { useGlobalSync } from "@/context/global-sync"
 import { useLanguage } from "@/context/language"
 import { useLocal } from "@/context/local"
 import { usePermission } from "@/context/permission"
+import { useSettings } from "@/context/settings"
 import { DEFAULT_PROMPT, type ContextItem, type ImageAttachmentPart, type Prompt, usePrompt } from "@/context/prompt"
 import { useSDK } from "@/context/sdk"
 import { useServer } from "@/context/server"
@@ -401,6 +402,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
   const globalSync = useGlobalSync()
   const local = useLocal()
   const permission = usePermission()
+  const settings = useSettings()
   const prompt = usePrompt()
   const language = useLanguage()
   const params = useParams()
@@ -587,7 +589,6 @@ export function createPromptSubmit(input: PromptSubmitInput) {
 
     const projectDirectory = sdk.directory
     const isNewSession = !params.id
-    const shouldAutoAccept = isNewSession && input.autoAccept()
     const worktreeSelection = input.newSessionWorktree?.() || "main"
 
     let sessionDirectory = projectDirectory
@@ -705,7 +706,12 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       }
       seed(sessionDirectory, created)
       if (isNewSession) knowledge.rekey(NEW_SESSION_KEY, session.id)
-      if (shouldAutoAccept) permission.enableAutoAccept(session.id, sessionDirectory)
+      if (isNewSession) {
+        const initial = permission.isAutoAcceptingDirectory(projectDirectory)
+          ? "full"
+          : settings.permissions.defaultPermissionMode()
+        if (initial !== "off") permission.setMode(session.id, sessionDirectory, initial)
+      }
       return true
     }
 

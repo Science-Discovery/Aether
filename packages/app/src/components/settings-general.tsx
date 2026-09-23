@@ -294,6 +294,11 @@ export const SettingsGeneral: Component = () => {
     { value: "queue", label: language.t("settings.general.row.followup.option.queue") },
     { value: "steer", label: language.t("settings.general.row.followup.option.steer") },
   ])
+  const permissionOptions = createMemo((): { value: "off" | "safe" | "full"; label: string }[] => [
+    { value: "off", label: language.t("settings.general.defaultPermission.option.off") },
+    { value: "safe", label: language.t("settings.general.defaultPermission.option.safe") },
+    { value: "full", label: language.t("settings.general.defaultPermission.option.full") },
+  ])
   const languageOptions = createMemo(() =>
     language.locales.map((locale) => ({
       value: locale,
@@ -656,6 +661,24 @@ export const SettingsGeneral: Component = () => {
             value={(o) => o.value}
             label={(o) => o.label}
             onSelect={(option) => option && settings.general.setFollowup(option.value)}
+            variant="secondary"
+            size="small"
+            triggerVariant="settings"
+            triggerStyle={{ "min-width": "180px" }}
+          />
+        </SettingsRow>
+
+        <SettingsRow
+          title={language.t("settings.general.defaultPermission.title")}
+          description={language.t("settings.general.defaultPermission.description")}
+        >
+          <Select
+            data-action="settings-default-permission"
+            options={permissionOptions()}
+            current={permissionOptions().find((o) => o.value === settings.permissions.defaultPermissionMode())}
+            value={(o) => o.value}
+            label={(o) => o.label}
+            onSelect={(option) => option && settings.permissions.setDefaultPermissionMode(option.value)}
             variant="secondary"
             size="small"
             triggerVariant="settings"

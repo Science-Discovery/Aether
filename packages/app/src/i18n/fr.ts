@@ -75,6 +75,9 @@ export const dict = {
   "command.prompt.mode.normal": "Prompt",
   "command.permissions.autoaccept.enable": "Accepter automatiquement les permissions",
   "command.permissions.autoaccept.disable": "Arrêter d'accepter automatiquement les permissions",
+  "command.permissions.mode.off": "Permissions : tout confirmer",
+  "command.permissions.mode.safe": "Permissions : zone de sécurité",
+  "command.permissions.mode.full": "Permissions : tout accepter automatiquement",
   "command.workspace.toggle": "Basculer les espaces de travail",
   "command.workspace.toggle.description": "Activer ou désactiver plusieurs espaces de travail dans la barre latérale",
   "command.session.undo": "Annuler",
@@ -285,6 +288,17 @@ export const dict = {
   "prompt.toast.commandSendFailed.title": "Échec de l'envoi de la commande",
   "prompt.toast.promptSendFailed.title": "Échec de l'envoi du message",
   "prompt.toast.promptSendFailed.description": "Impossible de récupérer la session",
+
+  "prompt.permissions.safezone.title": "Zone de sécurité",
+  "prompt.permissions.safezone.description":
+    "Les fichiers hors de l'espace de travail peuvent être lus, les zones privées ne sont jamais lues ni modifiées, et les écritures hors de l'espace de travail demandent toujours une confirmation. Les zones ouvertes sont entièrement autorisées.",
+  "prompt.permissions.safezone.private.label": "Zones privées (un glob par ligne)",
+  "prompt.permissions.safezone.private.hint": "*.env",
+  "prompt.permissions.safezone.open.label": "Zones ouvertes (un glob par ligne)",
+  "prompt.permissions.safezone.open.hint": "dist/**",
+  "prompt.permissions.safezone.save": "Enregistrer",
+  "prompt.permissions.safezone.skip": "Passer",
+
   "dialog.mcp.title": "MCPs",
   "dialog.mcp.description": "{{enabled}} sur {{total}} activés",
   "dialog.mcp.empty": "Aucun MCP configuré",
@@ -403,6 +417,10 @@ export const dict = {
   "toast.permissions.autoaccept.on.description": "Les demandes de permission seront approuvées automatiquement",
   "toast.permissions.autoaccept.off.title": "Acceptation automatique des permissions arrêtée",
   "toast.permissions.autoaccept.off.description": "Les demandes de permission nécessiteront une approbation",
+  "toast.permissions.mode.safe.title": "Zone de sécurité activée",
+  "toast.permissions.mode.safe.description":
+    "Les fichiers hors de l'espace de travail peuvent être lus, les zones privées sont protégées, les autres actions demandent toujours confirmation",
+
   "toast.model.none.title": "Aucun modèle sélectionné",
   "toast.model.none.description": "Connectez un fournisseur pour résumer cette session",
   "toast.file.loadFailed.title": "Échec du chargement du fichier",
@@ -682,11 +700,17 @@ export const dict = {
     "Choisissez si les messages de suivi dirigent immédiatement ou attendent dans une file d'attente",
   "settings.general.row.followup.option.queue": "File d'attente",
   "settings.general.row.followup.option.steer": "Diriger",
+  "settings.general.defaultPermission.title": "Mode de permission par défaut",
+  "settings.general.defaultPermission.description": "Niveau de permission appliqué aux nouvelles sessions",
+  "settings.general.defaultPermission.option.off": "Tout confirmer",
+  "settings.general.defaultPermission.option.safe": "Zone de sécurité",
+  "settings.general.defaultPermission.option.full": "Tout accepter automatiquement",
   "settings.general.row.reasoningSummaries.title": "Afficher les résumés de raisonnement",
   "settings.general.row.reasoningSummaries.description":
     "Afficher les résumés de raisonnement du modèle dans la chronologie",
   "settings.general.row.autoGitInit.title": "Créer automatiquement un dépôt Git",
-  "settings.general.row.autoGitInit.description": "Initialise un dépôt Git et active les espaces de travail pour les nouveaux projets",
+  "settings.general.row.autoGitInit.description":
+    "Initialise un dépôt Git et active les espaces de travail pour les nouveaux projets",
   "settings.general.row.shellToolPartsExpanded.title": "Développer les parties de l'outil shell",
   "settings.general.row.shellToolPartsExpanded.description":
     "Afficher les parties de l'outil shell développées par défaut dans la chronologie",

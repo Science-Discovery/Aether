@@ -6,7 +6,7 @@ let createPromptSubmit: typeof import("./submit").createPromptSubmit
 
 const createdClients: string[] = []
 const createdSessions: string[] = []
-const enabledAutoAccept: Array<{ sessionID: string; directory: string }> = []
+const setModes: Array<{ sessionID: string; directory: string; mode: string }> = []
 const optimistic: Array<{
   directory?: string
   sessionID?: string
@@ -28,6 +28,8 @@ let params: { id?: string } = {}
 let selected = "/repo/worktree-a"
 let variant: string | undefined
 let failCreate: Error | undefined
+let directoryAutoAccept = false
+let defaultMode: "off" | "safe" | "full" = "safe"
 
 const promptValue: Prompt = [{ type: "text", content: "ls", start: 0, end: 2 }]
 
@@ -107,8 +109,17 @@ beforeAll(async () => {
 
   mock.module("@/context/permission", () => ({
     usePermission: () => ({
-      enableAutoAccept(sessionID: string, directory: string) {
-        enabledAutoAccept.push({ sessionID, directory })
+      isAutoAcceptingDirectory: (directory: string) => directoryAutoAccept && directory === "/repo/main",
+      setMode(sessionID: string, directory: string, mode: string) {
+        setModes.push({ sessionID, directory, mode })
+      },
+    }),
+  }))
+
+  mock.module("@/context/settings", () => ({
+    useSettings: () => ({
+      permissions: {
+        defaultPermissionMode: () => defaultMode,
       },
     }),
   }))
@@ -236,7 +247,7 @@ beforeAll(async () => {
 beforeEach(() => {
   createdClients.length = 0
   createdSessions.length = 0
-  enabledAutoAccept.length = 0
+  setModes.length = 0
   optimistic.length = 0
   optimisticSeeded.length = 0
   promoted.length = 0
@@ -248,6 +259,8 @@ beforeEach(() => {
   selected = "/repo/worktree-a"
   variant = undefined
   failCreate = undefined
+  directoryAutoAccept = false
+  defaultMode = "safe"
   for (const key of Object.keys(storedSessions)) delete storedSessions[key]
 })
 
@@ -299,7 +312,9 @@ describe("prompt submit worktree selection", () => {
     ])
   })
 
-  test("applies auto-accept to newly created sessions", async () => {
+  test("applies the directory toggle as full mode to newly created sessions", async () => {
+    directoryAutoAccept = true
+
     const submit = createPromptSubmit({
       info: () => undefined,
       imageAttachments: () => [],
@@ -324,9 +339,71 @@ describe("prompt submit worktree selection", () => {
     await submit.handleSubmit(event)
     await flush()
 
-    expect(enabledAutoAccept).toEqual([
-      { sessionID: storedSessions["/repo/worktree-a"][0]?.id, directory: "/repo/worktree-a" },
+    expect(setModes).toEqual([
+      { sessionID: storedSessions["/repo/worktree-a"][0]?.id, directory: "/repo/worktree-a", mode: "full" },
     ])
+  })
+
+  test("applies the settings default mode to newly created sessions", async () => {
+    defaultMode = "safe"
+
+    const submit = createPromptSubmit({
+      info: () => undefined,
+      imageAttachments: () => [],
+      commentCount: () => 0,
+      autoAccept: () => false,
+      mode: () => "shell",
+      working: () => false,
+      editor: () => undefined,
+      queueScroll: () => undefined,
+      promptLength: (value) => value.reduce((sum, part) => sum + ("content" in part ? part.content.length : 0), 0),
+      addToHistory: () => undefined,
+      resetHistoryNavigation: () => undefined,
+      setMode: () => undefined,
+      setPopover: () => undefined,
+      newSessionWorktree: () => selected,
+      onNewSessionWorktreeReset: () => undefined,
+      onSubmit: () => undefined,
+    })
+
+    const event = { preventDefault: () => undefined } as unknown as Event
+
+    await submit.handleSubmit(event)
+    await flush()
+
+    expect(setModes).toEqual([
+      { sessionID: storedSessions["/repo/worktree-a"][0]?.id, directory: "/repo/worktree-a", mode: "safe" },
+    ])
+  })
+
+  test("skips the initial mode when the settings default is off", async () => {
+    defaultMode = "off"
+
+    const submit = createPromptSubmit({
+      info: () => undefined,
+      imageAttachments: () => [],
+      commentCount: () => 0,
+      autoAccept: () => false,
+      mode: () => "shell",
+      working: () => false,
+      editor: () => undefined,
+      queueScroll: () => undefined,
+      promptLength: (value) => value.reduce((sum, part) => sum + ("content" in part ? part.content.length : 0), 0),
+      addToHistory: () => undefined,
+      resetHistoryNavigation: () => undefined,
+      setMode: () => undefined,
+      setPopover: () => undefined,
+      newSessionWorktree: () => selected,
+      onNewSessionWorktreeReset: () => undefined,
+      onSubmit: () => undefined,
+    })
+
+    const event = { preventDefault: () => undefined } as unknown as Event
+
+    await submit.handleSubmit(event)
+    await flush()
+
+    expect(setModes).toEqual([])
   })
 
   test("includes the selected variant on optimistic prompts", async () => {

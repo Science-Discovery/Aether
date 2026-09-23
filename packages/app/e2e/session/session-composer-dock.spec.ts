@@ -54,10 +54,15 @@ async function clearPermissionDock(page: any, label: RegExp) {
 async function setAutoAccept(page: any, enabled: boolean) {
   const button = page.locator('[data-action="prompt-permissions"]').first()
   await expect(button).toBeVisible()
-  const pressed = (await button.getAttribute("aria-pressed")) === "true"
-  if (pressed === enabled) return
+  const full = "Permissions: auto-accept all"
+  const on = ((await button.getAttribute("aria-label")) ?? "") === full
+  if (on === enabled) return
   await button.click()
-  await expect(button).toHaveAttribute("aria-pressed", enabled ? "true" : "false")
+  if (enabled) {
+    await expect(button).toHaveAttribute("aria-label", full)
+    return
+  }
+  await expect(button).not.toHaveAttribute("aria-label", full)
 }
 
 async function expectQuestionBlocked(page: any) {
@@ -268,10 +273,14 @@ test("auto-accept toggle works before first submit", async ({ page, gotoSession 
 
   const button = page.locator('[data-action="prompt-permissions"]').first()
   await expect(button).toBeVisible()
-  await expect(button).toHaveAttribute("aria-pressed", "false")
+  await expect(button).toHaveAttribute("aria-label", "Permissions: safe zone")
+  await expect(button).toHaveAttribute("aria-pressed", "true")
 
   await setAutoAccept(page, true)
+  await expect(button).toHaveAttribute("aria-label", "Permissions: auto-accept all")
+
   await setAutoAccept(page, false)
+  await expect(button).toHaveAttribute("aria-label", "Permissions: safe zone")
 })
 
 test("blocked question flow unblocks after submit", async ({ page, sdk, gotoSession }) => {

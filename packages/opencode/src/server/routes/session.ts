@@ -1336,6 +1336,7 @@ export const SessionRoutes = lazy(() =>
             })
             .optional(),
           variant: z.string().nullable().optional(),
+          mode: SessionPreference.Mode.optional(),
           autoAccept: z.boolean().optional(),
         }),
       ),

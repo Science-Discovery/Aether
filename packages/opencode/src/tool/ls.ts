@@ -44,7 +44,7 @@ export const ListTool = Tool.define("list", {
   }),
   async execute(params, ctx) {
     const searchPath = resolveInput(Instance.directory, params.path || ".")
-    await assertExternalDirectory(ctx, searchPath, { kind: "directory" })
+    await assertExternalDirectory(ctx, searchPath, { kind: "directory", access: "read" })
 
     await ctx.ask({
       permission: "list",

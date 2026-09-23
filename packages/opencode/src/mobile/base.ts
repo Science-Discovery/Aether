@@ -600,6 +600,21 @@ export abstract class MobileManagerBase {
     await this.provide(ctx.dir, () => SessionPreference.update({ sessionID: SessionID.make(ctx.sessionId), ...patch }))
   }
 
+  protected tierOf(pref: ReturnType<typeof SessionPreference.get>): SessionPreference.Mode {
+    return pref?.mode ?? (pref?.autoAccept ? "full" : "off")
+  }
+
+  protected async ensureTierRules(dir: string, sessionId: string): Promise<void> {
+    const mode = this.tierOf(SessionPreference.get(sessionId))
+    if (mode === "off") return
+    await this.provide(dir, async () => {
+      const rules = await SessionPreference.rulesFor(mode)
+      const session = await Session.get(SessionID.make(sessionId))
+      if (JSON.stringify(session.permission ?? []) === JSON.stringify(rules)) return
+      await Session.setPermission({ sessionID: SessionID.make(sessionId), permission: rules })
+    })
+  }
+
   protected async inheritPreference(newSessionId: string, dir: string): Promise<void> {
     const candidates = await this.provide(dir, () =>
       [...Session.list({ directory: dir, roots: true, limit: 20 })].map((s) => s.id),
@@ -881,16 +896,8 @@ export abstract class MobileManagerBase {
     }
 
     const pref = SessionPreference.get(sid)
-    if (pref?.autoAccept) {
-      const session = await this.provide(effectiveDir, () => Session.get(SessionID.make(sid)))
-      if (!session.permission?.some((r) => r.permission === "*" && r.action === "allow")) {
-        await this.provide(effectiveDir, () =>
-          Session.setPermission({
-            sessionID: SessionID.make(sid),
-            permission: [{ permission: "*", pattern: "*", action: "allow" }],
-          }),
-        )
-      }
+    if (pref && this.tierOf(pref) !== "off") {
+      await this.ensureTierRules(effectiveDir, sid)
     }
 
     console.log(`[${this.adapter.platform}] sending to aether, session:`, sid, localISOString())
@@ -1333,14 +1340,16 @@ export abstract class MobileManagerBase {
 
   protected async cmdAutoAccept(targetId: string, scope: string, arg: string): Promise<void> {
     const ctx = await this.commandCtx(scope)
-    const auto = ctx.pref?.autoAccept ?? false
-    const names = ["auto", "ask"] as const
+    const current = this.tierOf(ctx.pref)
+    const names = ["auto", "safe", "ask"] as const
+    const modes = { auto: "full", safe: "safe", ask: "off" } as const
     if (!arg) {
       const lines = [
         "🔐 可用审批模式：",
         "",
-        `  1. auto（自动批准）${auto ? " ★（当前）" : ""}`,
-        `  2. ask（手动审批）${auto ? "" : " ★（当前）"}`,
+        `  1. auto（自动批准）${current === "full" ? " ★（当前）" : ""}`,
+        `  2. safe（安全区：外部可读、隐私区禁、写入需确认）${current === "safe" ? " ★（当前）" : ""}`,
+        `  3. ask（手动审批）${current === "off" ? " ★（当前）" : ""}`,
         "",
         "💡 /autoaccept 编号或名称 切换审批模式",
       ]
@@ -1350,10 +1359,10 @@ export abstract class MobileManagerBase {
     const n = parseInt(arg, 10)
     const next = /^\d+$/.test(arg) ? names[n - 1] : names.find((name) => name === arg)
     if (!next) {
-      await this.replyCmd(targetId, scope, "❌ 仅支持 1(auto) 或 2(ask)。")
+      await this.replyCmd(targetId, scope, "❌ 仅支持 1(auto)、2(safe) 或 3(ask)。")
       return
     }
-    await this.setPref(scope, { autoAccept: next === "auto" })
+    await this.setPref(scope, { mode: modes[next] })
     if (next === "auto") {
       const pending = this._pendingPermissions[scope]
       if (pending) {
@@ -1363,6 +1372,12 @@ export abstract class MobileManagerBase {
       } else {
         await this.replyCmd(targetId, scope, "✅ 已开启自动接受权限\n（后续权限请求将自动批准）")
       }
+    } else if (next === "safe") {
+      await this.replyCmd(
+        targetId,
+        scope,
+        "✅ 已开启安全区\n（工作区外可读；隐私区读写直接拒绝；工作区外写入仍需确认。可在 opencode.json 的 safeZone 中配置隐私区与开放区）",
+      )
     } else {
       await this.replyCmd(targetId, scope, "✅ 已停止自动接受权限\n（后续权限请求将需要你确认）")
     }
@@ -1974,7 +1989,7 @@ export abstract class MobileManagerBase {
       for (const [scope, info] of this._activePrompt) {
         if (info.sessionId === p.sessionID) {
           const pref = SessionPreference.get(info.sessionId)
-          if (pref?.autoAccept) {
+          if (this.tierOf(pref) === "full") {
             void this.provide(info.directory, () => Permission.reply({ requestID: p.id, reply: "always" }))
             return
           }
