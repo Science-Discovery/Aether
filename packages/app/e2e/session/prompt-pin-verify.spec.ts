@@ -1,5 +1,6 @@
 import { test, expect } from "../fixtures"
-import { assistantText, sessionIDFromUrl, waitSessionIdle } from "../actions"
+import { confirmSubmit, promptSend } from "../fixtures"
+import { assistantText, waitSessionIdle } from "../actions"
 import { promptSelector } from "../selectors"
 import { writeFile } from "node:fs/promises"
 import path from "node:path"
@@ -21,7 +22,7 @@ test("scrolled assistant output pins the user prompt tail and collapses on click
   assistant,
   llm,
 }) => {
-  test.setTimeout(180_000)
+  test.setTimeout(300_000)
 
   const pageErrors: string[] = []
   const onPageError = (err: Error) => {
@@ -48,19 +49,36 @@ test("scrolled assistant output pins the user prompt tail and collapses on click
     await assistant.reply(`${body}\n\n结束`)
 
     const prompt = page.locator(promptSelector)
+    const prev = await promptSend(page)
     await prompt.click()
     await page.keyboard.type("帮我写一段很长的输出用于测试")
     await page.keyboard.press("Shift+Enter")
     await page.keyboard.type(tail)
-    await page.keyboard.press("Enter")
+    await expect.poll(async () => (await prompt.textContent()) ?? "").toContain(tail)
 
-    await expect(page).toHaveURL(/\/session\/[^/?#]+/, { timeout: 30_000 })
-    const sessionID = sessionIDFromUrl(page.url())
-    if (!sessionID) throw new Error(`Failed to parse session id from url: ${page.url()}`)
-    project.trackSession(sessionID)
+    // Enter can be a silent no-op under CI load; confirmSubmit retries via the
+    // probe, and the probe poll observes the accepted submission server-side
+    // instead of racing the optimistic URL navigation.
+    await confirmSubmit(page, prev)
+    await expect
+      .poll(
+        async () => {
+          const value = await promptSend(page)
+          if (value.count <= prev.count) return ""
+          if (!value.sessionID || !value.directory) return ""
+          return value.sessionID
+        },
+        { timeout: 90_000 },
+      )
+      .not.toBe("")
+    const submission = await promptSend(page)
+    if (!submission.sessionID || !submission.directory)
+      throw new Error(`Prompt probe did not record the submission: ${JSON.stringify(submission)}`)
+    const sessionID = submission.sessionID
+    project.trackSession(sessionID, submission.directory)
 
     const content = page.locator('[data-slot="session-turn-assistant-content"]')
-    await expect(content).toBeAttached()
+    await expect(content).toBeAttached({ timeout: 60_000 })
     await waitSessionIdle(project.sdk, sessionID, 120_000)
 
     const calls = await assistant.calls()
