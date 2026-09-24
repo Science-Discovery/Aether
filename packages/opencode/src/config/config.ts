@@ -110,6 +110,10 @@ export namespace Config {
     // 6) Inline config (OPENCODE_CONFIG_CONTENT)
     // Managed config directory is enterprise-only and always overrides everything above.
     let result: Info = {}
+    // Plugin specifiers collected from sources that must never execute code on
+    // their own: repo config files, repo plugin directories, and remote
+    // configs. They are blocked and surfaced to the user (see bottom of state).
+    const blocked: string[] = []
     for (const [key, value] of Object.entries(auth)) {
       if (value.type === "wellknown") {
         const url = key.replace(/\/+$/, "")
@@ -121,6 +125,10 @@ export namespace Config {
         }
         const wellknown = (await response.json()) as any
         const remoteConfig = wellknown.config ?? {}
+        if (remoteConfig.plugin?.length) {
+          log.warn("ignoring plugins from remote well-known config", { url })
+          delete remoteConfig.plugin
+        }
         // Add $schema to prevent load() from trying to write back to a non-existent file
         if (!remoteConfig.$schema) remoteConfig.$schema = "https://opencode.ai/config.json"
         result = mergeConfigConcatArrays(
@@ -147,7 +155,10 @@ export namespace Config {
     if (!Flag.OPENCODE_DISABLE_PROJECT_CONFIG) {
       for (const name of [CFG, LEGACY_CFG]) {
         for (const file of await ConfigPaths.projectFiles(name, Instance.directory, Instance.worktree)) {
-          result = mergeConfigConcatArrays(result, await loadFile(file))
+          const incoming = await loadFile(file)
+          if (incoming.plugin?.length) blocked.push(...incoming.plugin)
+          delete incoming.plugin
+          result = mergeConfigConcatArrays(result, incoming)
         }
       }
     }
@@ -156,7 +167,7 @@ export namespace Config {
     result.mode = result.mode || {}
     result.plugin = result.plugin || []
 
-    const directories = await ConfigPaths.directories(Instance.directory, Instance.worktree)
+    const { directories, untrusted } = await ConfigPaths.scopes(Instance.directory, Instance.worktree)
 
     // .opencode directory config overrides (project and global) config sources.
     if (Flag.OPENCODE_CONFIG_DIR) {
@@ -166,10 +177,16 @@ export namespace Config {
     const deps = []
 
     for (const dir of unique(directories)) {
+      const repo = untrusted.has(dir)
       if (dir.endsWith(PROJECT) || dir.endsWith(LEGACY_PROJECT) || dir === Flag.OPENCODE_CONFIG_DIR) {
         for (const file of [...configFiles(CFG), ...configFiles(LEGACY_CFG)]) {
           log.debug(`loading config from ${path.join(dir, file)}`)
-          result = mergeConfigConcatArrays(result, await loadFile(path.join(dir, file)))
+          const incoming = await loadFile(path.join(dir, file))
+          if (repo) {
+            if (incoming.plugin?.length) blocked.push(...incoming.plugin)
+            delete incoming.plugin
+          }
+          result = mergeConfigConcatArrays(result, incoming)
           // to satisfy the type checker
           result.agent ??= {}
           result.mode ??= {}
@@ -187,7 +204,12 @@ export namespace Config {
       result.command = mergeDeep(result.command ?? {}, await loadCommand(dir))
       result.agent = mergeDeep(result.agent, await loadAgent(dir))
       result.agent = mergeDeep(result.agent, await loadMode(dir))
-      result.plugin.push(...(await loadPlugin(dir)))
+      const found = await loadPlugin(dir)
+      if (repo) {
+        if (found.length) blocked.push(...found)
+      } else {
+        result.plugin.push(...found)
+      }
     }
 
     // Inline config content overrides all non-managed config sources.
@@ -215,6 +237,10 @@ export namespace Config {
         }
 
         if (config) {
+          if (config.plugin) {
+            log.warn("ignoring plugins from remote org config", { url: active.url })
+            delete (config as { plugin?: unknown }).plugin
+          }
           result = mergeConfigConcatArrays(
             result,
             await load(JSON.stringify(config), {
@@ -283,6 +309,22 @@ export namespace Config {
     }
 
     result.plugin = deduplicatePlugins(result.plugin ?? [])
+
+    if (blocked.length) {
+      const mod = await import("../session")
+      for (const plugin of unique(blocked)) {
+        const name = getPluginName(plugin)
+        const allow = plugin.startsWith("file://")
+          ? `move it to the global plugin directory ${path.join(Global.Path.config, "plugin")}`
+          : `add "${name}" to the plugin array of your global config (${Global.Path.config})`
+        log.warn("blocked project plugin", { plugin })
+        Bus.publish(mod.Session.Event.Error, {
+          error: new NamedError.Unknown({
+            message: `Blocked project plugin "${name}": plugins from project config or remote sources are never executed automatically. To allow it, ${allow}.`,
+          }).toObject(),
+        })
+      }
+    }
 
     return {
       config: result,

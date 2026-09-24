@@ -20,44 +20,58 @@ export namespace ConfigPaths {
     return files
   }
 
-  export async function directories(directory: string, worktree: string) {
+  /**
+   * Config directories split by trust: `directories` keeps the documented
+   * precedence order (low -> high), `untrusted` holds project-owned
+   * .aether/.opencode roots whose plugins must never load without an
+   * explicit user opt-in elsewhere.
+   */
+  export async function scopes(directory: string, worktree: string) {
     // Include the directory next to the binary so bundled default skills are found
     // when running a compiled single binary (e.g. dist/.../bin/aether + dist/.../bin/.opencode/skills/)
     const binaryDir = path.dirname(process.execPath)
 
-    return [
-      Global.Path.config,
-      // Binary-bundled defaults are lowest among .aether/.opencode roots so that
-      // user home and project config can override them.
-      ...(await Array.fromAsync(
-        Filesystem.up({
-          targets: [PROJECT, LEGACY_PROJECT],
-          start: binaryDir,
-          stop: binaryDir,
-        }),
-      )),
-      ...(await Array.fromAsync(
-        Filesystem.up({
-          targets: [PROJECT, LEGACY_PROJECT],
-          start: Global.Path.home,
-          stop: Global.Path.home,
-        }),
-      )),
-      // Project config takes precedence over global/binary defaults.
-      // Reverse so the deepest directory wins, consistent with projectFiles().
-      ...(!Flag.OPENCODE_DISABLE_PROJECT_CONFIG
-        ? (
-            await Array.fromAsync(
-              Filesystem.up({
-                targets: [PROJECT, LEGACY_PROJECT],
-                start: directory,
-                stop: worktree,
-              }),
-            )
-          ).reverse()
-        : []),
-      ...(Flag.OPENCODE_CONFIG_DIR ? [Flag.OPENCODE_CONFIG_DIR] : []),
-    ]
+    const global = [Global.Path.config]
+    // Binary-bundled defaults are lowest among .aether/.opencode roots so that
+    // user home and project config can override them.
+    const bundled = await Array.fromAsync(
+      Filesystem.up({
+        targets: [PROJECT, LEGACY_PROJECT],
+        start: binaryDir,
+        stop: binaryDir,
+      }),
+    )
+    const home = await Array.fromAsync(
+      Filesystem.up({
+        targets: [PROJECT, LEGACY_PROJECT],
+        start: Global.Path.home,
+        stop: Global.Path.home,
+      }),
+    )
+    // Project config takes precedence over global/binary defaults.
+    // Reverse so the deepest directory wins, consistent with projectFiles().
+    const project = !Flag.OPENCODE_DISABLE_PROJECT_CONFIG
+      ? (
+          await Array.fromAsync(
+            Filesystem.up({
+              targets: [PROJECT, LEGACY_PROJECT],
+              start: directory,
+              stop: worktree,
+            }),
+          )
+        ).reverse()
+      : []
+    const custom = Flag.OPENCODE_CONFIG_DIR ? [Flag.OPENCODE_CONFIG_DIR] : []
+
+    const trusted = new Set([...global, ...bundled, ...home, ...custom])
+    return {
+      directories: [...global, ...bundled, ...home, ...project, ...custom],
+      untrusted: new Set(project.filter((dir) => !trusted.has(dir))),
+    }
+  }
+
+  export async function directories(directory: string, worktree: string) {
+    return (await scopes(directory, worktree)).directories
   }
 
   export function fileInDirectory(dir: string, name: string) {
