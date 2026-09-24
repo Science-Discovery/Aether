@@ -1,7 +1,7 @@
 import type { ToolPart } from "@opencode-ai/sdk/v2/client"
 import type { Page } from "@playwright/test"
 import { test, expect } from "../fixtures"
-import { assistantText, sessionIDFromUrl, withSession } from "../actions"
+import { assistantText, sessionIDFromUrl, waitSessionIdle, withSession } from "../actions"
 import { promptSelector } from "../selectors"
 import { createSdk } from "../utils"
 
@@ -89,6 +89,9 @@ test("prompt history restores unsent draft with arrow navigation", async ({ page
   if (!sessionID) throw new Error(`Failed to parse session id from url: ${page.url()}`)
   project.trackSession(sessionID)
   await reply(project.sdk, sessionID, firstToken)
+  // reply() only proves the assistant text landed; the run can still be busy,
+  // and Enter is silently dropped by the prompt while the session is working.
+  await waitSessionIdle(project.sdk, sessionID)
 
   await assistant.reply(secondToken)
   await prompt.click()
