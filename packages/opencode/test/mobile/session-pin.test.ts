@@ -1,6 +1,7 @@
 import { afterEach, beforeAll, afterAll, beforeEach, describe, expect, test } from "bun:test"
 import { rm } from "fs/promises"
 import { eq } from "drizzle-orm"
+import { setTimeout as sleep } from "node:timers/promises"
 import { FeishuManager } from "../../src/mobile/feishu"
 import { QQManager } from "../../src/mobile/qq"
 import { WeChatManager } from "../../src/mobile/wechat"
@@ -20,20 +21,20 @@ const scope = "chat_main"
 
 let root = ""
 const realAppData = process.env.APPDATA
-const realDisableShare = process.env.OPENCODE_DISABLE_SHARE
 
 beforeAll(async () => {
   const tmp = await tmpdir()
   root = tmp.path
   process.env.APPDATA = root
-  process.env.OPENCODE_DISABLE_SHARE = "true"
 })
 
 afterAll(async () => {
+  // ShareNext defers a 1s sync timer per session event; let pending timers
+  // land while the database is still alive so teardown stays deterministic.
+  await sleep(1100)
+  await resetDatabase()
   if (realAppData === undefined) delete process.env.APPDATA
   else process.env.APPDATA = realAppData
-  if (realDisableShare === undefined) delete process.env.OPENCODE_DISABLE_SHARE
-  else process.env.OPENCODE_DISABLE_SHARE = realDisableShare
   await rm(root, { recursive: true, force: true })
 })
 
@@ -49,16 +50,15 @@ beforeEach(async () => {
 
 afterEach(async () => {
   await Instance.disposeAll()
-  await resetDatabase()
 })
 
 async function provide<R>(dir: string, fn: () => R): Promise<R> {
   return Instance.provide({ directory: dir, init: InstanceBootstrap, fn })
 }
 
-async function seedSessions(dir: string, count: number): Promise<string[]> {
+async function seedSessions(dir: string, count: number): Promise<Session.Info["id"][]> {
   return provide(dir, async () => {
-    const ids: string[] = []
+    const ids: Session.Info["id"][] = []
     for (let i = 0; i < count; i++) {
       ids.push((await Session.create({})).id)
     }
@@ -66,7 +66,7 @@ async function seedSessions(dir: string, count: number): Promise<string[]> {
   })
 }
 
-async function setUpdated(dir: string, ids: string[]): Promise<void> {
+async function setUpdated(dir: string, ids: Session.Info["id"][]): Promise<void> {
   await provide(dir, () => {
     const pid = Instance.project.id
     Database.useProject(pid, (db) => {
@@ -86,8 +86,8 @@ async function makeFork(dir: string, rootId: string): Promise<string> {
     Database.useProject(Instance.project.id, (db) =>
       db
         .update(SessionTable)
-        .set({ fork_parent_session_id: rootId, time_updated: 1_000_000 })
-        .where(eq(SessionTable.id, fork.id))
+        .set({ fork_parent_session_id: SessionID.make(rootId), time_updated: 1_000_000 })
+        .where(eq(SessionTable.id, SessionID.make(fork.id)))
         .run(),
     )
     return fork.id
