@@ -41,7 +41,7 @@ import { useSettings } from "@/context/settings"
 import { enqueueRun, runKey } from "@/context/terminal"
 import { isWorking } from "@/utils/working-state"
 import { NewSessionItem, SessionItem, SessionSkeleton, StatusDot } from "./sidebar-items"
-import { childMapByParent, hasProjectPermissions, sortedRootSessions, workspaceKey } from "./helpers"
+import { canCollapseAll, childMapByParent, hasProjectPermissions, sortedRootSessions, workspaceKey } from "./helpers"
 import { formatServerError } from "@/utils/server-errors"
 import { SessionImportInput } from "@/components/session-import-input"
 import { MathConfirm } from "@/components/math-confirm"
@@ -1328,14 +1328,14 @@ export const SortableWorkspace = (props: {
   const notify = createMemo(() => hasPermissions() || notification.project.unseenCount(props.directory) > 0)
   const touch = createMediaQuery("(hover: none)")
   const showNew = createMemo(() => !loading())
-  const canCollapse = createMemo(() => workspaceStore.limit > SESSION_BASE_LIMIT)
+  const canCollapse = createMemo(() => canCollapseAll(workspaceStore.sessionTotal))
   const loadMore = async () => {
     setWorkspaceStore("limit", (limit) => (limit ?? 0) + 10)
     await globalSync.project.loadSessions(props.directory)
   }
   const collapseAll = async () => {
     setWorkspaceStore("limit", SESSION_BASE_LIMIT)
-    await globalSync.project.loadSessions(props.directory)
+    await globalSync.project.loadSessions(props.directory, { collapse: true })
   }
 
   const {
@@ -1538,14 +1538,14 @@ export const LocalWorkspace = (props: {
   const count = createMemo(() => sessions()?.length ?? 0)
   const loading = createMemo(() => !booted() && count() === 0)
   const hasMore = createMemo(() => workspace().store.sessionTotal > count())
-  const canCollapse = createMemo(() => workspace().store.limit > SESSION_BASE_LIMIT)
+  const canCollapse = createMemo(() => canCollapseAll(workspace().store.sessionTotal))
   const loadMore = async () => {
     workspace().setStore("limit", (limit) => (limit ?? 0) + 10)
     await globalSync.project.loadSessions(props.project.worktree)
   }
   const collapseAll = async () => {
     workspace().setStore("limit", SESSION_BASE_LIMIT)
-    await globalSync.project.loadSessions(props.project.worktree)
+    await globalSync.project.loadSessions(props.project.worktree, { collapse: true })
   }
 
   const {

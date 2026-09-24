@@ -124,4 +124,38 @@ describe("trimSessions", () => {
     const result = trimSessions(list, { limit: 2, permission: {}, now, keep: ["ses_missing"] })
     expect(result.map((x) => x.id)).toEqual(["recent-1", "recent-2"])
   })
+
+  test("collapse keeps the latest five roots even when all were touched recently", () => {
+    const now = 1_000_000
+    const list = [
+      session({ id: "s1", created: now - 1000, updated: now - 100 }),
+      session({ id: "s2", created: now - 2000, updated: now - 200 }),
+      session({ id: "s3", created: now - 3000, updated: now - 300 }),
+      session({ id: "s4", created: now - 4000, updated: now - 400 }),
+      session({ id: "s5", created: now - 5000, updated: now - 500 }),
+      session({ id: "s6", created: now - 6000, updated: now - 600 }),
+    ]
+
+    const lenient = trimSessions(list, { limit: 5, permission: {}, now })
+    expect(lenient.map((x) => x.id)).toEqual(["s1", "s2", "s3", "s4", "s5", "s6"])
+
+    const collapse = trimSessions(list, { limit: 5, permission: {}, now, recent: 0 })
+    expect(collapse.map((x) => x.id)).toEqual(["s1", "s2", "s3", "s4", "s5"])
+  })
+
+  test("collapse still keeps the viewed session and its root", () => {
+    const now = 1_000_000
+    const list = [
+      session({ id: "s1", created: now - 1000, updated: now - 100 }),
+      session({ id: "s2", created: now - 2000, updated: now - 200 }),
+      session({ id: "z-root", created: now - 30_000_000, updated: now - 30_000_000 }),
+      session({ id: "z-child", parentID: "z-root", created: now - 30_000_000, updated: now - 30_000_000 }),
+    ]
+
+    const collapse = trimSessions(list, { limit: 1, permission: {}, now, recent: 0, keep: ["z-child"] })
+    const ids = collapse.map((x) => x.id)
+    expect(ids).toContain("s1")
+    expect(ids).toContain("z-child")
+    expect(ids).toContain("z-root")
+  })
 })

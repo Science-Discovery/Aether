@@ -37,6 +37,7 @@ export function trimSessions(
     permission: Record<string, PermissionRequest[]>
     now?: number
     keep?: Iterable<string>
+    recent?: number
   },
 ) {
   const limit = Math.max(0, options.limit)
@@ -51,7 +52,7 @@ export function trimSessions(
   const base = rootsByActivity.slice(0, limit)
   const baseIds = new Set(base.map((s) => s.id))
   const remaining = roots.filter((s) => !baseIds.has(s.id))
-  const recent = takeRecentSessions(remaining, SESSION_RECENT_LIMIT, cutoff)
+  const recent = takeRecentSessions(remaining, options.recent ?? SESSION_RECENT_LIMIT, cutoff)
   const keepRoots = [...base, ...recent]
   const keepRootIds = new Set(keepRoots.map((s) => s.id))
   const keepChildren = children.filter((s) => {
