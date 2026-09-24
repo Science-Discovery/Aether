@@ -85,6 +85,9 @@ export const dict = {
   "command.prompt.mode.normal": "Komut",
   "command.permissions.autoaccept.enable": "Düzenlemeleri otomatik kabul et",
   "command.permissions.autoaccept.disable": "Otomatik kabulü durdur",
+  "command.permissions.mode.off": "İzinler: tümünü onayla",
+  "command.permissions.mode.safe": "İzinler: güvenli bölge",
+  "command.permissions.mode.full": "İzinler: tümünü otomatik kabul et",
   "command.workspace.toggle": "Çalışma alanlarını aç/kapat",
   "command.workspace.toggle.description": "Kenar çubuğunda birden fazla çalışma alanını göster veya gizle",
   "command.session.undo": "Geri al",
@@ -310,6 +313,16 @@ export const dict = {
   "prompt.toast.promptSendFailed.title": "Komut gönderilemedi",
   "prompt.toast.promptSendFailed.description": "Oturum alınamadı",
 
+  "prompt.permissions.safezone.title": "Güvenli bölge",
+  "prompt.permissions.safezone.description":
+    "Çalışma alanı dışındaki dosyalar okunabilir, özel bölgeler hiçbir zaman okunmaz veya yazılmaz ve çalışma alanı dışına yazma işlemleri yine de onay ister. Açık bölgelere tamamen izin verilir.",
+  "prompt.permissions.safezone.private.label": "Özel bölgeler (her satıra bir glob)",
+  "prompt.permissions.safezone.private.hint": "*.env",
+  "prompt.permissions.safezone.open.label": "Açık bölgeler (her satıra bir glob)",
+  "prompt.permissions.safezone.open.hint": "dist/**",
+  "prompt.permissions.safezone.save": "Kaydet",
+  "prompt.permissions.safezone.skip": "Atla",
+
   "dialog.mcp.title": "MCP'ler",
   "dialog.mcp.description": "{{total}} içerisinden {{enabled}} etkin",
   "dialog.mcp.empty": "Yapılandırılmış MCP yok",
@@ -442,6 +455,9 @@ export const dict = {
   "toast.permissions.autoaccept.on.description": "Düzenleme ve yazma izinleri otomatik olarak onaylanacak",
   "toast.permissions.autoaccept.off.title": "Otomatik kabul durduruldu",
   "toast.permissions.autoaccept.off.description": "Düzenleme ve yazma izinleri onay gerektirecek",
+  "toast.permissions.mode.safe.title": "Güvenli bölge etkinleştirildi",
+  "toast.permissions.mode.safe.description":
+    "Çalışma alanı dışındaki dosyalar okunabilir, özel bölgeler korunur, diğer işlemler yine de onay ister",
 
   "toast.model.none.title": "Model seçilmedi",
   "toast.model.none.description": "Bu oturumu özetlemek için bir sağlayıcı bağlayın",
@@ -748,10 +764,16 @@ export const dict = {
     "Takip komutlarının hemen yönlendirilmesini mi yoksa sırada beklemesini mi istediğinizi seçin",
   "settings.general.row.followup.option.queue": "Sıra",
   "settings.general.row.followup.option.steer": "Yönlendir",
+  "settings.general.defaultPermission.title": "Varsayılan izin modu",
+  "settings.general.defaultPermission.description": "Yeni oturumlara uygulanan izin düzeyi",
+  "settings.general.defaultPermission.option.off": "Tümünü onayla",
+  "settings.general.defaultPermission.option.safe": "Güvenli bölge",
+  "settings.general.defaultPermission.option.full": "Tümünü otomatik kabul et",
   "settings.general.row.reasoningSummaries.title": "Akıl yürütme özetlerini göster",
   "settings.general.row.reasoningSummaries.description": "Zaman çizelgesinde model akıl yürütme özetlerini görüntüle",
   "settings.general.row.autoGitInit.title": "Git deposunu otomatik oluştur",
-  "settings.general.row.autoGitInit.description": "Yeni projeler için Git deposu başlatır ve çalışma alanlarını etkinleştirir",
+  "settings.general.row.autoGitInit.description":
+    "Yeni projeler için Git deposu başlatır ve çalışma alanlarını etkinleştirir",
   "settings.general.row.shellToolPartsExpanded.title": "Kabuk araç bileşenlerini genişlet",
   "settings.general.row.shellToolPartsExpanded.description":
     "Zaman çizelgesinde kabuk araç bileşenlerini varsayılan olarak genişletilmiş göster",

@@ -1340,6 +1340,19 @@ export namespace Config {
       instructions: z.array(z.string()).optional().describe("Additional instruction files or patterns to include"),
       layout: Layout.optional().describe("@deprecated Always uses stretch layout."),
       permission: Permission.optional(),
+      safeZone: z
+        .object({
+          private: z
+            .array(z.string())
+            .optional()
+            .describe("Private zone globs - reads and writes are always denied while the safe permission tier is on"),
+          open: z
+            .array(z.string())
+            .optional()
+            .describe("Open zone globs - reads and writes are always allowed, including outside the workspace"),
+        })
+        .optional()
+        .describe("Safe-zone zones used by the safe permission tier"),
       tools: z.record(z.string(), z.boolean()).optional(),
       enterprise: z
         .object({

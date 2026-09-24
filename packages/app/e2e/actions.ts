@@ -590,6 +590,15 @@ export async function confirmDialog(page: Page, buttonName: string | RegExp) {
   await button.click()
 }
 
+export async function skipSafeZoneOnboarding(page: Page) {
+  const skip = page.getByRole("dialog").getByRole("button", { name: /skip/i }).first()
+  const shown = await skip
+    .waitFor({ state: "visible", timeout: 3_000 })
+    .then(() => true)
+    .catch(() => false)
+  if (shown) await skip.click()
+}
+
 export async function openSharePopover(page: Page) {
   const rightSection = page.locator(titlebarRightSelector)
   const shareButton = rightSection.getByRole("button", { name: "Share" }).first()

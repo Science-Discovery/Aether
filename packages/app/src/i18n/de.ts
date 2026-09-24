@@ -79,6 +79,9 @@ export const dict = {
   "command.prompt.mode.normal": "Prompt",
   "command.permissions.autoaccept.enable": "Berechtigungen automatisch akzeptieren",
   "command.permissions.autoaccept.disable": "Automatische Akzeptanz von Berechtigungen stoppen",
+  "command.permissions.mode.off": "Berechtigungen: alle bestätigen",
+  "command.permissions.mode.safe": "Berechtigungen: sichere Zone",
+  "command.permissions.mode.full": "Berechtigungen: alle automatisch akzeptieren",
   "command.workspace.toggle": "Arbeitsbereiche umschalten",
   "command.workspace.toggle.description": "Mehrere Arbeitsbereiche in der Seitenleiste aktivieren oder deaktivieren",
   "command.session.undo": "Rückgängig",
@@ -290,6 +293,17 @@ export const dict = {
   "prompt.toast.commandSendFailed.title": "Befehl konnte nicht gesendet werden",
   "prompt.toast.promptSendFailed.title": "Eingabe konnte nicht gesendet werden",
   "prompt.toast.promptSendFailed.description": "Sitzung konnte nicht abgerufen werden",
+
+  "prompt.permissions.safezone.title": "Sichere Zone",
+  "prompt.permissions.safezone.description":
+    "Dateien außerhalb des Arbeitsbereichs dürfen gelesen werden, private Zonen werden nie gelesen oder beschrieben, und Schreibvorgänge außerhalb des Arbeitsbereichs erfordern weiterhin eine Bestätigung. Offene Zonen sind vollständig erlaubt.",
+  "prompt.permissions.safezone.private.label": "Private Zonen (ein Glob pro Zeile)",
+  "prompt.permissions.safezone.private.hint": "*.env",
+  "prompt.permissions.safezone.open.label": "Offene Zonen (ein Glob pro Zeile)",
+  "prompt.permissions.safezone.open.hint": "dist/**",
+  "prompt.permissions.safezone.save": "Speichern",
+  "prompt.permissions.safezone.skip": "Überspringen",
+
   "dialog.mcp.title": "MCPs",
   "dialog.mcp.description": "{{enabled}} von {{total}} aktiviert",
   "dialog.mcp.empty": "Keine MCPs konfiguriert",
@@ -408,6 +422,10 @@ export const dict = {
   "toast.permissions.autoaccept.on.description": "Berechtigungsanfragen werden automatisch genehmigt",
   "toast.permissions.autoaccept.off.title": "Automatische Akzeptanz von Berechtigungen gestoppt",
   "toast.permissions.autoaccept.off.description": "Berechtigungsanfragen erfordern eine Genehmigung",
+  "toast.permissions.mode.safe.title": "Sichere Zone aktiviert",
+  "toast.permissions.mode.safe.description":
+    "Dateien außerhalb des Arbeitsbereichs dürfen gelesen werden, private Zonen sind geschützt, andere Aktionen fragen weiterhin",
+
   "toast.model.none.title": "Kein Modell ausgewählt",
   "toast.model.none.description": "Verbinden Sie einen Anbieter, um diese Sitzung zusammenzufassen",
   "toast.file.loadFailed.title": "Datei konnte nicht geladen werden",
@@ -685,11 +703,17 @@ export const dict = {
     "Wählen Sie, ob Folgefragen sofort steuern oder in einer Warteschlange warten",
   "settings.general.row.followup.option.queue": "Warteschlange",
   "settings.general.row.followup.option.steer": "Steuern",
+  "settings.general.defaultPermission.title": "Standard-Berechtigungsmodus",
+  "settings.general.defaultPermission.description": "Berechtigungsstufe für neue Sitzungen",
+  "settings.general.defaultPermission.option.off": "Alle bestätigen",
+  "settings.general.defaultPermission.option.safe": "Sichere Zone",
+  "settings.general.defaultPermission.option.full": "Alle automatisch akzeptieren",
   "settings.general.row.reasoningSummaries.title": "Reasoning-Zusammenfassungen anzeigen",
   "settings.general.row.reasoningSummaries.description":
     "Zusammenfassungen des Modell-Reasonings in der Timeline anzeigen",
   "settings.general.row.autoGitInit.title": "Git-Repository automatisch erstellen",
-  "settings.general.row.autoGitInit.description": "Initialisiert ein Git-Repository und aktiviert Arbeitsbereiche für neue Projekte",
+  "settings.general.row.autoGitInit.description":
+    "Initialisiert ein Git-Repository und aktiviert Arbeitsbereiche für neue Projekte",
   "settings.general.row.shellToolPartsExpanded.title": "Shell-Tool-Abschnitte ausklappen",
   "settings.general.row.shellToolPartsExpanded.description":
     "Shell-Tool-Abschnitte standardmäßig in der Timeline ausgeklappt anzeigen",

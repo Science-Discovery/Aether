@@ -90,6 +90,10 @@ export namespace Agent {
               "*": "ask",
               ...Object.fromEntries(whitelistedDirs.map((dir) => [dir, "allow"])),
             },
+            external_read: {
+              "*": "ask",
+              ...Object.fromEntries(whitelistedDirs.map((dir) => [dir, "allow"])),
+            },
             question: "deny",
             plan_enter: "deny",
             plan_exit: "deny",
@@ -174,6 +178,10 @@ export namespace Agent {
                   codesearch: "allow",
                   read: "allow",
                   external_directory: {
+                    "*": "ask",
+                    ...Object.fromEntries(whitelistedDirs.map((dir) => [dir, "allow"])),
+                  },
+                  external_read: {
                     "*": "ask",
                     ...Object.fromEntries(whitelistedDirs.map((dir) => [dir, "allow"])),
                   },
@@ -267,17 +275,25 @@ export namespace Agent {
           // Ensure Truncate.GLOB is allowed unless explicitly configured
           for (const name in agents) {
             const agent = agents[name]
-            const explicit = agent.permission.some((r) => {
-              if (r.permission !== "external_directory") return false
-              if (r.action !== "deny") return false
-              return r.pattern === Truncate.GLOB
-            })
-            if (explicit) continue
+            const blocked = (key: string) =>
+              agent.permission.some((r) => r.permission === key && r.action === "deny" && r.pattern === Truncate.GLOB)
+            const patch: Record<string, { [pattern: string]: "allow" }> = {}
+            if (!blocked("external_directory")) patch.external_directory = { [Truncate.GLOB]: "allow" }
+            if (!blocked("external_read")) patch.external_read = { [Truncate.GLOB]: "allow" }
+            if (Object.keys(patch).length === 0) continue
 
-            agents[name].permission = Permission.merge(
-              agents[name].permission,
-              Permission.fromConfig({ external_directory: { [Truncate.GLOB]: "allow" } }),
-            )
+            agents[name].permission = Permission.merge(agent.permission, Permission.fromConfig(patch))
+          }
+
+          // Reads moved from external_directory to external_read; keep user-configured
+          // external_directory rules effective for reads unless external_read is set.
+          for (const name in agents) {
+            const rules = agents[name].permission
+            const configured = new Set(rules.filter((r) => r.permission === "external_read").map((r) => r.pattern))
+            const twins = rules
+              .filter((r) => r.permission === "external_directory" && !configured.has(r.pattern))
+              .map((r) => ({ permission: "external_read", pattern: r.pattern, action: r.action }))
+            if (twins.length > 0) agents[name].permission = Permission.merge(rules, twins)
           }
 
           const get = Effect.fnUntraced(function* (agent: string) {
@@ -339,7 +355,11 @@ export namespace Agent {
 
           const system = [PROMPT_GENERATE]
           yield* Effect.promise(() =>
-            Plugin.trigger("experimental.chat.system.transform", { model: resolved, purpose: "agent_generation" }, { system }),
+            Plugin.trigger(
+              "experimental.chat.system.transform",
+              { model: resolved, purpose: "agent_generation" },
+              { system },
+            ),
           )
           const existing = yield* InstanceState.useEffect(state, (s) => s.list())
 

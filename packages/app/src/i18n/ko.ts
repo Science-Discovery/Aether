@@ -79,6 +79,9 @@ export const dict = {
   "command.prompt.mode.normal": "프롬프트",
   "command.permissions.autoaccept.enable": "권한 자동 수락",
   "command.permissions.autoaccept.disable": "권한 자동 수락 중지",
+  "command.permissions.mode.off": "권한: 전체 확인",
+  "command.permissions.mode.safe": "권한: 안전 구역",
+  "command.permissions.mode.full": "권한: 전체 자동 수락",
   "command.workspace.toggle": "작업 공간 전환",
   "command.workspace.toggle.description": "사이드바에서 다중 작업 공간 활성화 또는 비활성화",
   "command.session.undo": "실행 취소",
@@ -287,6 +290,17 @@ export const dict = {
   "prompt.toast.commandSendFailed.title": "명령 전송 실패",
   "prompt.toast.promptSendFailed.title": "프롬프트 전송 실패",
   "prompt.toast.promptSendFailed.description": "세션을 가져올 수 없습니다",
+
+  "prompt.permissions.safezone.title": "안전 구역",
+  "prompt.permissions.safezone.description":
+    "작업 공간 외부의 파일은 읽을 수 있고, 개인 구역은 절대 읽거나 쓰지 않으며, 작업 공간 외부에 쓰기는 여전히 확인을 요청합니다. 열린 구역은 완전히 허용됩니다.",
+  "prompt.permissions.safezone.private.label": "개인 구역 (한 줄에 하나의 glob)",
+  "prompt.permissions.safezone.private.hint": "*.env",
+  "prompt.permissions.safezone.open.label": "열린 구역 (한 줄에 하나의 glob)",
+  "prompt.permissions.safezone.open.hint": "dist/**",
+  "prompt.permissions.safezone.save": "저장",
+  "prompt.permissions.safezone.skip": "건너뛰기",
+
   "dialog.mcp.title": "MCP",
   "dialog.mcp.description": "{{total}}개 중 {{enabled}}개 활성화됨",
   "dialog.mcp.empty": "구성된 MCP 없음",
@@ -403,6 +417,10 @@ export const dict = {
   "toast.permissions.autoaccept.on.description": "권한 요청이 자동으로 승인됩니다",
   "toast.permissions.autoaccept.off.title": "권한 자동 수락 중지됨",
   "toast.permissions.autoaccept.off.description": "권한 요청에 승인이 필요합니다",
+  "toast.permissions.mode.safe.title": "안전 구역 활성화됨",
+  "toast.permissions.mode.safe.description":
+    "작업 공간 외부의 파일은 읽을 수 있고, 개인 구역은 보호되며, 다른 작업은 여전히 확인을 요청합니다",
+
   "toast.model.none.title": "선택된 모델 없음",
   "toast.model.none.description": "이 세션을 요약하려면 공급자를 연결하세요",
   "toast.file.loadFailed.title": "파일 로드 실패",
@@ -673,10 +691,16 @@ export const dict = {
   "settings.general.row.followup.description": "후속 프롬프트를 즉시 실행할지 대기열에 넣을지 선택하세요",
   "settings.general.row.followup.option.queue": "대기열",
   "settings.general.row.followup.option.steer": "조종",
+  "settings.general.defaultPermission.title": "기본 권한 모드",
+  "settings.general.defaultPermission.description": "새 세션에 적용되는 권한 수준",
+  "settings.general.defaultPermission.option.off": "전체 확인",
+  "settings.general.defaultPermission.option.safe": "안전 구역",
+  "settings.general.defaultPermission.option.full": "전체 자동 수락",
   "settings.general.row.reasoningSummaries.title": "추론 요약 표시",
   "settings.general.row.reasoningSummaries.description": "타임라인에 모델 추론 요약 표시",
   "settings.general.row.autoGitInit.title": "Git 저장소 자동 생성",
-  "settings.general.row.autoGitInit.description": "프로젝트 생성 시 Git 저장소를 자동으로 초기화하고 작업 공간을 활성화합니다",
+  "settings.general.row.autoGitInit.description":
+    "프로젝트 생성 시 Git 저장소를 자동으로 초기화하고 작업 공간을 활성화합니다",
   "settings.general.row.shellToolPartsExpanded.title": "shell 도구 파트 펼치기",
   "settings.general.row.shellToolPartsExpanded.description":
     "타임라인에서 기본적으로 shell 도구 파트를 펼친 상태로 표시합니다",

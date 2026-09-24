@@ -37,6 +37,7 @@ export type SessionPreference = {
   model?: { providerID: string; modelID: string }
   variant?: string
   autoAccept?: boolean
+  mode?: "off" | "safe" | "full"
 }
 
 export type State = {

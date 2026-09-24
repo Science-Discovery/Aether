@@ -81,6 +81,9 @@ export const dict = {
   "command.prompt.mode.normal": "พรอมต์",
   "command.permissions.autoaccept.enable": "ยอมรับสิทธิ์โดยอัตโนมัติ",
   "command.permissions.autoaccept.disable": "หยุดยอมรับสิทธิ์โดยอัตโนมัติ",
+  "command.permissions.mode.off": "สิทธิ์: ยืนยันทั้งหมด",
+  "command.permissions.mode.safe": "สิทธิ์: โซนปลอดภัย",
+  "command.permissions.mode.full": "สิทธิ์: ยอมรับทั้งหมดโดยอัตโนมัติ",
   "command.workspace.toggle": "สลับพื้นที่ทำงาน",
   "command.workspace.toggle.description": "เปิดหรือปิดใช้งานพื้นที่ทำงานหลายรายการในแถบด้านข้าง",
   "command.session.undo": "ยกเลิก",
@@ -298,6 +301,16 @@ export const dict = {
   "prompt.toast.promptSendFailed.title": "ไม่สามารถส่งพร้อมท์",
   "prompt.toast.promptSendFailed.description": "ไม่สามารถดึงเซสชันได้",
 
+  "prompt.permissions.safezone.title": "โซนปลอดภัย",
+  "prompt.permissions.safezone.description":
+    "สามารถอ่านไฟล์ที่อยู่นอกพื้นที่ทำงานได้ โซนส่วนตัวจะไม่ถูกอ่านหรือเขียนเลย และการเขียนนอกพื้นที่ทำงานจะยังคงถามยืนยัน โซนเปิดอนุญาตทั้งหมด",
+  "prompt.permissions.safezone.private.label": "โซนส่วนตัว (หนึ่ง glob ต่อบรรทัด)",
+  "prompt.permissions.safezone.private.hint": "*.env",
+  "prompt.permissions.safezone.open.label": "โซนเปิด (หนึ่ง glob ต่อบรรทัด)",
+  "prompt.permissions.safezone.open.hint": "dist/**",
+  "prompt.permissions.safezone.save": "บันทึก",
+  "prompt.permissions.safezone.skip": "ข้าม",
+
   "dialog.mcp.title": "MCPs",
   "dialog.mcp.description": "{{enabled}} จาก {{total}} ที่เปิดใช้งาน",
   "dialog.mcp.empty": "ไม่มี MCP ที่กำหนดค่า",
@@ -430,6 +443,9 @@ export const dict = {
   "toast.permissions.autoaccept.on.description": "คำขอสิทธิ์จะได้รับการอนุมัติโดยอัตโนมัติ",
   "toast.permissions.autoaccept.off.title": "หยุดยอมรับสิทธิ์โดยอัตโนมัติแล้ว",
   "toast.permissions.autoaccept.off.description": "คำขอสิทธิ์จะต้องได้รับการอนุมัติ",
+  "toast.permissions.mode.safe.title": "เปิดใช้งานโซนปลอดภัยแล้ว",
+  "toast.permissions.mode.safe.description":
+    "สามารถอ่านไฟล์นอกพื้นที่ทำงานได้ โซนส่วนตัวได้รับการปกป้อง การกระทำอื่นยังคงถามยืนยัน",
 
   "toast.model.none.title": "ไม่ได้เลือกโมเดล",
   "toast.model.none.description": "เชื่อมต่อผู้ให้บริการเพื่อสรุปเซสชันนี้",
@@ -727,6 +743,11 @@ export const dict = {
   "settings.general.row.followup.description": "เลือกว่าจะให้พร้อมท์ติดตามผลทำงานทันทีหรือรอในคิว",
   "settings.general.row.followup.option.queue": "คิว",
   "settings.general.row.followup.option.steer": "นำทาง",
+  "settings.general.defaultPermission.title": "โหมดสิทธิ์เริ่มต้น",
+  "settings.general.defaultPermission.description": "ระดับสิทธิ์ที่ใช้กับเซสชันใหม่",
+  "settings.general.defaultPermission.option.off": "ยืนยันทั้งหมด",
+  "settings.general.defaultPermission.option.safe": "โซนปลอดภัย",
+  "settings.general.defaultPermission.option.full": "ยอมรับทั้งหมดโดยอัตโนมัติ",
   "settings.general.row.reasoningSummaries.title": "แสดงสรุปการใช้เหตุผล",
   "settings.general.row.reasoningSummaries.description": "แสดงสรุปการใช้เหตุผลของโมเดลในไทม์ไลน์",
   "settings.general.row.autoGitInit.title": "สร้าง Git repository อัตโนมัติ",

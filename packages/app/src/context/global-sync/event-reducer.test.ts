@@ -846,5 +846,31 @@ describe("applyDirectoryEvent", () => {
       expect(store.preference[sessionID].autoAccept).toBe(true)
       expect(store.preference[sessionID].agent).toBeUndefined()
     })
+
+    test("writes mode preference field into store", () => {
+      const sessionID = "ses_1"
+      const [store, setStore] = createStore(baseState())
+
+      applyDirectoryEvent({
+        event: {
+          type: "session.preference.updated",
+          properties: {
+            sessionID,
+            preference: {
+              sessionID,
+              mode: "safe",
+            },
+          },
+        },
+        store,
+        setStore,
+        push() {},
+        directory: "/tmp",
+        loadLsp() {},
+      })
+
+      expect(store.preference[sessionID].mode).toBe("safe")
+      expect(store.preference[sessionID].autoAccept).toBeUndefined()
+    })
   })
 })

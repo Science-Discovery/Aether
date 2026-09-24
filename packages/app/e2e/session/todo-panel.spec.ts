@@ -1,4 +1,4 @@
-import { withSession } from "../actions"
+import { skipSafeZoneOnboarding, withSession } from "../actions"
 import { test, expect } from "../fixtures"
 
 test.setTimeout(300_000)
@@ -39,13 +39,24 @@ test("todo panel tracks scripted todowrite updates in real time", async ({ page,
   await project.open()
   await withSession(project.sdk, `e2e todo panel ${Date.now()}`, async (session) => {
     await project.gotoSession(session.id)
-    await page.getByRole("button", { name: "Auto-accept permissions" }).click()
 
     // Wait for the app's own SSE stream to deliver its first bytes before
-    // prompting, so todowrite events cannot race the connection.
+    // acting: permission-mode changes only reach the UI through the live
+    // stream (there is no bootstrap replay), so clicking earlier can lose
+    // the update, and todowrite events must not race the connection either.
     await page.waitForFunction(() => (window as any).__sse && (window as any).__sse.bytes > 0, null, {
       timeout: 30_000,
     })
+
+    // Two clicks cycle the permission mode off -> safe -> full; the safe
+    // transition may open the one-time safe-zone onboarding dialog. Assert the
+    // safe label before the second click so the cycle reads the updated mode.
+    const permissions = page.locator('[data-action="prompt-permissions"]').first()
+    await permissions.click()
+    await skipSafeZoneOnboarding(page)
+    await expect(permissions).toHaveAttribute("aria-label", "Permissions: safe zone")
+    await permissions.click()
+    await expect(permissions).toHaveAttribute("aria-label", "Permissions: auto-accept all")
 
     const probe = () =>
       page.evaluate((sid) => (window as any).__opencode_e2e?.composer?.sessions?.[sid]?.probe ?? null, session.id)

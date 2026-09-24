@@ -45,6 +45,7 @@ export interface Settings {
   keybinds: Record<string, string>
   permissions: {
     autoApprove: boolean
+    defaultMode: "off" | "safe" | "full"
   }
   notifications: NotificationSettings
   sounds: SoundSettings
@@ -80,6 +81,7 @@ const defaultSettings: Settings = {
   keybinds: {},
   permissions: {
     autoApprove: false,
+    defaultMode: "safe",
   },
   notifications: {
     agent: true,
@@ -270,6 +272,13 @@ export const { use: useSettings, provider: SettingsProvider } = createSimpleCont
         autoApprove: withFallback(() => store.permissions?.autoApprove, defaultSettings.permissions.autoApprove),
         setAutoApprove(value: boolean) {
           setStore("permissions", "autoApprove", value)
+        },
+        defaultPermissionMode: withFallback(
+          () => store.permissions?.defaultMode,
+          defaultSettings.permissions.defaultMode,
+        ),
+        setDefaultPermissionMode(value: "off" | "safe" | "full") {
+          setStore("permissions", "defaultMode", value)
         },
       },
       notifications: {

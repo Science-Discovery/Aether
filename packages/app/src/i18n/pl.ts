@@ -75,6 +75,9 @@ export const dict = {
   "command.prompt.mode.normal": "Prompt",
   "command.permissions.autoaccept.enable": "Automatycznie akceptuj uprawnienia",
   "command.permissions.autoaccept.disable": "Zatrzymaj automatyczne akceptowanie uprawnień",
+  "command.permissions.mode.off": "Uprawnienia: potwierdzaj wszystkie",
+  "command.permissions.mode.safe": "Uprawnienia: strefa bezpieczna",
+  "command.permissions.mode.full": "Uprawnienia: akceptuj wszystkie automatycznie",
   "command.workspace.toggle": "Przełącz przestrzenie robocze",
   "command.workspace.toggle.description": "Włącz lub wyłącz wiele przestrzeni roboczych na pasku bocznym",
   "command.session.undo": "Cofnij",
@@ -278,6 +281,17 @@ export const dict = {
   "prompt.toast.commandSendFailed.title": "Nie udało się wysłać polecenia",
   "prompt.toast.promptSendFailed.title": "Nie udało się wysłać zapytania",
   "prompt.toast.promptSendFailed.description": "Nie udało się pobrać sesji",
+
+  "prompt.permissions.safezone.title": "Strefa bezpieczna",
+  "prompt.permissions.safezone.description":
+    "Pliki poza przestrzenią roboczą mogą być odczytywane, strefy prywatne nie są nigdy odczytywane ani zapisywane, a zapisy poza przestrzenią roboczą nadal wymagają potwierdzenia. Strefy otwarte są w pełni dozwolone.",
+  "prompt.permissions.safezone.private.label": "Strefy prywatne (jeden glob na linię)",
+  "prompt.permissions.safezone.private.hint": "*.env",
+  "prompt.permissions.safezone.open.label": "Strefy otwarte (jeden glob na linię)",
+  "prompt.permissions.safezone.open.hint": "dist/**",
+  "prompt.permissions.safezone.save": "Zapisz",
+  "prompt.permissions.safezone.skip": "Pomiń",
+
   "dialog.mcp.title": "MCP",
   "dialog.mcp.description": "{{enabled}} z {{total}} włączone",
   "dialog.mcp.empty": "Brak skonfigurowanych MCP",
@@ -394,6 +408,10 @@ export const dict = {
   "toast.permissions.autoaccept.on.description": "Żądania uprawnień będą automatycznie zatwierdzane",
   "toast.permissions.autoaccept.off.title": "Zatrzymano automatyczne akceptowanie uprawnień",
   "toast.permissions.autoaccept.off.description": "Żądania uprawnień będą wymagały zatwierdzenia",
+  "toast.permissions.mode.safe.title": "Strefa bezpieczna włączona",
+  "toast.permissions.mode.safe.description":
+    "Pliki poza przestrzenią roboczą mogą być odczytywane, strefy prywatne są chronione, inne akcje nadal wymagają potwierdzenia",
+
   "toast.model.none.title": "Nie wybrano modelu",
   "toast.model.none.description": "Połącz dostawcę, aby podsumować tę sesję",
   "toast.file.loadFailed.title": "Nie udało się załadować pliku",
@@ -667,10 +685,16 @@ export const dict = {
   "settings.general.row.followup.description": "Wybierz, czy kontynuacja ma być natychmiastowa, czy czekać w kolejce",
   "settings.general.row.followup.option.queue": "Kolejka",
   "settings.general.row.followup.option.steer": "Sterowanie",
+  "settings.general.defaultPermission.title": "Domyślny tryb uprawnień",
+  "settings.general.defaultPermission.description": "Poziom uprawnień stosowany do nowych sesji",
+  "settings.general.defaultPermission.option.off": "Potwierdzaj wszystkie",
+  "settings.general.defaultPermission.option.safe": "Strefa bezpieczna",
+  "settings.general.defaultPermission.option.full": "Akceptuj wszystkie automatycznie",
   "settings.general.row.reasoningSummaries.title": "Pokaż podsumowania wnioskowania",
   "settings.general.row.reasoningSummaries.description": "Wyświetlaj podsumowania wnioskowania modelu na osi czasu",
   "settings.general.row.autoGitInit.title": "Automatycznie twórz repozytorium Git",
-  "settings.general.row.autoGitInit.description": "Inicjuje repozytorium Git i włącza przestrzenie robocze dla nowych projektów",
+  "settings.general.row.autoGitInit.description":
+    "Inicjuje repozytorium Git i włącza przestrzenie robocze dla nowych projektów",
   "settings.general.row.shellToolPartsExpanded.title": "Rozwijaj elementy narzędzia shell",
   "settings.general.row.shellToolPartsExpanded.description":
     "Domyślnie pokazuj rozwinięte elementy narzędzia shell na osi czasu",

@@ -84,6 +84,9 @@ export const dict = {
   "command.prompt.mode.normal": "Prompt",
   "command.permissions.autoaccept.enable": "Auto-accept permissions",
   "command.permissions.autoaccept.disable": "Stop auto-accepting permissions",
+  "command.permissions.mode.off": "Permissions: confirm all",
+  "command.permissions.mode.safe": "Permissions: safe zone",
+  "command.permissions.mode.full": "Permissions: auto-accept all",
   "command.workspace.toggle": "Toggle workspaces",
   "command.workspace.toggle.description": "Enable or disable multiple workspaces in the sidebar",
   "command.session.undo": "Undo",
@@ -350,6 +353,16 @@ export const dict = {
   "prompt.toast.promptSendFailed.description": "Unable to retrieve session",
   "prompt.toast.serverUnavailable.title": "Server temporarily unavailable",
   "prompt.toast.serverUnavailable.description": "Please wait for the server to recover before sending",
+
+  "prompt.permissions.safezone.title": "Safe zone",
+  "prompt.permissions.safezone.description":
+    "Files outside the workspace can be read, private zones are never read or written, and writes outside the workspace still ask for confirmation. Open zones are fully allowed.",
+  "prompt.permissions.safezone.private.label": "Private zones (one glob per line)",
+  "prompt.permissions.safezone.private.hint": "*.env",
+  "prompt.permissions.safezone.open.label": "Open zones (one glob per line)",
+  "prompt.permissions.safezone.open.hint": "dist/**",
+  "prompt.permissions.safezone.save": "Save",
+  "prompt.permissions.safezone.skip": "Skip",
 
   "dialog.mcp.title": "MCPs",
   "dialog.mcp.description": "{{enabled}} of {{total}} enabled",
@@ -712,6 +725,9 @@ export const dict = {
   "toast.permissions.autoaccept.on.description": "Permission requests will be automatically approved",
   "toast.permissions.autoaccept.off.title": "Stopped auto-accepting permissions",
   "toast.permissions.autoaccept.off.description": "Permission requests will require approval",
+  "toast.permissions.mode.safe.title": "Safe zone enabled",
+  "toast.permissions.mode.safe.description":
+    "Files outside the workspace can be read, private zones are protected, other actions still ask",
 
   "toast.model.none.title": "No model selected",
   "toast.model.none.description": "Connect a provider to summarize this session",
@@ -1270,6 +1286,11 @@ export const dict = {
   "settings.general.row.followup.description": "Choose whether follow-up prompts steer immediately or wait in a queue",
   "settings.general.row.followup.option.queue": "Queue",
   "settings.general.row.followup.option.steer": "Steer",
+  "settings.general.defaultPermission.title": "Default permission mode",
+  "settings.general.defaultPermission.description": "Permission tier applied to new sessions",
+  "settings.general.defaultPermission.option.off": "Confirm all",
+  "settings.general.defaultPermission.option.safe": "Safe zone",
+  "settings.general.defaultPermission.option.full": "Auto-accept all",
   "settings.general.row.branchesTab.title": "Enable conversation tree",
   "settings.general.row.branchesTab.description": "Show the conversation tree inline in the session list sidebar",
   "settings.general.row.branchGraphCompact.title": "Conversation tree view",

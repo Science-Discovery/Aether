@@ -398,6 +398,7 @@ export function applyDirectoryEvent(input: {
           model?: { providerID: string; modelID: string }
           variant?: string
           autoAccept?: boolean
+          mode?: "off" | "safe" | "full"
         }
       }
       input.setStore("preference", props.sessionID, reconcile(props.preference))

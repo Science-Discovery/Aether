@@ -66,6 +66,7 @@ import { promptPlaceholder } from "./prompt-input/placeholder"
 import { ImagePreview } from "@opencode-ai/ui/image-preview"
 import { FileIcon } from "@opencode-ai/ui/file-icon"
 import { KnowledgeButton } from "@/components/knowledge-button"
+import { openSafeZoneOnboarding, useSafeZoneOnboarding } from "@/components/dialog-safe-zone"
 import { DialogEvolvedSkills } from "@/skill-evolution/dialog-evolved-skills"
 import { createWorkingState, type ChildrenSource } from "@/utils/working-state"
 import { childMapByParent } from "@/pages/layout/helpers"
@@ -116,6 +117,12 @@ const EXAMPLES = [
 
 const NON_EMPTY_TEXT = /[^\s\u200B]/
 
+const modeLabel = {
+  off: "command.permissions.mode.off",
+  safe: "command.permissions.mode.safe",
+  full: "command.permissions.mode.full",
+} as const
+
 export const PromptInput: Component<PromptInputProps> = (props) => {
   const sdk = useSDK()
   const sync = useSync()
@@ -132,6 +139,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
   const providers = useProviders()
   const command = useCommand()
   const permission = usePermission()
+  useSafeZoneOnboarding()
   const language = useLanguage()
   const platform = usePlatform()
   const settings = useSettings()
@@ -1166,28 +1174,19 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     dropZone: () => shellFormRef,
   })
 
-  const accepting = createMemo(() => {
-    const id = params.id
-    if (!id) return permission.isAutoAcceptingDirectory(sdk.directory)
-    return permission.isAutoAccepting(id, sdk.directory)
-  })
-  const acceptLabel = createMemo(() =>
-    language.t(accepting() ? "command.permissions.autoaccept.disable" : "command.permissions.autoaccept.enable"),
-  )
+  const mode = createMemo(() => permission.effectiveMode(params.id, sdk.directory))
+  const acceptLabel = createMemo(() => language.t(modeLabel[mode()]))
   const toggleAccept = () => {
-    if (!params.id) {
-      permission.toggleAutoAcceptDirectory(sdk.directory)
-      return
-    }
-
-    permission.toggleAutoAccept(params.id, sdk.directory)
+    const prev = mode()
+    const next = permission.cycleMode(params.id, sdk.directory)
+    if (next === "safe" && prev !== "safe") openSafeZoneOnboarding()
   }
 
   const { abort, handleSubmit } = createPromptSubmit({
     info,
     imageAttachments,
     commentCount,
-    autoAccept: () => accepting(),
+    autoAccept: () => mode() === "full",
     mode: () => store.mode,
     working,
     editor: () => editorRef,
@@ -1732,14 +1731,22 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                       onClick={toggleAccept}
                       classList={{
                         "h-7 w-7 p-0 shrink-0 flex items-center justify-center": true,
-                        "text-text-base": !accepting(),
-                        "bg-surface-success-base": accepting(),
+                        "text-text-base": mode() === "off",
+                        "bg-surface-warning-base": mode() === "safe",
+                        "bg-surface-success-base": mode() === "full",
                       }}
                       style={control()}
                       aria-label={acceptLabel()}
-                      aria-pressed={accepting()}
+                      aria-pressed={mode() !== "off"}
                     >
-                      <Icon name="shield" size="small" classList={{ "text-icon-success-base": accepting() }} />
+                      <Icon
+                        name="shield"
+                        size="small"
+                        classList={{
+                          "text-icon-warning-base": mode() === "safe",
+                          "text-icon-success-base": mode() === "full",
+                        }}
+                      />
                     </Button>
                   </TooltipKeybind>
                   <SteerButton />
