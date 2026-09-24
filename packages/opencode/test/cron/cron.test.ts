@@ -14,6 +14,7 @@ import { Instance } from "../../src/project/instance"
 import { Server } from "../../src/server/server"
 import { Session } from "../../src/session"
 import { MessageID, PartID, type SessionID } from "../../src/session/schema"
+import { SessionTable } from "../../src/session/session.sql"
 
 const actionName = (name: string) => `cron_test_${name}_${Date.now()}_${Math.random().toString(36).slice(2)}`
 
@@ -510,6 +511,164 @@ describe("Cron core", () => {
 
         expect(directories).toContain(tmp.path)
         expect(directories).not.toContain("/")
+      },
+    })
+  })
+
+  test("scheduled tick delivers session_agent messages to the bound session without instance context", async () => {
+    await using tmp = await tmpdir({ git: true })
+    const { project } = await Project.fromDirectory(tmp.path)
+
+    let sessionID: SessionID | undefined
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        sessionID = (await Session.create({ title: "bound session" })).id
+      },
+    })
+
+    const created = await Cron.createJob({
+      name: "bound session agent",
+      mode: "session_agent",
+      project_id: project.id,
+      session_id: sessionID ?? null,
+      schedule_type: "interval",
+      schedule_value: 60,
+      payload: { message: "tick hello" },
+    })
+    setState(created.definition.id, {
+      next_run_at: Date.now() - 5_000,
+      enabled: true,
+      running: false,
+      last_status: null,
+    })
+
+    await Cron.tick()
+
+    const runs = await Cron.listRuns({ id: created.definition.id, count: 10 })
+    expect(runs).toHaveLength(1)
+    expect(runs[0]?.status).toBe("success")
+    expect(runs[0]?.session_id).toBe(sessionID!)
+    expect(runs[0]?.created_session_id).toBeNull()
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const rows = Database.useProject(project.id, (db) => db.select().from(SessionTable).all())
+        expect(rows).toHaveLength(1)
+      },
+    })
+  })
+
+  test("scheduled tick appends agent_message to the bound session without instance context", async () => {
+    await using tmp = await tmpdir({ git: true })
+    const { project } = await Project.fromDirectory(tmp.path)
+
+    let sessionID: SessionID | undefined
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        sessionID = (await Session.create({ title: "bound notify" })).id
+      },
+    })
+
+    const created = await Cron.createJob({
+      name: "bound notify job",
+      mode: "agent_message",
+      project_id: project.id,
+      session_id: sessionID ?? null,
+      schedule_type: "interval",
+      schedule_value: 60,
+      payload: {
+        message: "scheduled hello",
+        agent: "build",
+      },
+    })
+    setState(created.definition.id, {
+      next_run_at: Date.now() - 5_000,
+      enabled: true,
+      running: false,
+      last_status: null,
+    })
+
+    await Cron.tick()
+
+    const runs = await Cron.listRuns({ id: created.definition.id, count: 10 })
+    expect(runs).toHaveLength(1)
+    expect(runs[0]?.status).toBe("success")
+    expect(runs[0]?.session_id).toBe(sessionID!)
+    expect(runs[0]?.created_session_id).toBeNull()
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const messages = await Session.messages({ sessionID: sessionID! })
+        const assistant = messages.find((message) => message.info.role === "assistant")
+        const text = assistant?.parts.find((part) => part.type === "text")
+        expect(text?.text).toBe("scheduled hello")
+        expect(text?.metadata?.source).toBe("cron")
+
+        const rows = Database.useProject(project.id, (db) => db.select().from(SessionTable).all())
+        expect(rows).toHaveLength(1)
+      },
+    })
+  })
+
+  test("scheduled tick creates a replacement session when the bound session belongs to another project", async () => {
+    await using tmpA = await tmpdir({ git: true })
+    await using tmpB = await tmpdir({ git: true })
+    const { project: projectA } = await Project.fromDirectory(tmpA.path)
+    const { project: projectB } = await Project.fromDirectory(tmpB.path)
+
+    let foreignSessionID: SessionID | undefined
+    await Instance.provide({
+      directory: tmpA.path,
+      fn: async () => {
+        foreignSessionID = (await Session.create({ title: "foreign session" })).id
+      },
+    })
+
+    const created = await Cron.createJob({
+      name: "cross project notify",
+      mode: "agent_message",
+      project_id: projectB.id,
+      session_id: foreignSessionID!,
+      schedule_type: "interval",
+      schedule_value: 60,
+      payload: {
+        message: "cross hello",
+        agent: "build",
+      },
+    })
+    setState(created.definition.id, {
+      next_run_at: Date.now() - 5_000,
+      enabled: true,
+      running: false,
+      last_status: null,
+    })
+
+    await Cron.tick()
+
+    const runs = await Cron.listRuns({ id: created.definition.id, count: 10 })
+    expect(runs).toHaveLength(1)
+    expect(runs[0]?.status).toBe("success")
+    expect(runs[0]?.session_id).not.toBe(foreignSessionID)
+    expect(runs[0]?.created_session_id).toBe(runs[0]?.session_id)
+
+    await Instance.provide({
+      directory: tmpB.path,
+      fn: async () => {
+        const rows = Database.useProject(projectB.id, (db) => db.select().from(SessionTable).all())
+        expect(rows).toHaveLength(1)
+      },
+    })
+
+    await Instance.provide({
+      directory: tmpA.path,
+      fn: async () => {
+        const rows = Database.useProject(projectA.id, (db) => db.select().from(SessionTable).all())
+        expect(rows).toHaveLength(1)
+        expect(rows[0]?.id).toBe(foreignSessionID!)
       },
     })
   })

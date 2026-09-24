@@ -347,7 +347,7 @@ async function resolveSessionDispatchTarget(definition: Definition): Promise<Ses
   if (!project) throw new Error(`Project not found: ${definition.project_id}`)
 
   const wanted = SessionID.make(String(definition.session_id))
-  const existing = await Session.get(wanted).catch(() => undefined)
+  const existing = await Session.getGlobal(wanted).catch(() => undefined)
   if (existing && existing.projectID === project.id) {
     return {
       project,
