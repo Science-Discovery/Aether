@@ -343,6 +343,19 @@ export function MessageTimeline(props: {
   let log: HTMLDivElement | undefined
   let ask: HTMLButtonElement | undefined
 
+  let scrollIdle: ReturnType<typeof setTimeout> | undefined
+  const markScrolling = (el: HTMLElement) => {
+    el.setAttribute("data-scrolling", "")
+    if (scrollIdle !== undefined) clearTimeout(scrollIdle)
+    scrollIdle = setTimeout(() => {
+      scrollIdle = undefined
+      el.removeAttribute("data-scrolling")
+    }, 160)
+  }
+  onCleanup(() => {
+    if (scrollIdle !== undefined) clearTimeout(scrollIdle)
+  })
+
   const navigate = useNavigate()
   const globalSDK = useGlobalSDK()
   const sdk = useSDK()
@@ -1154,6 +1167,7 @@ export function MessageTimeline(props: {
           onScroll={(e) => {
             props.onScheduleScrollState(e.currentTarget)
             props.onTurnBackfillScroll()
+            markScrolling(e.currentTarget)
             if (!props.hasScrollGesture()) return
             props.onUserScroll()
             props.onAutoScrollHandleScroll()
