@@ -101,5 +101,8 @@ export function legacyManagedDir() {
 }
 
 export function filesDir(projectID: string) {
-  return path.join(Persist.current.data, "files", projectID)
+  const root = path.join(Persist.current.data, "files")
+  const dir = path.resolve(root, projectID)
+  if (!dir.startsWith(root + path.sep)) throw new Error(`Invalid projectID: ${projectID}`)
+  return dir
 }
