@@ -869,7 +869,7 @@ export const dict = {
   "workspace.reset.success.description": "مساحة العمل تطابق الآن الفرع الافتراضي.",
   "workspace.error.stillPreparing": "مساحة العمل لا تزال قيد الإعداد",
   "workspace.status.checking": "التحقق من التغييرات غير المدمجة...",
-  "workspace.status.error": "تعذر التحقق من حالة git.",
+  "workspace.status.error": "تعذر التحقق من حالة git. قد يحتوي مساحة العمل على تغييرات غير مُثبَّتة.",
   "workspace.status.clean": "لم يتم اكتشاف تغييرات غير مدمجة.",
   "workspace.status.dirty": "تم اكتشاف تغييرات غير مدمجة في مساحة العمل هذه.",
   "workspace.delete.title": "حذف مساحة العمل",

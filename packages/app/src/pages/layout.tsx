@@ -2026,7 +2026,7 @@ export default function Layout(props: ParentProps) {
           setData({ status: "ready", dirty })
         })
         .catch(() => {
-          setData({ status: "error", dirty: false })
+          setData({ status: "error", dirty: true })
         })
       globalSDK.client.session
         .list({ directory: props.directory })
@@ -2104,8 +2104,15 @@ export default function Layout(props: ParentProps) {
 
     const handleForceDelete = () => {
       dialog.close()
+      const unverified = data.status === "error"
       dialog.show(() => (
-        <DialogForceDeleteWorkspace root={props.root} directory={props.directory} gitStderr="" branch={props.branch} />
+        <DialogForceDeleteWorkspace
+          root={props.root}
+          directory={props.directory}
+          gitStderr=""
+          branch={props.branch}
+          unverified={unverified}
+        />
       ))
     }
 
@@ -2125,7 +2132,7 @@ export default function Layout(props: ParentProps) {
             <Button variant="ghost" size="large" onClick={() => dialog.close()}>
               {language.t("workspace.delete.cancel")}
             </Button>
-            <Show when={data.dirty && data.status === "ready"}>
+            <Show when={data.dirty}>
               <Button variant="secondary" size="large" onClick={handleForceDelete}>
                 {language.t("workspace.delete.stale.button")}
               </Button>
@@ -2205,8 +2212,25 @@ export default function Layout(props: ParentProps) {
     )
   }
 
-  function DialogForceDeleteWorkspace(props: { root: string; directory: string; gitStderr: string; branch?: string }) {
+  function DialogForceDeleteWorkspace(props: {
+    root: string
+    directory: string
+    gitStderr: string
+    branch?: string
+    unverified?: boolean
+  }) {
     const name = createMemo(() => getFilename(props.directory))
+    const unverified = () => !!props.unverified
+    const title = () =>
+      unverified() ? language.t("workspace.delete.unverified.title") : language.t("workspace.delete.stale.title")
+    const confirm = () =>
+      unverified()
+        ? language.t("workspace.delete.unverified.confirm", { name: name() })
+        : language.t("workspace.delete.stale.confirm", { name: name() })
+    const description = () =>
+      unverified()
+        ? language.t("workspace.delete.unverified.description")
+        : language.t("workspace.delete.stale.description")
 
     const handleForceDelete = async () => {
       dialog.close()
@@ -2250,13 +2274,11 @@ export default function Layout(props: ParentProps) {
     }
 
     return (
-      <Dialog title={language.t("workspace.delete.stale.title")} fit>
+      <Dialog title={title()} fit>
         <div class="flex flex-col gap-4 pl-6 pr-2.5 pb-3">
           <div class="flex flex-col gap-1">
-            <span class="text-14-regular text-text-strong">
-              {language.t("workspace.delete.stale.confirm", { name: name() })}
-            </span>
-            <span class="text-12-regular text-text-weak">{language.t("workspace.delete.stale.description")}</span>
+            <span class="text-14-regular text-text-strong">{confirm()}</span>
+            <span class="text-12-regular text-text-weak">{description()}</span>
           </div>
           <div class="flex justify-end gap-2">
             <Button variant="ghost" size="large" onClick={() => dialog.close()}>

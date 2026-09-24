@@ -516,6 +516,18 @@ export namespace Worktree {
           return { status: "ok" as const }
         }
 
+        const status = yield* git(["status", "--porcelain"], { cwd: entry!.path })
+        if (status.code !== 0) {
+          throw new RemoveFailedError({
+            message: status.stderr || status.text || "Failed to verify workspace status",
+          })
+        }
+        if (status.text.trim()) {
+          throw new RemoveFailedError({
+            message: "Workspace has uncommitted changes; pass force to delete anyway",
+          })
+        }
+
         yield* stopFsmonitor(entry!.path)
         yield* disposeOnly(entry!.path)
         let removed = yield* git(["worktree", "remove", "--force", entry!.path], { cwd: Instance.worktree })

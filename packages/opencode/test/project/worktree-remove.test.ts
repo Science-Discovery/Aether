@@ -84,10 +84,10 @@ describe("Worktree.remove", () => {
 
     const ok = await Instance.provide({
       directory: root,
-      fn: () => Worktree.remove({ directory: dir }),
+      fn: () => Worktree.remove({ directory: dir, force: true }),
     })
 
-    expect(ok).toEqual({ status: "ok" })
+    expect(ok).toEqual({ status: "forceOk" })
     expect(await Filesystem.exists(dir)).toBe(false)
 
     const ref = await $`git show-ref --verify --quiet refs/heads/${branch}`.cwd(root).quiet().nothrow()

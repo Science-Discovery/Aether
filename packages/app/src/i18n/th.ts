@@ -944,7 +944,7 @@ export const dict = {
   "workspace.reset.success.description": "พื้นที่ทำงานตรงกับสาขาเริ่มต้นแล้ว",
   "workspace.error.stillPreparing": "พื้นที่ทำงานกำลังเตรียมอยู่",
   "workspace.status.checking": "กำลังตรวจสอบการเปลี่ยนแปลงที่ไม่ได้ผสาน...",
-  "workspace.status.error": "ไม่สามารถตรวจสอบสถานะ git",
+  "workspace.status.error": "ไม่สามารถตรวจสอบสถานะ git ได้ พื้นที่ทำงานอาจมีการเปลี่ยนแปลงที่ยังไม่ได้คอมมิต",
   "workspace.status.clean": "ไม่ตรวจพบการเปลี่ยนแปลงที่ไม่ได้ผสาน",
   "workspace.status.dirty": "ตรวจพบการเปลี่ยนแปลงที่ไม่ได้ผสานในพื้นที่ทำงานนี้",
   "workspace.delete.title": "ลบพื้นที่ทำงาน",

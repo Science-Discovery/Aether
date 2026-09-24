@@ -898,7 +898,7 @@ export const dict = {
   "workspace.reset.success.description": "Der Arbeitsbereich entspricht jetzt dem Standard-Branch.",
   "workspace.error.stillPreparing": "Arbeitsbereich wird noch vorbereitet",
   "workspace.status.checking": "Suche nach nicht zusammengeführten Änderungen...",
-  "workspace.status.error": "Git-Status konnte nicht überprüft werden.",
+  "workspace.status.error": "Git-Status konnte nicht überprüft werden. Der Arbeitsbereich enthält möglicherweise nicht committete Änderungen.",
   "workspace.status.clean": "Keine nicht zusammengeführten Änderungen erkannt.",
   "workspace.status.dirty": "Nicht zusammengeführte Änderungen in diesem Arbeitsbereich erkannt.",
   "workspace.delete.title": "Arbeitsbereich löschen",

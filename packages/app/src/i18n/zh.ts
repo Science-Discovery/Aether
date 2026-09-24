@@ -1455,7 +1455,7 @@ export const dict = {
   "workspace.reset.success.description": "工作区已与默认分支保持一致。",
   "workspace.error.stillPreparing": "工作区仍在准备中",
   "workspace.status.checking": "正在检查未提交的更改...",
-  "workspace.status.error": "无法验证 git 状态。",
+  "workspace.status.error": "无法验证 git 状态，工作区可能存在未提交的更改。",
   "workspace.status.clean": "工作区干净。",
   "workspace.status.dirty": "检测到未提交的更改，请提交或清除后再删除工作区。",
   "workspace.delete.title": "删除工作区",
@@ -1471,6 +1471,9 @@ export const dict = {
   "workspace.delete.stale.description":
     "目录中缺少 .git 文件，不再是有效的 git worktree。强制删除将移除该目录并清理 git 元数据。",
   "workspace.delete.stale.button": "强制删除",
+  "workspace.delete.unverified.title": "无法验证工作区状态",
+  "workspace.delete.unverified.confirm": '无法验证工作区 "{{name}}" 的 git 状态，其中可能存在未提交的更改。是否强制删除该目录？',
+  "workspace.delete.unverified.description": "强制删除将永久移除该目录及其中所有未提交的更改。",
   "workspace.delete.branch.title": "删除分支",
   "workspace.delete.branch.confirm": '是否同时删除分支 "{{branch}}"？',
   "workspace.delete.branch.keep": "保留分支",

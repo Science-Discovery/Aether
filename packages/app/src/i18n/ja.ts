@@ -883,7 +883,7 @@ export const dict = {
   "workspace.reset.success.description": "ワークスペースはデフォルトブランチと一致しています。",
   "workspace.error.stillPreparing": "ワークスペースはまだ準備中です",
   "workspace.status.checking": "未マージの変更を確認中...",
-  "workspace.status.error": "gitステータスを確認できません。",
+  "workspace.status.error": "git の状態を検証できません。ワークスペースには未コミットの変更がある可能性があります。",
   "workspace.status.clean": "未マージの変更は検出されませんでした。",
   "workspace.status.dirty": "このワークスペースで未マージの変更が検出されました。",
   "workspace.delete.title": "ワークスペースの削除",

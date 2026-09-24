@@ -955,7 +955,7 @@ export const dict = {
   "workspace.reset.success.description": "Radni prostor sada odgovara podrazumijevanoj grani.",
   "workspace.error.stillPreparing": "Radni prostor se još priprema",
   "workspace.status.checking": "Provjera neobjedinjenih promjena...",
-  "workspace.status.error": "Nije moguće provjeriti git status.",
+  "workspace.status.error": "Nije moguće provjeriti git status. Radni prostor može sadržavati nepotvrđene promjene.",
   "workspace.status.clean": "Nisu pronađene neobjedinjene promjene.",
   "workspace.status.dirty": "Pronađene su neobjedinjene promjene u ovom radnom prostoru.",
   "workspace.delete.title": "Izbriši radni prostor",

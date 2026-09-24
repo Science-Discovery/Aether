@@ -1031,7 +1031,7 @@ export const dict = {
   "workspace.reset.success.description": "工作區已與預設分支保持一致。",
   "workspace.error.stillPreparing": "工作區仍在準備中",
   "workspace.status.checking": "正在檢查未提交的變更...",
-  "workspace.status.error": "無法驗證 git 狀態。",
+  "workspace.status.error": "無法驗證 git 狀態，工作區可能存在未提交的變更。",
   "workspace.status.clean": "工作區乾淨。",
   "workspace.status.dirty": "偵測到未提交的變更，請提交或清除後再刪除工作區。",
   "workspace.delete.title": "刪除工作區",
