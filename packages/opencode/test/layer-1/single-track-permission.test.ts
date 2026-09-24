@@ -283,4 +283,148 @@ describe("Layer 1.5 — single-track permission contract", () => {
       },
     })
   })
+
+  test("task child inherits parent session-level denies", async () => {
+    const srv = await stub([
+      { type: "text", text: "ok", usage: { input: 4, output: 2 } },
+      { type: "text", text: "done", usage: { input: 4, output: 2 } },
+    ])
+    await using tmp = await setup(srv.url)
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const parent = await Session.create({
+          permission: [{ permission: "edit", pattern: "*", action: "deny" }],
+        })
+        await SessionPrompt.prompt({
+          sessionID: parent.id,
+          agent: "build",
+          model,
+          parts: [{ type: "text", text: "dispatch" }],
+        })
+        const msgs = await Session.messages({ sessionID: parent.id })
+        const assistant = msgs.findLast((m) => m.info.role === "assistant")!
+
+        const caller = await Agent.get("build")
+        const tool = await TaskTool.init({ agent: caller! })
+        const result = await tool.execute(
+          { description: "test", prompt: "say hi", subagent_type: "general" },
+          {
+            sessionID: parent.id,
+            messageID: assistant.info.id,
+            agent: "build",
+            abort: AbortSignal.any([]),
+            messages: [],
+            metadata: () => {},
+            ask: async () => {},
+            extra: { bypassAgentCheck: true },
+          },
+        )
+
+        const child = await Session.get(result.metadata.sessionId)
+        expect(child.permission).toBeDefined()
+        expect(Permission.evaluate("edit", "src/file.ts", child.permission!).action).toBe("deny")
+      },
+    })
+  })
+
+  test("task resume re-constrains child after parent permission tightens", async () => {
+    const srv = await stub([
+      { type: "text", text: "ok", usage: { input: 4, output: 2 } },
+      { type: "text", text: "done", usage: { input: 4, output: 2 } },
+      { type: "text", text: "resumed", usage: { input: 4, output: 2 } },
+    ])
+    await using tmp = await setup(srv.url)
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const parent = await Session.create({})
+        await SessionPrompt.prompt({
+          sessionID: parent.id,
+          agent: "build",
+          model,
+          parts: [{ type: "text", text: "dispatch" }],
+        })
+        const msgs = await Session.messages({ sessionID: parent.id })
+        const assistant = msgs.findLast((m) => m.info.role === "assistant")!
+        const caller = await Agent.get("build")
+        const tool = await TaskTool.init({ agent: caller! })
+        const ctx = {
+          sessionID: parent.id,
+          messageID: assistant.info.id,
+          agent: "build",
+          abort: AbortSignal.any([]),
+          messages: [],
+          metadata: () => {},
+          ask: async () => {},
+          extra: { bypassAgentCheck: true },
+        }
+
+        const first = await tool.execute({ description: "test", prompt: "say hi", subagent_type: "general" }, ctx)
+        const before = await Session.get(first.metadata.sessionId)
+        expect(Permission.evaluate("edit", "src/file.ts", before.permission ?? []).action).toBe("allow")
+
+        await Session.setPermission({
+          sessionID: parent.id,
+          permission: [{ permission: "edit", pattern: "*", action: "deny" }],
+        })
+
+        const second = await tool.execute(
+          { description: "test", prompt: "continue", subagent_type: "general", task_id: first.metadata.sessionId },
+          ctx,
+        )
+        expect(second.metadata.sessionId).toBe(first.metadata.sessionId)
+        const after = await Session.get(first.metadata.sessionId)
+        expect(Permission.evaluate("edit", "src/file.ts", after.permission ?? []).action).toBe("deny")
+      },
+    })
+  })
+
+  test("task resume with a foreign task_id creates a fresh child", async () => {
+    const srv = await stub([
+      { type: "text", text: "ok", usage: { input: 4, output: 2 } },
+      { type: "text", text: "done", usage: { input: 4, output: 2 } },
+    ])
+    await using tmp = await setup(srv.url)
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const parent = await Session.create({})
+        await SessionPrompt.prompt({
+          sessionID: parent.id,
+          agent: "build",
+          model,
+          parts: [{ type: "text", text: "dispatch" }],
+        })
+        const msgs = await Session.messages({ sessionID: parent.id })
+        const assistant = msgs.findLast((m) => m.info.role === "assistant")!
+        const outsider = await Session.create({})
+
+        const caller = await Agent.get("build")
+        const tool = await TaskTool.init({ agent: caller! })
+        const result = await tool.execute(
+          {
+            description: "test",
+            prompt: "say hi",
+            subagent_type: "general",
+            task_id: outsider.id,
+          },
+          {
+            sessionID: parent.id,
+            messageID: assistant.info.id,
+            agent: "build",
+            abort: AbortSignal.any([]),
+            messages: [],
+            metadata: () => {},
+            ask: async () => {},
+            extra: { bypassAgentCheck: true },
+          },
+        )
+
+        expect(result.metadata.sessionId).not.toBe(outsider.id)
+        const child = await Session.get(result.metadata.sessionId)
+        expect(child.parentID).toBe(parent.id)
+      },
+    })
+  })
 })

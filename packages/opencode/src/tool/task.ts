@@ -67,8 +67,10 @@ export const TaskTool = Tool.define("task", async (ctx) => {
       const hasTodoWritePermission = agent.permission.some((rule) => rule.permission === "todowrite")
 
       const callerAgent = ctx.agent ? await Agent.get(ctx.agent) : undefined
+      const parent = await Session.get(ctx.sessionID)
+      const bound = Permission.merge(callerAgent?.permission ?? [], parent.permission ?? [])
 
-      const sessionPermission = Permission.intersection(callerAgent?.permission ?? [], agent.permission)
+      const sessionPermission = Permission.intersection(bound, agent.permission)
 
       // v0.6.0 fallback: deny task/todowrite for agents without explicit rules.
       // Intersection only propagates existing deny rules — it doesn't create new ones.
@@ -94,7 +96,10 @@ export const TaskTool = Tool.define("task", async (ctx) => {
       const session = await iife(async () => {
         if (params.task_id) {
           const found = await Session.get(SessionID.make(params.task_id)).catch(() => {})
-          if (found) return found
+          if (found && found.parentID === ctx.sessionID) {
+            await Session.setPermission({ sessionID: found.id, permission: finalPermission })
+            return found
+          }
         }
 
         return await Session.create({
@@ -129,12 +134,12 @@ export const TaskTool = Tool.define("task", async (ctx) => {
       const promptParts = await SessionPrompt.resolvePromptParts(params.prompt)
 
       // Single-track permission contract: finalPermission is set on the session
-      // via Session.create above and is the authoritative source. Do NOT pass
-      // `tools` to prompt here — PromptInput.tools is @deprecated and uses
-      // overwrite (not merge) semantics in prompt.ts:189-192; passing it would
-      // silently clobber the intersection-derived finalPermission. task.ts
-      // intentionally keeps permission on the session so the intersection results
-      // survive.
+      // (Session.create, or setPermission when resuming) and is the
+      // authoritative source. Do NOT pass `tools` to prompt here —
+      // PromptInput.tools is @deprecated and uses overwrite (not merge)
+      // semantics in prompt.ts:189-192; passing it would silently clobber the
+      // intersection-derived finalPermission. task.ts intentionally keeps
+      // permission on the session so the intersection results survive.
       const result = await SessionPrompt.prompt({
         messageID,
         sessionID: session.id,
