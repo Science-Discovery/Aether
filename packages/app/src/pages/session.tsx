@@ -69,7 +69,8 @@ import { TerminalPanel } from "@/pages/session/terminal-panel"
 import { useQuickReadingController } from "@/pages/session/use-quick-reading-controller"
 import { useQuickReadingLayout } from "@/pages/session/use-quick-reading-layout"
 import { CHAT_MIN, REVIEW_MIN, SESSION_MIN, SIDEBAR_MIN, TREE_MIN } from "@/pages/session/reading-layout"
-import { cascade, type Pane } from "@/pages/session/cascade"
+import { cascade } from "@/pages/session/cascade"
+import { bounds, panes } from "@/pages/session/row-panes"
 import { useSessionCommands } from "@/pages/session/use-session-commands"
 import { useSessionHashScroll } from "@/pages/session/use-session-hash-scroll"
 import { Identifier } from "@/utils/id"
@@ -564,38 +565,20 @@ function SessionPageContent(props: SessionPageProps = {}) {
     const next = Math.max(SIDEBAR_MIN, cur - deficit)
     if (next !== cur) layout.sidebar.resize(next)
   }
-  const rowPanes = createMemo(() => {
-    if (!isDesktop() || readingModeActive()) return []
-    const chat = Math.max(SESSION_MIN, layout.session.width())
-    const tree = Math.max(TREE_MIN, layout.fileTree.width())
-    const panes: Pane[] = [{ width: chat, min: SESSION_MIN }]
-    if (desktopReviewOpen()) panes.push({ width: Math.max(REVIEW_MIN, rowWidth() - chat - tree), min: REVIEW_MIN })
-    if (desktopFileTreeOpen()) panes.push({ width: tree, min: TREE_MIN, key: "fileTree" })
-    return panes
-  })
+  const rowPanes = createMemo(() =>
+    panes({
+      desktop: isDesktop(),
+      reading: readingModeActive(),
+      rowWidth: rowWidth(),
+      chat: layout.session.width(),
+      tree: layout.fileTree.width(),
+      reviewOpen: desktopReviewOpen(),
+      treeOpen: desktopFileTreeOpen(),
+    }),
+  )
   createEffect(() => layout.row.set(rowPanes()))
   onCleanup(() => layout.row.set([]))
-  const divider = createMemo(() => {
-    const panes = rowPanes()
-    const opened = layout.sidebar.opened()
-    const chain = opened
-      ? [{ width: Math.max(SIDEBAR_MIN, layout.sidebar.width()), min: SIDEBAR_MIN }, ...panes]
-      : panes
-    const at = (opened ? 1 : 0) + 1
-    let span = 0
-    let low = 0
-    let high = 0
-    chain.forEach((pane, i) => {
-      if (i < at) {
-        span += pane.width
-        low += pane.min
-        high += pane.width
-        return
-      }
-      high += Math.max(0, pane.width - pane.min)
-    })
-    return { chain, at, span, low, high: Math.max(low, high) }
-  })
+  const divider = createMemo(() => bounds(rowPanes(), layout.sidebar.opened() ? layout.sidebar.width() : undefined))
   const readingFileTreeResizable = createMemo(() => {
     if (propReadingModeActive()) return props.readingFileTreeResizable
     if (quickReadingModeActive()) return false
