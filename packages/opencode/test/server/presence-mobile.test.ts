@@ -12,9 +12,14 @@ describe("presence mobile bridge info", () => {
     expect(parsed?.mobile).toEqual({ wechat: "connected", qq: "idle" })
   })
 
-  test("parse tolerates missing or malformed mobile field", () => {
+  test("parse omits the mobile field when the payload has none", () => {
     const plain = parse({ pid: 1, channel: "local", clients: { desktop: 1, web: 0 } })
-    expect(plain?.mobile).toEqual({})
+    expect(plain?.mobile).toBeUndefined()
+    const empty = parse({ pid: 1, channel: "local", clients: { desktop: 1, web: 0 }, mobile: {} })
+    expect(empty?.mobile).toBeUndefined()
+  })
+
+  test("parse keeps valid entries among malformed ones", () => {
     const malformed = parse({
       pid: 1,
       channel: "local",

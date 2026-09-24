@@ -29,7 +29,12 @@ export function parse(value: unknown): Info | null {
       if (typeof status === "string") mobile[platform] = status
     }
   }
-  return { pid: data.pid, channel: data.channel, clients: { desktop: raw.desktop, web: raw.web }, mobile }
+  return {
+    pid: data.pid,
+    channel: data.channel,
+    clients: { desktop: raw.desktop, web: raw.web },
+    ...(Object.keys(mobile).length > 0 ? { mobile } : {}),
+  }
 }
 
 export function marker(type: string | undefined): ClientType {
