@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test"
 import path from "path"
 import { tmpdir as osTmpdir } from "os"
 import { existsSync } from "fs"
+import fs from "fs/promises"
 import { Server } from "../../src/server/server"
 import { Instance } from "../../src/project/instance"
 import { Project } from "../../src/project/project"
@@ -148,6 +149,65 @@ describe("directory isolation", () => {
     expect(allowed.status).toBe(200)
     expect(await allowed.json()).not.toHaveLength(0)
   }, 30000)
+
+  test("gitignore writes are denied in untrusted browse contexts", async () => {
+    await using victim = await tmpdir({
+      init: async (dir) => {
+        await Bun.write(path.join(dir, "secret.txt"), "victim-secret")
+      },
+    })
+
+    const res = await post("/file/gitignore", { path: "secret.txt", type: "file" }, victim.path)
+
+    expect(res.status).toBe(400)
+    expect(await res.json()).toEqual({ error: "Access denied: path escapes project directory" })
+    expect(existsSync(path.join(victim.path, ".gitignore"))).toBe(false)
+
+    await Project.fromDirectory(victim.path)
+    const allowed = await post("/file/gitignore", { path: "secret.txt", type: "file" }, victim.path)
+    expect(allowed.status).toBe(200)
+    expect(await allowed.json()).toEqual({ ok: true, created: true, alreadyExists: false })
+    expect(existsSync(path.join(victim.path, ".gitignore"))).toBe(true)
+  })
+
+  test("file listing keeps browse roots listable but denies everything beyond them", async () => {
+    await using dir = await tmpdir({
+      init: async (dir) => {
+        await Bun.write(path.join(dir, "entry.txt"), "listed")
+        await fs.mkdir(path.join(dir, "inner"))
+      },
+    })
+
+    const root = await get(`/file?path=${encodeURIComponent("")}`, dir.path)
+    expect(root.status).toBe(200)
+    const nodes = await root.json()
+    expect(nodes.map((node: { path: string }) => node.path).sort()).toEqual(["entry.txt", "inner"])
+
+    const escape = await get(`/file?path=${encodeURIComponent("../")}`, dir.path)
+    expect(escape.status).toBe(400)
+    expect(await escape.json()).toEqual({ error: "Access denied: path escapes project directory" })
+
+    const nested = await get(`/file?path=${encodeURIComponent("inner")}`, dir.path)
+    expect(nested.status).toBe(400)
+  })
+
+  test("file listing works inside registered projects regardless of boot state", async () => {
+    await using dir = await tmpdir({
+      init: async (dir) => {
+        await Bun.write(path.join(dir, "doc.txt"), "listed")
+      },
+    })
+    await Project.fromDirectory(dir.path)
+    await Instance.disposeAll()
+
+    const root = await get(`/file?path=${encodeURIComponent("")}`, dir.path)
+    expect(root.status).toBe(200)
+    expect((await root.json()).map((node: { path: string }) => node.path)).toEqual(["doc.txt"])
+
+    const nested = await get(`/file?path=${encodeURIComponent("nested")}`, dir.path)
+    expect(nested.status).toBe(200)
+    expect(await nested.json()).toEqual([])
+  })
 
   test("browse contexts for unknown directories fail containment closed", async () => {
     await using dir = await tmpdir()

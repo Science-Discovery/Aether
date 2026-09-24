@@ -405,8 +405,13 @@ export const FileRoutes = lazy(() =>
           return c.json(drives)
         }
 
-        const content = await File.list(path)
-        return c.json(content)
+        try {
+          const content = await File.list(path)
+          return c.json(content)
+        } catch (err) {
+          if (!accessDenied(err)) throw err
+          return c.json({ error: err.message }, 400)
+        }
       },
     )
     .get(
@@ -941,8 +946,13 @@ export const FileRoutes = lazy(() =>
       validator("json", z.object({ path: z.string(), type: z.enum(["file", "directory"]) })),
       async (c) => {
         const { path: filePath, type } = c.req.valid("json")
-        const result = await File.addToGitignore(filePath, type)
-        return c.json({ ok: true, ...result })
+        try {
+          const result = await File.addToGitignore(filePath, type)
+          return c.json({ ok: true, ...result })
+        } catch (err) {
+          if (!accessDenied(err)) throw err
+          return c.json({ error: err.message }, 400)
+        }
       },
     )
     .get(

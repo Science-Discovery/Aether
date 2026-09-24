@@ -583,6 +583,9 @@ export namespace File {
     }
 
     const gitignorePath = path.join(Instance.worktree, ".gitignore")
+    if (!Instance.containsPath(gitignorePath)) {
+      throw new Error("Access denied: path escapes project directory")
+    }
     const exists = await Filesystem.exists(gitignorePath)
 
     let content = ""
@@ -1050,7 +1053,9 @@ export namespace File {
           }
 
           const resolved = dir ? path.join(Instance.directory, dir) : Instance.directory
-          if (!Instance.containsPath(resolved)) {
+          // Browse contexts may list their own root (the directory picker
+          // browses unknown directories), but never anything beyond it.
+          if (!Instance.containsPath(resolved) && resolved !== Instance.directory) {
             throw new Error("Access denied: path escapes project directory")
           }
 
