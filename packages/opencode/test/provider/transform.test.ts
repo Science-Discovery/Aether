@@ -231,6 +231,28 @@ describe("ProviderTransform.options - Alibaba GLM-5.2 thinking", () => {
   })
 })
 
+describe("ProviderTransform.options - Alibaba GLM-5.3 thinking", () => {
+  test("omits the ignored thinking_budget but keeps the thinking switch", () => {
+    const intl = ProviderTransform.options({ model: glm("alibaba", undefined, "glm-5.3"), sessionID: "test" })
+    const cn = ProviderTransform.options({ model: glm("alibaba-cn", undefined, "glm-5.3"), sessionID: "test" })
+
+    expect(intl.enable_thinking).toBe(true)
+    expect(intl.thinking_budget).toBeUndefined()
+    expect(intl.clear_thinking).toBeUndefined()
+    expect(cn.enable_thinking).toBe(true)
+    expect(cn.thinking_budget).toBeUndefined()
+    expect(cn.clear_thinking).toBe(true)
+  })
+
+  test("keeps GLM-5.2 budgeted and 5.3 elsewhere detection-accurate", () => {
+    expect(ProviderTransform.glm53(glm("alibaba-cn", undefined, "glm-5.3"))).toBe(true)
+    expect(ProviderTransform.glm53(glm("alibaba-cn", undefined, "glm-5-3-flash"))).toBe(true)
+    expect(ProviderTransform.glm53(glm("alibaba-cn", undefined, "glm-5p3"))).toBe(true)
+    expect(ProviderTransform.glm53(glm("alibaba-cn", undefined, "glm-5.2"))).toBe(false)
+    expect(ProviderTransform.glm53(glm("alibaba-cn", undefined, "glm-5.1"))).toBe(false)
+  })
+})
+
 describe("ProviderTransform.options - google thinkingConfig gating", () => {
   const sessionID = "test-session-123"
 
@@ -895,6 +917,23 @@ describe("ProviderTransform.maxOutputTokens", () => {
 
   test("does not exceed model output limit", () => {
     expect(ProviderTransform.maxOutputTokens(model, { maxOutputTokens: 262_144 })).toBe(131_072)
+  })
+
+  test("uses the full model output budget for Alibaba GLM-5.3", () => {
+    const alibaba = { ...model, providerID: "alibaba", id: "alibaba/glm-5.3", api: { ...model.api, id: "glm-5.3" } }
+    const cn = { ...model, providerID: "alibaba-cn", id: "alibaba-cn/glm-5.3", api: { ...model.api, id: "glm-5.3" } }
+    expect(ProviderTransform.maxOutputTokens(alibaba as Provider.Model)).toBe(131_072)
+    expect(ProviderTransform.maxOutputTokens(cn as Provider.Model)).toBe(131_072)
+    expect(ProviderTransform.maxOutputTokens(cn as Provider.Model, { maxOutputTokens: 40_000 })).toBe(40_000)
+    expect(ProviderTransform.maxOutputTokens(cn as Provider.Model, { maxOutputTokens: 262_144 })).toBe(131_072)
+    expect(ProviderTransform.maxOutputTokens(cn as Provider.Model, { maxOutputTokens: -1 })).toBe(131_072)
+  })
+
+  test("keeps the conservative cap for GLM-5.2 and non-Alibaba GLM-5.3", () => {
+    const zai = { ...model, providerID: "zai", id: "zai/glm-5.3", api: { ...model.api, id: "glm-5.3" } }
+    const cn52 = { ...model, providerID: "alibaba-cn", id: "alibaba-cn/glm-5.2", api: { ...model.api, id: "glm-5.2" } }
+    expect(ProviderTransform.maxOutputTokens(zai as Provider.Model)).toBe(65_536)
+    expect(ProviderTransform.maxOutputTokens(cn52 as Provider.Model)).toBe(65_536)
   })
 })
 

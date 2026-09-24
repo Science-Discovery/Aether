@@ -588,6 +588,13 @@ export namespace ProviderTransform {
     )
   }
 
+  // GLM-5.3 ignores thinking_budget and shares one output budget between
+  // reasoning and the answer, unlike GLM-5.2 where the budget bounds reasoning.
+  export function glm53(model: Provider.Model) {
+    const api = `${model.id} ${model.api.id}`.toLowerCase()
+    return ["glm-5.3", "glm-5-3", "glm-5p3"].some((id) => api.includes(id))
+  }
+
   // Any GLM-family model, regardless of hosting provider (Zhipu, Z.AI, coding plans, DashScope, OpenRouter, ...).
   export function glm(model: Provider.Model) {
     return `${model.id} ${model.api.id}`.toLowerCase().includes("glm")
@@ -1353,11 +1360,22 @@ export namespace ProviderTransform {
     const modelId = input.model.api.id.toLowerCase()
     if (
       glm52(input.model) &&
+      !glm53(input.model) &&
       ["alibaba", "alibaba-cn"].includes(input.model.providerID) &&
       input.model.api.npm === "@ai-sdk/openai-compatible"
     ) {
       result["enable_thinking"] = true
       result["thinking_budget"] = 32_000
+      if (input.model.providerID === "alibaba-cn") result["clear_thinking"] = true
+    }
+    // GLM-5.3 ignores thinking_budget (reasoning and answer share the output
+    // budget), so only the thinking switch is sent.
+    if (
+      glm53(input.model) &&
+      ["alibaba", "alibaba-cn"].includes(input.model.providerID) &&
+      input.model.api.npm === "@ai-sdk/openai-compatible"
+    ) {
+      result["enable_thinking"] = true
       if (input.model.providerID === "alibaba-cn") result["clear_thinking"] = true
     }
     if (
@@ -1539,7 +1557,15 @@ export namespace ProviderTransform {
 
   export function maxOutputTokens(model: Provider.Model, options?: Record<string, unknown>): number {
     const cap = options?.maxOutputTokens
-    const fallback = glm(model) ? Math.max(GLM_OUTPUT_TOKEN_MAX, OUTPUT_TOKEN_MAX) : OUTPUT_TOKEN_MAX
+    // GLM-5.3 on Alibaba defaults to the model's full output budget (reasoning
+    // and answer share it); everything else keeps the conservative GLM cap.
+    const alibaba = ["alibaba", "alibaba-cn"].includes(model.providerID)
+    const fallback =
+      glm53(model) && alibaba
+        ? model.limit.output
+        : glm(model)
+          ? Math.max(GLM_OUTPUT_TOKEN_MAX, OUTPUT_TOKEN_MAX)
+          : OUTPUT_TOKEN_MAX
     const max = typeof cap === "number" && Number.isFinite(cap) && cap > 0 ? Math.floor(cap) : fallback
     return Math.min(model.limit.output, max) || max
   }
