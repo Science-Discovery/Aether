@@ -157,7 +157,6 @@
     opacity: 0;
     pointer-events: none;
     transition: opacity 0.15s ease;
-    will-change: opacity;
 
     [data-component="tooltip-trigger"] {
       display: inline-flex;
@@ -227,7 +226,6 @@
     opacity: 0;
     pointer-events: none;
     transition: opacity 0.15s ease;
-    will-change: opacity;
 
     [data-component="tooltip-trigger"] {
       display: inline-flex;
@@ -259,6 +257,12 @@
     opacity: 1;
     pointer-events: auto;
   }
+}
+
+[data-scrolling] [data-component="text-part"] [data-slot="text-part-copy-wrapper"],
+[data-scrolling] [data-component="user-message"] [data-slot="user-message-copy-wrapper"] {
+  opacity: 0;
+  pointer-events: none;
 }
 
 [data-component="compaction-part"] {
