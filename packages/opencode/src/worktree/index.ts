@@ -485,6 +485,25 @@ export namespace Worktree {
         const list = yield* git(["worktree", "list", "--porcelain"], { cwd: Instance.worktree })
         const entries = parseWorktreeList(list.text)
         const entry = yield* locateWorktree(entries, directory)
+
+        if (list.code !== 0) {
+          throw new RemoveFailedError({ message: list.stderr || list.text || "Failed to read git worktrees" })
+        }
+
+        const main = entries[0]?.path
+        if (main && (yield* canonical(main)) === directory) {
+          throw new RemoveFailedError({ message: "Refusing to remove the main working tree" })
+        }
+
+        if (!entry?.path && (yield* fsys.exists(directory).pipe(Effect.orDie))) {
+          const root = yield* canonical(pathSvc.join(Global.Path.data, "worktree", Instance.project.id))
+          if (!directory.startsWith(root + pathSvc.sep)) {
+            throw new RemoveFailedError({
+              message: `Refusing to remove ${input.directory}: it is not a git worktree of this project and not a sandbox directory`,
+            })
+          }
+        }
+
         const branchRef = entry?.branch
         // Branches are created with the worktree's name, so a missing
         // registration (stale directory) still resolves to the branch.
@@ -498,10 +517,6 @@ export namespace Worktree {
           yield* removeBranch(branchName, input.deleteBranch)
 
           return { status: "forceOk" as const }
-        }
-
-        if (list.code !== 0) {
-          throw new RemoveFailedError({ message: list.stderr || list.text || "Failed to read git worktrees" })
         }
 
         if (!entry?.path) {
