@@ -28,6 +28,8 @@ export namespace SessionProcessor {
   const log = Log.create({ service: "session.processor" })
   const NUDGE =
     "Continue from where your previous reasoning was cut off. Do not re-derive from scratch and do not keep deliberating without producing output: call tools right away to assist (write intermediate results to files, run checks), advance one step at a time, and persist each step before moving on. Do not attempt to complete the whole derivation in your head."
+  const TRUNCATED =
+    '[Response truncated: the model exhausted its output budget before finishing. Send a follow-up like "continue" to resume from where it stopped.]'
 
   export type Info = Awaited<ReturnType<typeof create>>
   export type Result = Awaited<ReturnType<Info["process"]>>
@@ -493,6 +495,22 @@ export namespace SessionProcessor {
                 provider: input.model.providerID,
                 model: input.model.id,
                 finish,
+              })
+            }
+            // The turn ends here whenever finish is "length" (prompt loop only
+            // continues on "tool-calls"). Make the exhausted output budget
+            // visible instead of ending silently mid-answer.
+            if (finish === "length" && !input.abort.aborted && !blocked && !reviewStopped) {
+              await Session.updatePart({
+                id: PartID.ascending(),
+                messageID: input.assistantMessage.id,
+                sessionID: input.sessionID,
+                type: "text",
+                text: TRUNCATED,
+                time: {
+                  start: Date.now(),
+                  end: Date.now(),
+                },
               })
             }
           } catch (e: any) {
