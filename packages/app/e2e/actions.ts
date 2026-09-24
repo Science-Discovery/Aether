@@ -466,6 +466,7 @@ export async function waitSession(
     sessionID?: string
     serverUrl?: string
     allowAnySession?: boolean
+    timeout?: number
   },
 ) {
   const target = await resolveDirectory(input.directory, input.serverUrl)
@@ -495,7 +496,7 @@ export async function waitSession(
           .isVisible()
           .catch(() => false)
       },
-      { timeout: 45_000 },
+      { timeout: input.timeout ?? 45_000 },
     )
     .toBe(true)
   return { directory: target, slug: base64Encode(target) }
