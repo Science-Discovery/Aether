@@ -407,6 +407,9 @@ function makeProject(
       sessionID,
       serverUrl: backend.url,
       allowAnySession: !sessionID,
+      // CI runners stall server requests for minutes; the boot wait must
+      // outlast transient stalls, real error boundaries still throw early.
+      timeout: 90_000,
     })
     const current = sessionIDFromUrl(page.url())
     if (current) trackSession(current)
