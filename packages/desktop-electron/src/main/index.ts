@@ -10,7 +10,7 @@ import pkg from "electron-updater"
 const { autoUpdater } = pkg
 
 import type { InitStep, ServerReadyData, SqliteMigrationProgress, WslConfig } from "../preload/types"
-import { checkAppExists, resolveAppPath, wslPath } from "./apps"
+import { checkAppExists, wslPath } from "./apps"
 import type { CommandChild } from "./cli"
 import { clearSidecarPid, installCli, killStaleSidecar, saveSidecarPid, syncCli } from "./cli"
 import { CHANNEL, UPDATER_ENABLED } from "./constants"
@@ -323,7 +323,6 @@ registerIpcHandlers({
   setDisplayBackend: async () => undefined,
   checkAppExists: async (appName) => checkAppExists(appName),
   wslPath: async (path, mode) => wslPath(path, mode),
-  resolveAppPath: async (appName) => resolveAppPath(appName),
   loadingWindowComplete: () => loadingComplete.resolve(),
   runUpdater: async (alertOnFail) => checkForUpdates(alertOnFail),
   checkUpdate: async () => checkUpdate(),
