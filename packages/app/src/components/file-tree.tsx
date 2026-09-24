@@ -659,22 +659,17 @@ export default function FileTree(props: {
                   >
                     <ContextMenu.ItemLabel>{language.t("fileTree.open")}</ContextMenu.ItemLabel>
                   </ContextMenu.Item>
-                  <Show when={platform.platform === "web"}>
+                  <Show when={platform.platform === "web" || !!platform.showInFolder}>
                     <ContextMenu.Separator />
                     <ContextMenu.Item
                       onSelect={async () => {
+                        const reveal = platform.platform === "desktop" ? platform.showInFolder : undefined
                         try {
-                          await sdk.client.file.openInExplorer({
-                            path: node.absolute,
-                          })
-
-                          showToast({
-                            variant: "success",
-                            title: language.t("fileTree.shownInExplorer"),
-                          })
+                          if (reveal) await reveal(node.absolute)
+                          else await sdk.client.file.openInExplorer({ path: node.absolute })
+                          showToast({ variant: "success", title: language.t("fileTree.openedInFolder") })
                         } catch (err) {
-                          console.error("Failed to open in explorer:", err)
-
+                          console.error("Failed to show in folder:", err)
                           await navigator.clipboard.writeText(node.absolute)
                           showToast({
                             variant: "error",
@@ -684,7 +679,7 @@ export default function FileTree(props: {
                         }
                       }}
                     >
-                      <ContextMenu.ItemLabel>{language.t("fileTree.showInExplorer")}</ContextMenu.ItemLabel>
+                      <ContextMenu.ItemLabel>{language.t("fileTree.showInFolder")}</ContextMenu.ItemLabel>
                     </ContextMenu.Item>
                   </Show>
                   <Show when={isPdf() && props.onPdfConvert}>

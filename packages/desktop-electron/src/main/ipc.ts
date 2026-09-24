@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process"
-import { writeFile } from "node:fs/promises"
+import { stat, writeFile } from "node:fs/promises"
 import { BrowserWindow, Notification, app, clipboard, dialog, ipcMain, shell } from "electron"
 import type { IpcMainEvent, IpcMainInvokeEvent } from "electron"
 
@@ -170,6 +170,11 @@ export function registerIpcHandlers(deps: Deps) {
         process.platform === "darwin" ? (["open", ["-a", app, path]] as const) : ([app, [path]] as const)
       execFile(cmd, args, (err) => (err ? reject(err) : resolve()))
     })
+  })
+
+  ipcMain.handle("show-in-folder", async (_event: IpcMainInvokeEvent, path: string) => {
+    await stat(path)
+    shell.showItemInFolder(path)
   })
 
   ipcMain.handle("read-clipboard-image", () => {
