@@ -498,7 +498,10 @@ export const VoiceRoutes = lazy(() =>
         audioBase64: z.string(),
         audioFormat: z.string(),
         context: z.array(z.object({ role: z.string(), content: z.string() })).optional(),
-        projectID: z.string().optional(),
+        projectID: z
+          .string()
+          .regex(/^[A-Za-z0-9_-]{1,128}$/)
+          .optional(),
         saveAudio: z.boolean().optional(),
       }),
     ),
