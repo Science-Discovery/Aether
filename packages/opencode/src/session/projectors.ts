@@ -6,6 +6,8 @@ import { SessionTable, MessageTable, PartTable } from "./session.sql"
 import { Instance } from "../project/instance"
 import { Project } from "../project/project"
 import { Log } from "../util/log"
+import type { SessionID } from "./schema"
+import path from "path"
 
 const log = Log.create({ service: "session.projector" })
 
@@ -13,6 +15,25 @@ function foreign(err: unknown) {
   if (typeof err !== "object" || err === null) return false
   if ("code" in err && err.code === "SQLITE_CONSTRAINT_FOREIGNKEY") return true
   return "message" in err && typeof err.message === "string" && err.message.includes("FOREIGN KEY constraint failed")
+}
+
+// The request instance binds to the caller's directory, which may differ from
+// the session's owning project (cross-project routes, remote clients). Mirror
+// Session.getGlobal: trust the current project first, then scan every project
+// database for the session row.
+function owner(sessionID: SessionID) {
+  const current = Instance.maybe?.project.id
+  const hit = (pid: string) =>
+    Database.useProject(pid, (db) =>
+      db.select({ id: SessionTable.id }).from(SessionTable).where(eq(SessionTable.id, sessionID)).get(),
+    )
+  if (current && hit(current)) return current
+  for (const pPath of Database.projectPaths()) {
+    const match = /^aether-([0-9a-f]+)\.db$/.exec(path.basename(pPath))
+    if (!match || match[1] === current) continue
+    if (hit(match[1])) return match[1]
+  }
+  return current
 }
 
 // A persisted message is the moment a project earns its feed row: the row is
@@ -110,7 +131,8 @@ export default [
   }),
 
   SyncEvent.project(MessageV2.Event.Updated, (db, data) => {
-    Database.useProject(Instance.project.id, (pdb) => {
+    const pid = owner(data.sessionID) ?? Instance.project.id
+    Database.useProject(pid, (pdb) => {
       const time_created = data.info.time.created
       const { id, sessionID, ...rest } = data.info
 
@@ -127,14 +149,14 @@ export default [
           .run()
       } catch (err) {
         if (!foreign(err)) throw err
-        log.warn("ignored late message update", { messageID: id, sessionID })
+        log.warn("ignored late message update", { messageID: id, sessionID, projectID: pid })
       }
     })
     touchActivity()
   }),
 
   SyncEvent.project(MessageV2.Event.Removed, (db, data) => {
-    Database.useProject(Instance.project.id, (pdb) => {
+    Database.useProject(owner(data.sessionID) ?? Instance.project.id, (pdb) => {
       pdb
         .delete(MessageTable)
         .where(and(eq(MessageTable.id, data.messageID), eq(MessageTable.session_id, data.sessionID)))
@@ -143,7 +165,7 @@ export default [
   }),
 
   SyncEvent.project(MessageV2.Event.PartRemoved, (db, data) => {
-    Database.useProject(Instance.project.id, (pdb) => {
+    Database.useProject(owner(data.sessionID) ?? Instance.project.id, (pdb) => {
       pdb
         .delete(PartTable)
         .where(and(eq(PartTable.id, data.partID), eq(PartTable.session_id, data.sessionID)))
@@ -152,7 +174,8 @@ export default [
   }),
 
   SyncEvent.project(MessageV2.Event.PartUpdated, (db, data) => {
-    Database.useProject(Instance.project.id, (pdb) => {
+    const pid = owner(data.sessionID) ?? Instance.project.id
+    Database.useProject(pid, (pdb) => {
       const { id, messageID, sessionID, ...rest } = data.part
 
       try {
@@ -169,7 +192,7 @@ export default [
           .run()
       } catch (err) {
         if (!foreign(err)) throw err
-        log.warn("ignored late part update", { partID: id, messageID, sessionID })
+        log.warn("ignored late part update", { partID: id, messageID, sessionID, projectID: pid })
       }
     })
   }),
