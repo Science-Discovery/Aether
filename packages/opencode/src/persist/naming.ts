@@ -63,9 +63,13 @@ export function platformDir(sub: string) {
 }
 
 // Canonical channel slug, shared with the channel DB layout in storage/db.ts.
-// OPENCODE_CHANNEL is injected at build time; tests fall back to "local".
+// Resolution order: build-time define (packaged binaries) → OPENCODE_CHANNEL env
+// (source-run servers can thus leave the shared "local" channel) → "local".
 export function channelSlug(): string {
-  const ch = typeof OPENCODE_CHANNEL === "string" ? OPENCODE_CHANNEL : "local"
+  const ch =
+    typeof OPENCODE_CHANNEL === "string" && OPENCODE_CHANNEL !== ""
+      ? OPENCODE_CHANNEL
+      : process.env.OPENCODE_CHANNEL || "local"
   if (["latest", "beta"].includes(ch) || Flag.OPENCODE_DISABLE_CHANNEL_DB) return "latest"
   return ch.replace(/[^a-zA-Z0-9._-]/g, "-")
 }

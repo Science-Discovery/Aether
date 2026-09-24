@@ -407,11 +407,13 @@ export const GlobalRoutes = lazy(() =>
                     pid: z.number(),
                     channel: z.string(),
                     clients: z.object({ desktop: z.number(), web: z.number() }),
+                    mobile: z.record(z.string(), z.string()).optional(),
                     others: z.array(
                       z.object({
                         pid: z.number(),
                         channel: z.string(),
                         clients: z.object({ desktop: z.number(), web: z.number() }),
+                        mobile: z.record(z.string(), z.string()).optional(),
                       }),
                     ),
                   }),

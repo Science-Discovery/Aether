@@ -83,6 +83,12 @@ export namespace Flag {
   export const OPENCODE_DISABLE_CHANNEL_DB = truthy("OPENCODE_DISABLE_CHANNEL_DB")
   export const OPENCODE_SKIP_MIGRATIONS = truthy("OPENCODE_SKIP_MIGRATIONS")
   export const OPENCODE_STRICT_CONFIG_DEPS = truthy("OPENCODE_STRICT_CONFIG_DEPS")
+
+  // Master switch for background services with external side effects (cron,
+  // worktree discovery, mobile supervisor). Unattended temporary servers
+  // (e2e, verify, probe) should set OPENCODE_BACKGROUND_SERVICES=false so
+  // they only serve HTTP and never consume shared state.
+  export const OPENCODE_BACKGROUND_SERVICES = !falsy("OPENCODE_BACKGROUND_SERVICES")
 }
 
 // Dynamic getter for AETHER_IDLE_TIMEOUT
