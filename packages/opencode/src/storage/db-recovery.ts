@@ -153,10 +153,28 @@ export function detectCorruption(p: string): CorruptionType | null {
     const msg = err instanceof Error ? err.message : String(err)
     if (msg.includes("not a database")) return "header"
     if (msg.includes("malformed")) return "mid-page"
-    return "unknown"
+    // the file could not be read right now (locked, permission, sharing
+    // violation) — that is not evidence of corruption; callers must skip the
+    // pass instead of quarantining user data
+    return null
   } finally {
     db?.close()
   }
+}
+
+export function isCorruptionError(err: unknown): boolean {
+  // drizzle and other wrappers rethrow with the sqlite error as `cause`, so
+  // the whole chain must be inspected
+  let cur: unknown = err
+  for (let depth = 0; cur instanceof Error && depth < 10; depth++) {
+    const code = (cur as { code?: string }).code
+    if (typeof code === "string" && /^SQLITE_(CORRUPT|NOTADB)/.test(code)) return true
+    if (/file is not a database|database disk image is malformed|malformed database schema/i.test(cur.message)) {
+      return true
+    }
+    cur = (cur as { cause?: unknown }).cause
+  }
+  return false
 }
 
 const QUARANTINE_COOLDOWN_MS = 3_600_000
@@ -422,12 +440,21 @@ function readAndInsertFromOpenedDb(qDb: BunSqlite, targetDbPath: string, tableNa
         const cols = Object.keys(rows[0])
         const insertSql = `INSERT OR IGNORE INTO ${name} (${cols.join(",")}) VALUES (${cols.map(() => "?").join(",")})`
         const stmt = tDb.prepare(insertSql)
+        let dropped = 0
 
         for (const row of rows) {
           try {
-            stmt.run(...cols.map((c) => row[c]))
-            recoveredRows++
-          } catch {}
+            // INSERT OR IGNORE skips constraint-incompatible rows (unique,
+            // check, not null) without throwing — changes === 0 marks them
+            const result = stmt.run(...cols.map((c) => row[c]))
+            if (result.changes > 0) recoveredRows++
+            else dropped++
+          } catch {
+            dropped++
+          }
+        }
+        if (dropped > 0) {
+          log.warn("recovery dropped rows incompatible with the current schema", { table: name, dropped })
         }
       }
 

@@ -20,7 +20,7 @@ import { iife } from "@/util/iife"
 import { ProjectIdentity } from "../project/identity"
 import { init } from "#db"
 import { Spawner } from "@/skill-evolution/spawner"
-import { detectCorruption, quarantine, cleanupQuarantinedOriginals, DbRecovery } from "./db-recovery"
+import { detectCorruption, isCorruptionError, quarantine, cleanupQuarantinedOriginals, DbRecovery } from "./db-recovery"
 import type { CorruptionType } from "./db-recovery"
 
 declare const OPENCODE_MIGRATIONS: { sql: string; timestamp: number; name: string }[] | undefined
@@ -425,6 +425,18 @@ export namespace Database {
     if (existing) return false
     const meta = splitMigrationEntry()
     if (!meta) return false
+    // tables without a journal are not a new db (Project.remove wipes rows
+    // but keeps the schema): reseed the full journal so applyMigrations does
+    // not replay CREATE TABLE against existing tables
+    const hasTables = sqlite
+      .prepare(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '__drizzle%'",
+      )
+      .get()
+    if (hasTables) {
+      seedAllMigrations(db)
+      return false
+    }
     sqlite
       .prepare("INSERT INTO __drizzle_migrations (hash, created_at, name, applied_at) VALUES (?, ?, ?, ?)")
       .run(meta.hash, meta.millis, meta.name, new Date().toISOString())
@@ -518,16 +530,25 @@ export namespace Database {
 
   function initAndSetupProject(dbPath: string): DrizzleClient {
     const db = init(dbPath)
-    db.run("PRAGMA journal_mode = WAL")
-    db.run("PRAGMA synchronous = NORMAL")
-    db.run("PRAGMA busy_timeout = 5000")
-    db.run("PRAGMA cache_size = -32768")
-    db.run("PRAGMA foreign_keys = ON")
-    const isNewProjDb = seedSplitMigration(db)
-    if (!isNewProjDb) seedAllMigrations(db)
-    applyMigrations(db)
-    db.run("PRAGMA wal_checkpoint(PASSIVE)")
-    return db
+    try {
+      db.run("PRAGMA journal_mode = WAL")
+      db.run("PRAGMA synchronous = NORMAL")
+      db.run("PRAGMA busy_timeout = 5000")
+      db.run("PRAGMA cache_size = -32768")
+      db.run("PRAGMA foreign_keys = ON")
+      const isNewProjDb = seedSplitMigration(db)
+      if (!isNewProjDb) seedAllMigrations(db)
+      applyMigrations(db)
+      db.run("PRAGMA wal_checkpoint(PASSIVE)")
+      return db
+    } catch (err) {
+      // release the file handle so quarantine can move the db and a fresh
+      // one can be created at the same path (Windows cannot rename open files)
+      try {
+        db.$client.close()
+      } catch {}
+      throw err
+    }
   }
 
   export function attach(projectId: string): DrizzleClient {
@@ -550,7 +571,11 @@ export namespace Database {
       projectClients.set(projectId, db)
       return db
     } catch (err) {
-      log.warn("project db failed to open, quarantining and recreating", { projectId, error: String(err) })
+      // only proven corruption may trigger quarantine + recreate — transient
+      // I/O errors (locks, antivirus handles, disk pressure) must fail loudly
+      // instead of moving the user's database
+      if (!isCorruptionError(err)) throw err
+      log.warn("project db corrupted, quarantining and recreating", { projectId, error: String(err) })
       quarantine(p, "project", projectId)
       const db = initAndSetupProject(p)
       projectClients.set(projectId, db)
@@ -1088,15 +1113,16 @@ export namespace Database {
           }
         }
       } catch (err) {
-        // a lock/contention error is transient (concurrent attach in this
-        // process, another instance) — quarantining a live DB destroys it
-        if (/locked|busy/i.test(String(err))) {
-          log.warn("project db busy, skipping this pass", { pid, error: String(err) })
+        // quarantine destroys user data, so it is reserved for proven
+        // corruption; anything else (locks, antivirus handles, partial I/O,
+        // disk pressure) is transient — skip the pass and retry next startup
+        if (isCorruptionError(err)) {
+          log.error("project db corrupted, quarantining", { pid, error: String(err) })
+          quarantine(fullPath, "project", pid)
+          corruptedIds.add(pid)
           continue
         }
-        log.error("failed to process project db, quarantining", { pid, error: String(err) })
-        quarantine(fullPath, "project", pid)
-        corruptedIds.add(pid)
+        log.warn("failed to process project db, skipping this pass", { pid, error: String(err) })
       }
       // yield to the event loop so pending requests are not starved
       if (synced > 0 && synced % 8 === 0) await breathe()
