@@ -143,6 +143,7 @@ import type { ContentfulStatusCode } from "hono/utils/http-status"
 import { websocket } from "hono/bun"
 import { HTTPException } from "hono/http-exception"
 import { errors } from "./error"
+import * as assets from "./web"
 import { Filesystem } from "@/util/filesystem"
 import { Snapshot } from "@/snapshot"
 import { QuestionRoutes } from "./routes/question"
@@ -928,7 +929,8 @@ export namespace Server {
         const webDir = nodePath.join(nodePath.dirname(process.execPath), "web")
         const indexPath = nodePath.join(webDir, "index.html")
         const indexFile = Bun.file(indexPath)
-        const filePath = nodePath.join(webDir, localPath === "/" ? "index.html" : localPath)
+        const filePath = assets.resolve(webDir, localPath)
+        if (!filePath) return c.body(null, 404)
         const localFile = Bun.file(filePath)
         if (await localFile.exists()) {
           if (nodePath.basename(filePath) === "index.html") return webIndex(c.req.raw, localPath, filePath, base)
