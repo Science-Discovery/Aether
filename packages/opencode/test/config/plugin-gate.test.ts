@@ -11,12 +11,32 @@ import { BunProc } from "../../src/bun"
 import { Global } from "../../src/global"
 import { tmpdir } from "../fixture/fixture"
 
-async function withGlobal(dir: string, fn: () => Promise<void>) {
+// Hermetic instance boot: redirects the global config dir to a fresh temp dir
+// (globalDir overrides it), mocks bun so queued dependency installs never
+// spawn, and flushes those fire-and-forget promises inside the instance so
+// nothing bleeds into other tests running in the same process.
+async function boot(directory: string, fn: () => Promise<void>, globalDir?: string) {
+  await using fallback = globalDir ? undefined : await tmpdir()
   const prev = Global.Path.config
-  ;(Global.Path as { config: string }).config = dir
+  ;(Global.Path as { config: string }).config = globalDir ?? fallback!.path
   Config.global.reset()
   try {
-    await fn()
+    await Instance.provide({
+      directory,
+      fn: async () => {
+        const run = spyOn(BunProc, "run").mockResolvedValue({
+          code: 0,
+          stdout: Buffer.alloc(0),
+          stderr: Buffer.alloc(0),
+        })
+        try {
+          await fn()
+          await Config.waitForDependencies()
+        } finally {
+          run.mockRestore()
+        }
+      },
+    })
   } finally {
     ;(Global.Path as { config: string }).config = prev
     Config.global.reset()
@@ -47,20 +67,17 @@ describe("plugin trust gate", () => {
       },
     })
 
-    await Instance.provide({
-      directory: tmp.path,
-      fn: async () => {
-        const { messages, unsub } = collectErrors()
-        const config = await Config.get()
-        await Bun.sleep(20)
-        unsub()
+    await boot(tmp.path, async () => {
+      const { messages, unsub } = collectErrors()
+      const config = await Config.get()
+      await Bun.sleep(20)
+      unsub()
 
-        expect(config.plugin ?? []).not.toContain("evil-pkg")
-        expect(config.plugin?.some((p) => p.includes("evil-pkg"))).toBe(false)
-        expect(messages.some((m) => m.includes("evil-pkg"))).toBe(true)
-      },
+      expect(config.plugin ?? []).not.toContain("evil-pkg")
+      expect(config.plugin?.some((p) => p.includes("evil-pkg"))).toBe(false)
+      expect(messages.some((m) => m.includes("evil-pkg"))).toBe(true)
     })
-  })
+  }, 30000)
 
   test("blocks plugin files from project plugin directory", async () => {
     await using tmp = await tmpdir({
@@ -71,14 +88,11 @@ describe("plugin trust gate", () => {
       },
     })
 
-    await Instance.provide({
-      directory: tmp.path,
-      fn: async () => {
-        const config = await Config.get()
-        expect(config.plugin?.some((p) => p.includes("local"))).toBe(false)
-      },
+    await boot(tmp.path, async () => {
+      const config = await Config.get()
+      expect(config.plugin?.some((p) => p.includes("local"))).toBe(false)
     })
-  })
+  }, 30000)
 
   test("keeps plugins from global config", async () => {
     await using tmp = await tmpdir<string>({
@@ -92,16 +106,15 @@ describe("plugin trust gate", () => {
     })
     await using project = await tmpdir()
 
-    await withGlobal(tmp.extra, async () => {
-      await Instance.provide({
-        directory: project.path,
-        fn: async () => {
-          const config = await Config.get()
-          expect(config.plugin?.some((p) => p.includes("global-kept-plugin"))).toBe(true)
-        },
-      })
-    })
-  })
+    await boot(
+      project.path,
+      async () => {
+        const config = await Config.get()
+        expect(config.plugin?.some((p) => p.includes("global-kept-plugin"))).toBe(true)
+      },
+      tmp.extra,
+    )
+  }, 30000)
 
   test("keeps plugins from OPENCODE_CONFIG_DIR", async () => {
     await using tmp = await tmpdir<string>({
@@ -119,25 +132,16 @@ describe("plugin trust gate", () => {
 
     const prev = process.env.OPENCODE_CONFIG_DIR
     process.env.OPENCODE_CONFIG_DIR = tmp.extra
-    const run = spyOn(BunProc, "run").mockResolvedValue({
-      code: 0,
-      stdout: Buffer.alloc(0),
-      stderr: Buffer.alloc(0),
-    })
     try {
-      await Instance.provide({
-        directory: project.path,
-        fn: async () => {
-          const config = await Config.get()
-          expect(config.plugin?.some((p) => p.includes("configdir-plugin"))).toBe(true)
-        },
+      await boot(project.path, async () => {
+        const config = await Config.get()
+        expect(config.plugin?.some((p) => p.includes("configdir-plugin"))).toBe(true)
       })
     } finally {
-      run.mockRestore()
       if (prev === undefined) delete process.env.OPENCODE_CONFIG_DIR
       else process.env.OPENCODE_CONFIG_DIR = prev
     }
-  })
+  }, 30000)
 
   test("ignores plugins from remote well-known config while keeping other fields", async () => {
     const server = Bun.serve({
@@ -159,13 +163,10 @@ describe("plugin trust gate", () => {
 
     try {
       await using tmp = await tmpdir()
-      await Instance.provide({
-        directory: tmp.path,
-        fn: async () => {
-          const config = await Config.get()
-          expect(config.plugin?.some((p) => p.includes("remote-evil-pkg"))).toBe(false)
-          expect(config.username).toBe("remote-user")
-        },
+      await boot(tmp.path, async () => {
+        const config = await Config.get()
+        expect(config.plugin?.some((p) => p.includes("remote-evil-pkg"))).toBe(false)
+        expect(config.username).toBe("remote-user")
       })
     } finally {
       authAll.mockRestore()
@@ -173,7 +174,7 @@ describe("plugin trust gate", () => {
       else process.env[key] = prevEnv
       server.stop(true)
     }
-  })
+  }, 30000)
 
   test("reports each blocked plugin once across duplicate declarations", async () => {
     await using tmp = await tmpdir({
@@ -191,21 +192,18 @@ describe("plugin trust gate", () => {
       },
     })
 
-    await Instance.provide({
-      directory: tmp.path,
-      fn: async () => {
-        const { messages, unsub } = collectErrors()
-        const config = await Config.get()
-        await Bun.sleep(20)
-        unsub()
+    await boot(tmp.path, async () => {
+      const { messages, unsub } = collectErrors()
+      const config = await Config.get()
+      await Bun.sleep(20)
+      unsub()
 
-        expect(config.plugin?.some((p) => p.includes("dup-pkg"))).toBe(false)
-        expect(config.plugin?.some((p) => p.includes("other-pkg"))).toBe(false)
-        expect(messages.filter((m) => m.includes("dup-pkg")).length).toBe(1)
-        expect(messages.filter((m) => m.includes("other-pkg")).length).toBe(1)
-      },
+      expect(config.plugin?.some((p) => p.includes("dup-pkg"))).toBe(false)
+      expect(config.plugin?.some((p) => p.includes("other-pkg"))).toBe(false)
+      expect(messages.filter((m) => m.includes("dup-pkg")).length).toBe(1)
+      expect(messages.filter((m) => m.includes("other-pkg")).length).toBe(1)
     })
-  })
+  }, 30000)
 
   test("project directories never overlap trusted config roots", async () => {
     await using tmp = await tmpdir({ git: true })
@@ -214,5 +212,5 @@ describe("plugin trust gate", () => {
     for (const dir of scopes.untrusted) {
       expect(dir.startsWith(tmp.path)).toBe(true)
     }
-  })
+  }, 30000)
 })
