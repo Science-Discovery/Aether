@@ -62,6 +62,12 @@ function localISOString(d = new Date()): string {
   )
 }
 
+export function sessionTitle(name: string, now = new Date(), rand: () => number = Math.random): string {
+  const chars = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+  const suffix = Array.from({ length: 4 }, () => chars[Math.floor(rand() * chars.length)]).join("")
+  return `${name}对话${suffix}-${now.toISOString().slice(0, 19)}`
+}
+
 const HELP_TEXT =
   "📋 可用命令：\n\n/n, /new            开启新对话\n/stop               停止当前执行\n/steer <text>       在AI回复时追加引导\n/c, /compact        压缩当前上下文\n\n/m, /model          查看可用模型\n/m l                查看全部模型\n/m n                切换编号模型\n\n/a, /agent          查看当前模式\n/a n ； /a <name>    切换指定模式\n\n/variant            查看思考等级\n/variant n          切换编号思考等级\n\n/autoaccept         查看审批模式\n/autoaccept n       切换编号审批模式\n\n/p, /project        查看最近项目\n/p l                查看全部项目\n/p n                切换编号项目\n/p <path>           切换到指定路径\n\n/s, /session        查看最近会话\n/s l                查看最近30个会话\n/s n                切换编号会话\n\n/header             切换回复头部显示\n\n/h, /help           显示帮助信息\n/help list          显示全部命令"
 
@@ -147,6 +153,10 @@ export abstract class MobileManagerBase {
 
   protected replyTarget(chatId: string, messageId: string): string {
     return messageId
+  }
+
+  protected defaultTitle(): string {
+    return sessionTitle(this.platformName())
   }
 
   constructor(adapter: MobileAdapter) {
@@ -639,7 +649,7 @@ export abstract class MobileManagerBase {
     }
     if (!create) return
     const session = await this.provide(dir, () =>
-      Session.create({ title: `${this.platformName()}对话 - ${new Date().toISOString()}` }),
+      Session.create({ title: this.defaultTitle() }),
     )
     await this.inheritPreference(session.id, dir)
     this.sessionMap[scope] = session.id
@@ -1177,7 +1187,7 @@ export abstract class MobileManagerBase {
 
     const dir = this.effectiveDir(scope)
     const session = await this.provide(dir, () =>
-      Session.create({ title: `${this.platformName()}对话 - ${new Date().toISOString()}` }),
+      Session.create({ title: this.defaultTitle() }),
     )
     await this.inheritPreference(session.id, dir)
     this.sessionMap[scope] = session.id
@@ -1620,7 +1630,7 @@ export abstract class MobileManagerBase {
           created: false,
         }
       }
-      const session = await Session.create({ title: `${this.platformName()}对话 - ${new Date().toISOString()}` })
+      const session = await Session.create({ title: this.defaultTitle() })
       return { sessionId: session.id, sessionTitle: session.title, created: true }
     })
     this.activateScope(scope, newDir)
@@ -1666,7 +1676,7 @@ export abstract class MobileManagerBase {
           created: false,
         }
       }
-      const session = await Session.create({ title: `${this.platformName()}对话 - ${new Date().toISOString()}` })
+      const session = await Session.create({ title: this.defaultTitle() })
       return { sessionId: session.id, sessionTitle: session.title, created: true }
     })
     this.activateScope(scope, newDir)
@@ -1762,7 +1772,7 @@ export abstract class MobileManagerBase {
 
     if (!items.length) {
       const session = await this.provide(effectiveDir, () =>
-        Session.create({ title: `${this.platformName()}对话 - ${new Date().toISOString()}` }),
+        Session.create({ title: this.defaultTitle() }),
       )
       await this.inheritPreference(session.id, effectiveDir)
       this.sessionMap[scope] = session.id
