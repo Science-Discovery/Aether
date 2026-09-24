@@ -2,7 +2,6 @@ import { mkdir, readFile, writeFile, rm } from "fs/promises"
 import { join } from "path"
 import { existsSync } from "fs"
 import QRCode from "qrcode"
-import { Bus } from "@/bus"
 import { Instance } from "@/project/instance"
 import { legacyPlatformDir, platformDir } from "@/persist/naming"
 import { MobileManagerBase } from "./base"
@@ -98,6 +97,7 @@ class WeChatManagerImpl extends MobileManagerBase {
   private _seenIds: Set<string> = new Set()
   private _loginAbort: AbortController | null = null
   private _tokenKnownExpired: boolean = false
+  private resumeDelay = 60 * 60 * 1000
 
   get qrcode() {
     return this._qrcode
@@ -158,20 +158,17 @@ class WeChatManagerImpl extends MobileManagerBase {
       this._showHeader = await this.loadHeaderState()
 
       if (!rescan) {
-        const savedSession = await this.adapter.loadSession()
-        if (savedSession?.connected && savedSession.user) {
-          try {
-            if (await this.resumeFromSaved()) {
-              return { success: true, status: "connected", user: this._wcSession?.user }
-            }
-          } catch (err) {
-            const message = err instanceof Error ? err.message : String(err)
-            console.error("[wechat] resume failed:", err)
-            this._error = { code: "resume_failed", message }
-            this.status = "error"
-            Bus.publish(this.busEvents.Error, this._error)
-            return { success: false, message }
+        try {
+          if (await this.resumeFromSaved()) {
+            return { success: true, status: "connected", user: this._wcSession?.user }
           }
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err)
+          console.error("[wechat] resume failed:", err)
+          this._error = { code: "resume_failed", message }
+          this.status = "error"
+          this.emit(this.busEvents.Error, this._error)
+          return { success: false, message }
         }
       }
 
@@ -208,7 +205,7 @@ class WeChatManagerImpl extends MobileManagerBase {
   private async reconnect(gen: number): Promise<void> {
     if (this._pollGen !== gen) return
     this.status = "reconnecting"
-    Bus.publish(this.busEvents.Reconnecting, { attempt: 1, delay: 0 })
+    this.emit(this.busEvents.Reconnecting, { attempt: 1, delay: 0 })
 
     try {
       if (await this.resumeFromSaved()) return
@@ -218,7 +215,7 @@ class WeChatManagerImpl extends MobileManagerBase {
       console.error("[wechat] resume failed:", err)
       this._error = { code: "resume_failed", message }
       this.status = "error"
-      Bus.publish(this.busEvents.Error, this._error)
+      this.emit(this.busEvents.Error, this._error)
       return
     }
 
@@ -236,7 +233,7 @@ class WeChatManagerImpl extends MobileManagerBase {
     await this.initSessions()
     if (this._pollGen !== gen) return
     this.status = "connected"
-    Bus.publish(this.busEvents.Connected, { user })
+    this.emit(this.busEvents.Connected, { user })
     this._pollRunning = true
     this._pollGen = gen + 1
     void this.pollLoop(gen + 1)
@@ -275,7 +272,7 @@ class WeChatManagerImpl extends MobileManagerBase {
 
       const qrDataUrl = await QRCode.toDataURL(qrInfo.qr_url, { width: 256, margin: 2, errorCorrectionLevel: "M" })
       this._qrcode = qrDataUrl
-      Bus.publish(this.busEvents.QRCode, { image: qrDataUrl })
+      this.emit(this.busEvents.QRCode, { image: qrDataUrl })
 
       token = await this.waitForLogin(qrInfo.uuid, abort.signal)
       if (abort.signal.aborted) return
@@ -292,7 +289,7 @@ class WeChatManagerImpl extends MobileManagerBase {
       this._loginAbort = null
       this._error = { code: "login_failed", message }
       this.status = "error"
-      Bus.publish(this.busEvents.Error, this._error)
+      this.emit(this.busEvents.Error, this._error)
       try {
         await rm(wcFile("ilink_state.json"), { force: true })
       } catch {}
@@ -306,7 +303,7 @@ class WeChatManagerImpl extends MobileManagerBase {
       console.error("[wechat] connect after login failed:", err)
       this._error = { code: "resume_failed", message }
       this.status = "error"
-      Bus.publish(this.busEvents.Error, this._error)
+      this.emit(this.busEvents.Error, this._error)
     }
   }
 
@@ -330,17 +327,21 @@ class WeChatManagerImpl extends MobileManagerBase {
 
   private async expire(reason: string): Promise<void> {
     const gen = this._pollGen
-    console.warn(`[wechat] session invalidated (${reason}), reconnecting...`)
+    console.warn(`[wechat] session invalidated (${reason}), silent resume in ${this.resumeDelay / 60000} min`)
     this._pollRunning = false
     this._tokenKnownExpired = true
-    this._ilinkToken = ""
     this._cursor = ""
     try {
-      await rm(wcFile("ilink_state.json"), { force: true })
+      if (this._ilinkToken) await this.saveILinkState()
+      else await rm(wcFile("ilink_state.json"), { force: true })
     } catch {}
     this.status = "reconnecting"
-    Bus.publish(this.busEvents.Reconnecting, { attempt: 1, delay: 0 })
-    void this.reconnect(gen)
+    this.emit(this.busEvents.Reconnecting, { attempt: 1, delay: this.resumeDelay })
+    const timer = setTimeout(() => {
+      if (this._pollGen !== gen || !this._ilinkToken) return
+      void this.reconnect(gen)
+    }, this.resumeDelay)
+    timer.unref?.()
   }
 
   private async pollLoop(gen: number): Promise<void> {

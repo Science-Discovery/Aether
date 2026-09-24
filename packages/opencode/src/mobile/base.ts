@@ -163,14 +163,18 @@ export abstract class MobileManagerBase {
 
   protected set status(value: MobileStatus) {
     this._status = value
-    Bus.publish(this.busEvents.StatusChanged, { status: value })
+    this.emit(this.busEvents.StatusChanged, { status: value })
     this.adapter.onStatusChange?.(value)
   }
 
   protected statusMsg(value: MobileStatus, message: string) {
     this._status = value
-    Bus.publish(this.busEvents.StatusChanged, { status: value, message })
+    this.emit(this.busEvents.StatusChanged, { status: value, message })
     this.adapter.onStatusChange?.(value)
+  }
+
+  protected emit<D extends BusEvent.Definition>(def: D, properties: z.output<D["properties"]>): void {
+    Bus.publish(def, properties).catch(() => {})
   }
 
   get busEvents(): Record<string, BusEvent.Definition> {
