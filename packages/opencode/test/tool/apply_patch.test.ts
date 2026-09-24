@@ -1,8 +1,9 @@
-import { describe, expect, test } from "bun:test"
+import { afterEach, describe, expect, test } from "bun:test"
 import path from "path"
 import * as fs from "fs/promises"
 import { ApplyPatchTool } from "../../src/tool/apply_patch"
 import { Instance } from "../../src/project/instance"
+import { Permission } from "../../src/permission"
 import { tmpdir } from "../fixture/fixture"
 import { SessionID, MessageID } from "../../src/session/schema"
 
@@ -153,6 +154,48 @@ describe("tool.apply_patch freeform", () => {
         expect(moveFile.movePath).toBe(path.join(fixture.path, "renamed/dir/name.txt"))
         expect(moveFile.before).toBe("old content\n")
         expect(moveFile.after).toBe("new content\n")
+      },
+    })
+  })
+
+  test("permission patterns include move source and target", async () => {
+    await using fixture = await tmpdir({ git: true })
+    const { ctx, calls } = makeCtx()
+
+    await Instance.provide({
+      directory: fixture.path,
+      fn: async () => {
+        await fs.writeFile(path.join(fixture.path, "scratch.txt"), "old\n", "utf-8")
+
+        const patchText =
+          "*** Begin Patch\n*** Update File: scratch.txt\n*** Move to: protected.txt\n@@\n-old\n+replacement\n*** End Patch"
+
+        await execute({ patchText }, ctx)
+
+        expect(calls.length).toBe(1)
+        expect(calls[0]!.patterns).toEqual(["scratch.txt", "protected.txt"])
+        expect(calls[0]!.metadata.filepath).toBe("scratch.txt, protected.txt")
+      },
+    })
+  })
+
+  test("duplicate paths across hunks dedupe permission patterns", async () => {
+    await using fixture = await tmpdir({ git: true })
+    const { ctx, calls } = makeCtx()
+
+    await Instance.provide({
+      directory: fixture.path,
+      fn: async () => {
+        await fs.writeFile(path.join(fixture.path, "a.txt"), "old\n", "utf-8")
+        await fs.writeFile(path.join(fixture.path, "b.txt"), "move\n", "utf-8")
+
+        const patchText =
+          "*** Begin Patch\n*** Update File: a.txt\n@@\n-old\n+replacement\n*** Update File: b.txt\n*** Move to: a.txt\n@@\n-move\n+moved\n*** End Patch"
+
+        await execute({ patchText }, ctx)
+
+        expect(calls.length).toBe(1)
+        expect(calls[0]!.patterns).toEqual(["a.txt", "b.txt"])
       },
     })
   })
@@ -561,6 +604,107 @@ EOF`
         await execute({ patchText }, ctx)
         // Result has ASCII quotes because that's what the patch specifies
         expect(await fs.readFile(target, "utf-8")).toBe(`He said "hi"\nsome${emDash}dash\nend\n`)
+      },
+    })
+  })
+})
+
+describe("tool.apply_patch move permission evaluation", () => {
+  afterEach(async () => {
+    await Instance.disposeAll()
+  })
+
+  const sid = SessionID.make("ses_test")
+
+  const makeRealCtx = (ruleset: Permission.Rule[]): ToolCtx => ({
+    ...baseCtx,
+    ask: async (input) => {
+      await Permission.ask({ ...input, sessionID: sid, ruleset })
+    },
+  })
+
+  const waitForAsk = async () => {
+    for (let i = 0; i < 100; i++) {
+      const pending = await Permission.list()
+      if (pending.length > 0) return pending
+      await Bun.sleep(10)
+    }
+    throw new Error("no permission ask appeared")
+  }
+
+  test("denied move target blocks the move and leaves both files unchanged", async () => {
+    await using fixture = await tmpdir({ git: true })
+    const ctx = makeRealCtx([
+      { permission: "edit", pattern: "*", action: "allow" },
+      { permission: "edit", pattern: "protected.txt", action: "deny" },
+    ])
+
+    await Instance.provide({
+      directory: fixture.path,
+      fn: async () => {
+        const scratch = path.join(fixture.path, "scratch.txt")
+        const target = path.join(fixture.path, "protected.txt")
+        await fs.writeFile(scratch, "old\n", "utf-8")
+        await fs.writeFile(target, "secret\n", "utf-8")
+
+        const patchText =
+          "*** Begin Patch\n*** Update File: scratch.txt\n*** Move to: protected.txt\n@@\n-old\n+replacement\n*** End Patch"
+
+        await expect(execute({ patchText }, ctx)).rejects.toBeInstanceOf(Permission.DeniedError)
+        expect(await fs.readFile(scratch, "utf-8")).toBe("old\n")
+        expect(await fs.readFile(target, "utf-8")).toBe("secret\n")
+      },
+    })
+  })
+
+  test("ask on move target asks for both source and target and move proceeds on approval", async () => {
+    await using fixture = await tmpdir({ git: true })
+    const ctx = makeRealCtx([{ permission: "edit", pattern: "*", action: "ask" }])
+
+    await Instance.provide({
+      directory: fixture.path,
+      fn: async () => {
+        const scratch = path.join(fixture.path, "scratch.txt")
+        const target = path.join(fixture.path, "renamed.txt")
+        await fs.writeFile(scratch, "old\n", "utf-8")
+
+        const patchText =
+          "*** Begin Patch\n*** Update File: scratch.txt\n*** Move to: renamed.txt\n@@\n-old\n+replacement\n*** End Patch"
+
+        const run = execute({ patchText }, ctx)
+        const pending = await waitForAsk()
+        expect(pending[0]!.patterns).toEqual(["scratch.txt", "renamed.txt"])
+        await Permission.reply({ requestID: pending[0]!.id, reply: "always" })
+        await run
+
+        await expect(fs.readFile(scratch, "utf-8")).rejects.toThrow()
+        expect(await fs.readFile(target, "utf-8")).toBe("replacement\n")
+      },
+    })
+  })
+
+  test("rejected move target ask leaves both files unchanged", async () => {
+    await using fixture = await tmpdir({ git: true })
+    const ctx = makeRealCtx([{ permission: "edit", pattern: "*", action: "ask" }])
+
+    await Instance.provide({
+      directory: fixture.path,
+      fn: async () => {
+        const scratch = path.join(fixture.path, "scratch.txt")
+        const target = path.join(fixture.path, "renamed.txt")
+        await fs.writeFile(scratch, "old\n", "utf-8")
+        await fs.writeFile(target, "keep\n", "utf-8")
+
+        const patchText =
+          "*** Begin Patch\n*** Update File: scratch.txt\n*** Move to: renamed.txt\n@@\n-old\n+replacement\n*** End Patch"
+
+        const run = execute({ patchText }, ctx)
+        const pending = await waitForAsk()
+        expect(pending).toHaveLength(1)
+        await Permission.reply({ requestID: pending[0]!.id, reply: "reject" })
+        await expect(run).rejects.toBeInstanceOf(Permission.RejectedError)
+        expect(await fs.readFile(scratch, "utf-8")).toBe("old\n")
+        expect(await fs.readFile(target, "utf-8")).toBe("keep\n")
       },
     })
   })
