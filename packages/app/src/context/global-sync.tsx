@@ -43,6 +43,7 @@ import { trimSessions } from "./global-sync/session-trim"
 import type { ProjectMeta } from "./global-sync/types"
 import { SESSION_RECENT_LIMIT } from "./global-sync/types"
 import { isRoot, normalizeAgentList, normalizeDir, sanitizeProject, sanitizeRecent } from "./global-sync/utils"
+import { viewingIDs } from "./global-sync/viewing"
 import { formatServerError } from "@/utils/server-errors"
 
 type GlobalStore = {
@@ -320,6 +321,7 @@ function createGlobalSync() {
       const next = trimSessions(store.session, {
         limit: store.limit,
         permission: store.permission,
+        keep: viewingIDs(),
       })
       if (next.length !== store.session.length) {
         setStore("session", reconcile(next, { key: "id" }))
@@ -358,6 +360,7 @@ function createGlobalSync() {
         const sessions = trimSessions([...nonArchived, ...sseSessions], {
           limit,
           permission: store.permission,
+          keep: viewingIDs(),
         })
         setStore(
           "sessionTotal",

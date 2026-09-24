@@ -38,6 +38,7 @@ import { showToast, showPromiseToast, Toast, toaster } from "@opencode-ai/ui/toa
 import { useGlobalSDK } from "@/context/global-sdk"
 import { clearWorkspaceTerminals } from "@/context/terminal"
 import { dropSessionCaches, pickSessionCacheEvictions } from "@/context/global-sync/session-cache"
+import { markViewing } from "@/context/global-sync/viewing"
 import {
   clearSessionPrefetchInflight,
   clearSessionPrefetch,
@@ -176,6 +177,10 @@ export default function Layout(props: ParentProps) {
     if (dir) void globalSync.project.loadActiveMetadata(dir)
   })
   onCleanup(() => ActiveDirectory.set(""))
+
+  createEffect(() => {
+    markViewing(params.id || undefined)
+  })
 
   const [state, setState] = createStore({
     autoselect: !initialDirectory,
@@ -907,7 +912,7 @@ export default function Layout(props: ParentProps) {
       seen: lru,
       keep: sessionID,
       limit: PREFETCH_MAX_SESSIONS_PER_DIR,
-      preserve: directory === params.dir && params.id ? [params.id] : undefined,
+      preserve: directory === currentDir() && params.id ? [params.id] : undefined,
     })
   }
 

@@ -16,6 +16,7 @@ import { useGlobalSync } from "./global-sync"
 import { useSDK } from "./sdk"
 import type { Message, Part } from "@opencode-ai/sdk/v2/client"
 import { SESSION_CACHE_LIMIT, dropSessionCaches, pickSessionCacheEvictions } from "./global-sync/session-cache"
+import { isViewing } from "./global-sync/viewing"
 import { useLanguage } from "./language"
 import { formatServerError } from "@/utils/server-errors"
 import { MessageOrder } from "@/utils/message-order"
@@ -323,17 +324,18 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
     }
 
     const evict = (directory: string, setStore: Setter, sessionIDs: string[]) => {
-      if (sessionIDs.length === 0) return
-      clearSessionPrefetch(directory, sessionIDs)
-      for (const sessionID of sessionIDs) {
+      const ids = sessionIDs.filter((id) => !isViewing(id))
+      if (ids.length === 0) return
+      clearSessionPrefetch(directory, ids)
+      for (const sessionID of ids) {
         globalSync.todo.set(sessionID, undefined)
       }
       setStore(
         produce((draft) => {
-          dropSessionCaches(draft, sessionIDs)
+          dropSessionCaches(draft, ids)
         }),
       )
-      clearMeta(directory, sessionIDs)
+      clearMeta(directory, ids)
     }
 
     const touch = (directory: string, setStore: Setter, sessionID: string) => {

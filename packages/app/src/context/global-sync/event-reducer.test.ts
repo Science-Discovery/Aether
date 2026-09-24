@@ -3,6 +3,7 @@ import type { Message, Part, PermissionRequest, Project, QuestionRequest, Sessio
 import { createStore } from "solid-js/store"
 import type { State } from "./types"
 import { applyDirectoryEvent, applyGlobalEvent, cleanupDroppedSessionCaches } from "./event-reducer"
+import { markViewing } from "./viewing"
 
 const rootSession = (input: { id: string; parentID?: string; archived?: number }) =>
   ({
@@ -240,6 +241,50 @@ describe("applyDirectoryEvent", () => {
     expect(store.permission.ses_1).toBeUndefined()
     expect(store.question.ses_1).toBeUndefined()
     expect(store.session_status.ses_1).toBeUndefined()
+  })
+
+  test("session.created keeps the viewed session in the list and preserves its caches", () => {
+    markViewing("ses_z")
+    const message = userMessage("msg_z", "ses_z")
+    const other = userMessage("msg_b", "ses_b")
+    const [store, setStore] = createStore(
+      baseState({
+        limit: 1,
+        session: [rootSession({ id: "ses_a" }), rootSession({ id: "ses_b" }), rootSession({ id: "ses_z" })],
+        sessionTotal: 3,
+        message: { ses_z: [message], ses_b: [other] },
+        part: { [message.id]: [textPart("prt_z", "ses_z", message.id)] },
+      }),
+    )
+
+    applyDirectoryEvent({
+      event: { type: "session.created", properties: { info: rootSession({ id: "ses_c" }) } },
+      store,
+      setStore,
+      push() {},
+      directory: "/tmp",
+      loadLsp() {},
+    })
+
+    expect(store.session.map((x) => x.id)).toContain("ses_z")
+    expect(store.message.ses_z).toEqual([message])
+    expect(store.part[message.id]).toEqual([textPart("prt_z", "ses_z", message.id)])
+    expect(store.session.map((x) => x.id)).not.toContain("ses_b")
+    expect(store.message.ses_b).toBeUndefined()
+    markViewing(undefined)
+  })
+
+  test("cleanupDroppedSessionCaches spares the viewed session until it is no longer viewed", () => {
+    markViewing("ses_old")
+    const message = userMessage("msg_1", "ses_old")
+    const [store, setStore] = createStore(baseState({ message: { ses_old: [message] } }))
+
+    cleanupDroppedSessionCaches(store, setStore, [rootSession({ id: "ses_new" })])
+    expect(store.message.ses_old).toEqual([message])
+
+    markViewing(undefined)
+    cleanupDroppedSessionCaches(store, setStore, [rootSession({ id: "ses_new" })])
+    expect(store.message.ses_old).toBeUndefined()
   })
 
   test("cleans session caches when deleted and decrements only root totals", () => {
