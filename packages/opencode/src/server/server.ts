@@ -105,6 +105,7 @@ import { describeRoute, generateSpecs, validator, resolver, openAPIRouteHandler 
 import { Hono } from "hono"
 import { cors } from "hono/cors"
 import { allowOrigin } from "./origin"
+import { assertBindAllowed, isLoopback, originGuard } from "./guard"
 import { streamSSE } from "hono/streaming"
 import { proxy } from "hono/proxy"
 import { basicAuth } from "hono/basic-auth"
@@ -174,19 +175,6 @@ import { onShutdown } from "./lifecycle"
 
 // @ts-ignore This global is needed to prevent ai-sdk from logging warnings to stdout https://github.com/vercel/ai/blob/2dc67e0ef538307f21368db32d5a12345d98831b/packages/ai/src/logger/log-warnings.ts#L85
 globalThis.AI_SDK_LOG_WARNINGS = false
-
-const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"])
-
-const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "::1"])
-
-function isLoopback(hostname: string) {
-  return LOOPBACK_HOSTS.has(hostname.toLowerCase())
-}
-
-function sameHost(origin: string, host: string | undefined) {
-  if (!host) return false
-  return URL.canParse(origin) && new URL(origin).host === host
-}
 
 const NO_AUTH_PATHS = new Set([
   "/global/presence",
@@ -306,19 +294,7 @@ export namespace Server {
         }
         return corsware(c, next)
       })
-      .use(async (c, next) => {
-        // Cross-site writes ride on simple requests (no preflight) and
-        // WebSocket upgrades bypass CORS entirely. Browsers always attach an
-        // unforgable Origin to both, while non-browser clients send none, so
-        // rejecting disallowed origins only affects malicious pages.
-        const upgrade = c.req.header("upgrade")?.toLowerCase() === "websocket"
-        if (!upgrade && SAFE_METHODS.has(c.req.method)) return next()
-        const origin = c.req.header("origin")
-        if (!origin) return next()
-        if (allowOrigin(origin, Flag.OPENCODE_SERVER_PASSWORD, opts?.cors)) return next()
-        if (sameHost(origin, c.req.header("host"))) return next()
-        return c.json({ error: "Cross-origin request denied" }, 403)
-      })
+      .use(originGuard<ServerEnv>(opts?.cors))
       .route("/global", GlobalRoutes())
       .put(
         "/auth/:providerID",
@@ -1054,10 +1030,7 @@ export namespace Server {
     // Without a password the API only has the origin guard for defense, which
     // means nothing to plain HTTP clients on the LAN. Loopback binds are only
     // reachable from the local machine; anything wider must be authenticated.
-    if (!Flag.OPENCODE_SERVER_PASSWORD && !isLoopback(opts.hostname))
-      throw new Error(
-        `Refusing to listen on ${opts.hostname} without OPENCODE_SERVER_PASSWORD: non-loopback binds require a password`,
-      )
+    assertBindAllowed(opts.hostname)
     const app = createApp(opts)
     const bp = basePath()
     const root = bp === "/" ? app : new Hono<ServerEnv>().route(bp, app).route("/", app)

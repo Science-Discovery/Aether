@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { Server } from "../../src/server/server"
+import { WorkspaceServer } from "../../src/control-plane/workspace-server/server"
 
 const app = Server.createApp({})
 
@@ -103,6 +104,46 @@ describe("cross-site request guard", () => {
   test("non-loopback binds refuse to start without a password", () => {
     for (const hostname of ["0.0.0.0", "192.168.1.7", "::"]) {
       expect(() => Server.listen({ port: 0, hostname })).toThrow(/OPENCODE_SERVER_PASSWORD/)
+    }
+  })
+})
+
+describe("workspace server guard", () => {
+  const app = WorkspaceServer.App()
+
+  test("simple text/plain POST from a random webpage is rejected", async () => {
+    const res = await app.request("/session", {
+      method: "POST",
+      headers: { "content-type": "text/plain", origin: "https://evil.com" },
+      body: "{}",
+    })
+    expect(res.status).toBe(403)
+  })
+
+  test("websocket upgrade from a random webpage is rejected", async () => {
+    const res = await app.request("/session/00000000-0000-0000-0000-000000000000/connect", {
+      headers: {
+        origin: "https://evil.com",
+        upgrade: "WebSocket",
+        "sec-websocket-version": "13",
+        "sec-websocket-key": "dGhlIHNhbXBsZSBub25jZQ==",
+      },
+    })
+    expect(res.status).toBe(403)
+  })
+
+  test("non-browser clients without Origin pass the guard", async () => {
+    const res = await app.request("/session", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{}",
+    })
+    expect(res.status).not.toBe(403)
+  })
+
+  test("Listen refuses non-loopback bind without a password", () => {
+    for (const hostname of ["0.0.0.0", "192.168.1.7"]) {
+      expect(() => WorkspaceServer.Listen({ hostname, port: 0 })).toThrow(/OPENCODE_SERVER_PASSWORD/)
     }
   })
 })
