@@ -51,13 +51,20 @@ runs:
       shell: bash
 
     - name: Install dependencies
+      shell: bash
       run: |
         # Workaround for patched peer variants
         # e.g. ./patches/ for standard-openapi
         # https://github.com/oven-sh/bun/issues/28147
         if [ "$RUNNER_OS" = "Windows" ]; then
-          bun install --linker hoisted
-        else
-          bun install
+          args="--linker hoisted"
         fi
-      shell: bash
+        for attempt in 1 2 3; do
+          if bun install $args; then
+            exit 0
+          fi
+          echo "::warning::bun install failed (attempt $attempt/3), retrying in 15s"
+          sleep 15
+        done
+        echo "::error::bun install failed after 3 attempts"
+        exit 1

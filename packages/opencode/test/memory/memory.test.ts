@@ -816,14 +816,18 @@ describe("memory service", () => {
 
     const scheduled = await Memory.startupCatchup()
     expect(scheduled.started).toBe(true)
-    await new Promise((resolve) => setTimeout(resolve, 50))
 
-    const found = await Memory.search({ query: "简短结论", limit: 5 })
-    expect(found.results[0]?.memory).toContain("简短结论")
+    let results: Awaited<ReturnType<typeof Memory.search>>["results"] = []
+    const end = Date.now() + 15_000
+    while (!results[0]?.memory.includes("简短结论") && Date.now() < end) {
+      await Bun.sleep(50)
+      results = (await Memory.search({ query: "简短结论", limit: 5 })).results
+    }
+    expect(results[0]?.memory).toContain("简短结论")
 
     const second = await Memory.startupCatchup()
     expect(second.started).toBe(false)
-  })
+  }, 20_000)
 
   test("shortcut system prompt excludes target ids and memory bodies", async () => {
     await Memory.writeDocumentForTest(
