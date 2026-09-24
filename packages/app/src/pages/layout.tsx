@@ -1582,12 +1582,7 @@ export default function Layout(props: ParentProps) {
     // Unknown directories no longer boot instances from ?directory= alone, so
     // every navigation must guarantee the target is registered and booted
     // server-side before per-directory requests fan out.
-    await globalSDK.client.project
-      .open({ directory: root })
-      .then((x) => {
-        if (x.data) globalSync.project.upsert(x.data)
-      })
-      .catch(() => undefined)
+    await globalSDK.client.project.open({ directory: root }).catch(() => undefined)
     OpenIntent.mark(server.key, directory)
     const project = layout.projects.list().find((item) => item.worktree === root)
     let dirs = project

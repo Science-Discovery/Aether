@@ -420,6 +420,10 @@ function createGlobalSync() {
       const cache = children.vcsCache.get(directory)
       if (!cache) return
       const sdk = sdkFor(directory)
+      // Direct URL loads and sidebar switches bypass the open-project flow;
+      // unknown directories no longer boot instances from ?directory= alone,
+      // so every bootstrap registers its directory server-side first.
+      await sdk.project.open({ directory }).catch(() => undefined)
       await bootstrapDirectory({
         directory,
         global: {
