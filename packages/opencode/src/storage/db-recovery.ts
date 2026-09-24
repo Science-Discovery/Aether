@@ -32,6 +32,7 @@ export type RecoveryEntry = {
   failedTables: string[]
   recoveredRows: number
   timestamp: number
+  leftover?: { ino: number; size: number }
 }
 
 type RecoveryResult = {
@@ -175,6 +176,7 @@ export function quarantine(dbPath: string, kind: "main" | "project" | "cron", pr
   const base = path.basename(dbPath)
   const qPath = path.join(corruptDir(), `${ts}-${base}`)
 
+  let leftover: RecoveryEntry["leftover"]
   for (const suffix of ["", "-wal", "-shm"]) {
     const src = dbPath + suffix
     if (!existsSync(src)) continue
@@ -185,7 +187,12 @@ export function quarantine(dbPath: string, kind: "main" | "project" | "cron", pr
         copyFileSync(src, qPath + suffix)
         try {
           unlinkSync(src)
-        } catch {}
+        } catch {
+          if (suffix === "") {
+            const st = statSync(dbPath, { throwIfNoEntry: false })
+            if (st?.ino) leftover = { ino: st.ino, size: st.size }
+          }
+        }
       } catch {}
     }
   }
@@ -207,6 +214,7 @@ export function quarantine(dbPath: string, kind: "main" | "project" | "cron", pr
     failedTables: [],
     recoveredRows: 0,
     timestamp: ts,
+    leftover,
   }
 
   appendManifest(entry)
@@ -218,12 +226,16 @@ export function cleanupQuarantinedOriginals() {
   const manifest = readManifest()
   let cleaned = 0
   for (const entry of manifest) {
-    if (!existsSync(entry.originalPath)) continue
-    if (!existsSync(entry.quarantinePath)) continue
-    const origSize = statSync(entry.originalPath).size
-    const qSize = statSync(entry.quarantinePath).size
-    if (origSize !== qSize) continue
-    for (const suffix of ["", "-wal", "-shm"]) {
+    // Deletion requires proof the file is still the abandoned copy-fallback
+    // leftover recorded at quarantine time: identity is proven by inode, so a
+    // rebuilt database at the same path never matches even at the same size. A
+    // live WAL may hold commits newer than the quarantine copy and blocks
+    // removal — neither generation may ever destroy the other.
+    if (!entry.leftover) continue
+    const st = statSync(entry.originalPath, { throwIfNoEntry: false })
+    if (!st?.ino || st.ino !== entry.leftover.ino || st.size !== entry.leftover.size) continue
+    if (existsSync(entry.originalPath + "-wal")) continue
+    for (const suffix of ["", "-shm"]) {
       const src = entry.originalPath + suffix
       if (!existsSync(src)) continue
       try {
@@ -232,7 +244,7 @@ export function cleanupQuarantinedOriginals() {
     }
     if (!existsSync(entry.originalPath)) cleaned++
   }
-  if (cleaned > 0) log.info("cleaned up quarantined originals left on disk", { cleaned })
+  if (cleaned > 0) log.info("cleaned up abandoned quarantine originals", { cleaned })
 }
 
 async function findSqlite3Binary(): Promise<string | null> {
