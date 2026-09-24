@@ -24,6 +24,8 @@ import {
 import { generateTaskID, computeOutputPaths } from "../../pdf-converter/util"
 import { checkPythonAvailable } from "../../pdf-converter/pdf-renderer"
 import { Filesystem } from "../../util/filesystem"
+import { Flag } from "../../flag/flag"
+import { allowOrigin } from "../origin"
 import {
   startTranslation,
   getTranslateTask,
@@ -105,24 +107,8 @@ function bytes(input: string | undefined, size: number) {
   }
 }
 
-function origin(input: string | undefined, list?: string[]) {
-  if (!input) return
-  if (input === "null") return input
-  if (input.startsWith("http://localhost:")) return input
-  if (input.startsWith("http://127.0.0.1:")) return input
-  if (input === "tauri://localhost" || input === "http://tauri.localhost" || input === "https://tauri.localhost") {
-    return input
-  }
-  if (/^https:\/\/([a-z0-9-]+\.)*opencode\.ai$/.test(input)) {
-    return input
-  }
-  if (list?.includes(input)) {
-    return input
-  }
-}
-
 function raw(input: string | undefined, list?: string[]) {
-  const value = origin(input, list)
+  const value = allowOrigin(input, Flag.OPENCODE_SERVER_PASSWORD, list)
   if (!value) return
   return {
     "Access-Control-Allow-Headers": "Authorization, Range, Content-Type",

@@ -104,6 +104,7 @@ import { Log } from "../util/log"
 import { describeRoute, generateSpecs, validator, resolver, openAPIRouteHandler } from "hono-openapi"
 import { Hono } from "hono"
 import { cors } from "hono/cors"
+import { allowOrigin } from "./origin"
 import { streamSSE } from "hono/streaming"
 import { proxy } from "hono/proxy"
 import { basicAuth } from "hono/basic-auth"
@@ -218,23 +219,7 @@ export namespace Server {
     const corsware = cors({
       credentials: true,
       origin(input) {
-        if (!input) return
-        if (input === "null") return input
-        if (input.startsWith("http://localhost:")) return input
-        if (input.startsWith("http://127.0.0.1:")) return input
-        if (
-          input === "tauri://localhost" ||
-          input === "http://tauri.localhost" ||
-          input === "https://tauri.localhost"
-        ) {
-          return input
-        }
-        if (/^https:\/\/([a-z0-9-]+\.)*opencode\.ai$/.test(input)) {
-          return input
-        }
-        if (opts?.cors?.includes(input)) {
-          return input
-        }
+        return allowOrigin(input, Flag.OPENCODE_SERVER_PASSWORD, opts?.cors)
       },
     })
     return app
