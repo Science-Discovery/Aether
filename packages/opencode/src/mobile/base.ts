@@ -344,6 +344,16 @@ export abstract class MobileManagerBase {
     if (changed) await this.saveHiddenDirs()
   }
 
+  protected async routable(dir: string, sessionId: string): Promise<Session.Info | undefined> {
+    try {
+      const found = await this.provide(dir, () => Session.get(SessionID.make(sessionId)))
+      if (found.time?.archived || this.isSubagent(found)) return
+      return found
+    } catch {
+      return
+    }
+  }
+
   protected async initSessions(): Promise<void> {
     const allProjects = this.getProjects()
     const visibleProjects = allProjects.filter((p) => !(this.projectDir(p) in this._hiddenDirs))
@@ -366,7 +376,6 @@ export abstract class MobileManagerBase {
 
     const staleKeys: string[] = []
     const sessionToCanonicalScope: Record<string, string> = {}
-    const refreshed: { scope: string; newId: string }[] = []
     for (const [key, sessionId] of Object.entries(this.sessionMap)) {
       const canonical = sessionToCanonicalScope[sessionId]
       if (canonical) {
@@ -380,29 +389,13 @@ export abstract class MobileManagerBase {
       }
       sessionToCanonicalScope[sessionId] = key
       const dir = this._scopeDirs[key] ?? this._initialDir
-      try {
-        const found = await this.provide(dir, () => Session.get(SessionID.make(sessionId)))
-        if (found.time?.archived) {
-          staleKeys.push(key)
-        } else {
-          const recent = await this.provide(dir, () =>
-            [...Session.list({ directory: dir, roots: true, limit: 1 })].filter((s) => !s.time?.archived),
-          )
-          if (recent[0] && recent[0].id !== sessionId) {
-            refreshed.push({ scope: key, newId: recent[0].id })
-          }
-        }
-      } catch {
-        staleKeys.push(key)
-      }
+      const found = await this.routable(dir, sessionId)
+      if (!found) staleKeys.push(key)
     }
     for (const key of staleKeys) {
       delete this.sessionMap[key]
     }
-    for (const { scope, newId } of refreshed) {
-      this.sessionMap[scope] = newId
-    }
-    if (staleKeys.length > 0 || refreshed.length > 0) await this.saveSessionMap()
+    if (staleKeys.length > 0) await this.saveSessionMap()
 
     if (this._initialDir) {
       await this.provide(this._initialDir, () => {})
@@ -625,13 +618,14 @@ export abstract class MobileManagerBase {
   protected async currentSession(scope: string, create?: boolean): Promise<string | undefined> {
     const dir = this.effectiveDir(scope)
     if (!dir) return
-    const recent = await this.provide(dir, () => this.allSessionsQuery(dir, 20))
     const pinned = this.sessionMap[scope]
     if (pinned) {
-      const stillValid = recent.some((s) => s.id === pinned)
-      if (stillValid) return pinned
+      const found = await this.routable(dir, pinned)
+      if (found) return pinned
       delete this.sessionMap[scope]
+      await this.saveSessionMap()
     }
+    const recent = await this.provide(dir, () => this.allSessionsQuery(dir, 20))
     if (recent[0]) {
       this.sessionMap[scope] = recent[0].id
       await this.saveSessionMap()
