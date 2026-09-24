@@ -62,6 +62,12 @@ function localISOString(d = new Date()): string {
   )
 }
 
+export function sessionTitle(name: string, now = new Date(), rand: () => number = Math.random): string {
+  const chars = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+  const suffix = Array.from({ length: 4 }, () => chars[Math.floor(rand() * chars.length)]).join("")
+  return `${name}对话${suffix}-${now.toISOString().slice(0, 19)}`
+}
+
 const HELP_TEXT =
   "📋 可用命令：\n\n/n, /new            开启新对话\n/stop               停止当前执行\n/steer <text>       在AI回复时追加引导\n/c, /compact        压缩当前上下文\n\n/m, /model          查看可用模型\n/m l                查看全部模型\n/m n                切换编号模型\n\n/a, /agent          查看当前模式\n/a n ； /a <name>    切换指定模式\n\n/variant            查看思考等级\n/variant n          切换编号思考等级\n\n/autoaccept         查看审批模式\n/autoaccept n       切换编号审批模式\n\n/p, /project        查看最近项目\n/p l                查看全部项目\n/p n                切换编号项目\n/p <path>           切换到指定路径\n\n/s, /session        查看最近会话\n/s l                查看最近30个会话\n/s n                切换编号会话\n\n/header             切换回复头部显示\n\n/h, /help           显示帮助信息\n/help list          显示全部命令"
 
@@ -147,6 +153,10 @@ export abstract class MobileManagerBase {
 
   protected replyTarget(chatId: string, messageId: string): string {
     return messageId
+  }
+
+  protected defaultTitle(): string {
+    return sessionTitle(this.platformName())
   }
 
   constructor(adapter: MobileAdapter) {
@@ -344,6 +354,16 @@ export abstract class MobileManagerBase {
     if (changed) await this.saveHiddenDirs()
   }
 
+  protected async routable(dir: string, sessionId: string): Promise<Session.Info | undefined> {
+    try {
+      const found = await this.provide(dir, () => Session.get(SessionID.make(sessionId)))
+      if (found.time?.archived || this.isSubagent(found)) return
+      return found
+    } catch {
+      return
+    }
+  }
+
   protected async initSessions(): Promise<void> {
     const allProjects = this.getProjects()
     const visibleProjects = allProjects.filter((p) => !(this.projectDir(p) in this._hiddenDirs))
@@ -366,7 +386,6 @@ export abstract class MobileManagerBase {
 
     const staleKeys: string[] = []
     const sessionToCanonicalScope: Record<string, string> = {}
-    const refreshed: { scope: string; newId: string }[] = []
     for (const [key, sessionId] of Object.entries(this.sessionMap)) {
       const canonical = sessionToCanonicalScope[sessionId]
       if (canonical) {
@@ -380,29 +399,13 @@ export abstract class MobileManagerBase {
       }
       sessionToCanonicalScope[sessionId] = key
       const dir = this._scopeDirs[key] ?? this._initialDir
-      try {
-        const found = await this.provide(dir, () => Session.get(SessionID.make(sessionId)))
-        if (found.time?.archived) {
-          staleKeys.push(key)
-        } else {
-          const recent = await this.provide(dir, () =>
-            [...Session.list({ directory: dir, roots: true, limit: 1 })].filter((s) => !s.time?.archived),
-          )
-          if (recent[0] && recent[0].id !== sessionId) {
-            refreshed.push({ scope: key, newId: recent[0].id })
-          }
-        }
-      } catch {
-        staleKeys.push(key)
-      }
+      const found = await this.routable(dir, sessionId)
+      if (!found) staleKeys.push(key)
     }
     for (const key of staleKeys) {
       delete this.sessionMap[key]
     }
-    for (const { scope, newId } of refreshed) {
-      this.sessionMap[scope] = newId
-    }
-    if (staleKeys.length > 0 || refreshed.length > 0) await this.saveSessionMap()
+    if (staleKeys.length > 0) await this.saveSessionMap()
 
     if (this._initialDir) {
       await this.provide(this._initialDir, () => {})
@@ -625,13 +628,14 @@ export abstract class MobileManagerBase {
   protected async currentSession(scope: string, create?: boolean): Promise<string | undefined> {
     const dir = this.effectiveDir(scope)
     if (!dir) return
-    const recent = await this.provide(dir, () => this.allSessionsQuery(dir, 20))
     const pinned = this.sessionMap[scope]
     if (pinned) {
-      const stillValid = recent.some((s) => s.id === pinned)
-      if (stillValid) return pinned
+      const found = await this.routable(dir, pinned)
+      if (found) return pinned
       delete this.sessionMap[scope]
+      await this.saveSessionMap()
     }
+    const recent = await this.provide(dir, () => this.allSessionsQuery(dir, 20))
     if (recent[0]) {
       this.sessionMap[scope] = recent[0].id
       await this.saveSessionMap()
@@ -639,7 +643,7 @@ export abstract class MobileManagerBase {
     }
     if (!create) return
     const session = await this.provide(dir, () =>
-      Session.create({ title: `${this.platformName()}对话 - ${new Date().toISOString()}` }),
+      Session.create({ title: this.defaultTitle() }),
     )
     await this.inheritPreference(session.id, dir)
     this.sessionMap[scope] = session.id
@@ -1177,7 +1181,7 @@ export abstract class MobileManagerBase {
 
     const dir = this.effectiveDir(scope)
     const session = await this.provide(dir, () =>
-      Session.create({ title: `${this.platformName()}对话 - ${new Date().toISOString()}` }),
+      Session.create({ title: this.defaultTitle() }),
     )
     await this.inheritPreference(session.id, dir)
     this.sessionMap[scope] = session.id
@@ -1620,7 +1624,7 @@ export abstract class MobileManagerBase {
           created: false,
         }
       }
-      const session = await Session.create({ title: `${this.platformName()}对话 - ${new Date().toISOString()}` })
+      const session = await Session.create({ title: this.defaultTitle() })
       return { sessionId: session.id, sessionTitle: session.title, created: true }
     })
     this.activateScope(scope, newDir)
@@ -1666,7 +1670,7 @@ export abstract class MobileManagerBase {
           created: false,
         }
       }
-      const session = await Session.create({ title: `${this.platformName()}对话 - ${new Date().toISOString()}` })
+      const session = await Session.create({ title: this.defaultTitle() })
       return { sessionId: session.id, sessionTitle: session.title, created: true }
     })
     this.activateScope(scope, newDir)
@@ -1762,7 +1766,7 @@ export abstract class MobileManagerBase {
 
     if (!items.length) {
       const session = await this.provide(effectiveDir, () =>
-        Session.create({ title: `${this.platformName()}对话 - ${new Date().toISOString()}` }),
+        Session.create({ title: this.defaultTitle() }),
       )
       await this.inheritPreference(session.id, effectiveDir)
       this.sessionMap[scope] = session.id

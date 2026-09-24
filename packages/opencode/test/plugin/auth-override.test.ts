@@ -5,12 +5,14 @@ import { tmpdir } from "../fixture/fixture"
 import { Instance } from "../../src/project/instance"
 import { ProviderAuth } from "../../src/provider/auth"
 import { ProviderID } from "../../src/provider/schema"
+import { Global } from "../../src/global"
+import { Config } from "../../src/config/config"
 
 describe("plugin.auth-override", () => {
   test("user plugin overrides built-in github-copilot auth", async () => {
-    await using tmp = await tmpdir({
+    await using tmp = await tmpdir<string>({
       init: async (dir) => {
-        const pluginDir = path.join(dir, ".opencode", "plugin")
+        const pluginDir = path.join(dir, "plugin")
         await fs.mkdir(pluginDir, { recursive: true })
 
         await Bun.write(
@@ -28,30 +30,31 @@ describe("plugin.auth-override", () => {
             "",
           ].join("\n"),
         )
+        return dir
       },
     })
 
     await using plain = await tmpdir()
 
-    const methods = await Instance.provide({
-      directory: tmp.path,
-      fn: async () => {
-        return ProviderAuth.methods()
-      },
-    })
+    const prev = Global.Path.config
+    ;(Global.Path as { config: string }).config = tmp.extra
+    Config.global.reset()
+    try {
+      const methods = await Instance.provide({
+        directory: plain.path,
+        fn: async () => {
+          return ProviderAuth.methods()
+        },
+      })
 
-    const plainMethods = await Instance.provide({
-      directory: plain.path,
-      fn: async () => {
-        return ProviderAuth.methods()
-      },
-    })
-
-    const copilot = methods[ProviderID.make("github-copilot")]
-    expect(copilot).toBeDefined()
-    expect(copilot.length).toBe(1)
-    expect(copilot[0].label).toBe("Test Override Auth")
-    expect(plainMethods[ProviderID.make("github-copilot")][0].label).not.toBe("Test Override Auth")
+      const copilot = methods[ProviderID.make("github-copilot")]
+      expect(copilot).toBeDefined()
+      expect(copilot.length).toBe(1)
+      expect(copilot[0].label).toBe("Test Override Auth")
+    } finally {
+      ;(Global.Path as { config: string }).config = prev
+      Config.global.reset()
+    }
   }, 30000) // Increased timeout for plugin installation
 })
 

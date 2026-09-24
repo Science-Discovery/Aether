@@ -5,6 +5,7 @@ import {
   createSignal,
   For,
   on,
+  onCleanup,
   onMount,
   Show,
   type Accessor,
@@ -41,7 +42,7 @@ import { useSettings } from "@/context/settings"
 import { enqueueRun, runKey } from "@/context/terminal"
 import { isWorking } from "@/utils/working-state"
 import { NewSessionItem, SessionItem, SessionSkeleton, StatusDot } from "./sidebar-items"
-import { childMapByParent, hasProjectPermissions, sortedRootSessions, workspaceKey } from "./helpers"
+import { canCollapseAll, childMapByParent, hasProjectPermissions, sortedRootSessions, workspaceKey } from "./helpers"
 import { formatServerError } from "@/utils/server-errors"
 import { SessionImportInput } from "@/components/session-import-input"
 import { MathConfirm } from "@/components/math-confirm"
@@ -279,7 +280,7 @@ export const WorkspaceDragOverlay = (props: {
   )
 }
 
-const RunScriptButton = (props: {
+export const RunScriptButton = (props: {
   directory: string
   slug: Accessor<string>
   sessions: Accessor<Session[]>
@@ -295,6 +296,36 @@ const RunScriptButton = (props: {
   const [scripts, setScripts] = createSignal<Script[]>([])
   const [scriptsPath, setScriptsPath] = createSignal<string>("")
   const [selected, setSelected] = createSignal<string | undefined>(undefined)
+  const [loaded, setLoaded] = createSignal(false)
+  const [state, setState] = createStore<{ pulse: boolean; ran?: { name: string; ok: boolean; detail?: string } }>({
+    pulse: false,
+  })
+  let pulseTimer: ReturnType<typeof setTimeout> | undefined
+  let ranTimer: ReturnType<typeof setTimeout> | undefined
+
+  onCleanup(() => {
+    if (pulseTimer) clearTimeout(pulseTimer)
+    if (ranTimer) clearTimeout(ranTimer)
+  })
+
+  const pulse = () => {
+    setState("pulse", true)
+    if (pulseTimer) clearTimeout(pulseTimer)
+    pulseTimer = setTimeout(() => {
+      setState("pulse", false)
+      pulseTimer = undefined
+    }, 500)
+  }
+
+  const markRan = (name: string, err?: string) => {
+    const detail = err === undefined ? undefined : err.length > 200 ? `${err.slice(0, 200)}…` : err
+    setState("ran", { name, ok: err === undefined, ...(detail ? { detail } : {}) })
+    if (ranTimer) clearTimeout(ranTimer)
+    ranTimer = setTimeout(() => {
+      setState("ran", undefined)
+      ranTimer = undefined
+    }, 6000)
+  }
 
   const fetchScripts = async () => {
     const client = globalSdk.createClient({ directory: props.directory })
@@ -321,6 +352,7 @@ const RunScriptButton = (props: {
       ...globalNames.map((n) => ({ name: n, source: "global" as const, path: n })),
     ]
     setScripts(all)
+    setLoaded(true)
     const stored = localStorage.getItem(`aether:run-script:${props.directory}`)
     if (stored && all.some((s) => key(s) === stored)) {
       setSelected(stored)
@@ -353,7 +385,8 @@ const RunScriptButton = (props: {
     const slug = props.slug()
     const target = s.source === "global" ? `${scriptsPath()}/${s.name}` : s.path
     const [command, args] = shell(target)
-    enqueueRun(slug, command, args, s.source === "global" ? s.name : s.path)
+    pulse()
+    enqueueRun(slug, command, args, s.source === "global" ? s.name : s.path, (err) => markRan(s.name, err))
     // Navigating between spelling variants of the SAME directory remounts the whole
     // subtree (keyed Show) and orphans the pending terminal tab, so compare normalized.
     if (runKey(params.dir ?? "") !== runKey(slug) || !params.id) {
@@ -375,26 +408,38 @@ const RunScriptButton = (props: {
       ? language.t("workspace.runGlobalScript", { name: s.name })
       : language.t("workspace.runScript", { name: s.name })
   })
+  const hint = createMemo(() => {
+    const ran = state.ran
+    if (ran) {
+      return ran.ok
+        ? language.t("workspace.ranScript", { name: ran.name })
+        : language.t("workspace.runFailed", { name: ran.name, error: ran.detail ?? "" })
+    }
+    const path = scriptsPath() || "<datahome>/aether/.bin"
+    if (loaded() && scripts().length === 0) return language.t("workspace.runEmpty", { path })
+    return language.t("workspace.runHint", { path })
+  })
 
   const projectScripts = createMemo(() => scripts().filter((s) => s.source === "project"))
   const globalScripts = createMemo(() => scripts().filter((s) => s.source === "global"))
 
   return (
     <ContextMenu onOpenChange={(open) => open && fetchScripts()}>
-      <Tooltip
-        value={language.t("workspace.runHint", { path: scriptsPath() || "<datahome>/aether/.bin" })}
-        placement="top"
-        class="shrink-0"
-        interactive
-      >
-        <ContextMenu.Trigger as="div" class="shrink-0">
+      <Tooltip value={hint()} placement="top" class="shrink-0" interactive>
+        <ContextMenu.Trigger
+          as="div"
+          class="shrink-0"
+          data-action="workspace-run-script"
+          data-workspace={base64Encode(props.directory)}
+        >
           <Button
             variant="ghost"
             size="small"
             icon="terminal"
             disabled={disabled()}
             onClick={run}
-            class="h-6 px-1.5 text-12-regular text-text-weak gap-0.5"
+            classList={{ "run-script-pulse": state.pulse }}
+            class="h-6 px-1.5 text-12-regular text-text-weak gap-0.5 disabled:pointer-events-none"
           >
             {label()}
           </Button>
@@ -1328,14 +1373,14 @@ export const SortableWorkspace = (props: {
   const notify = createMemo(() => hasPermissions() || notification.project.unseenCount(props.directory) > 0)
   const touch = createMediaQuery("(hover: none)")
   const showNew = createMemo(() => !loading())
-  const canCollapse = createMemo(() => workspaceStore.limit > SESSION_BASE_LIMIT)
+  const canCollapse = createMemo(() => canCollapseAll(workspaceStore.sessionTotal))
   const loadMore = async () => {
     setWorkspaceStore("limit", (limit) => (limit ?? 0) + 10)
     await globalSync.project.loadSessions(props.directory)
   }
   const collapseAll = async () => {
     setWorkspaceStore("limit", SESSION_BASE_LIMIT)
-    await globalSync.project.loadSessions(props.directory)
+    await globalSync.project.loadSessions(props.directory, { collapse: true })
   }
 
   const {
@@ -1538,14 +1583,14 @@ export const LocalWorkspace = (props: {
   const count = createMemo(() => sessions()?.length ?? 0)
   const loading = createMemo(() => !booted() && count() === 0)
   const hasMore = createMemo(() => workspace().store.sessionTotal > count())
-  const canCollapse = createMemo(() => workspace().store.limit > SESSION_BASE_LIMIT)
+  const canCollapse = createMemo(() => canCollapseAll(workspace().store.sessionTotal))
   const loadMore = async () => {
     workspace().setStore("limit", (limit) => (limit ?? 0) + 10)
     await globalSync.project.loadSessions(props.project.worktree)
   }
   const collapseAll = async () => {
     workspace().setStore("limit", SESSION_BASE_LIMIT)
-    await globalSync.project.loadSessions(props.project.worktree)
+    await globalSync.project.loadSessions(props.project.worktree, { collapse: true })
   }
 
   const {

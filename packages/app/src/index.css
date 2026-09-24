@@ -14,6 +14,17 @@
   overflow-x: hidden !important;
 }
 
+/* 运行脚本按钮点击后的脉冲反馈 */
+@keyframes run-script-pulse {
+  40% {
+    transform: scale(0.88);
+  }
+}
+
+.run-script-pulse {
+  animation: run-script-pulse 0.45s ease-in-out;
+}
+
 @layer components {
   [data-component="getting-started"] {
     container-type: inline-size;

@@ -12,6 +12,13 @@ type Env = {
   WEB_DOMAIN: string
 }
 
+function safeEqual(a: string, b: string) {
+  const left = new TextEncoder().encode(a)
+  const right = new TextEncoder().encode(b)
+  if (left.byteLength !== right.byteLength) return false
+  return crypto.subtle.timingSafeEqual(left, right)
+}
+
 async function getFeishuTenantToken(): Promise<string> {
   const response = await fetch("https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal", {
     method: "POST",
@@ -97,7 +104,8 @@ export class SyncServer extends DurableObject<Env> {
   }
 
   public async assertSecret(secret: string) {
-    if (secret !== (await this.getSecret())) throw new Error("Invalid secret")
+    const stored = await this.getSecret()
+    if (!stored || !safeEqual(secret, stored)) throw new Error("Invalid secret")
   }
 
   private async getSecret() {
@@ -154,7 +162,7 @@ export default new Hono<{ Bindings: Env }>()
     const body = await c.req.json<{ sessionShortName: string; adminSecret: string }>()
     const sessionShortName = body.sessionShortName
     const adminSecret = body.adminSecret
-    if (adminSecret !== Resource.ADMIN_SECRET.value) throw new Error("Invalid admin secret")
+    if (!safeEqual(adminSecret, Resource.ADMIN_SECRET.value)) throw new Error("Invalid admin secret")
     const id = c.env.SYNC_SERVER.idFromName(sessionShortName)
     const stub = c.env.SYNC_SERVER.get(id)
     await stub.clear()
@@ -216,7 +224,11 @@ export default new Hono<{ Bindings: Env }>()
   })
   .post("/feishu", async (c) => {
     const body = (await c.req.json()) as {
+      token?: string
       challenge?: string
+      header?: {
+        token?: string
+      }
       event?: {
         message?: {
           message_id?: string
@@ -227,7 +239,10 @@ export default new Hono<{ Bindings: Env }>()
         }
       }
     }
-    console.log(JSON.stringify(body, null, 2))
+    const token = body.header?.token ?? body.token
+    if (!token || !safeEqual(token, Resource.FEISHU_VERIFICATION_TOKEN.value))
+      return c.json({ error: "Invalid token" }, { status: 401 })
+
     const challenge = body.challenge
     if (challenge) return c.json({ challenge })
 

@@ -1,32 +1,8 @@
-import { marked } from "marked"
-import { codeToHtml } from "shiki"
-import markedShiki from "marked-shiki"
+import { render } from "./markdown"
 import { createOverflow, useShareMessages } from "./common"
 import { CopyButton } from "./copy-button"
 import { createResource, createSignal } from "solid-js"
 import style from "./content-markdown.module.css"
-
-const markedWithShiki = marked.use(
-  {
-    renderer: {
-      link({ href, title, text }) {
-        const titleAttr = title ? ` title="${title}"` : ""
-        return `<a href="${href}"${titleAttr} target="_blank" rel="noopener noreferrer">${text}</a>`
-      },
-    },
-  },
-  markedShiki({
-    highlight(code, lang) {
-      return codeToHtml(code, {
-        lang: lang || "text",
-        themes: {
-          light: "github-light",
-          dark: "github-dark",
-        },
-      })
-    },
-  }),
-)
 
 interface Props {
   text: string
@@ -36,9 +12,7 @@ interface Props {
 export function ContentMarkdown(props: Props) {
   const [html] = createResource(
     () => strip(props.text),
-    async (markdown) => {
-      return markedWithShiki.parse(markdown)
-    },
+    async (markdown) => render(markdown),
   )
   const [expanded, setExpanded] = createSignal(false)
   const overflow = createOverflow()

@@ -558,8 +558,19 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
       projects: {
         list,
         open(directory: string) {
+          // Explicit open: register + boot the directory server-side before any
+          // per-directory request. Unknown directories no longer boot instances
+          // from ?directory= alone, so first opens must go through this.
+          const booted = globalSdk.client.project
+            .open({ directory })
+            .then((x) => {
+              if (x.data) globalSync.project.upsert(x.data)
+            })
+            .catch((error) => {
+              console.warn("project open failed", directory, error)
+            })
           if (server.projects.list().find((x) => x.worktree === directory)) return
-          globalSync.project.loadSessions(directory)
+          void booted.then(() => globalSync.project.loadSessions(directory))
           server.projects.open(directory)
           initGit(directory)
         },

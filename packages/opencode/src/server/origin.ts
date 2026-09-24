@@ -1,5 +1,15 @@
 import { Flag } from "../flag/flag"
 
+const LOOPBACK_HOSTNAMES = new Set(["localhost", "127.0.0.1", "[::1]"])
+
+// Prefix matching used to admit junk like "http://localhost:junk", so loopback
+// origins are now matched after URL parsing. Non-http schemes keep their
+// explicit comparisons below.
+function loopbackOrigin(input: string) {
+  if (!URL.canParse(input)) return false
+  return LOOPBACK_HOSTNAMES.has(new URL(input).hostname.toLowerCase())
+}
+
 // Origin:null is an opaque origin (sandboxed iframe, file:// page) and identifies
 // no one. It is only allowed when the server requires authentication, so the
 // desktop app's file:// renderer (which holds the password) keeps working while
@@ -12,8 +22,7 @@ export function allowOrigin(input: string | undefined, password: string | undefi
     if (!password) return
     return input
   }
-  if (input.startsWith("http://localhost:")) return input
-  if (input.startsWith("http://127.0.0.1:")) return input
+  if (loopbackOrigin(input)) return input
   if (input === "tauri://localhost" || input === "http://tauri.localhost" || input === "https://tauri.localhost") {
     return input
   }

@@ -943,7 +943,7 @@ test("serializes concurrent config dependency installs", async () => {
   expect(await Filesystem.exists(path.join(dirs[1], "package.json"))).toBe(true)
 })
 
-test("resolves scoped npm plugins in config", async () => {
+test("excludes plugins declared in project config", async () => {
   await using tmp = await tmpdir({
     init: async (dir) => {
       const pluginDir = path.join(dir, "node_modules", "@scope", "plugin")
@@ -983,19 +983,15 @@ test("resolves scoped npm plugins in config", async () => {
       const config = await Config.get()
       const pluginEntries = config.plugin ?? []
 
-      const baseUrl = pathToFileURL(path.join(tmp.path, "opencode.json")).href
       const expected = pathToFileURL(path.join(tmp.path, "node_modules", "@scope", "plugin", "index.js")).href
 
-      expect(pluginEntries.includes(expected)).toBe(true)
-
-      const scopedEntry = pluginEntries.find((entry) => entry === expected)
-      expect(scopedEntry).toBeDefined()
-      expect(scopedEntry?.includes("/node_modules/@scope/plugin/")).toBe(true)
+      expect(pluginEntries.includes(expected)).toBe(false)
+      expect(pluginEntries.some((entry) => entry.includes("@scope/plugin"))).toBe(false)
     },
   })
 })
 
-test("merges plugin arrays from global and local configs", async () => {
+test("merges global plugins and excludes project plugins", async () => {
   await using tmp = await tmpdir({
     init: async (dir) => {
       const root = path.join(dir, "global")
@@ -1031,10 +1027,10 @@ test("merges plugin arrays from global and local configs", async () => {
 
         expect(plugins.some((p) => p.includes("global-plugin-1"))).toBe(true)
         expect(plugins.some((p) => p.includes("global-plugin-2"))).toBe(true)
-        expect(plugins.some((p) => p.includes("local-plugin-1"))).toBe(true)
+        expect(plugins.some((p) => p.includes("local-plugin-1"))).toBe(false)
 
         const names = plugins.filter((p) => p.includes("global-plugin") || p.includes("local-plugin"))
-        expect(names.length).toBeGreaterThanOrEqual(3)
+        expect(names.length).toBe(2)
       },
     })
   })
@@ -1196,7 +1192,7 @@ test("deduplicates duplicate plugins from global and local configs", async () =>
         const plugins = config.plugin ?? []
 
         expect(plugins.some((p) => p.includes("global-plugin-1"))).toBe(true)
-        expect(plugins.some((p) => p.includes("local-plugin-1"))).toBe(true)
+        expect(plugins.some((p) => p.includes("local-plugin-1"))).toBe(false)
         expect(plugins.some((p) => p.includes("duplicate-plugin"))).toBe(true)
 
         const duplicates = plugins.filter((p) => p.includes("duplicate-plugin"))
@@ -1205,7 +1201,7 @@ test("deduplicates duplicate plugins from global and local configs", async () =>
         const names = plugins.filter(
           (p) => p.includes("global-plugin") || p.includes("local-plugin") || p.includes("duplicate-plugin"),
         )
-        expect(names.length).toBe(3)
+        expect(names.length).toBe(2)
       },
     })
   })
@@ -1930,16 +1926,18 @@ describe("deduplicatePlugins", () => {
     expect(result).toEqual(["a-plugin@1.0.0", "b-plugin@1.0.0", "c-plugin@1.0.0"])
   })
 
-  test("local plugin directory overrides global opencode.json plugin", async () => {
+  test("global npm plugin loads when project plugin directory declares the same name", async () => {
     await using tmp = await tmpdir({
       init: async (dir) => {
+        const globalDir = path.join(dir, "global")
         const projectDir = path.join(dir, "project")
         const opencodeDir = path.join(projectDir, ".opencode")
         const pluginDir = path.join(opencodeDir, "plugin")
         await fs.mkdir(pluginDir, { recursive: true })
+        await fs.mkdir(globalDir, { recursive: true })
 
         await Filesystem.write(
-          path.join(dir, "opencode.json"),
+          path.join(globalDir, "opencode.json"),
           JSON.stringify({
             $schema: "https://opencode.ai/config.json",
             plugin: ["my-plugin@1.0.0"],
@@ -1947,19 +1945,22 @@ describe("deduplicatePlugins", () => {
         )
 
         await Filesystem.write(path.join(pluginDir, "my-plugin.js"), "export default {}")
+        return globalDir
       },
     })
 
-    await Instance.provide({
-      directory: path.join(tmp.path, "project"),
-      fn: async () => {
-        const config = await Config.get()
-        const plugins = config.plugin ?? []
+    await withGlobal(tmp.extra, async () => {
+      await Instance.provide({
+        directory: path.join(tmp.path, "project"),
+        fn: async () => {
+          const config = await Config.get()
+          const plugins = config.plugin ?? []
 
-        const myPlugins = plugins.filter((p) => Config.getPluginName(p) === "my-plugin")
-        expect(myPlugins.length).toBe(1)
-        expect(myPlugins[0].startsWith("file://")).toBe(true)
-      },
+          const myPlugins = plugins.filter((p) => Config.getPluginName(p) === "my-plugin")
+          expect(myPlugins.length).toBe(1)
+          expect(myPlugins[0].startsWith("file://")).toBe(false)
+        },
+      })
     })
   })
 })

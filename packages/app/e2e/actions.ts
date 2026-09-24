@@ -385,7 +385,21 @@ export async function createTestProject(input?: { serverUrl?: string; git?: bool
     })
   }
 
-  return resolveDirectory(root, input?.serverUrl)
+  const directory = await resolveDirectory(root, input?.serverUrl)
+  await openProjectOnServer(directory, input?.serverUrl)
+  return directory
+}
+
+// Unknown directories no longer boot instances from ?directory= alone; e2e
+// projects must go through the same explicit open flow as the app UI.
+export async function openProjectOnServer(directory: string, serverUrl?: string) {
+  if (!serverUrl) return
+  const res = await fetch(`${serverUrl}/project/open?directory=${encodeURIComponent(directory)}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ directory }),
+  })
+  if (!res.ok) throw new Error(`project open failed for ${directory}: HTTP ${res.status}`)
 }
 
 export async function cleanupTestProject(directory: string) {

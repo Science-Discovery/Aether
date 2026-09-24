@@ -139,31 +139,16 @@ const createPlatform = (): Platform => {
     openLink(url: string) {
       window.api.openLink(url)
     },
-    async openPath(path: string, app?: string) {
-      if (os === "windows") {
-        const resolvedApp = app ? await window.api.resolveAppPath(app).catch(() => null) : null
-        const resolvedPath = await (async () => {
-          if (window.__OPENCODE__?.wsl) {
-            const converted = await window.api.wslPath(path, "windows").catch(() => null)
-            if (converted) return converted
-          }
-          return path
-        })()
-        return window.api.openPath(resolvedPath, resolvedApp ?? undefined)
-      }
-      return window.api.openPath(path, app)
+    async openPath(path: string) {
+      if (os !== "windows") return window.api.openPath(path)
+      const target = window.__OPENCODE__?.wsl ? await window.api.wslPath(path, "windows").catch(() => path) : path
+      return window.api.openPath(target)
     },
 
     async showInFolder(path: string) {
       if (os !== "windows") return window.api.showInFolder(path)
-      const resolvedPath = await (async () => {
-        if (window.__OPENCODE__?.wsl) {
-          const converted = await window.api.wslPath(path, "windows").catch(() => null)
-          if (converted) return converted
-        }
-        return path
-      })()
-      return window.api.showInFolder(resolvedPath)
+      const target = window.__OPENCODE__?.wsl ? await window.api.wslPath(path, "windows").catch(() => path) : path
+      return window.api.showInFolder(target)
     },
 
     back() {

@@ -20,6 +20,16 @@ type Kb = {
   apiKey?: string
   baseURL?: string
 }
+type ProjectInfo = {
+  id: string
+  worktree: string
+  vcs?: "git"
+  name?: string
+  icon?: { url?: string; override?: string; color?: string }
+  commands?: { start?: string }
+  time: { created: number; updated: number; initialized?: number }
+  sandboxes: string[]
+}
 type CronMode = "direct" | "isolated_agent" | "session_agent" | "agent_message"
 type CronScheduleType = "cron" | "interval" | "once"
 type CronLastStatus = "success" | "failed" | "skipped" | "expired" | null
@@ -121,6 +131,7 @@ export type AppClient = Base & {
     scripts(): Req<{ path: string; names: string[] }>
   }
   project: Base["project"] & {
+    open(input: { directory: string }): Req<ProjectInfo>
     delete(input: { projectID: string; cascade?: boolean }): Req<{
       status: string
       projectID: string
@@ -240,6 +251,27 @@ export function createSdkForServer({
       ...(config.headers ?? {}),
     },
   }) as unknown as AppClient
+}
+
+export function addProjectOpenMethod(
+  client: AppClient,
+  baseUrl: string,
+  auth?: Record<string, string>,
+  options?: RequestHelperOptions,
+): AppClient {
+  const headers: Record<string, string> = { "Content-Type": "application/json", ...auth }
+  safeAssign(client.project, "open", async (input: { directory: string }) =>
+    requestJSON<ProjectInfo>(
+      `${baseUrl}/project/open?directory=${encodeURIComponent(input.directory)}`,
+      {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ directory: input.directory }),
+      },
+      options,
+    ),
+  )
+  return client
 }
 
 export function addProjectDeleteMethod(

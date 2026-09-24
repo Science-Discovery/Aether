@@ -105,6 +105,7 @@ import { describeRoute, generateSpecs, validator, resolver, openAPIRouteHandler 
 import { Hono } from "hono"
 import { cors } from "hono/cors"
 import { allowOrigin } from "./origin"
+import { assertBindAllowed, isLoopback, originGuard } from "./guard"
 import { streamSSE } from "hono/streaming"
 import { proxy } from "hono/proxy"
 import { basicAuth } from "hono/basic-auth"
@@ -215,6 +216,9 @@ export namespace Server {
     void installMemory().catch((error) => {
       log.error("memory install failed", { error })
     })
+    // The server process was launched in this directory by the user; it is the
+    // one request-independent root that stays bootable (e.g. `opencode serve`).
+    const cwd = Filesystem.resolve(process.cwd())
     const app = new Hono<ServerEnv>()
     const corsware = cors({
       credentials: true,
@@ -293,6 +297,7 @@ export namespace Server {
         }
         return corsware(c, next)
       })
+      .use(originGuard<ServerEnv>(opts?.cors))
       .route("/global", GlobalRoutes())
       .put(
         "/auth/:providerID",
@@ -378,7 +383,13 @@ export namespace Server {
         const isLifecycle = lifecyclePaths.some(
           (p) => c.req.path === p || c.req.path.startsWith(p + "/") || c.req.path.startsWith(p + "?"),
         )
-        const create = noDirectory ? false : isBrowse || isLifecycle ? Instance.has(directory) : true
+        // Instances may only be booted for directories the server already knows
+        // (registered project directories, running instances, or its own working
+        // directory). Anything else stays a browse context: a request can never
+        // mint an instance — and with it the file API containment root — for an
+        // arbitrary path.
+        const known = Instance.has(directory) || directory === cwd || Project.knownDirectory(directory)
+        const create = noDirectory ? false : isBrowse || isLifecycle ? Instance.has(directory) : known
 
         return WorkspaceContext.provide({
           workspaceID: rawWorkspaceID ? WorkspaceID.make(rawWorkspaceID) : undefined,
@@ -386,6 +397,7 @@ export namespace Server {
             return Instance.provide({
               directory,
               create,
+              untrusted: !known,
               init: create ? InstanceBootstrap : undefined,
               async fn() {
                 return next()
@@ -1025,6 +1037,10 @@ export namespace Server {
     cors?: string[]
     onBrowserConnectionChange?: (count: number) => void
   }) {
+    // Without a password the API only has the origin guard for defense, which
+    // means nothing to plain HTTP clients on the LAN. Loopback binds are only
+    // reachable from the local machine; anything wider must be authenticated.
+    assertBindAllowed(opts.hostname)
     const app = createApp(opts)
     const bp = basePath()
     const root = bp === "/" ? app : new Hono<ServerEnv>().route(bp, app).route("/", app)
@@ -1060,12 +1076,7 @@ export namespace Server {
 
     url = new URL(`http://${opts.hostname}:${server.port}`)
 
-    const shouldPublishMDNS =
-      opts.mdns &&
-      server.port &&
-      opts.hostname !== "127.0.0.1" &&
-      opts.hostname !== "localhost" &&
-      opts.hostname !== "::1"
+    const shouldPublishMDNS = opts.mdns && server.port && !isLoopback(opts.hostname)
     if (shouldPublishMDNS) {
       MDNS.publish(server.port!, opts.mdnsDomain)
     } else if (opts.mdns) {

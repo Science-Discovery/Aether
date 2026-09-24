@@ -1,6 +1,7 @@
 import { getFilename, norm } from "@opencode-ai/util/path"
 import { base64Encode } from "@opencode-ai/util/encode"
 import { type Session } from "@opencode-ai/sdk/v2/client"
+import { SESSION_BASE_LIMIT } from "@/context/global-sync/types"
 
 type SessionStore = {
   session?: Session[]
@@ -33,6 +34,8 @@ export const sortedRootSessions = (store: SessionStore, now: number) => roots(st
 
 export const latestRootSession = (stores: SessionStore[], now: number) =>
   stores.flatMap(roots).sort(sortSessions(now))[0]
+
+export const canCollapseAll = (total: number) => total > SESSION_BASE_LIMIT
 
 export function hasProjectPermissions<T>(
   request: Record<string, T[] | undefined> | undefined,

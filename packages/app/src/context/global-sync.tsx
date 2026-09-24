@@ -296,10 +296,15 @@ function createGlobalSync() {
     return providers.all()
   }
 
-  async function loadSessions(directory: string, opts?: { force?: boolean }) {
+  async function loadSessions(directory: string, opts?: { force?: boolean; collapse?: boolean }): Promise<void> {
     directory = normalizeDir(directory)
     const pending = sessionLoads.get(directory)
-    if (pending) return pending
+    if (pending) {
+      if (!opts?.collapse) return pending
+      // Re-trim strictly once the in-flight load settles: the pending call was
+      // started without collapse options and must not swallow them.
+      return pending.then(() => loadSessions(directory, opts))
+    }
 
     children.pin(directory)
     const [store, setStore] = children.child(directory, { bootstrap: false })
@@ -322,6 +327,7 @@ function createGlobalSync() {
         limit: store.limit,
         permission: store.permission,
         keep: viewingIDs(),
+        recent: opts?.collapse ? 0 : undefined,
       })
       if (next.length !== store.session.length) {
         setStore("session", reconcile(next, { key: "id" }))
@@ -361,6 +367,7 @@ function createGlobalSync() {
           limit,
           permission: store.permission,
           keep: viewingIDs(),
+          recent: opts?.collapse ? 0 : undefined,
         })
         setStore(
           "sessionTotal",
@@ -420,6 +427,10 @@ function createGlobalSync() {
       const cache = children.vcsCache.get(directory)
       if (!cache) return
       const sdk = sdkFor(directory)
+      // Direct URL loads and sidebar switches bypass the open-project flow;
+      // unknown directories no longer boot instances from ?directory= alone,
+      // so every bootstrap registers its directory server-side first.
+      await sdk.project.open({ directory }).catch(() => undefined)
       await bootstrapDirectory({
         directory,
         global: {

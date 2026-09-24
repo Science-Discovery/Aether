@@ -1,8 +1,9 @@
 import windowState from "electron-window-state"
-import { app, BrowserWindow, nativeImage, nativeTheme } from "electron"
+import { app, BrowserWindow, nativeImage, nativeTheme, shell } from "electron"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import type { TitlebarTheme } from "../preload/types"
+import { appCheck, blob, external } from "./security"
 
 type Globals = {
   updaterEnabled: boolean
@@ -91,6 +92,7 @@ export function createMainWindow(globals: Globals) {
   })
 
   state.manage(win)
+  wireSecurity(win)
   loadWindow(win, "index.html")
   wireZoom(win)
   injectGlobals(win, globals)
@@ -122,10 +124,29 @@ export function createLoadingWindow(globals: Globals) {
     },
   })
 
+  wireSecurity(win)
   loadWindow(win, "loading.html")
   injectGlobals(win, globals)
 
   return win
+}
+
+function wireSecurity(win: BrowserWindow) {
+  const allowed = appCheck(process.env.ELECTRON_RENDERER_URL, join(root, "../renderer"))
+  win.webContents.on("will-navigate", (event, url) => {
+    if (allowed(url)) return
+    event.preventDefault()
+    const href = external(url)
+    if (href) void shell.openExternal(href)
+  })
+  win.webContents.on("did-create-window", (child) => wireSecurity(child))
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    if (blob(url))
+      return { action: "allow", overrideBrowserWindowOptions: { webPreferences: { preload: "", sandbox: true } } }
+    const href = external(url)
+    if (href) void shell.openExternal(href)
+    return { action: "deny" }
+  })
 }
 
 function loadWindow(win: BrowserWindow, html: string) {

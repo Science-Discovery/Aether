@@ -3,11 +3,12 @@ import { describeRoute, validator } from "hono-openapi"
 import { resolver } from "hono-openapi"
 import { Instance } from "../../project/instance"
 import { Project } from "../../project/project"
+import { InstanceBootstrap, refreshProject } from "../../project/bootstrap"
+import { Filesystem } from "../../util/filesystem"
 import z from "zod"
 import { ProjectID } from "../../project/schema"
 import { errors } from "../error"
 import { lazy } from "../../util/lazy"
-import { refreshProject } from "../../project/bootstrap"
 
 export const ProjectRoutes = lazy(() =>
   new Hono()
@@ -94,6 +95,37 @@ export const ProjectRoutes = lazy(() =>
       }),
       async (c) => {
         return c.json(Instance.project)
+      },
+    )
+    .post(
+      "/open",
+      describeRoute({
+        summary: "Open a project directory",
+        description:
+          "Validate, register and boot a project directory. This is the explicit entry point for opening projects: arbitrary request-supplied directories never boot instances on their own.",
+        operationId: "project.open",
+        responses: {
+          200: {
+            description: "Project information",
+            content: {
+              "application/json": {
+                schema: resolver(Project.Info),
+              },
+            },
+          },
+          ...errors(400),
+        },
+      }),
+      validator("json", z.object({ directory: z.string() })),
+      async (c) => {
+        const dir = Filesystem.resolve(c.req.valid("json").directory)
+        if (!(await Filesystem.isDir(dir))) return c.json({ error: "Directory not found" }, 400)
+        const project = await Instance.provide({
+          directory: dir,
+          init: InstanceBootstrap,
+          fn: () => Instance.project,
+        })
+        return c.json(project)
       },
     )
     .post(
