@@ -1,4 +1,3 @@
-import { execFile } from "node:child_process"
 import { writeFile } from "node:fs/promises"
 import { BrowserWindow, Notification, app, clipboard, dialog, ipcMain, shell } from "electron"
 import type { IpcMainEvent, IpcMainInvokeEvent } from "electron"
@@ -11,6 +10,7 @@ import type {
   TitlebarTheme,
   WslConfig,
 } from "../preload/types"
+import { assertDir, external } from "./security"
 import { getStore } from "./store"
 import { setTitlebar } from "./windows"
 
@@ -33,7 +33,6 @@ type Deps = {
   setDisplayBackend: (backend: string | null) => Promise<void> | void
   checkAppExists: (appName: string) => Promise<boolean> | boolean
   wslPath: (path: string, mode: "windows" | "linux" | null) => Promise<string>
-  resolveAppPath: (appName: string) => Promise<string | null>
   loadingWindowComplete: () => void
   runUpdater: (alertOnFail: boolean) => Promise<void> | void
   checkUpdate: () => Promise<{ updateAvailable: boolean; version?: string }>
@@ -64,7 +63,6 @@ export function registerIpcHandlers(deps: Deps) {
   ipcMain.handle("wsl-path", (_event: IpcMainInvokeEvent, path: string, mode: "windows" | "linux" | null) =>
     deps.wslPath(path, mode),
   )
-  ipcMain.handle("resolve-app-path", (_event: IpcMainInvokeEvent, appName: string) => deps.resolveAppPath(appName))
   ipcMain.on("loading-window-complete", () => deps.loadingWindowComplete())
   ipcMain.handle("run-updater", (_event: IpcMainInvokeEvent, alertOnFail: boolean) => deps.runUpdater(alertOnFail))
   ipcMain.handle("check-update", () => deps.checkUpdate())
@@ -160,16 +158,13 @@ export function registerIpcHandlers(deps: Deps) {
   })
 
   ipcMain.on("open-link", (_event: IpcMainEvent, url: string) => {
-    void shell.openExternal(url)
+    const href = external(url)
+    if (href) void shell.openExternal(href)
   })
 
-  ipcMain.handle("open-path", async (_event: IpcMainInvokeEvent, path: string, app?: string) => {
-    if (!app) return shell.openPath(path)
-    await new Promise<void>((resolve, reject) => {
-      const [cmd, args] =
-        process.platform === "darwin" ? (["open", ["-a", app, path]] as const) : ([app, [path]] as const)
-      execFile(cmd, args, (err) => (err ? reject(err) : resolve()))
-    })
+  ipcMain.handle("open-path", async (_event: IpcMainInvokeEvent, path: string) => {
+    await assertDir(path)
+    return shell.openPath(path)
   })
 
   ipcMain.handle("read-clipboard-image", () => {
