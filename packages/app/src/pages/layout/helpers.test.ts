@@ -9,6 +9,7 @@ import {
 import { base64Encode } from "@opencode-ai/util/encode"
 import { type Session } from "@opencode-ai/sdk/v2/client"
 import {
+  canCollapseAll,
   displayName,
   effectiveWorkspaceOrder,
   errorMessage,
@@ -147,6 +148,14 @@ describe("layout workspace helpers", () => {
     )
 
     expect(result?.id).toBe("workspace")
+  })
+
+  test("shows collapse-all only when the session total exceeds five", () => {
+    expect(canCollapseAll(0)).toBe(false)
+    expect(canCollapseAll(4)).toBe(false)
+    expect(canCollapseAll(5)).toBe(false)
+    expect(canCollapseAll(6)).toBe(true)
+    expect(canCollapseAll(60)).toBe(true)
   })
 
   test("detects project permissions with a filter", () => {
