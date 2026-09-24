@@ -12,6 +12,7 @@ type PendingRun = {
   command: string
   args: string[]
   title: string
+  done?: (err?: string) => void
 }
 
 const pendingRuns = new Map<string, PendingRun>()
@@ -32,8 +33,14 @@ export function runKey(slug: string) {
     .toLowerCase()
 }
 
-export function enqueueRun(slug: string, command: string, args: string[], title: string) {
-  pendingRuns.set(runKey(slug), { command, args, title })
+export function enqueueRun(
+  slug: string,
+  command: string,
+  args: string[],
+  title: string,
+  done?: (err?: string) => void,
+) {
+  pendingRuns.set(runKey(slug), { command, args, title, done })
   setPendingTrigger((n) => n + 1)
 }
 
@@ -324,7 +331,7 @@ function createWorkspaceTerminalSession(sdk: ReturnType<typeof useSDK>, dir: str
       try {
         const result = await sdk.client.pty.create({ command, args, title }).catch((error: unknown) => {
           console.error("Failed to run command in terminal", error)
-          return undefined
+          throw error instanceof Error ? error : new Error(String(error))
         })
         const data = result?.data
         const id = data?.id
@@ -511,7 +518,10 @@ export const { use: useTerminal, provider: TerminalProvider } = createSimpleCont
       const pending = pendingRuns.get(key)
       if (!pending) return
       pendingRuns.delete(key)
-      workspace().run(pending.command, pending.args, pending.title)
+      workspace()
+        .run(pending.command, pending.args, pending.title)
+        .then((id) => pending.done?.(id ? undefined : "terminal did not start"))
+        .catch((error: unknown) => pending.done?.(error instanceof Error ? error.message : String(error)))
     })
 
     return {

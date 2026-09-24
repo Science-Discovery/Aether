@@ -1,7 +1,12 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest"
 import { render } from "solid-js/web"
 import { createSignal, type Accessor } from "solid-js"
-import { WorkspaceHeader, WorkspaceSessionList, type WorkspaceSidebarContext } from "./sidebar-workspace"
+import {
+  RunScriptButton,
+  WorkspaceHeader,
+  WorkspaceSessionList,
+  type WorkspaceSidebarContext,
+} from "./sidebar-workspace"
 import type { useLanguage } from "@/context/language"
 
 vi.mock("./sidebar-items", () => ({
@@ -21,8 +26,87 @@ vi.mock("@opencode-ai/ui/icon-button", () => ({
   ),
 }))
 
+vi.mock("@opencode-ai/ui/button", () => ({
+  Button: (props: {
+    disabled?: boolean
+    onClick?: (event: MouseEvent) => void
+    class?: string
+    classList?: Record<string, boolean>
+    children?: unknown
+  }) => (
+    <button
+      type="button"
+      disabled={props.disabled}
+      class={props.class}
+      classList={props.classList}
+      onClick={props.onClick}
+    >
+      {props.children}
+    </button>
+  ),
+}))
+
 vi.mock("@opencode-ai/ui/tooltip", () => ({
-  Tooltip: (props: { children?: unknown }) => props.children,
+  Tooltip: (props: { value?: unknown; children?: unknown }) => (
+    <div>
+      <span data-tooltip-value>{props.value}</span>
+      {props.children}
+    </div>
+  ),
+}))
+
+vi.mock("@opencode-ai/ui/context-menu", () => {
+  const Menu = (props: { children?: unknown }) => <>{props.children}</>
+  type MockProps = { children?: unknown; class?: string; value?: string; onChange?: (value: string) => void }
+  Menu.Trigger = (props: MockProps & { "data-action"?: string; "data-workspace"?: string }) => (
+    <div class={props.class} data-action={props["data-action"]} data-workspace={props["data-workspace"]}>
+      {props.children}
+    </div>
+  )
+  Menu.Portal = (props: MockProps) => <>{props.children}</>
+  Menu.Content = (props: MockProps) => <div>{props.children}</div>
+  Menu.RadioGroup = (props: MockProps) => <div>{props.children}</div>
+  Menu.Group = (props: MockProps) => <div>{props.children}</div>
+  Menu.GroupLabel = (props: MockProps) => <div>{props.children}</div>
+  Menu.RadioItem = (props: MockProps) => (
+    <div role="menuitemradio" aria-label={props.value} onClick={() => props.onChange?.(props.value!)}>
+      {props.children}
+    </div>
+  )
+  Menu.ItemIndicator = (props: MockProps) => <span>{props.children}</span>
+  Menu.ItemLabel = (props: MockProps) => <span>{props.children}</span>
+  Menu.Separator = () => <hr />
+  return { ContextMenu: Menu }
+})
+
+const runMocks = vi.hoisted(() => ({
+  fileList: vi.fn(),
+  globalScripts: vi.fn(),
+  enqueueRun: vi.fn(),
+  navigate: vi.fn(),
+}))
+
+vi.mock("@/context/global-sdk", () => ({
+  useGlobalSDK: () => ({
+    createClient: () => ({ file: { list: runMocks.fileList } }),
+    client: { global: { scripts: runMocks.globalScripts } },
+  }),
+}))
+
+vi.mock("@/context/language", () => ({
+  useLanguage: () => ({
+    t: (key: string, params?: Record<string, string>) => (params ? `${key}:${JSON.stringify(params)}` : key),
+  }),
+}))
+
+vi.mock("@solidjs/router", () => ({
+  useNavigate: () => runMocks.navigate,
+  useParams: () => ({ dir: "c2x1Zw==", id: "s1" }),
+}))
+
+vi.mock("@/context/terminal", () => ({
+  enqueueRun: runMocks.enqueueRun,
+  runKey: (slug: string) => slug,
 }))
 
 type Language = ReturnType<typeof useLanguage>
@@ -103,6 +187,7 @@ function mount(props: {
 
 beforeEach(() => {
   document.body.innerHTML = ""
+  vi.clearAllMocks()
 })
 
 afterEach(() => {
@@ -254,9 +339,128 @@ describe("WorkspaceHeader active ring", () => {
     const { host, off } = mountHeader(() => true, true)
 
     expect(host.querySelector("[data-component='spinner']")).not.toBeNull()
-    const icon = host.querySelector<HTMLElement>("[data-active]")
+    const icon = host.querySelector("[data-active]")
     expect(icon).not.toBeNull()
     expect(icon!.className).toContain("ring-1")
+
+    off()
+  })
+})
+
+const SLUG = "c2x1Zw=="
+
+function mountRunButton() {
+  const host = document.createElement("div")
+  document.body.append(host)
+  const off = render(
+    () => (
+      <RunScriptButton
+        directory="E:/repo/sandbox-1"
+        slug={() => SLUG}
+        sessions={() => []}
+        createSession={() => Promise.resolve()}
+      />
+    ),
+    host,
+  )
+  return { host, off }
+}
+
+const runTrigger = (host: HTMLElement) => host.querySelector<HTMLElement>('[data-action="workspace-run-script"]')!
+const runButton = (host: HTMLElement) => runTrigger(host).querySelector("button")!
+const runHint = (host: HTMLElement) => host.querySelector("[data-tooltip-value]")!.textContent
+
+const FALLBACK_HINT = `workspace.runHint:${JSON.stringify({ path: "<datahome>/aether/.bin" })}`
+
+describe("RunScriptButton feedback", () => {
+  test("hints how to add scripts on empty projects while keeping the button hoverable", async () => {
+    runMocks.fileList.mockResolvedValue({ data: [] })
+    runMocks.globalScripts.mockResolvedValue({ data: { path: "C:/g/.bin", names: [] } })
+    const { host, off } = mountRunButton()
+
+    await vi.waitFor(() => expect(runHint(host)).toContain("workspace.runEmpty"))
+    expect(runHint(host)).toBe(`workspace.runEmpty:${JSON.stringify({ path: "C:/g/.bin" })}`)
+    expect(runButton(host).disabled).toBe(true)
+    expect(runButton(host).className).toContain("disabled:pointer-events-none")
+
+    off()
+  })
+
+  test("keeps the generic hint while the script list is still loading", () => {
+    runMocks.fileList.mockReturnValue(new Promise(() => {}))
+    runMocks.globalScripts.mockReturnValue(new Promise(() => {}))
+    const { host, off } = mountRunButton()
+
+    expect(runHint(host)).toBe(FALLBACK_HINT)
+
+    off()
+  })
+
+  test("pulses on click, enqueues the selected script and reports success", async () => {
+    runMocks.fileList.mockResolvedValue({ data: [{ type: "file", name: "run.sh" }] })
+    runMocks.globalScripts.mockResolvedValue({ data: { path: "", names: [] } })
+    const { host, off } = mountRunButton()
+
+    await vi.waitFor(() => expect(runButton(host).disabled).toBe(false))
+    expect(runHint(host)).toBe(FALLBACK_HINT)
+
+    vi.useFakeTimers()
+    try {
+      runButton(host).click()
+      expect(runButton(host).className).toContain("run-script-pulse")
+      expect(runMocks.enqueueRun).toHaveBeenCalledTimes(1)
+      expect(runMocks.enqueueRun.mock.calls[0].slice(0, 4)).toEqual([
+        SLUG,
+        "bash",
+        ["-c", '".aether/.bin/run.sh"; exec bash --noediting'],
+        ".aether/.bin/run.sh",
+      ])
+
+      vi.advanceTimersByTime(600)
+      expect(runButton(host).className).not.toContain("run-script-pulse")
+
+      const done = runMocks.enqueueRun.mock.calls[0][4] as (err?: string) => void
+      done(undefined)
+      expect(runHint(host)).toBe(`workspace.ranScript:${JSON.stringify({ name: "run.sh" })}`)
+
+      vi.advanceTimersByTime(6000)
+      expect(runHint(host)).toBe(FALLBACK_HINT)
+    } finally {
+      vi.useRealTimers()
+    }
+
+    off()
+  })
+
+  test("reports launch errors in the hint", async () => {
+    runMocks.fileList.mockResolvedValue({ data: [{ type: "file", name: "run.sh" }] })
+    runMocks.globalScripts.mockResolvedValue({ data: { path: "", names: [] } })
+    const { host, off } = mountRunButton()
+
+    await vi.waitFor(() => expect(runButton(host).disabled).toBe(false))
+
+    runButton(host).click()
+    expect(runMocks.enqueueRun).toHaveBeenCalledTimes(1)
+    const done = runMocks.enqueueRun.mock.calls[0][4] as (err?: string) => void
+    done("pty crashed")
+    expect(runHint(host)).toBe(`workspace.runFailed:${JSON.stringify({ name: "run.sh", error: "pty crashed" })}`)
+
+    off()
+  })
+
+  test("truncates long error details", async () => {
+    runMocks.fileList.mockResolvedValue({ data: [{ type: "file", name: "run.sh" }] })
+    runMocks.globalScripts.mockResolvedValue({ data: { path: "", names: [] } })
+    const { host, off } = mountRunButton()
+
+    await vi.waitFor(() => expect(runButton(host).disabled).toBe(false))
+
+    runButton(host).click()
+    const done = runMocks.enqueueRun.mock.calls[0][4] as (err?: string) => void
+    done("x".repeat(300))
+    const shown = runHint(host)!
+    expect(shown).toContain("workspace.runFailed")
+    expect(shown.length).toBeLessThan("workspace.runFailed".length + 280)
 
     off()
   })
