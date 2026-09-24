@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { existsSync, lstatSync, rmSync, symlinkSync, writeFileSync } from "fs"
+import { existsSync, mkdirSync, rmdirSync, rmSync, statSync, symlinkSync, writeFileSync } from "fs"
 import path from "path"
 import { Database as BunSqlite } from "bun:sqlite"
 import { Database } from "../../src/storage/db"
@@ -108,14 +108,16 @@ describe("attach transient failure quarantine guard (issue #1452)", () => {
     const id = pid()
     register(id)
     const p = dbPath(id)
-    danglingLink(p)
+    // a directory cannot be opened as a sqlite database on any platform,
+    // which simulates a transient open failure without destroying anything
+    mkdirSync(p)
     try {
       expect(() => Database.attach(id)).toThrow()
-      expect(lstatSync(p).isSymbolicLink()).toBe(true)
+      expect(statSync(p).isDirectory()).toBe(true)
       expect(readManifest().some((e) => e.originalPath === p)).toBe(false)
     } finally {
       try {
-        rmSync(p, { force: true })
+        rmdirSync(p)
       } catch {}
       Database.detach(id)
       Database.Client().$client.prepare("DELETE FROM global_project_map WHERE project_id = ?").run(id)
