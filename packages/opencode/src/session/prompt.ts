@@ -307,6 +307,25 @@ export namespace SessionPrompt {
     if (s[sessionID]?.abort.signal === signal) delete s[sessionID]
   }
 
+  // End the run that owns `signal`: unlike cancel(), the cleanup side effects
+  // only ever apply while this run still holds the claim. Without the guard,
+  // a run cancelled by the user releases its claim, a newer prompt claims the
+  // session, and the stale loop's exit cleanup would abort that newer run,
+  // drop its claim, repair its messages and flip its status to idle.
+  // Ownership is re-checked after every await: cancel() may land mid-cleanup
+  // and hand the session to a newer run.
+  async function finish(sessionID: SessionID, signal: AbortSignal) {
+    const owned = () => state()[sessionID]?.abort.signal === signal
+    if (!owned()) return
+    state()[sessionID]?.abort.abort()
+    await SessionWatchdog.clear(sessionID)
+    if (!owned()) return
+    await SessionRecovery.repairSession(sessionID)
+    if (!owned()) return
+    await SessionStatus.set(sessionID, { type: "idle" })
+    release(sessionID, signal)
+  }
+
   export async function cancel(sessionID: SessionID): Promise<void> {
     // The abort signal lives in the session's own instance; cancelling from
     // another workspace's instance would silently miss the running loop.
@@ -356,7 +375,7 @@ export namespace SessionPrompt {
       // loop ends but keeps the claim release free of cancel() side effects so
       // the persisted wait survives (status stays "retry", record stays armed).
       let retryQueued = false
-      await using _ = defer(() => (retryQueued ? release(sessionID, abort) : cancel(sessionID)))
+      await using _ = defer(() => (retryQueued ? release(sessionID, abort) : finish(sessionID, abort)))
 
       // Structured output state
       // Note: On session resumption, state is reset but outputFormat is preserved
@@ -1742,7 +1761,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         throw new Session.BusyError(input.sessionID)
       }
 
-      await using _ = defer(() => cancel(input.sessionID))
+      await using _ = defer(() => finish(input.sessionID, abort))
 
       await SessionRevert.awaitPending(input.sessionID)
       await SessionRevert.cleanup(await Session.get(input.sessionID))
