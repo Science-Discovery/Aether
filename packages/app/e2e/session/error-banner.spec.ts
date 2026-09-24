@@ -1,6 +1,8 @@
 import { test, expect, type Page } from "../fixtures"
 import { promptSelector } from "../selectors"
 import { sessionIDFromUrl } from "../actions"
+import { writeFile } from "node:fs/promises"
+import path from "node:path"
 
 const rateLimitBody = { error: { message: "您的账户已达到速率限制，请您控制请求频率" } }
 const certificateBody = { error: { message: "unknown certificate verification error" } }
@@ -35,6 +37,16 @@ async function textBelowCard(page: Page, reference: string) {
   }, reference)
 }
 
+async function disableMemory(directory: string) {
+  await writeFile(
+    path.join(directory, "opencode.json"),
+    JSON.stringify({
+      $schema: "https://opencode.ai/config.json",
+      memory: { enabled: false, dailyReflect: { enabled: false } },
+    }),
+  )
+}
+
 test("rate limit banner clears after recovery and the error stays inline in history", async ({
   page,
   project,
@@ -42,7 +54,7 @@ test("rate limit banner clears after recovery and the error stays inline in hist
   llm,
 }) => {
   test.setTimeout(420_000)
-  await project.open()
+  await project.open({ setup: disableMemory })
 
   for (let i = 0; i < 30; i++) await assistant.error(429, rateLimitBody)
   await send(page, "e2e rate limit prompt")
@@ -75,7 +87,7 @@ test("certificate error card stays in history below the recovered conversation",
 }) => {
   test.skip(!!process.env.CI, "conn-kind errors back off 30s/60s/120s and outrun slow CI runners; run locally")
   test.setTimeout(420_000)
-  await project.open()
+  await project.open({ setup: disableMemory })
 
   for (let i = 0; i < 30; i++) await assistant.error(429, certificateBody)
   await send(page, "e2e certificate prompt")
