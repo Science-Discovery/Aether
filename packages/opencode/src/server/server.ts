@@ -215,6 +215,9 @@ export namespace Server {
     void installMemory().catch((error) => {
       log.error("memory install failed", { error })
     })
+    // The server process was launched in this directory by the user; it is the
+    // one request-independent root that stays bootable (e.g. `opencode serve`).
+    const cwd = Filesystem.resolve(process.cwd())
     const app = new Hono<ServerEnv>()
     const corsware = cors({
       credentials: true,
@@ -378,7 +381,13 @@ export namespace Server {
         const isLifecycle = lifecyclePaths.some(
           (p) => c.req.path === p || c.req.path.startsWith(p + "/") || c.req.path.startsWith(p + "?"),
         )
-        const create = noDirectory ? false : isBrowse || isLifecycle ? Instance.has(directory) : true
+        // Instances may only be booted for directories the server already knows
+        // (registered project directories, running instances, or its own working
+        // directory). Anything else stays a browse context: a request can never
+        // mint an instance — and with it the file API containment root — for an
+        // arbitrary path.
+        const known = Instance.has(directory) || directory === cwd || Project.knownDirectory(directory)
+        const create = noDirectory ? false : isBrowse || isLifecycle ? Instance.has(directory) : known
 
         return WorkspaceContext.provide({
           workspaceID: rawWorkspaceID ? WorkspaceID.make(rawWorkspaceID) : undefined,
@@ -386,6 +395,7 @@ export namespace Server {
             return Instance.provide({
               directory,
               create,
+              untrusted: !known,
               init: create ? InstanceBootstrap : undefined,
               async fn() {
                 return next()

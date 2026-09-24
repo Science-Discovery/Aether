@@ -11,6 +11,7 @@ import {
   cleanupSession,
   cleanupTestProject,
   createTestProject,
+  openProjectOnServer,
   setHealthPhase,
   seedProjects,
   sessionIDFromUrl,
@@ -221,6 +222,7 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
   backend: [
     async ({ _llm }, use, workerInfo) => {
       const handle = await startBackend(`w${workerInfo.workerIndex}`, { llmUrl: _llm.url })
+      await openProjectOnServer(root, handle.url)
       try {
         await use({
           url: handle.url,
@@ -322,11 +324,14 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
     }
     await use(gotoSession)
   },
-  withProject: async ({ page }, use) => {
+  withProject: async ({ page, backend }, use) => {
     await use(async (callback, options) => {
-      const root = await createTestProject()
+      const root = await createTestProject({ serverUrl: backend.url })
       const sessions = new Map<string, string>()
       const dirs = new Set<string>()
+      await Promise.all(
+        (options?.extra ?? []).map((directory) => openProjectOnServer(directory, backend.url).catch(() => undefined)),
+      )
       await seedStorage(page, { directory: root, extra: options?.extra })
 
       const gotoSession = async (sessionID?: string) => {

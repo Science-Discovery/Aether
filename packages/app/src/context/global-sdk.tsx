@@ -10,6 +10,7 @@ import {
   addGlobalScriptsMethod,
   addMemoryMethods,
   addProjectDeleteMethod,
+  addProjectOpenMethod,
   addSkillEvolutionDirsMethod,
   createSdkForServer,
 } from "@/utils/server"
@@ -233,6 +234,7 @@ export const { use: useGlobalSDK, provider: GlobalSDKProvider } = createSimpleCo
     })
     addCronMethods(sdk, server.current.http.url, authHeader(server.current.http), { throwOnError: true })
     addMemoryMethods(sdk, server.current.http.url, authHeader(server.current.http), { throwOnError: true })
+    addProjectOpenMethod(sdk, server.current.http.url, authHeader(server.current.http), { throwOnError: true })
     addProjectDeleteMethod(sdk, server.current.http.url, authHeader(server.current.http), { throwOnError: true })
     addGlobalScriptsMethod(sdk, server.current.http.url, authHeader(server.current.http), { throwOnError: true })
     addSkillEvolutionDirsMethod(sdk, server.current.http.url, authHeader(server.current.http), { throwOnError: true })
@@ -252,6 +254,7 @@ export const { use: useGlobalSDK, provider: GlobalSDKProvider } = createSimpleCo
         })
         addCronMethods(c, s.http.url, authHeader(s.http), { throwOnError: opts.throwOnError })
         addMemoryMethods(c, s.http.url, authHeader(s.http), { throwOnError: opts.throwOnError })
+        addProjectOpenMethod(c, s.http.url, authHeader(s.http), { throwOnError: opts.throwOnError })
         addProjectDeleteMethod(c, s.http.url, authHeader(s.http), { throwOnError: opts.throwOnError })
         addGlobalScriptsMethod(c, s.http.url, authHeader(s.http), { throwOnError: opts.throwOnError })
         addSkillEvolutionDirsMethod(c, s.http.url, authHeader(s.http), { throwOnError: opts.throwOnError })
