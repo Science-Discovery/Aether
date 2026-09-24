@@ -73,6 +73,21 @@ export namespace SessionProcessor {
         needsCompaction = false
         idle = false
         waiting = false
+        const flush = async () => {
+          if (!snapshot) return
+          const patch = await Snapshot.patch(snapshot)
+          if (patch.files.length) {
+            await Session.updatePart({
+              id: PartID.ascending(),
+              messageID: input.assistantMessage.id,
+              sessionID: input.sessionID,
+              type: "patch",
+              hash: patch.hash,
+              files: patch.files,
+            })
+          }
+          snapshot = undefined
+        }
         const shouldBreak = (await Config.get()).experimental?.continue_loop_on_deny !== true
         // Reasoning-only recovery: retry once with the truncated reasoning
         // replayed as context, a nudge to externalize work via tools, and
@@ -332,20 +347,7 @@ export namespace SessionProcessor {
                     cost: usage.cost,
                   })
                   await Session.updateMessage(input.assistantMessage)
-                  if (snapshot) {
-                    const patch = await Snapshot.patch(snapshot)
-                    if (patch.files.length) {
-                      await Session.updatePart({
-                        id: PartID.ascending(),
-                        messageID: input.assistantMessage.id,
-                        sessionID: input.sessionID,
-                        type: "patch",
-                        hash: patch.hash,
-                        files: patch.files,
-                      })
-                    }
-                    snapshot = undefined
-                  }
+                  await flush()
                   SessionSummary.summarize({
                     sessionID: input.sessionID,
                     messageID: input.assistantMessage.parentID,
@@ -513,6 +515,7 @@ export namespace SessionProcessor {
               if (retry !== undefined && attempt < maxRetry) {
                 attempt++
                 const delay = SessionRetry.delay(attempt, error.name === "APIError" ? error : undefined)
+                await flush()
                 await SessionStatus.set(input.sessionID, {
                   type: "retry",
                   attempt,
@@ -549,20 +552,7 @@ export namespace SessionProcessor {
               }
             }
           }
-          if (snapshot) {
-            const patch = await Snapshot.patch(snapshot)
-            if (patch.files.length) {
-              await Session.updatePart({
-                id: PartID.ascending(),
-                messageID: input.assistantMessage.id,
-                sessionID: input.sessionID,
-                type: "patch",
-                hash: patch.hash,
-                files: patch.files,
-              })
-            }
-            snapshot = undefined
-          }
+          await flush()
           const p = await MessageV2.parts(input.assistantMessage.id)
           for (const part of p) {
             if (part.type === "tool" && part.state.status !== "completed" && part.state.status !== "error") {

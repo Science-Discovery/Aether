@@ -6,6 +6,7 @@ import { ProviderID, ModelID } from "../../src/provider/schema"
 import { Session } from "../../src/session"
 import { MessageV2 } from "../../src/session/message-v2"
 import { SessionPrompt } from "../../src/session/prompt"
+import { SessionRevert } from "../../src/session/revert"
 import { tmpdir } from "../fixture/fixture"
 import { serve } from "../lib/server"
 
@@ -17,6 +18,7 @@ type Item = {
     name: string
     input: Record<string, unknown>
   }
+  error?: string
 }
 
 type Hit = {
@@ -62,7 +64,7 @@ function chunk(delta: Record<string, unknown>, finish?: Item["finish"]) {
 }
 
 function stream(item: Item) {
-  const body = [
+  const parts: string[] = [
     line(chunk({ role: "assistant" })),
     ...(item.reasoning ? [line(chunk({ reasoning_content: item.reasoning }))] : []),
     ...(item.text ? [line(chunk({ content: item.text }))] : []),
@@ -82,9 +84,22 @@ function stream(item: Item) {
           ),
         ]
       : []),
+    ...(item.error ? [line({ error: { message: item.error } })] : []),
     line(chunk({}, item.finish ?? "stop")),
     line("done"),
-  ].join("")
+  ]
+  const body = new ReadableStream({
+    async start(controller) {
+      const enc = new TextEncoder()
+      for (let i = 0; i < parts.length; i++) {
+        controller.enqueue(enc.encode(parts[i]))
+        // spacing lets the consumer take the step snapshot before the tool runs
+        if (item.error && i === 0) await new Promise((r) => setTimeout(r, 300))
+        if (item.error && i === 1) await new Promise((r) => setTimeout(r, 500))
+      }
+      controller.close()
+    },
+  })
   return new Response(body, {
     headers: { "Content-Type": "text/event-stream" },
   })
@@ -107,12 +122,16 @@ async function setup(items: Item[]) {
   return {
     hits,
     tmp: await tmpdir({
+      git: true,
       init: async (dir) => {
         await Bun.write(
           path.join(dir, "opencode.json"),
           JSON.stringify({
             $schema: "https://opencode.ai/config.json",
             enabled_providers: [pid],
+            permission: {
+              edit: "allow",
+            },
             provider: {
               [pid]: {
                 npm: "@ai-sdk/openai-compatible",
@@ -216,4 +235,38 @@ describe("session processor GLM-5.2 recovery", () => {
     expect(parts(result, "reasoning")).toEqual(["first thought", "second thought"])
     expect(parts(result, "text")).toEqual([])
   })
+
+  test("persists the failed round's file changes when a retryable error interrupts the step", async () => {
+    const name = "retry-patch.txt"
+    const srv = await setup([
+      { tool: { name: "write", input: { filePath: name, content: "failed round" } }, error: "socket hang up" },
+      { text: "recovered" },
+    ])
+    await using tmp = srv.tmp
+
+    const messages = await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const session = await Session.create({ title: "retry patch" })
+        await SessionPrompt.prompt({
+          sessionID: session.id,
+          agent: "build",
+          model,
+          parts: [{ type: "text", text: "Write the file." }],
+        })
+        const all = await Session.messages({ sessionID: session.id })
+        const user = all.find((msg) => msg.info.role === "user")
+        if (!user) throw new Error("missing user message")
+        await SessionRevert.revert({ sessionID: session.id, messageID: user.info.id })
+        await Instance.dispose()
+        return all
+      },
+    })
+
+    expect(srv.hits).toHaveLength(2)
+    const target = path.join(tmp.path, name).replaceAll("\\", "/")
+    const patches = messages.flatMap((msg) => msg.parts.filter((part) => part.type === "patch"))
+    expect(patches.some((part) => part.files.includes(target))).toBe(true)
+    expect(await Bun.file(target).exists()).toBe(false)
+  }, 30_000)
 })
