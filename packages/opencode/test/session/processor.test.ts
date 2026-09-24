@@ -27,7 +27,6 @@ type Hit = {
 
 const pid = ProviderID.make("alibaba-cn")
 const mid = ModelID.make("glm-5.2")
-const model = { providerID: pid, modelID: mid }
 const servers: Array<ReturnType<typeof Bun.serve>> = []
 
 afterEach(async () => {
@@ -105,7 +104,7 @@ function stream(item: Item) {
   })
 }
 
-async function setup(items: Item[]) {
+async function setup(items: Item[], id: string = mid) {
   const hits: Hit[] = []
   const queue = [...items]
   const server = await serve({
@@ -136,8 +135,8 @@ async function setup(items: Item[]) {
               [pid]: {
                 npm: "@ai-sdk/openai-compatible",
                 models: {
-                  [mid]: {
-                    name: "GLM-5.2",
+                  [id]: {
+                    name: id === mid ? "GLM-5.2" : "GLM-5.3",
                     reasoning: true,
                     tool_call: true,
                     temperature: true,
@@ -159,7 +158,7 @@ async function setup(items: Item[]) {
   }
 }
 
-async function prompt(dir: string) {
+async function prompt(dir: string, id: string = mid) {
   return Instance.provide({
     directory: dir,
     fn: async () => {
@@ -167,7 +166,7 @@ async function prompt(dir: string) {
       const result = await SessionPrompt.prompt({
         sessionID: session.id,
         agent: "build",
-        model,
+        model: { providerID: pid, modelID: ModelID.make(id) },
         parts: [{ type: "text", text: "Answer briefly." }],
       })
       await Instance.dispose()
@@ -227,13 +226,49 @@ describe("session processor GLM-5.2 recovery", () => {
   })
 
   test("stops after one recovery attempt when visible text is still missing", async () => {
-    const srv = await setup([{ reasoning: "first thought" }, { reasoning: "second thought" }])
+    const srv = await setup([
+      { reasoning: "first thought", finish: "length" },
+      { reasoning: "second thought", finish: "length" },
+    ])
     await using tmp = srv.tmp
     const result = await prompt(tmp.path)
 
     expect(srv.hits).toHaveLength(2)
     expect(parts(result, "reasoning")).toEqual(["first thought", "second thought"])
-    expect(parts(result, "text")).toEqual([])
+    expect(parts(result, "text")).toEqual([
+      '[Response truncated: the model exhausted its output budget before finishing. Send a follow-up like "continue" to resume from where it stopped.]',
+    ])
+  })
+})
+
+describe("session processor GLM-5.3 output budget", () => {
+  const id = "glm-5.3"
+
+  test("does not inject thinking_budget and surfaces truncation for a cut-off answer", async () => {
+    const srv = await setup([{ reasoning: "deep thought", text: "partial answer", finish: "length" }], id)
+    await using tmp = srv.tmp
+    const result = await prompt(tmp.path, id)
+
+    expect(srv.hits).toHaveLength(1)
+    expect(srv.hits[0].body.enable_thinking).toBe(true)
+    expect(srv.hits[0].body.thinking_budget).toBeUndefined()
+    expect(srv.hits[0].body.max_tokens).toBe(131_072)
+    expect(parts(result, "text")).toEqual([
+      "partial answer",
+      '[Response truncated: the model exhausted its output budget before finishing. Send a follow-up like "continue" to resume from where it stopped.]',
+    ])
+  })
+
+  test("retries a reasoning-only response without the budget and stays quiet on success", async () => {
+    const srv = await setup([{ reasoning: "internal work", finish: "length" }, { text: "final answer" }], id)
+    await using tmp = srv.tmp
+    const result = await prompt(tmp.path, id)
+
+    expect(srv.hits).toHaveLength(2)
+    expect(srv.hits[0].body.thinking_budget).toBeUndefined()
+    expect(srv.hits[1].body.thinking_budget).toBeUndefined()
+    expect(srv.hits[1].body.reasoning_effort).toBe("low")
+    expect(parts(result, "text")).toEqual(["final answer"])
   })
 
   test("persists the failed round's file changes when a retryable error interrupts the step", async () => {
@@ -251,7 +286,7 @@ describe("session processor GLM-5.2 recovery", () => {
         await SessionPrompt.prompt({
           sessionID: session.id,
           agent: "build",
-          model,
+          model: { providerID: pid, modelID: ModelID.make(mid) },
           parts: [{ type: "text", text: "Write the file." }],
         })
         const all = await Session.messages({ sessionID: session.id })
