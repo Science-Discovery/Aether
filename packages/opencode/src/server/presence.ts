@@ -8,12 +8,13 @@ const PORT_SPAN = 5
 
 export type ClientType = "desktop" | "web"
 export type Clients = { desktop: number; web: number }
-export type Info = { pid: number; channel: string; clients: Clients }
+export type Info = { pid: number; channel: string; clients: Clients; mobile?: Record<string, string> }
 
 type FetchLike = (url: string, init?: RequestInit) => Promise<Response>
 
 let seq = 0
 const live = new Map<number, ClientType>()
+let bridgeReport: (() => Record<string, string>) | null = null
 
 export function parse(value: unknown): Info | null {
   if (!value || typeof value !== "object") return null
@@ -22,7 +23,13 @@ export function parse(value: unknown): Info | null {
   if (typeof data.pid !== "number") return null
   if (typeof data.channel !== "string") return null
   if (!raw || typeof raw.desktop !== "number" || typeof raw.web !== "number") return null
-  return { pid: data.pid, channel: data.channel, clients: { desktop: raw.desktop, web: raw.web } }
+  const mobile: Record<string, string> = {}
+  if (data.mobile && typeof data.mobile === "object") {
+    for (const [platform, status] of Object.entries(data.mobile)) {
+      if (typeof status === "string") mobile[platform] = status
+    }
+  }
+  return { pid: data.pid, channel: data.channel, clients: { desktop: raw.desktop, web: raw.web }, mobile }
 }
 
 export function marker(type: string | undefined): ClientType {
@@ -85,8 +92,12 @@ export namespace Presence {
     return { desktop, web }
   }
 
+  export function report(fn: () => Record<string, string>) {
+    bridgeReport = fn
+  }
+
   export function info(): Info {
-    return { pid: process.pid, channel: channelSlug(), clients: clients() }
+    return { pid: process.pid, channel: channelSlug(), clients: clients(), mobile: bridgeReport?.() ?? {} }
   }
 
   export async function others(fetchImpl: FetchLike = fetch): Promise<Info[]> {

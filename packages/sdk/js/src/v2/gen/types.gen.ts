@@ -2810,12 +2810,18 @@ export type GlobalPresenceResponses = {
       desktop: number
       web: number
     }
+    mobile?: {
+      [key: string]: string
+    }
     others: Array<{
       pid: number
       channel: string
       clients: {
         desktop: number
         web: number
+      }
+      mobile?: {
+        [key: string]: string
       }
     }>
   }

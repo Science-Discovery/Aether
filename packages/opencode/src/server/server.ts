@@ -209,13 +209,15 @@ export namespace Server {
   }): Hono<ServerEnv> => {
     SessionPreference.clear()
     registerMemoryDirectActions()
-    void Cron.start().catch((error) => {
-      log.error("cron start failed", { error })
-    })
-    WorktreeDiscover.start()
-    void installMemory().catch((error) => {
-      log.error("memory install failed", { error })
-    })
+    if (Flag.OPENCODE_BACKGROUND_SERVICES) {
+      void Cron.start().catch((error) => {
+        log.error("cron start failed", { error })
+      })
+      WorktreeDiscover.start()
+      void installMemory().catch((error) => {
+        log.error("memory install failed", { error })
+      })
+    }
     // The server process was launched in this directory by the user; it is the
     // one request-independent root that stays bootable (e.g. `opencode serve`).
     const cwd = Filesystem.resolve(process.cwd())
@@ -1114,7 +1116,7 @@ export namespace Server {
     }
     onShutdown(graceful)
 
-    MobileSupervisor.start()
+    if (Flag.OPENCODE_BACKGROUND_SERVICES) MobileSupervisor.start()
 
     return server
   }
