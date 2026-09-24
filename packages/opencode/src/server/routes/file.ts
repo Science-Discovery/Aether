@@ -84,6 +84,11 @@ const requireProjectDirectory = async (input: string) => {
   return dir
 }
 
+// The directory picker may create the very folder it is browsing as a new
+// project root (directory=X, path=X, X not on disk yet). That single
+// mkdir-only case stays allowed even in untrusted browse contexts.
+const isBrowseRoot = (input: string) => path.resolve(input) === path.resolve(Instance.directory)
+
 const opener = process.platform === "darwin" ? "open" : process.platform === "win32" ? "cmd.exe" : "xdg-open"
 
 const etag = (stat: Stats) => `W/"${Number(stat.size)}-${stat.mtimeMs}"`
@@ -237,6 +242,9 @@ export const FileRoutes = lazy(() =>
         }),
       ),
       async (c) => {
+        if (!Instance.containsPath(Instance.directory)) {
+          return c.json({ error: "Access denied: path escapes project directory" }, 400)
+        }
         const pattern = c.req.valid("query").pattern
         const result = await Ripgrep.search({
           cwd: Instance.directory,
@@ -397,8 +405,13 @@ export const FileRoutes = lazy(() =>
           return c.json(drives)
         }
 
-        const content = await File.list(path)
-        return c.json(content)
+        try {
+          const content = await File.list(path)
+          return c.json(content)
+        } catch (err) {
+          if (!accessDenied(err)) throw err
+          return c.json({ error: err.message }, 400)
+        }
       },
     )
     .get(
@@ -645,12 +658,9 @@ export const FileRoutes = lazy(() =>
       async (c) => {
         const input = c.req.valid("json").path
         if (!path.isAbsolute(input)) return c.json({ error: "path must be absolute" }, 400)
-        let dir: string
-        try {
-          dir = resolveFile(input)
-        } catch (err) {
-          if (!accessDenied(err)) throw err
-          return c.json({ error: err.message }, 400)
+        const dir = resolvePath(input)
+        if (!Instance.containsPath(dir) && !isBrowseRoot(dir)) {
+          return c.json({ error: "Access denied: path escapes project directory" }, 400)
         }
         await fs.mkdir(dir, { recursive: true })
         return c.json({ ok: true, path: dir })
@@ -936,8 +946,13 @@ export const FileRoutes = lazy(() =>
       validator("json", z.object({ path: z.string(), type: z.enum(["file", "directory"]) })),
       async (c) => {
         const { path: filePath, type } = c.req.valid("json")
-        const result = await File.addToGitignore(filePath, type)
-        return c.json({ ok: true, ...result })
+        try {
+          const result = await File.addToGitignore(filePath, type)
+          return c.json({ ok: true, ...result })
+        } catch (err) {
+          if (!accessDenied(err)) throw err
+          return c.json({ error: err.message }, 400)
+        }
       },
     )
     .get(

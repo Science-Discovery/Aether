@@ -15,6 +15,13 @@ export interface Shape {
   directory: string
   worktree: string
   project: Project.Info
+  /**
+   * False only for browse contexts rooted at a directory the server has not
+   * validated (never booted, not a registered project directory). Requests
+   * that merely name an arbitrary path must not gain file access anchored at
+   * that path, so containment fails closed for them.
+   */
+  untrusted?: boolean
 }
 const context = Context.create<Shape>("instance")
 const cache = new Map<string, Promise<Shape>>()
@@ -92,6 +99,7 @@ export const Instance = {
     create?: boolean
     project?: Project.Info
     worktree?: string
+    untrusted?: boolean
   }): Promise<R> {
     const directory = Filesystem.resolve(input.directory)
     const closed = closing.has(lexKey(directory))
@@ -116,6 +124,7 @@ export const Instance = {
         const browseCtx: Shape = {
           directory,
           worktree: info.sandbox,
+          untrusted: input.untrusted ?? true,
           project: {
             id: info.id,
             worktree: info.root,
@@ -180,6 +189,9 @@ export const Instance = {
    * Paths within the worktree but outside the working directory should not trigger external_directory permission.
    */
   containsPath(filepath: string) {
+    // Browse contexts rooted at an unvalidated directory must never anchor
+    // file access — the requester would otherwise choose the containment root.
+    if (context.use().untrusted) return false
     if (Filesystem.contains(Instance.directory, filepath)) return true
     // Non-git projects set worktree to "/" which would match ANY absolute path.
     // Skip worktree check in this case to preserve external_directory permissions.

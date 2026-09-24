@@ -1022,6 +1022,23 @@ export namespace Project {
     return classifyRecent(row, classifyContext(), false)
   }
 
+  // A directory is known when the server itself has registered it (project
+  // worktree, sandbox, subdirectory alias). Only known directories may be
+  // booted from request-supplied ?directory= values — otherwise any caller
+  // could re-anchor the file API containment root at an arbitrary path.
+  export function knownDirectory(directory: string): boolean {
+    const dir = norm(directory)
+    const row = Database.use((d) =>
+      d
+        .select({ project_id: GlobalProjectMapTable.project_id })
+        .from(GlobalProjectMapTable)
+        .where(eq(GlobalProjectMapTable.directory, dir))
+        .get(),
+    )
+    if (!row) return false
+    return Database.hasProject(row.project_id as ProjectID)
+  }
+
   export function directories(): string[] {
     // Recent projects are a display feed that hides sandbox and internal directories.
     // Use registration records, and ignore projects that have been removed.
