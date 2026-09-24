@@ -1,7 +1,12 @@
 import { describe, expect, test } from "bun:test"
 import type { PermissionRequest, Session } from "@opencode-ai/sdk/v2/client"
 import { base64Encode } from "@opencode-ai/util/encode"
-import { autoRespondsPermission, createModeOverrides, isDirectoryAutoAccepting } from "./permission-auto-respond"
+import {
+  autoRespondsPermission,
+  createModeOverrides,
+  cycleNext,
+  isDirectoryAutoAccepting,
+} from "./permission-auto-respond"
 
 const session = (input: { id: string; parentID?: string }) =>
   ({
@@ -148,6 +153,14 @@ describe("autoRespondsPermission", () => {
     expect(autoRespondsPermission({ root: true }, sessions, permission("child"), "/tmp/project", preference)).toBe(
       false,
     )
+  })
+})
+
+describe("cycleNext", () => {
+  test("cycles through all three modes and wraps around", () => {
+    expect(cycleNext("off")).toBe("safe")
+    expect(cycleNext("safe")).toBe("full")
+    expect(cycleNext("full")).toBe("off")
   })
 })
 

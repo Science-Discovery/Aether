@@ -101,6 +101,29 @@ describe("SessionPreference", () => {
       })
     })
 
+    test("field-only patches never move the tier", async () => {
+      await using tmp = await tmpdir()
+      await Instance.provide({
+        directory: tmp.path,
+        fn: async () => {
+          const session = await Session.create({})
+          const id = session.id
+          await SessionPreference.update({ sessionID: id, mode: "safe" })
+          await SessionPreference.update({
+            sessionID: id,
+            agent: "build",
+            model: { providerID: pid("openai"), modelID: mid("gpt-4") },
+            variant: "high",
+          })
+          const pref = SessionPreference.get(id)!
+          expect(pref.mode).toBe("safe")
+          expect(pref.autoAccept).toBe(false)
+          expect(pref.agent).toBe("build")
+          expect(pref.variant).toBe("high")
+        },
+      })
+    })
+
     test("same model patch keeps variant", async () => {
       await using tmp = await tmpdir()
       await Instance.provide({
@@ -116,7 +139,7 @@ describe("SessionPreference", () => {
       })
     })
 
-    test("autoAccept true then false toggles correctly", async () => {
+    test("autoAccept echo after the tier is set keeps the mirror consistent", async () => {
       await using tmp = await tmpdir()
       await Instance.provide({
         directory: tmp.path,
@@ -129,13 +152,15 @@ describe("SessionPreference", () => {
           const pref1 = SessionPreference.get(id)!
           expect(pref1.agent).toBe("build")
           expect(pref1.variant).toBe("max")
+          expect(pref1.mode).toBe("full")
           expect(pref1.autoAccept).toBe(true)
 
           await SessionPreference.update({ sessionID: id, autoAccept: false })
           const pref2 = SessionPreference.get(id)!
           expect(pref2.agent).toBe("build")
           expect(pref2.variant).toBe("max")
-          expect(pref2.autoAccept).toBe(false)
+          expect(pref2.mode).toBe("full")
+          expect(pref2.autoAccept).toBe(true)
         },
       })
     })
@@ -322,7 +347,7 @@ describe("SessionPreference permission tier", () => {
     })
   })
 
-  test("legacy autoAccept=true behaves as full tier", async () => {
+  test("legacy autoAccept applies tier only before a mode is set", async () => {
     await using tmp = await tmpdir()
     await Instance.provide({
       directory: tmp.path,
@@ -337,10 +362,40 @@ describe("SessionPreference permission tier", () => {
           expect(pref.autoAccept).toBe(true)
           expect(lastWritten(events)).toEqual([{ permission: "*", pattern: "*", action: "allow" }])
 
-          const off = await SessionPreference.update({ sessionID: id, autoAccept: false })
+          events.length = 0
+          const after = await SessionPreference.update({ sessionID: id, autoAccept: false })
+          expect(after.mode).toBe("full")
+          expect(after.autoAccept).toBe(true)
+          expect(lastWritten(events)).toBeUndefined()
+        } finally {
+          unsub()
+        }
+      },
+    })
+  })
+
+  test("stale autoAccept mirror echo cannot demote or promote the tier", async () => {
+    await using tmp = await tmpdir()
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const session = await Session.create({})
+        const id = session.id
+        const events: any[] = []
+        const unsub = Bus.subscribe(Session.Event.Updated, (e) => events.push(e.properties))
+        try {
+          await SessionPreference.update({ sessionID: id, mode: "safe" })
+          events.length = 0
+          const safe = await SessionPreference.update({ sessionID: id, autoAccept: false })
+          expect(safe.mode).toBe("safe")
+          expect(lastWritten(events)).toBeUndefined()
+
+          await SessionPreference.update({ sessionID: id, mode: "off" })
+          events.length = 0
+          const off = await SessionPreference.update({ sessionID: id, autoAccept: true })
           expect(off.mode).toBe("off")
           expect(off.autoAccept).toBe(false)
-          expect(lastWritten(events)).toEqual([])
+          expect(lastWritten(events)).toBeUndefined()
         } finally {
           unsub()
         }
