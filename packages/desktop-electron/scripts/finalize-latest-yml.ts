@@ -2,6 +2,7 @@
 
 import { $ } from "bun"
 import path from "path"
+import { withRetry } from "../../../.github/scripts/retry"
 
 const dir = process.env.LATEST_YML_DIR!
 if (!dir) throw new Error("LATEST_YML_DIR is required")
@@ -119,7 +120,12 @@ for (const [filename, content] of Object.entries(output)) {
   const filepath = path.join(tmp, filename)
   await Bun.write(filepath, content)
   if (dist) await Bun.write(path.join(dist, filename), content)
-  await $`gh release upload ${tag} ${filepath} --clobber --repo ${repo}`
+  await withRetry({
+    label: filename,
+    attempts: 3,
+    backoff: 10_000,
+    run: () => $`gh release upload ${tag} ${filepath} --clobber --repo ${repo}`,
+  })
   console.log(`uploaded ${filename}`)
 }
 

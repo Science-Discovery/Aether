@@ -107,7 +107,7 @@ EOF
 sed -i '' "s/ARCH/$arch/g;s/PACKAGE/$pkg/g" "$out/README_FIRST.txt"
 
 rm -f "$dmg"
-hdiutil create -volname "$vol" -srcfolder "$tmp" -format UDZO "$dmg"
+"$root/packing_scripts/retry.sh" 5 5 hdiutil create -volname "$vol" -srcfolder "$tmp" -format UDZO "$dmg"
 
 sha="$(openssl dgst -sha512 -binary "$dmg" | openssl base64 -A)"
 size="$(wc -c <"$dmg" | tr -d '[:space:]')"

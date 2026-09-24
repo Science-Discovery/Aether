@@ -27,6 +27,8 @@ jobs:
       tag: ${{ steps.release.outputs.tag }}
       version: ${{ steps.release.outputs.version }}
     steps:
+      - uses: actions/checkout@v4
+
       - name: Create draft release
         id: release
         env:
@@ -38,7 +40,7 @@ jobs:
           if gh release view "$tag" >/dev/null 2>&1; then
             echo "Release $tag already exists"
           else
-            gh release create "$tag" --title "$tag" --draft --prerelease --generate-notes
+            ./packing_scripts/retry.sh 3 10 gh release create "$tag" --title "$tag" --draft --prerelease --generate-notes
           fi
 
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
@@ -306,7 +308,7 @@ jobs:
             exit 1
           fi
 
-          gh release upload "${{ needs.release.outputs.tag }}" "${files[@]}" --clobber
+          ./packing_scripts/retry.sh 3 30 gh release upload "${{ needs.release.outputs.tag }}" "${files[@]}" --clobber
 
       - uses: actions/download-artifact@v4
         with:
@@ -349,4 +351,4 @@ jobs:
           fi
 
           git tag "$tag" "$sha"
-          git push origin "refs/tags/$tag"
+          ./packing_scripts/retry.sh 3 10 git push origin "refs/tags/$tag"
