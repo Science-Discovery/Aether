@@ -55,6 +55,7 @@ const api: ElectronAPI = {
   saveFile: (opts) => ipcRenderer.invoke("save-file", opts),
   openLink: (url) => ipcRenderer.send("open-link", url),
   openPath: (path) => ipcRenderer.invoke("open-path", path),
+  showInFolder: (path) => ipcRenderer.invoke("show-in-folder", path),
   readClipboardImage: () => ipcRenderer.invoke("read-clipboard-image"),
   showNotification: (title, body) => ipcRenderer.send("show-notification", title, body),
   getWindowFocused: () => ipcRenderer.invoke("get-window-focused"),

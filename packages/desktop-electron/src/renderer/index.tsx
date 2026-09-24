@@ -145,6 +145,12 @@ const createPlatform = (): Platform => {
       return window.api.openPath(target)
     },
 
+    async showInFolder(path: string) {
+      if (os !== "windows") return window.api.showInFolder(path)
+      const target = window.__OPENCODE__?.wsl ? await window.api.wslPath(path, "windows").catch(() => path) : path
+      return window.api.showInFolder(target)
+    },
+
     back() {
       window.history.back()
     },
