@@ -2289,7 +2289,7 @@ function SessionPageContent(props: SessionPageProps = {}) {
             <div
               classList={{
                 "@container relative flex flex-col min-h-0 h-full bg-background-stronger flex-1 md:flex-initial md:min-w-[150px]": true,
-                "transition-[width] duration-[240ms] ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[width] motion-reduce:transition-none":
+                "transition-[width] duration-[240ms] ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none":
                   !size.active() && !ui.reviewSnap,
               }}
               style={{
@@ -2471,7 +2471,7 @@ function SessionPageContent(props: SessionPageProps = {}) {
           <div
             classList={{
               "@container relative flex flex-col min-h-0 h-full bg-background-stronger flex-1 md:flex-initial md:min-w-[150px]": true,
-              "transition-[width] duration-[240ms] ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[width] motion-reduce:transition-none":
+              "transition-[width] duration-[240ms] ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none":
                 !size.active() && !ui.reviewSnap,
             }}
             style={{

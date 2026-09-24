@@ -148,10 +148,15 @@ export function SessionComposerRegion(props: {
   })
 
   return (
+    // Own compositing layer: keeps the docked composer's paint position
+    // driven by layout. Without it, WebKit (Tauri desktop) can leave ghost
+    // pixels of the prompt at a stale offset while the conversation scrolls
+    // over the docked region (issue #1441).
     <div
       ref={props.setPromptDockRef}
       data-component="session-prompt-dock"
       class="shrink-0 w-full pb-3 flex flex-col justify-center items-center bg-background-stronger pointer-events-none"
+      style={{ transform: "translateZ(0)" }}
     >
       <div
         classList={{
