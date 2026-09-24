@@ -62,7 +62,7 @@ jobs:
           GH_REPO: ${{ github.repository }}
         run: |
           mkdir -p assets
-          gh release download "v${{ inputs.version }}" --dir assets --clobber \
+          ./packing_scripts/retry.sh 3 15 gh release download "v${{ inputs.version }}" --dir assets --clobber \
             --pattern "aether-desktop-*" \
             --pattern "latest.yml" \
             --pattern "latest-mac.yml" \
@@ -92,7 +92,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-        run: gh release edit "v${{ inputs.version }}" --draft=false --prerelease=false --latest
+        run: ./packing_scripts/retry.sh 3 10 gh release edit "v${{ inputs.version }}" --draft=false --prerelease=false --latest
 
       - name: Verify channels
         env:
@@ -145,6 +145,6 @@ jobs:
           SUMMARY_ZH: ${{ inputs.announcement_summary_zh }}
           SUMMARY_EN: ${{ inputs.announcement_summary_en }}
         run: |
-          RELEASE_BODY="$(gh release view "v${{ inputs.version }}" --json body --jq .body)"
+          RELEASE_BODY="$(./packing_scripts/retry.sh 3 10 gh release view "v${{ inputs.version }}" --json body --jq .body)"
           export RELEASE_BODY
           bun .github/scripts/announce-stable.ts

@@ -1,3 +1,5 @@
+import { withRetry } from "./retry"
+
 const siteBase = env("SITE_BASE").replace(/\/+$/, "")
 const siteKey = env("SITE_API_KEY")
 const ver = env("VERSION")
@@ -45,8 +47,21 @@ function asciiRatio(text: string) {
 }
 
 async function main() {
-  const list = await fetch(`${siteBase}/v1/announcements?lang=zh-cn&limit=50`)
-  if (!list.ok) fail(`Failed to list announcements: ${list.status}`)
+  const list = await withRetry({
+    label: "list announcements",
+    attempts: 3,
+    backoff: 10_000,
+    run: async () => {
+      const res = await fetch(`${siteBase}/v1/announcements?lang=zh-cn&limit=50`, {
+        signal: AbortSignal.timeout(60_000),
+      })
+      if (!res.ok) {
+        if (res.status < 500) fail(`Failed to list announcements: ${res.status}`)
+        throw new Error(`HTTP ${res.status}`)
+      }
+      return res
+    },
+  })
   const items = ((await list.json()) as { data?: Array<{ version?: string }> }).data ?? []
   if (items.some((item) => item.version === ver)) {
     console.log(`Announcement for ${ver} already exists, skip`)
@@ -72,18 +87,30 @@ async function main() {
   if (titleEn) payload.title_en = titleEn
   if (summaryEn) payload.summary_en = summaryEn
 
-  const res = await fetch(`${siteBase}/v1/admin/announcements`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${siteKey}`,
+  const res = await withRetry({
+    label: "create announcement",
+    attempts: 3,
+    backoff: 10_000,
+    run: async () => {
+      const res = await fetch(`${siteBase}/v1/admin/announcements`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${siteKey}`,
+        },
+        body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(120_000),
+      })
+      if (res.status === 401 || res.status === 403) {
+        fail(`Announcement rejected (${res.status}): check SITE_ANNOUNCE_API_KEY is an admin account key`)
+      }
+      if (!res.ok) {
+        if (res.status < 500) fail(`Failed to create announcement: ${res.status} ${await res.text().catch(() => "")}`)
+        throw new Error(`HTTP ${res.status}`)
+      }
+      return res
     },
-    body: JSON.stringify(payload),
   })
-  if (res.status === 401 || res.status === 403) {
-    fail(`Announcement rejected (${res.status}): check SITE_ANNOUNCE_API_KEY is an admin account key`)
-  }
-  if (!res.ok) fail(`Failed to create announcement: ${res.status} ${await res.text().catch(() => "")}`)
   const created = (await res.json().catch(() => fail("Invalid announcement response"))) as { data?: { id?: string } }
   console.log(`Created announcement ${created.data?.id ?? ""} for ${ver}: ${titleZh}`)
 }
