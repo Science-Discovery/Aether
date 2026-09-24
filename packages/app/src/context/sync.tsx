@@ -621,6 +621,9 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
               .catch((err) => downgrade(directory, sessionID, err)),
           )
         },
+        paged(sessionID: string) {
+          return meta.limit[keyFor(sdk.directory, sessionID)] !== undefined
+        },
         history: {
           more(sessionID: string) {
             const store = current()[0]
