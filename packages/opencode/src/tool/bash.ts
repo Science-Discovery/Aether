@@ -1,12 +1,13 @@
 import z from "zod"
 import { spawn } from "child_process"
 import { Tool } from "./tool"
+import os from "os"
 import path from "path"
 import DESCRIPTION from "./bash.txt"
 import { Log } from "../util/log"
 import { Instance } from "../project/instance"
 import { lazy } from "@/util/lazy"
-import { Language } from "web-tree-sitter"
+import { Language, type Node as SyntaxNode } from "web-tree-sitter"
 import fs from "fs/promises"
 
 import { Filesystem } from "@/util/filesystem"
@@ -52,6 +53,40 @@ const parser = lazy(async () => {
   p.setLanguage(bashLanguage)
   return p
 })
+
+const TARGET_TYPES = ["word", "string", "raw_string", "concatenation"]
+
+// Virtual character devices that redirects commonly target but hold no project data.
+const VIRTUAL_DEVICES = new Set([
+  "/dev/null",
+  "/dev/zero",
+  "/dev/full",
+  "/dev/tty",
+  "/dev/stdin",
+  "/dev/stdout",
+  "/dev/stderr",
+  "/dev/random",
+  "/dev/urandom",
+])
+
+const target = (node: SyntaxNode) =>
+  node.namedChildren.find((c): c is SyntaxNode => !!c && TARGET_TYPES.includes(c.type))
+
+// Resolve a possibly nonexistent path to its nearest existing ancestor so
+// redirect destinations can be checked before the file is created.
+const resolveTarget = async (base: string, dest: string) => {
+  const abs = path.resolve(base, dest)
+  const rest: string[] = []
+  let probe = abs
+  for (;;) {
+    const real = await fs.realpath(probe).catch(() => "")
+    if (real) return path.join(real, ...rest)
+    const parent = path.dirname(probe)
+    if (parent === probe) return ""
+    rest.unshift(path.basename(probe))
+    probe = parent
+  }
+}
 
 // TODO: we may wanna rename this tool so it works better on other shells
 export const BashTool = Tool.define("bash", async () => {
@@ -138,6 +173,35 @@ export const BashTool = Tool.define("bash", async () => {
           always.add(BashArity.prefix(command).join(" ") + " *")
         }
       }
+
+      // A redirect is a write side effect the command scan cannot see when the
+      // statement has no command (pure redirect) or only a cd, which is exempt.
+      for (const node of tree.rootNode.descendantsOfType("redirected_statement")) {
+        if (!node) continue
+        const name = node.childForFieldName("body")?.childForFieldName("name")?.text
+        if (name && name !== "cd") continue
+        if (node.descendantsOfType("file_redirect").some((r) => r && target(r))) patterns.add(node.text)
+      }
+
+      // Redirect destinations are write targets and can sit outside the project.
+      for (const redirect of tree.rootNode.descendantsOfType("file_redirect")) {
+        const dest = redirect && target(redirect)
+        if (!redirect || !dest) continue
+        let destPath = dest.text
+        if (dest.type === "string" || dest.type === "raw_string") destPath = destPath.slice(1, -1)
+        if (destPath === "~" || destPath.startsWith("~/")) destPath = os.homedir() + destPath.slice(1)
+        else if (destPath === "$HOME" || destPath.startsWith("$HOME/")) destPath = os.homedir() + destPath.slice(5)
+        const resolved = await resolveTarget(cwd, destPath)
+        if (!resolved || VIRTUAL_DEVICES.has(resolved)) continue
+        const normalized =
+          process.platform === "win32" ? Filesystem.windowsPath(resolved).replace(/\//g, "\\") : resolved
+        if (Instance.containsPath(normalized)) continue
+        const dir = (await Filesystem.isDir(normalized)) ? normalized : path.dirname(normalized)
+        directories.add(dir)
+      }
+
+      // A failed parse must not let unrecognized shell text run without approval.
+      if (tree.rootNode.hasError && patterns.size === 0) patterns.add(params.command)
 
       if (directories.size > 0) {
         const globs = Array.from(directories).map((dir) => {
