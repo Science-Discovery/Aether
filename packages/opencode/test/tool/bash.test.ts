@@ -312,6 +312,203 @@ describe("tool.bash permissions", () => {
       },
     })
   })
+
+  test("asks for bash permission when command is pure redirect", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const bash = await BashTool.init()
+        const requests: Array<Omit<Permission.Request, "id" | "sessionID" | "tool">> = []
+        const testCtx = {
+          ...ctx,
+          ask: async (req: Omit<Permission.Request, "id" | "sessionID" | "tool">) => {
+            requests.push(req)
+          },
+        }
+        await bash.execute({ command: "> sentinel.txt", description: "Redirect" }, testCtx)
+        const bashReq = requests.find((r) => r.permission === "bash")
+        expect(bashReq).toBeDefined()
+        expect(bashReq!.patterns).toContain("> sentinel.txt")
+      },
+    })
+  })
+
+  test("pure redirect truncation is blocked when approval is rejected", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const bash = await BashTool.init()
+        const sentinel = path.join(tmp.path, "sentinel.txt")
+        await Bun.write(sentinel, "precious")
+        const testCtx = {
+          ...ctx,
+          ask: async () => {
+            throw new Error("rejected")
+          },
+        }
+        await expect(bash.execute({ command: "> sentinel.txt", description: "Redirect" }, testCtx)).rejects.toThrow(
+          "rejected",
+        )
+        expect(await Bun.file(sentinel).text()).toBe("precious")
+      },
+    })
+  })
+
+  test("asks for bash permission when cd carries a redirect", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const bash = await BashTool.init()
+        const requests: Array<Omit<Permission.Request, "id" | "sessionID" | "tool">> = []
+        const testCtx = {
+          ...ctx,
+          ask: async (req: Omit<Permission.Request, "id" | "sessionID" | "tool">) => {
+            requests.push(req)
+          },
+        }
+        await bash.execute({ command: "cd . > sentinel.txt", description: "Redirect" }, testCtx)
+        const bashReq = requests.find((r) => r.permission === "bash")
+        expect(bashReq).toBeDefined()
+        expect(bashReq!.patterns).toContain("cd . > sentinel.txt")
+      },
+    })
+  })
+
+  test("cd redirect truncation is blocked when approval is rejected", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const bash = await BashTool.init()
+        const sentinel = path.join(tmp.path, "sentinel.txt")
+        await Bun.write(sentinel, "precious")
+        const testCtx = {
+          ...ctx,
+          ask: async () => {
+            throw new Error("rejected")
+          },
+        }
+        await expect(
+          bash.execute({ command: "cd . > sentinel.txt", description: "Redirect" }, testCtx),
+        ).rejects.toThrow("rejected")
+        expect(await Bun.file(sentinel).text()).toBe("precious")
+      },
+    })
+  })
+
+  test("asks for bash permission when redirect follows a command inside a list", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const bash = await BashTool.init()
+        const requests: Array<Omit<Permission.Request, "id" | "sessionID" | "tool">> = []
+        const testCtx = {
+          ...ctx,
+          ask: async (req: Omit<Permission.Request, "id" | "sessionID" | "tool">) => {
+            requests.push(req)
+          },
+        }
+        await bash.execute({ command: "echo foo && > sentinel.txt", description: "Redirect" }, testCtx)
+        const bashReq = requests.find((r) => r.permission === "bash")
+        expect(bashReq).toBeDefined()
+        expect(bashReq!.patterns).toContain("> sentinel.txt")
+      },
+    })
+  })
+
+  test("asks for bash permission when redirected assignment has no command name", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const bash = await BashTool.init()
+        const requests: Array<Omit<Permission.Request, "id" | "sessionID" | "tool">> = []
+        const testCtx = {
+          ...ctx,
+          ask: async (req: Omit<Permission.Request, "id" | "sessionID" | "tool">) => {
+            requests.push(req)
+          },
+        }
+        await bash.execute({ command: "FOO=bar > sentinel.txt", description: "Redirect" }, testCtx)
+        const bashReq = requests.find((r) => r.permission === "bash")
+        expect(bashReq).toBeDefined()
+      },
+    })
+  })
+
+  test("asks for external_directory permission when redirect target is outside project", async () => {
+    await using outerTmp = await tmpdir({})
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const bash = await BashTool.init()
+        const requests: Array<Omit<Permission.Request, "id" | "sessionID" | "tool">> = []
+        const testCtx = {
+          ...ctx,
+          ask: async (req: Omit<Permission.Request, "id" | "sessionID" | "tool">) => {
+            requests.push(req)
+          },
+        }
+        const filepath = path.join(outerTmp.path, "not-created.txt")
+        await bash.execute({ command: `> ${filepath}`, description: "Redirect outside" }, testCtx)
+        const extDirReq = requests.find((r) => r.permission === "external_directory")
+        expect(extDirReq).toBeDefined()
+        expect(extDirReq!.patterns).toContain(path.join(outerTmp.path, "*"))
+      },
+    })
+  })
+
+  test("external redirect is blocked when approval is rejected", async () => {
+    await using outerTmp = await tmpdir({
+      init: async (dir) => {
+        await Bun.write(path.join(dir, "outside.txt"), "keep")
+      },
+    })
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const bash = await BashTool.init()
+        const testCtx = {
+          ...ctx,
+          ask: async (req: Omit<Permission.Request, "id" | "sessionID" | "tool">) => {
+            if (req.permission === "external_directory") throw new Error("rejected")
+          },
+        }
+        const filepath = path.join(outerTmp.path, "outside.txt")
+        await expect(
+          bash.execute({ command: `> ${filepath}`, description: "Redirect outside" }, testCtx),
+        ).rejects.toThrow("rejected")
+        expect(await Bun.file(filepath).text()).toBe("keep")
+      },
+    })
+  })
+
+  test("does not ask for external_directory permission for virtual device redirect", async () => {
+    if (process.platform === "win32") return
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const bash = await BashTool.init()
+        const requests: Array<Omit<Permission.Request, "id" | "sessionID" | "tool">> = []
+        const testCtx = {
+          ...ctx,
+          ask: async (req: Omit<Permission.Request, "id" | "sessionID" | "tool">) => {
+            requests.push(req)
+          },
+        }
+        await bash.execute({ command: "true > /dev/null", description: "Discard output" }, testCtx)
+        const extDirReq = requests.find((r) => r.permission === "external_directory")
+        expect(extDirReq).toBeUndefined()
+      },
+    })
+  })
 })
 
 describe("tool.bash truncation", () => {
