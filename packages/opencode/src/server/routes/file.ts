@@ -58,6 +58,16 @@ const ascii = (input: string) => {
 
 const attachment = (name: string) => `attachment; filename="${ascii(name)}"; filename*=UTF-8''${encode(name)}`
 
+const activeTypes = new Set([
+  "text/html",
+  "application/xhtml+xml",
+  "image/svg+xml",
+  "text/xml",
+  "application/xml",
+  "application/xslt+xml",
+  "text/xsl",
+])
+
 const resolvePath = (input: string) => (path.isAbsolute(input) ? input : path.join(Instance.directory, input))
 const resolveFile = (input: string) => {
   const resolved = resolvePath(input)
@@ -1377,6 +1387,10 @@ export const FileRoutes = lazy(() =>
             "Content-Type": type,
             ETag: etag(stat),
             "Last-Modified": stat.mtime.toUTCString(),
+            "X-Content-Type-Options": "nosniff",
+            ...(activeTypes.has(type.split(";")[0].trim().toLowerCase())
+              ? { "Content-Disposition": attachment(path.basename(abs)) }
+              : {}),
           }
           const range = bytes(c.req.header("range"), Number(stat.size))
           if (range === "invalid") {
