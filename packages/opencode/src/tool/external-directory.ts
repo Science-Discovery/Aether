@@ -33,6 +33,16 @@ function readlink(p: string): string | undefined {
   }
 }
 
+// lstat still resolves parent directories, so a path inside a link cycle
+// throws ELOOP instead of returning an entry.
+function lstat(p: string): ReturnType<typeof lstatSync> | undefined {
+  try {
+    return lstatSync(p, { throwIfNoEntry: false })
+  } catch {
+    return undefined
+  }
+}
+
 // Resolve the real access destination: follow links on existing paths, and for
 // missing paths resolve the nearest existing ancestor (following dangling
 // links met along the way) then re-join the trailing segments. Returns
@@ -45,7 +55,7 @@ function resolveTarget(target: string): string | undefined {
   while (true) {
     const real = canonical(current)
     if (real) return rest.length === 0 ? real : path.join(real, ...rest.reverse())
-    const dest = lstatSync(current, { throwIfNoEntry: false })?.isSymbolicLink() ? readlink(current) : undefined
+    const dest = lstat(current)?.isSymbolicLink() ? readlink(current) : undefined
     if (dest) {
       hops += 1
       if (hops > maxHops) return undefined
