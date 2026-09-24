@@ -35,7 +35,7 @@ export function GitGraphTab() {
   const pendingGitPtyIds = new Set<string>()
 
   const runGit = async (command: string, args: string[], title: string) => {
-    const id = await terminal.run(command, args, title)
+    const id = await terminal.run(command, args, title).catch(() => undefined)
     if (id) pendingGitPtyIds.add(id)
   }
 

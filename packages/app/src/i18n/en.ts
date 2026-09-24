@@ -1596,8 +1596,10 @@ export const dict = {
     "The .git file is missing — this directory is no longer a valid git worktree. Force deletion will remove the directory and clean up git metadata.",
   "workspace.delete.stale.button": "Force delete",
   "workspace.delete.unverified.title": "Workspace status unverified",
-  "workspace.delete.unverified.confirm": 'Git status of workspace "{{name}}" could not be verified, and it may contain uncommitted changes. Force delete this directory?',
-  "workspace.delete.unverified.description": "Force delete will permanently remove the directory and all uncommitted changes in it.",
+  "workspace.delete.unverified.confirm":
+    'Git status of workspace "{{name}}" could not be verified, and it may contain uncommitted changes. Force delete this directory?',
+  "workspace.delete.unverified.description":
+    "Force delete will permanently remove the directory and all uncommitted changes in it.",
   "workspace.delete.branch.title": "Delete branch",
   "workspace.delete.branch.confirm": 'Do you also want to delete branch "{{branch}}"?',
   "workspace.delete.branch.keep": "Keep branch",
@@ -1621,8 +1623,12 @@ export const dict = {
   "workspace.renameBranch.error.invalid": "Branch name is invalid",
   "workspace.run": "Run",
   "workspace.runHint": "Run scripts in this project's .aether/.bin/ or global scripts in {{path}}",
+  "workspace.runEmpty":
+    "No runnable scripts. Add scripts to this project's .aether/.bin/ or {{path}} for global scripts, then right-click here to refresh",
   "workspace.runScript": "Run: {{name}}",
   "workspace.runGlobalScript": "Global: {{name}}",
+  "workspace.ranScript": "Ran: {{name}}",
+  "workspace.runFailed": "Failed to run {{name}}: {{error}}",
   "workspace.runProjectScripts": "Project scripts",
   "workspace.runGlobalScripts": "Global scripts",
 
