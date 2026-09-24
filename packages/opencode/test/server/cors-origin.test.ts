@@ -51,10 +51,17 @@ describe("origin policy", () => {
       "https://opencode.ai.evil.com",
       "https://evil.com",
       "http://localhost.evil.com",
+      "http://localhost:not-a-port",
       "null\0",
     ]) {
       expect(allowOrigin(origin, undefined)).toBeUndefined()
       expect(allowOrigin(origin, "secret")).toBeUndefined()
+    }
+  })
+
+  test("matches loopback origins only after URL parsing", () => {
+    for (const origin of ["http://localhost:5173", "http://127.0.0.1:19527", "http://[::1]:19527"]) {
+      expect(allowOrigin(origin, undefined)).toBe(origin)
     }
   })
 })

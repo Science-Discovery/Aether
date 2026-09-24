@@ -105,6 +105,7 @@ import { describeRoute, generateSpecs, validator, resolver, openAPIRouteHandler 
 import { Hono } from "hono"
 import { cors } from "hono/cors"
 import { allowOrigin } from "./origin"
+import { assertBindAllowed, isLoopback, originGuard } from "./guard"
 import { streamSSE } from "hono/streaming"
 import { proxy } from "hono/proxy"
 import { basicAuth } from "hono/basic-auth"
@@ -293,6 +294,7 @@ export namespace Server {
         }
         return corsware(c, next)
       })
+      .use(originGuard<ServerEnv>(opts?.cors))
       .route("/global", GlobalRoutes())
       .put(
         "/auth/:providerID",
@@ -1025,6 +1027,10 @@ export namespace Server {
     cors?: string[]
     onBrowserConnectionChange?: (count: number) => void
   }) {
+    // Without a password the API only has the origin guard for defense, which
+    // means nothing to plain HTTP clients on the LAN. Loopback binds are only
+    // reachable from the local machine; anything wider must be authenticated.
+    assertBindAllowed(opts.hostname)
     const app = createApp(opts)
     const bp = basePath()
     const root = bp === "/" ? app : new Hono<ServerEnv>().route(bp, app).route("/", app)
@@ -1060,12 +1066,7 @@ export namespace Server {
 
     url = new URL(`http://${opts.hostname}:${server.port}`)
 
-    const shouldPublishMDNS =
-      opts.mdns &&
-      server.port &&
-      opts.hostname !== "127.0.0.1" &&
-      opts.hostname !== "localhost" &&
-      opts.hostname !== "::1"
+    const shouldPublishMDNS = opts.mdns && server.port && !isLoopback(opts.hostname)
     if (shouldPublishMDNS) {
       MDNS.publish(server.port!, opts.mdnsDomain)
     } else if (opts.mdns) {

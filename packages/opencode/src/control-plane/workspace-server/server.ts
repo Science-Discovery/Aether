@@ -3,12 +3,13 @@ import { Instance } from "../../project/instance"
 import { InstanceBootstrap } from "../../project/bootstrap"
 import { Filesystem } from "../../util/filesystem"
 import { SessionRoutes } from "../../server/routes/session"
+import { assertBindAllowed, originGuard } from "../../server/guard"
 import { WorkspaceServerRoutes } from "./routes"
 import { WorkspaceContext } from "../workspace-context"
 import { WorkspaceID } from "../schema"
 
 export namespace WorkspaceServer {
-  export function App() {
+  export function App(cors?: string[]) {
     const session = new Hono()
       .use(async (c, next) => {
         // Right now, we need handle all requests because we don't
@@ -21,6 +22,7 @@ export namespace WorkspaceServer {
       .route("/", SessionRoutes())
 
     return new Hono()
+      .use(originGuard(cors))
       .use(async (c, next) => {
         const rawWorkspaceID = c.req.query("workspace") || c.req.header("x-opencode-workspace")
         const raw = c.req.query("directory") || c.req.header("x-opencode-directory")
@@ -31,13 +33,15 @@ export namespace WorkspaceServer {
           throw new Error("directory parameter is required")
         }
 
-        const directory = Filesystem.resolve((() => {
-          try {
-            return decodeURIComponent(raw)
-          } catch {
-            return raw
-          }
-        })())
+        const directory = Filesystem.resolve(
+          (() => {
+            try {
+              return decodeURIComponent(raw)
+            } catch {
+              return raw
+            }
+          })(),
+        )
 
         return WorkspaceContext.provide({
           workspaceID: WorkspaceID.make(rawWorkspaceID),
@@ -56,11 +60,12 @@ export namespace WorkspaceServer {
       .route("/", WorkspaceServerRoutes())
   }
 
-  export function Listen(opts: { hostname: string; port: number }) {
+  export function Listen(opts: { hostname: string; port: number; cors?: string[] }) {
+    assertBindAllowed(opts.hostname)
     return Bun.serve({
       hostname: opts.hostname,
       port: opts.port,
-      fetch: App().fetch,
+      fetch: App(opts.cors).fetch,
     })
   }
 }
