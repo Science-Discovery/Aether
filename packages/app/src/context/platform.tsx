@@ -38,6 +38,9 @@ export type Platform = {
   /** Open a local path in a local app (desktop only) */
   openPath?(path: string, app?: string): Promise<void>
 
+  /** Reveal a file or directory in the system file manager (desktop only) */
+  showInFolder?(path: string): Promise<void>
+
   /** Restart the app  */
   restart(): Promise<void>
 

@@ -1,4 +1,4 @@
-import { writeFile } from "node:fs/promises"
+import { stat, writeFile } from "node:fs/promises"
 import { BrowserWindow, Notification, app, clipboard, dialog, ipcMain, shell } from "electron"
 import type { IpcMainEvent, IpcMainInvokeEvent } from "electron"
 
@@ -165,6 +165,11 @@ export function registerIpcHandlers(deps: Deps) {
   ipcMain.handle("open-path", async (_event: IpcMainInvokeEvent, path: string) => {
     await assertDir(path)
     return shell.openPath(path)
+  })
+
+  ipcMain.handle("show-in-folder", async (_event: IpcMainInvokeEvent, path: string) => {
+    await stat(path)
+    shell.showItemInFolder(path)
   })
 
   ipcMain.handle("read-clipboard-image", () => {
