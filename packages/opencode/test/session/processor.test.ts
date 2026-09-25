@@ -4,6 +4,7 @@ import { Instance } from "../../src/project/instance"
 import { Memory } from "../../src/memory"
 import { ProviderID, ModelID } from "../../src/provider/schema"
 import { Session } from "../../src/session"
+import { Permission } from "../../src/permission"
 import { MessageV2 } from "../../src/session/message-v2"
 import { SessionPrompt } from "../../src/session/prompt"
 import { SessionRevert } from "../../src/session/revert"
@@ -104,7 +105,11 @@ function stream(item: Item) {
   })
 }
 
-async function setup(items: Item[], id: string = mid) {
+async function setup(
+  items: Item[],
+  id: string = mid,
+  permission: Record<string, unknown> = { edit: "allow" },
+) {
   const hits: Hit[] = []
   const queue = [...items]
   const server = await serve({
@@ -128,9 +133,7 @@ async function setup(items: Item[], id: string = mid) {
           JSON.stringify({
             $schema: "https://opencode.ai/config.json",
             enabled_providers: [pid],
-            permission: {
-              edit: "allow",
-            },
+            permission,
             provider: {
               [pid]: {
                 npm: "@ai-sdk/openai-compatible",
@@ -303,5 +306,42 @@ describe("session processor GLM-5.3 output budget", () => {
     const patches = messages.flatMap((msg) => msg.parts.filter((part) => part.type === "patch"))
     expect(patches.some((part) => part.files.includes(target))).toBe(true)
     expect(await Bun.file(target).exists()).toBe(false)
+  }, 30_000)
+
+  test("feeds a rejected permission back to the model and keeps the loop going", async () => {
+    const srv = await setup(
+      [{ tool: { name: "write", input: { filePath: "denied.txt", content: "nope" } } }, { text: "took another route" }],
+      mid,
+      { edit: "ask" },
+    )
+    await using tmp = srv.tmp
+
+    const result = await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const session = await Session.create({ title: "deny loop" })
+        const run = SessionPrompt.prompt({
+          sessionID: session.id,
+          agent: "build",
+          model: { providerID: pid, modelID: mid },
+          parts: [{ type: "text", text: "Answer briefly." }],
+        })
+        let pending: Awaited<ReturnType<typeof Permission.list>> = []
+        for (let i = 0; i < 200 && pending.length === 0; i++) {
+          pending = await Permission.list()
+          if (pending.length === 0) await Bun.sleep(25)
+        }
+        expect(pending.length).toBeGreaterThan(0)
+        await Permission.reply({ requestID: pending[0]!.id, reply: "reject" })
+        const out = await run
+        await Instance.dispose()
+        return out
+      },
+    })
+
+    expect(srv.hits).toHaveLength(2)
+    expect(await Bun.file(path.join(tmp.path, "denied.txt")).exists()).toBe(false)
+    expect(JSON.stringify(srv.hits[1].body.messages)).toContain("权限申请被驳回，请尝试其它路线")
+    expect(parts(result, "text")).toContain("took another route")
   }, 30_000)
 })

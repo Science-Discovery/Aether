@@ -490,7 +490,6 @@ describe("tool.bash permissions", () => {
   })
 
   test("does not ask for external_directory permission for virtual device redirect", async () => {
-    if (process.platform === "win32") return
     await using tmp = await tmpdir({ git: true })
     await Instance.provide({
       directory: tmp.path,
@@ -504,6 +503,29 @@ describe("tool.bash permissions", () => {
           },
         }
         await bash.execute({ command: "true > /dev/null", description: "Discard output" }, testCtx)
+        const extDirReq = requests.find((r) => r.permission === "external_directory")
+        expect(extDirReq).toBeUndefined()
+      },
+    })
+  })
+
+  test("does not ask for external_directory permission for stderr discard in command list", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const bash = await BashTool.init()
+        const requests: Array<Omit<Permission.Request, "id" | "sessionID" | "tool">> = []
+        const testCtx = {
+          ...ctx,
+          ask: async (req: Omit<Permission.Request, "id" | "sessionID" | "tool">) => {
+            requests.push(req)
+          },
+        }
+        await bash.execute(
+          { command: "ls . && ls ./missing 2>/dev/null || echo nope", description: "List with discard" },
+          testCtx,
+        )
         const extDirReq = requests.find((r) => r.permission === "external_directory")
         expect(extDirReq).toBeUndefined()
       },

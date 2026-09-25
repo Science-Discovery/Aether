@@ -191,6 +191,10 @@ export const BashTool = Tool.define("bash", async () => {
         if (dest.type === "string" || dest.type === "raw_string") destPath = destPath.slice(1, -1)
         if (destPath === "~" || destPath.startsWith("~/")) destPath = os.homedir() + destPath.slice(1)
         else if (destPath === "$HOME" || destPath.startsWith("$HOME/")) destPath = os.homedir() + destPath.slice(5)
+        // Compare the literal target too: on Windows path.resolve turns a
+        // rootless /dev/null into <cwd-drive>:\dev\null, defeating the
+        // resolved-path check below.
+        if (VIRTUAL_DEVICES.has(destPath)) continue
         const resolved = await resolveTarget(cwd, destPath)
         if (!resolved || VIRTUAL_DEVICES.has(resolved)) continue
         const normalized =
