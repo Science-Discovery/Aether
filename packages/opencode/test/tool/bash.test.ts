@@ -531,6 +531,323 @@ describe("tool.bash permissions", () => {
       },
     })
   })
+
+  test("asks for external_directory permission when touch creates an external file", async () => {
+    await using outerTmp = await tmpdir({})
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const bash = await BashTool.init()
+        const requests: Array<Omit<Permission.Request, "id" | "sessionID" | "tool">> = []
+        const testCtx = {
+          ...ctx,
+          ask: async (req: Omit<Permission.Request, "id" | "sessionID" | "tool">) => {
+            requests.push(req)
+          },
+        }
+        const filepath = path.join(outerTmp.path, "created-by-touch.txt")
+        await bash.execute({ command: `touch ${filepath}`, description: "Create external file" }, testCtx)
+        const extDirReq = requests.find((r) => r.permission === "external_directory")
+        expect(extDirReq).toBeDefined()
+        expect(extDirReq!.patterns).toContain(path.join(outerTmp.path, "*"))
+      },
+    })
+  })
+
+  test("asks for external_directory permission when mkdir creates an external directory", async () => {
+    await using outerTmp = await tmpdir({})
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const bash = await BashTool.init()
+        const requests: Array<Omit<Permission.Request, "id" | "sessionID" | "tool">> = []
+        const testCtx = {
+          ...ctx,
+          ask: async (req: Omit<Permission.Request, "id" | "sessionID" | "tool">) => {
+            requests.push(req)
+          },
+        }
+        const dir = path.join(outerTmp.path, "created-dir")
+        await bash.execute({ command: `mkdir ${dir}`, description: "Create external dir" }, testCtx)
+        const extDirReq = requests.find((r) => r.permission === "external_directory")
+        expect(extDirReq).toBeDefined()
+        expect(extDirReq!.patterns).toContain(path.join(outerTmp.path, "*"))
+      },
+    })
+  })
+
+  test("asks for external_directory permission when cp target is a missing external path", async () => {
+    await using outerTmp = await tmpdir({})
+    await using tmp = await tmpdir({
+      git: true,
+      init: async (dir) => {
+        await Bun.write(path.join(dir, "src.txt"), "x")
+      },
+    })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const bash = await BashTool.init()
+        const requests: Array<Omit<Permission.Request, "id" | "sessionID" | "tool">> = []
+        const testCtx = {
+          ...ctx,
+          ask: async (req: Omit<Permission.Request, "id" | "sessionID" | "tool">) => {
+            requests.push(req)
+          },
+        }
+        const dst = path.join(outerTmp.path, "dst.txt")
+        await bash.execute({ command: `cp ${path.join(tmp.path, "src.txt")} ${dst}`, description: "Copy out" }, testCtx)
+        const extDirReq = requests.find((r) => r.permission === "external_directory")
+        expect(extDirReq).toBeDefined()
+        expect(extDirReq!.patterns).toContain(path.join(outerTmp.path, "*"))
+      },
+    })
+  })
+
+  test("asks for external_directory permission when mv target is a missing external path", async () => {
+    await using outerTmp = await tmpdir({})
+    await using tmp = await tmpdir({
+      git: true,
+      init: async (dir) => {
+        await Bun.write(path.join(dir, "src.txt"), "x")
+      },
+    })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const bash = await BashTool.init()
+        const requests: Array<Omit<Permission.Request, "id" | "sessionID" | "tool">> = []
+        const testCtx = {
+          ...ctx,
+          ask: async (req: Omit<Permission.Request, "id" | "sessionID" | "tool">) => {
+            requests.push(req)
+          },
+        }
+        const dst = path.join(outerTmp.path, "dst.txt")
+        await bash.execute({ command: `mv ${path.join(tmp.path, "src.txt")} ${dst}`, description: "Move out" }, testCtx)
+        const extDirReq = requests.find((r) => r.permission === "external_directory")
+        expect(extDirReq).toBeDefined()
+        expect(extDirReq!.patterns).toContain(path.join(outerTmp.path, "*"))
+      },
+    })
+  })
+
+  test("asks for external_directory permission when rm removes an existing external file", async () => {
+    await using outerTmp = await tmpdir({
+      init: async (dir) => {
+        await Bun.write(path.join(dir, "outside.txt"), "x")
+      },
+    })
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const bash = await BashTool.init()
+        const requests: Array<Omit<Permission.Request, "id" | "sessionID" | "tool">> = []
+        const testCtx = {
+          ...ctx,
+          ask: async (req: Omit<Permission.Request, "id" | "sessionID" | "tool">) => {
+            requests.push(req)
+          },
+        }
+        await bash.execute(
+          { command: `rm ${path.join(outerTmp.path, "outside.txt")}`, description: "Remove external file" },
+          testCtx,
+        )
+        const extDirReq = requests.find((r) => r.permission === "external_directory")
+        expect(extDirReq).toBeDefined()
+        expect(extDirReq!.patterns).toContain(path.join(outerTmp.path, "*"))
+      },
+    })
+  })
+
+  test("asks for external_directory permission when touch creates into a missing external nested path", async () => {
+    await using outerTmp = await tmpdir({})
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const bash = await BashTool.init()
+        const requests: Array<Omit<Permission.Request, "id" | "sessionID" | "tool">> = []
+        const testCtx = {
+          ...ctx,
+          ask: async (req: Omit<Permission.Request, "id" | "sessionID" | "tool">) => {
+            requests.push(req)
+          },
+        }
+        const filepath = path.join(outerTmp.path, "a", "b", "c.txt")
+        await bash.execute({ command: `touch ${filepath}`, description: "Create external nested file" }, testCtx)
+        const extDirReq = requests.find((r) => r.permission === "external_directory")
+        expect(extDirReq).toBeDefined()
+        expect(extDirReq!.patterns).toContain(path.join(outerTmp.path, "a", "b", "*"))
+      },
+    })
+  })
+
+  test("asks for external_directory permission for quoted external targets", async () => {
+    await using outerTmp = await tmpdir({})
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const bash = await BashTool.init()
+        const requests: Array<Omit<Permission.Request, "id" | "sessionID" | "tool">> = []
+        const testCtx = {
+          ...ctx,
+          ask: async (req: Omit<Permission.Request, "id" | "sessionID" | "tool">) => {
+            requests.push(req)
+          },
+        }
+        const filepath = path.join(outerTmp.path, "missing target.txt")
+        await bash.execute({ command: `rm -f "${filepath}"`, description: "Remove quoted external" }, testCtx)
+        const extDirReq = requests.find((r) => r.permission === "external_directory")
+        expect(extDirReq).toBeDefined()
+        expect(extDirReq!.patterns).toContain(path.join(outerTmp.path, "*"))
+      },
+    })
+  })
+
+  test("asks for external_directory permission for home-relative targets", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const bash = await BashTool.init()
+        const requests: Array<Omit<Permission.Request, "id" | "sessionID" | "tool">> = []
+        const testCtx = {
+          ...ctx,
+          ask: async (req: Omit<Permission.Request, "id" | "sessionID" | "tool">) => {
+            requests.push(req)
+            if (req.permission === "external_directory") throw new Error("rejected")
+          },
+        }
+        await expect(
+          bash.execute({ command: "rm -f ~/aether-bash-perm-probe", description: "Remove home file" }, testCtx),
+        ).rejects.toThrow("rejected")
+        const extDirReq = requests.find((r) => r.permission === "external_directory")
+        expect(extDirReq).toBeDefined()
+        expect(extDirReq!.patterns).toContain(path.join(os.homedir(), "*"))
+      },
+    })
+  })
+
+  test("asks for external_directory permission for braced home targets", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const bash = await BashTool.init()
+        const requests: Array<Omit<Permission.Request, "id" | "sessionID" | "tool">> = []
+        const testCtx = {
+          ...ctx,
+          ask: async (req: Omit<Permission.Request, "id" | "sessionID" | "tool">) => {
+            requests.push(req)
+            if (req.permission === "external_directory") throw new Error("rejected")
+          },
+        }
+        await expect(
+          bash.execute({ command: "rm -f ${HOME}/aether-bash-perm-probe", description: "Remove home file" }, testCtx),
+        ).rejects.toThrow("rejected")
+        const extDirReq = requests.find((r) => r.permission === "external_directory")
+        expect(extDirReq).toBeDefined()
+        expect(extDirReq!.patterns).toContain(path.join(os.homedir(), "*"))
+      },
+    })
+  })
+
+  test("asks for external_directory permission for spliced home targets", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const bash = await BashTool.init()
+        const requests: Array<Omit<Permission.Request, "id" | "sessionID" | "tool">> = []
+        const testCtx = {
+          ...ctx,
+          ask: async (req: Omit<Permission.Request, "id" | "sessionID" | "tool">) => {
+            requests.push(req)
+            if (req.permission === "external_directory") throw new Error("rejected")
+          },
+        }
+        await expect(
+          bash.execute(
+            { command: 'rm -f "$HOME"/aether-bash-perm-probe', description: "Remove spliced home" },
+            testCtx,
+          ),
+        ).rejects.toThrow("rejected")
+        const extDirReq = requests.find((r) => r.permission === "external_directory")
+        expect(extDirReq).toBeDefined()
+      },
+    })
+  })
+
+  test("asks for external_directory permission for spliced home redirect targets", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const bash = await BashTool.init()
+        const requests: Array<Omit<Permission.Request, "id" | "sessionID" | "tool">> = []
+        const testCtx = {
+          ...ctx,
+          ask: async (req: Omit<Permission.Request, "id" | "sessionID" | "tool">) => {
+            requests.push(req)
+            if (req.permission === "external_directory") throw new Error("rejected")
+          },
+        }
+        await expect(
+          bash.execute({ command: '> "$HOME"/aether-bash-perm-probe', description: "Redirect spliced home" }, testCtx),
+        ).rejects.toThrow("rejected")
+        const extDirReq = requests.find((r) => r.permission === "external_directory")
+        expect(extDirReq).toBeDefined()
+      },
+    })
+  })
+
+  test("does not ask for external_directory permission for virtual device command argument", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const bash = await BashTool.init()
+        const requests: Array<Omit<Permission.Request, "id" | "sessionID" | "tool">> = []
+        const testCtx = {
+          ...ctx,
+          ask: async (req: Omit<Permission.Request, "id" | "sessionID" | "tool">) => {
+            requests.push(req)
+          },
+        }
+        await bash.execute({ command: "cat /dev/null", description: "Read null device" }, testCtx)
+        const extDirReq = requests.find((r) => r.permission === "external_directory")
+        expect(extDirReq).toBeUndefined()
+      },
+    })
+  })
+
+  test("does not ask for external_directory permission when touch creates inside project", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const bash = await BashTool.init()
+        const requests: Array<Omit<Permission.Request, "id" | "sessionID" | "tool">> = []
+        const testCtx = {
+          ...ctx,
+          ask: async (req: Omit<Permission.Request, "id" | "sessionID" | "tool">) => {
+            requests.push(req)
+          },
+        }
+        await bash.execute(
+          { command: `touch ${path.join(tmp.path, "internal-new.txt")}`, description: "Create internal file" },
+          testCtx,
+        )
+        const extDirReq = requests.find((r) => r.permission === "external_directory")
+        expect(extDirReq).toBeUndefined()
+      },
+    })
+  })
 })
 
 describe("tool.bash truncation", () => {
