@@ -48,7 +48,7 @@ def state(directory_q, sid):
 
 def report(sid, directory_q, label):
     msgs = api(f"/session/{sid}/message?directory={directory_q}")
-    keys = ("Issue", "PR", "github.com", "完成", "PASS", "受阻")
+    keys = ("commit", "分支", "完成", "PASS", "受阻")
     texts = [
         p.get("text", "")
         for m in msgs
