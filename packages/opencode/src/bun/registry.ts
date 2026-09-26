@@ -5,6 +5,8 @@ import { Process } from "../util/process"
 export namespace PackageRegistry {
   const log = Log.create({ service: "bun" })
 
+  const REGISTRY_TIMEOUT = 10_000
+
   function which() {
     return process.execPath
   }
@@ -17,6 +19,8 @@ export namespace PackageRegistry {
         BUN_BE_BUN: "1",
       },
       nothrow: true,
+      abort: AbortSignal.timeout(REGISTRY_TIMEOUT),
+      timeout: 2_000,
     })
 
     if (code !== 0) {
