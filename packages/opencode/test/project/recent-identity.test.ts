@@ -235,7 +235,9 @@ describe("startup reconciliation removes ghost sandbox projects", () => {
     Database.detach(ghostId)
 
     await Database.registerUntrackedProjects(Database.Client())
-    for (let i = 0; i < 5 && Database.hasProject(ghostId); i++) {
+    // Windows CI (AV scans) can hold the quarantine leftover well past the
+    // old 500ms budget; identity proof still gates every cleanup attempt.
+    for (let i = 0; i < 30 && Database.hasProject(ghostId); i++) {
       Bun.gc(true)
       await Bun.sleep(100)
       cleanupQuarantinedOriginals()
