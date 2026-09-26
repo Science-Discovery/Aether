@@ -47,8 +47,9 @@ function lstat(p: string): ReturnType<typeof lstatSync> | undefined {
 // missing paths resolve the nearest existing ancestor (following dangling
 // links met along the way) then re-join the trailing segments. Returns
 // undefined when the destination cannot be determined; the guard then fails
-// closed and asks.
-function resolveTarget(target: string): string | undefined {
+// closed and asks. Shared with the bash tool so command arguments that do not
+// exist yet (touch/mkdir/cp destinations) still resolve to a checkable path.
+export function resolveTarget(target: string): string | undefined {
   let current = path.resolve(Filesystem.windowsPath(target))
   const rest: string[] = []
   let hops = 0

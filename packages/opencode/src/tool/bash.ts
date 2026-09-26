@@ -8,7 +8,6 @@ import { Log } from "../util/log"
 import { Instance } from "../project/instance"
 import { lazy } from "@/util/lazy"
 import { Language, type Node as SyntaxNode } from "web-tree-sitter"
-import fs from "fs/promises"
 
 import { Filesystem } from "@/util/filesystem"
 import { fileURLToPath } from "url"
@@ -20,6 +19,7 @@ import { cleanupNul } from "@/shell/guard"
 import { BashArity } from "@/permission/arity"
 import { Truncate } from "./truncate"
 import { Plugin } from "@/plugin"
+import { resolveTarget } from "./external-directory"
 
 const MAX_METADATA_LENGTH = 30_000
 const DEFAULT_TIMEOUT = Flag.OPENCODE_EXPERIMENTAL_BASH_DEFAULT_TIMEOUT_MS || 2 * 60 * 1000
@@ -71,22 +71,6 @@ const VIRTUAL_DEVICES = new Set([
 
 const target = (node: SyntaxNode) =>
   node.namedChildren.find((c): c is SyntaxNode => !!c && TARGET_TYPES.includes(c.type))
-
-// Resolve a possibly nonexistent path to its nearest existing ancestor so
-// redirect destinations can be checked before the file is created.
-const resolveTarget = async (base: string, dest: string) => {
-  const abs = path.resolve(base, dest)
-  const rest: string[] = []
-  let probe = abs
-  for (;;) {
-    const real = await fs.realpath(probe).catch(() => "")
-    if (real) return path.join(real, ...rest)
-    const parent = path.dirname(probe)
-    if (parent === probe) return ""
-    rest.unshift(path.basename(probe))
-    probe = parent
-  }
-}
 
 // TODO: we may wanna rename this tool so it works better on other shells
 export const BashTool = Tool.define("bash", async () => {
@@ -154,15 +138,37 @@ export const BashTool = Tool.define("bash", async () => {
         if (["cd", "rm", "cp", "mv", "mkdir", "touch", "chmod", "chown", "cat"].includes(command[0])) {
           for (const arg of command.slice(1)) {
             if (arg.startsWith("-") || (command[0] === "chmod" && arg.startsWith("+"))) continue
-            const resolved = await fs.realpath(path.resolve(cwd, arg)).catch(() => "")
+            let raw = arg
+            if ((raw.startsWith('"') && raw.endsWith('"')) || (raw.startsWith("'") && raw.endsWith("'")))
+              raw = raw.slice(1, -1)
+            if (raw === "~" || raw.startsWith("~/")) raw = os.homedir() + raw.slice(1)
+            else if (raw === "$HOME" || raw.startsWith("$HOME/")) raw = os.homedir() + raw.slice(5)
+            else if (raw === "${HOME}" || raw.startsWith("${HOME}/")) raw = os.homedir() + raw.slice(7)
+            if (VIRTUAL_DEVICES.has(raw)) continue
+            // Splice forms like "$HOME"/x still carry shell metacharacters the
+            // scan cannot expand; fail closed on any residue instead of
+            // guessing a path that the shell would resolve elsewhere. A mid
+            // path ~ is a legal filename character, so only a leading one
+            // (unhandled ~user form) counts as unexpanded.
+            const unexpanded = /["'$(]/.test(raw) || raw.startsWith("~")
+            // Absolute targets go untranslated so windowsPath inside
+            // resolveTarget can translate Git Bash style /c/... paths.
+            const dest = path.isAbsolute(raw) ? raw : path.resolve(cwd, raw)
+            // Missing targets (touch/mkdir/cp destinations) must resolve to
+            // their nearest existing ancestor; an undeterminable destination
+            // fails closed by asking about the lexical parent directory.
+            const resolved = unexpanded ? undefined : resolveTarget(dest)
             log.info("resolved path", { arg, resolved })
-            if (resolved) {
-              const normalized =
-                process.platform === "win32" ? Filesystem.windowsPath(resolved).replace(/\//g, "\\") : resolved
-              if (!Instance.containsPath(normalized)) {
-                const dir = (await Filesystem.isDir(normalized)) ? normalized : path.dirname(normalized)
-                directories.add(dir)
-              }
+            if (!resolved) {
+              const lexical = process.platform === "win32" ? Filesystem.windowsPath(dest) : dest
+              directories.add(path.dirname(lexical))
+              continue
+            }
+            const normalized =
+              process.platform === "win32" ? Filesystem.windowsPath(resolved).replace(/\//g, "\\") : resolved
+            if (!Instance.containsPath(normalized)) {
+              const dir = (await Filesystem.isDir(normalized)) ? normalized : path.dirname(normalized)
+              directories.add(dir)
             }
           }
         }
@@ -191,7 +197,21 @@ export const BashTool = Tool.define("bash", async () => {
         if (dest.type === "string" || dest.type === "raw_string") destPath = destPath.slice(1, -1)
         if (destPath === "~" || destPath.startsWith("~/")) destPath = os.homedir() + destPath.slice(1)
         else if (destPath === "$HOME" || destPath.startsWith("$HOME/")) destPath = os.homedir() + destPath.slice(5)
-        const resolved = await resolveTarget(cwd, destPath)
+        else if (destPath === "${HOME}" || destPath.startsWith("${HOME}/")) destPath = os.homedir() + destPath.slice(7)
+        // Compare the literal target too: on Windows path.resolve turns a
+        // rootless /dev/null into <cwd-drive>:\dev\null, defeating the
+        // resolved-path check below.
+        if (VIRTUAL_DEVICES.has(destPath)) continue
+        // Splice forms like "$HOME"/x keep metacharacters the scan cannot
+        // expand; ask about the lexical parent rather than skip the target.
+        // A mid path ~ is a legal filename character, so only a leading one
+        // (unhandled ~user form) counts as unexpanded.
+        if (/["'$(]/.test(destPath) || destPath.startsWith("~")) {
+          const lexical = process.platform === "win32" ? Filesystem.windowsPath(destPath) : destPath
+          directories.add(path.dirname(path.isAbsolute(lexical) ? lexical : path.resolve(cwd, lexical)))
+          continue
+        }
+        const resolved = resolveTarget(path.isAbsolute(destPath) ? destPath : path.resolve(cwd, destPath))
         if (!resolved || VIRTUAL_DEVICES.has(resolved)) continue
         const normalized =
           process.platform === "win32" ? Filesystem.windowsPath(resolved).replace(/\//g, "\\") : resolved
