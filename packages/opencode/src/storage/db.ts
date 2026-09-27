@@ -1016,6 +1016,10 @@ export namespace Database {
     let synced = 0
     for (const [pid, fullPath] of existingDbIds) {
       try {
+        // a queued sibling pass may have quarantined this db after the listing
+        // above was taken — a bare bun:sqlite open would re-create an empty
+        // file that the quarantine cooldown then refuses to remove
+        if (!existsSync(fullPath)) continue
         const corruption = detectCorruption(fullPath)
         if (corruption) {
           quarantine(fullPath, "project", pid)

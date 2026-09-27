@@ -33,6 +33,7 @@ export type RecoveryEntry = {
   recoveredRows: number
   timestamp: number
   leftover?: { ino: number; size: number }
+  leftoverWal?: { ino: number; size: number }
 }
 
 type RecoveryResult = {
@@ -195,6 +196,7 @@ export function quarantine(dbPath: string, kind: "main" | "project" | "cron", pr
   const qPath = path.join(corruptDir(), `${ts}-${base}`)
 
   let leftover: RecoveryEntry["leftover"]
+  let leftoverWal: RecoveryEntry["leftoverWal"]
   for (const suffix of ["", "-wal", "-shm"]) {
     const src = dbPath + suffix
     if (!existsSync(src)) continue
@@ -206,10 +208,13 @@ export function quarantine(dbPath: string, kind: "main" | "project" | "cron", pr
         try {
           unlinkSync(src)
         } catch {
-          if (suffix === "") {
-            const st = statSync(dbPath, { throwIfNoEntry: false })
-            if (st?.ino) leftover = { ino: st.ino, size: st.size }
-          }
+          // Windows keeps the file locked past sqlite close (AV scans, pending
+          // handles); prove identity so cleanupQuarantinedOriginals may finish
+          // the removal later. Only already-copied files may be recorded —
+          // their content survives in the quarantine copy.
+          const st = statSync(src, { throwIfNoEntry: false })
+          if (st?.ino && suffix === "") leftover = { ino: st.ino, size: st.size }
+          if (st?.ino && suffix === "-wal") leftoverWal = { ino: st.ino, size: st.size }
         }
       } catch {}
     }
@@ -233,6 +238,7 @@ export function quarantine(dbPath: string, kind: "main" | "project" | "cron", pr
     recoveredRows: 0,
     timestamp: ts,
     leftover,
+    leftoverWal,
   }
 
   appendManifest(entry)
@@ -249,18 +255,26 @@ export function cleanupQuarantinedOriginals() {
     // rebuilt database at the same path never matches even at the same size. A
     // live WAL may hold commits newer than the quarantine copy and blocks
     // removal — neither generation may ever destroy the other.
-    if (!entry.leftover) continue
-    const st = statSync(entry.originalPath, { throwIfNoEntry: false })
-    if (!st?.ino || st.ino !== entry.leftover.ino || st.size !== entry.leftover.size) continue
-    if (existsSync(entry.originalPath + "-wal")) continue
-    for (const suffix of ["", "-shm"]) {
-      const src = entry.originalPath + suffix
+    const main = entry.originalPath
+    const wal = main + "-wal"
+    const ms = statSync(main, { throwIfNoEntry: false })
+    const mainLeft = !!entry.leftover && !!ms?.ino && ms.ino === entry.leftover.ino && ms.size === entry.leftover.size
+    const ws = statSync(wal, { throwIfNoEntry: false })
+    const walLeft =
+      !!entry.leftoverWal && !!ws?.ino && ws.ino === entry.leftoverWal.ino && ws.size === entry.leftoverWal.size
+    // a wal with no proven identity belongs to a newer generation
+    if (existsSync(wal) && !walLeft) continue
+    // a main file with no proven identity is a rebuilt database
+    if (existsSync(main) && !mainLeft) continue
+    if (!existsSync(main) && !walLeft) continue
+    for (const suffix of ["-wal", "-shm", ""]) {
+      const src = main + suffix
       if (!existsSync(src)) continue
       try {
         unlinkSync(src)
       } catch {}
     }
-    if (!existsSync(entry.originalPath)) cleaned++
+    if (!existsSync(main) && !existsSync(wal)) cleaned++
   }
   if (cleaned > 0) log.info("cleaned up abandoned quarantine originals", { cleaned })
 }

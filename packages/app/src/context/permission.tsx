@@ -12,6 +12,7 @@ import { useParams } from "@solidjs/router"
 import { decode64 } from "@/utils/base64"
 import {
   acceptKey,
+  cycleNext,
   directoryAcceptKey,
   isDirectoryAutoAccepting,
   autoRespondsPermission,
@@ -27,6 +28,8 @@ export type { PermissionMode }
 export function resolveMode(pref?: { autoAccept?: boolean; mode?: PermissionMode }) {
   return pref?.mode ?? (pref?.autoAccept ? "full" : undefined)
 }
+
+const DRAFT = "*"
 
 type PermissionRespondFn = (input: {
   sessionID: string
@@ -57,8 +60,6 @@ function hasPermissionPromptRules(permission: unknown) {
   const config = permission as Record<string, unknown>
   return Object.values(config).some(isNonAllowRule)
 }
-
-const MODE_ORDER: PermissionMode[] = ["off", "safe", "full"]
 
 export const { use: usePermission, provider: PermissionProvider } = createSimpleContext({
   name: "Permission",
@@ -190,11 +191,21 @@ export const { use: usePermission, provider: PermissionProvider } = createSimple
       return legacy ? "full" : "off"
     }
 
+    function allowAll(directory: string) {
+      const [childStore] = globalSync.child(directory)
+      const perm = childStore.config.permission
+      return typeof perm === "string" && perm === "allow"
+    }
+
     function effectiveMode(sessionID?: string, directory?: string): PermissionMode {
       if (sessionID) return modeOf(sessionID, directory) ?? "off"
       const dir = directory ?? decode64(params.dir)
-      if (dir && isDirectoryAutoAccepting(store.autoAccept, dir)) return "full"
-      return settings.permissions.defaultPermissionMode()
+      const fallback = settings.permissions.defaultPermissionMode()
+      if (!dir) return fallback
+      const draft = overrides.get(DRAFT, dir)
+      if (draft !== undefined) return draft
+      if (allowAll(dir)) return "full"
+      return fallback
     }
 
     function isAutoAccepting(sessionID: string, directory?: string) {
@@ -278,18 +289,11 @@ export const { use: usePermission, provider: PermissionProvider } = createSimple
     })
     onCleanup(unsubscribe)
 
-    function enableDirectory(directory: string) {
-      const key = directoryAcceptKey(directory)
-      setStore(
-        produce((draft) => {
-          draft.autoAccept[key] = true
-        }),
-      )
-
+    function sweepDirectory(directory: string, live: () => boolean) {
       globalSDK.client.permission
         .list({ directory })
         .then((x) => {
-          if (!isAutoAcceptingDirectory(directory)) return
+          if (!live()) return
           for (const perm of x.data ?? []) {
             if (!perm?.id) continue
             if (!shouldAutoRespond(perm, directory)) continue
@@ -297,6 +301,16 @@ export const { use: usePermission, provider: PermissionProvider } = createSimple
           }
         })
         .catch(() => undefined)
+    }
+
+    function enableDirectory(directory: string) {
+      const key = directoryAcceptKey(directory)
+      setStore(
+        produce((draft) => {
+          draft.autoAccept[key] = true
+        }),
+      )
+      sweepDirectory(directory, () => isAutoAcceptingDirectory(directory))
     }
 
     function disableDirectory(directory: string) {
@@ -327,13 +341,13 @@ export const { use: usePermission, provider: PermissionProvider } = createSimple
       setMode,
       cycleMode(sessionID: string | undefined, directory: string): PermissionMode {
         if (!sessionID) {
-          const active = isDirectoryAutoAccepting(store.autoAccept, directory)
-          toggleDirectory(directory)
-          return active ? "off" : "full"
+          const next = cycleNext(effectiveMode(undefined, directory))
+          overrides.set(DRAFT, directory, next)
+          if (next === "full") sweepDirectory(directory, () => effectiveMode(undefined, directory) === "full")
+          return next
         }
 
-        const now = modeOf(sessionID, directory) ?? "off"
-        const next = MODE_ORDER[(MODE_ORDER.indexOf(now) + 1) % MODE_ORDER.length]
+        const next = cycleNext(modeOf(sessionID, directory) ?? "off")
         setMode(sessionID, directory, next)
         return next
       },
@@ -345,11 +359,7 @@ export const { use: usePermission, provider: PermissionProvider } = createSimple
         setMode(sessionID, directory, "full")
       },
       permissionsEnabled,
-      isPermissionAllowAll(directory: string) {
-        const [childStore] = globalSync.child(directory)
-        const perm = childStore.config.permission
-        return typeof perm === "string" && perm === "allow"
-      },
+      isPermissionAllowAll: allowAll,
     }
   },
 })

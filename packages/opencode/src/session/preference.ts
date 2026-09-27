@@ -63,7 +63,7 @@ export namespace SessionPreference {
 
   function resolveMode(patch: Patch, prev: Info | undefined): Mode | undefined {
     if (patch.mode !== undefined) return patch.mode
-    if (patch.autoAccept !== undefined) return patch.autoAccept ? "full" : "off"
+    if (patch.autoAccept !== undefined && prev?.mode === undefined) return patch.autoAccept ? "full" : "off"
     return prev?.mode
   }
 
@@ -105,7 +105,7 @@ export namespace SessionPreference {
               ? undefined
               : prev?.variant,
       mode,
-      autoAccept: patch.autoAccept ?? autoMirror ?? prev?.autoAccept,
+      autoAccept: autoMirror ?? prev?.autoAccept,
     }
     store.set(patch.sessionID, merged)
     log.info("update", { sessionID: patch.sessionID })

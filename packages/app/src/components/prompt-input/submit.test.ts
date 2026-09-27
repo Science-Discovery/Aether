@@ -109,7 +109,8 @@ beforeAll(async () => {
 
   mock.module("@/context/permission", () => ({
     usePermission: () => ({
-      isAutoAcceptingDirectory: (directory: string) => directoryAutoAccept && directory === "/repo/main",
+      effectiveMode: (_sessionID: string | undefined, directory?: string) =>
+        directoryAutoAccept && directory === "/repo/main" ? "full" : defaultMode,
       setMode(sessionID: string, directory: string, mode: string) {
         setModes.push({ sessionID, directory, mode })
       },
@@ -312,7 +313,7 @@ describe("prompt submit worktree selection", () => {
     ])
   })
 
-  test("applies the directory toggle as full mode to newly created sessions", async () => {
+  test("applies the effective pre-submit mode to newly created sessions", async () => {
     directoryAutoAccept = true
 
     const submit = createPromptSubmit({
@@ -376,7 +377,7 @@ describe("prompt submit worktree selection", () => {
     ])
   })
 
-  test("skips the initial mode when the settings default is off", async () => {
+  test("pins the initial mode to off when the settings default is off", async () => {
     defaultMode = "off"
 
     const submit = createPromptSubmit({
@@ -403,7 +404,9 @@ describe("prompt submit worktree selection", () => {
     await submit.handleSubmit(event)
     await flush()
 
-    expect(setModes).toEqual([])
+    expect(setModes).toEqual([
+      { sessionID: storedSessions["/repo/worktree-a"][0]?.id, directory: "/repo/worktree-a", mode: "off" },
+    ])
   })
 
   test("includes the selected variant on optimistic prompts", async () => {

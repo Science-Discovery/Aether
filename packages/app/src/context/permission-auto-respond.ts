@@ -40,6 +40,12 @@ export function sessionLineage(session: readonly { id: string; parentID?: string
   return ids
 }
 
+const MODE_ORDER: PermissionMode[] = ["off", "safe", "full"]
+
+export function cycleNext(mode: PermissionMode): PermissionMode {
+  return MODE_ORDER[(MODE_ORDER.indexOf(mode) + 1) % MODE_ORDER.length]
+}
+
 export function resolvesPreference(pref?: { autoAccept?: boolean; mode?: PermissionMode }) {
   if (pref?.mode !== undefined) return pref.mode === "full"
   return pref?.autoAccept

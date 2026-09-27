@@ -18,7 +18,6 @@ type State = {
   agent?: string
   model?: ModelKey
   variant?: string | null
-  autoAccept?: boolean
 }
 
 type Saved = {
@@ -254,7 +253,6 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
         agent: agent.current()?.name,
         model: model ? { providerID: model.provider.id, modelID: model.id } : undefined,
         variant: selected(),
-        autoAccept: scope()?.autoAccept,
       } satisfies State
     }
 
@@ -279,7 +277,6 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
       if (state.agent) body.agent = state.agent
       if (state.model) body.model = state.model
       if (state.variant !== undefined) body.variant = state.variant ?? null
-      if (state.autoAccept !== undefined) body.autoAccept = state.autoAccept
       sdk.client.session.preference.update({ sessionID: session, ...body }).catch(() => {})
     }
 
@@ -299,7 +296,6 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
           if (serverPref.agent) state.agent = serverPref.agent
           if (serverPref.model) state.model = serverPref.model
           if (serverPref.variant !== undefined) state.variant = serverPref.variant ?? null
-          if (serverPref.autoAccept !== undefined) state.autoAccept = serverPref.autoAccept
           if (Object.keys(state).length > 0) {
             setSaved("session", session, state)
           }
@@ -313,7 +309,7 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
           type: string
           properties?: {
             sessionID?: string
-            preference?: { agent?: string; model?: ModelKey; variant?: string; autoAccept?: boolean }
+            preference?: { agent?: string; model?: ModelKey; variant?: string }
           }
         }
         if (event.type !== "session.preference.updated") return
@@ -326,15 +322,9 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
         if (pref.agent) state.agent = pref.agent
         if (pref.model) state.model = pref.model
         if (pref.variant !== undefined) state.variant = pref.variant ?? null
-        if (pref.autoAccept !== undefined) state.autoAccept = pref.autoAccept
         const prev = saved.session[session]
         const eq = (a?: string | null, b?: string | null) => (a ?? null) === (b ?? null)
-        if (
-          prev &&
-          eq(state.agent, prev.agent) &&
-          eq(state.variant, prev.variant) &&
-          state.autoAccept === prev.autoAccept
-        ) {
+        if (prev && eq(state.agent, prev.agent) && eq(state.variant, prev.variant)) {
           const sm = state.model
           const pm = prev.model
           if (sm === pm || (sm && pm && sm.providerID === pm.providerID && sm.modelID === pm.modelID)) return
