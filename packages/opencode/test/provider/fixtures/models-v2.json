@@ -1,0 +1,343 @@
+{
+  "deepseek": {
+    "id": "deepseek",
+    "name": "DeepSeek",
+    "doc": "https://api-docs.deepseek.com/quick_start/pricing",
+    "env": [
+      "DEEPSEEK_API_KEY"
+    ],
+    "models": {
+      "deepseek-flash": {
+        "id": "deepseek-flash",
+        "canonical_id": "deepseek/deepseek-v4.1-flash-1017",
+        "type": "chat",
+        "name": "DeepSeek V4.1 Flash 1017",
+        "description": "October 17 update of DeepSeek V4.1 Flash with improved reasoning, coding, agentic tasks, and visual understanding",
+        "family": "deepseek-flash",
+        "open_weights": true,
+        "knowledge": "2025-05",
+        "release_date": "2026-10-17",
+        "last_updated": "2026-10-17",
+        "modalities": {
+          "input": [
+            "text",
+            "image/jpeg",
+            "image/png",
+            "image/gif",
+            "image/webp"
+          ],
+          "output": [
+            "text"
+          ]
+        },
+        "capabilities": {
+          "tools": {
+            "supported": true,
+            "updates": false
+          },
+          "reasoning": {
+            "supported": true,
+            "default": {
+              "type": "effort",
+              "value": "high"
+            },
+            "toggle": true,
+            "effort": [
+              "low",
+              "high",
+              "max"
+            ]
+          },
+          "cache": {
+            "supported": true,
+            "implicit": true,
+            "explicit": false
+          },
+          "structured_output": true,
+          "temperature": true,
+          "top_p": true,
+          "top_k": false,
+          "system_updates": true,
+          "effort_updates": false,
+          "stream_usage": true
+        },
+        "limit": {
+          "context": 1048576,
+          "output": 393216
+        },
+        "cost": {
+          "text": {
+            "input": {
+              "price": 0.15,
+              "cache": {
+                "read": 0.003
+              }
+            },
+            "output": {
+              "price": 0.6,
+              "reasoning": 0.6
+            }
+          },
+          "multipliers": [
+            {
+              "when": {
+                "utc_days": {
+                  "in": [
+                    "mon",
+                    "tue",
+                    "wed",
+                    "thu",
+                    "fri"
+                  ]
+                },
+                "any": [
+                  {
+                    "all": [
+                      {
+                        "utc_hours": {
+                          "gte": "01:00"
+                        }
+                      },
+                      {
+                        "utc_hours": {
+                          "lt": "04:00"
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "all": [
+                      {
+                        "utc_hours": {
+                          "gte": "06:00"
+                        }
+                      },
+                      {
+                        "utc_hours": {
+                          "lt": "10:00"
+                        }
+                      }
+                    ]
+                  }
+                ],
+                "not": {
+                  "holiday": {
+                    "equals": "CN"
+                  }
+                }
+              },
+              "factor": 2
+            }
+          ]
+        },
+        "api": {
+          "chat-completions": {
+            "base_url": "https://api.deepseek.com",
+            "sdk": {
+              "aisdk": "@ai-sdk/openai-compatible",
+              "opencodeai": "@opencode/ai/providers/deepseek"
+            },
+            "compatibility": {
+              "reasoning_field": "reasoning_content"
+            }
+          }
+        },
+        "future_field": {
+          "nested": true
+        }
+      }
+    }
+  },
+  "alibaba-cn": {
+    "id": "alibaba-cn",
+    "name": "Alibaba (China)",
+    "doc": "https://www.alibabacloud.com/help/en/model-studio/models",
+    "env": [
+      "DASHSCOPE_API_KEY"
+    ],
+    "models": {
+      "deepseek-v4.1-flash-1017": {
+        "id": "deepseek-v4.1-flash-1017",
+        "canonical_id": "deepseek/deepseek-v4.1-flash-1017",
+        "type": "chat",
+        "name": "DeepSeek V4.1 Flash 1017",
+        "description": "October 17 update of DeepSeek V4.1 Flash with improved reasoning, coding, agentic tasks, and visual understanding",
+        "family": "deepseek-flash",
+        "open_weights": true,
+        "knowledge": "2025-05",
+        "release_date": "2026-10-17",
+        "last_updated": "2026-10-17",
+        "modalities": {
+          "input": [
+            "text",
+            "image/jpeg",
+            "image/png",
+            "image/gif",
+            "image/webp"
+          ],
+          "output": [
+            "text"
+          ]
+        },
+        "capabilities": {
+          "tools": {
+            "supported": true,
+            "updates": false
+          },
+          "reasoning": {
+            "supported": true,
+            "default": {
+              "type": "effort",
+              "value": "high"
+            },
+            "toggle": true,
+            "effort": [
+              "low",
+              "high",
+              "max"
+            ]
+          },
+          "cache": {
+            "supported": true,
+            "implicit": {
+              "min_tokens": 1024
+            },
+            "explicit": false
+          },
+          "structured_output": true,
+          "temperature": true,
+          "top_p": true,
+          "top_k": false,
+          "stream_usage": true
+        },
+        "limit": {
+          "context": 1000000,
+          "output": 384000
+        },
+        "cost": {
+          "text": {
+            "input": {
+              "price": 0.283,
+              "cache": {
+                "read": 0.0283
+              }
+            },
+            "output": {
+              "price": 1.131
+            }
+          },
+          "multipliers": [
+            {
+              "when": {
+                "utc_hours": {
+                  "gte": "14:00"
+                }
+              },
+              "factor": 0.5
+            }
+          ]
+        },
+        "api": {
+          "chat-completions": {
+            "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+            "sdk": {
+              "aisdk": "@ai-sdk/openai-compatible",
+              "opencodeai": "@opencode/ai/providers/alibaba/chat"
+            },
+            "compatibility": {
+              "reasoning_field": "reasoning_content"
+            }
+          }
+        }
+      }
+    }
+  },
+  "images": {
+    "id": "images",
+    "name": "Images",
+    "doc": "https://example.com/docs",
+    "env": [
+      "IMAGES_API_KEY"
+    ],
+    "models": {
+      "pixel": {
+        "id": "pixel",
+        "type": "image",
+        "name": "Pixel",
+        "description": "An image model",
+        "open_weights": false,
+        "release_date": "2026-10-01",
+        "last_updated": "2026-10-01",
+        "modalities": {
+          "input": [
+            "text"
+          ],
+          "output": [
+            "image/png"
+          ]
+        },
+        "capabilities": {
+          "tools": {
+            "supported": false
+          },
+          "reasoning": {
+            "supported": false
+          }
+        },
+        "limit": {
+          "context": 1000,
+          "output": 1000
+        },
+        "api": {
+          "images": {
+            "base_url": "https://example.com",
+            "sdk": {
+              "aisdk": "@ai-sdk/openai"
+            }
+          }
+        }
+      }
+    }
+  },
+  "broken": {
+    "id": "broken",
+    "name": "Broken",
+    "doc": "https://example.com/docs",
+    "env": [],
+    "models": {
+      "no-limit": {
+        "id": "no-limit",
+        "type": "chat",
+        "name": "No Limit",
+        "description": "A chat model without a limit",
+        "open_weights": false,
+        "release_date": "2026-10-01",
+        "last_updated": "2026-10-01",
+        "modalities": {
+          "input": [
+            "text"
+          ],
+          "output": [
+            "text"
+          ]
+        },
+        "capabilities": {
+          "tools": {
+            "supported": true
+          },
+          "reasoning": {
+            "supported": false
+          }
+        },
+        "api": {
+          "chat-completions": {
+            "base_url": "https://example.com/v1",
+            "sdk": {
+              "aisdk": "@ai-sdk/openai-compatible"
+            }
+          }
+        }
+      }
+    }
+  }
+}

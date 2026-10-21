@@ -10,6 +10,7 @@ import { Filesystem } from "../util/filesystem"
 import { apply } from "./models-local"
 import { Hash } from "@/util/hash"
 import { ProviderModels } from "./models-event"
+import { normalize } from "./models-v2"
 
 declare const OPENCODE_MODELS_DEV: Record<string, ModelsDev.Provider> | undefined
 
@@ -95,7 +96,7 @@ export namespace ModelsDev {
       body: z.record(z.string(), JsonValue).optional(),
       headers: z.record(z.string(), z.string()).optional(),
     })
-    .strict()
+    .passthrough()
   const Body = z.record(z.string(), z.unknown())
   const Experimental = z
     .object({
@@ -202,24 +203,24 @@ export namespace ModelsDev {
           input: z.number().min(0).optional(),
           output: z.number().min(0),
         })
-        .strict(),
+        .passthrough(),
       status: Model.shape.status,
       experimental: RemoteExperimental.optional(),
       provider: RemoteModelProvider.optional(),
       cost: OutputCost.optional(),
     })
-    .strict()
+    .passthrough()
   const RemoteProvider = z
     .object({
       id: z.string(),
-      env: z.array(z.string()).min(1),
+      env: z.array(z.string()),
       npm: z.string().min(1),
       api: z.string().optional(),
       name: z.string().min(1),
       doc: z.string().min(1),
       models: z.record(z.string(), RemoteModel),
     })
-    .strict()
+    .passthrough()
   const RemoteDatabase = z.record(z.string(), RemoteProvider)
 
   export const Source = z.enum(["path", "cache", "embedded", "remote", "none"])
@@ -257,8 +258,12 @@ export namespace ModelsDev {
   let task: Promise<Refresh> | undefined
   const listeners = new Set<() => void>()
 
+  // models.dev v2 is the maintained catalog. Keep the v1 endpoint reachable through
+  // OPENCODE_MODELS_URL=https://models.dev for an escape hatch and custom mirrors.
+  const OFFICIAL = "https://models.dev/experimental/v2.0"
+
   function url() {
-    return Flag.OPENCODE_MODELS_URL || "https://models.dev"
+    return Flag.OPENCODE_MODELS_URL || OFFICIAL
   }
 
   function filepath() {
@@ -279,16 +284,19 @@ export namespace ModelsDev {
     return String(e)
   }
 
-  function parse(content: string) {
-    return Database.parse(RemoteDatabase.parse(JSON.parse(content)))
+  function parse(content: string, validate = true) {
+    const value = normalize(JSON.parse(content))
+    if (!validate) return value as Record<string, Provider>
+    return Database.parse(RemoteDatabase.parse(value))
   }
 
   async function read(file: string, cache: boolean, validate = true) {
     return Filesystem.readText(file)
-      .then((content) => (validate ? parse(content) : (JSON.parse(content) as Record<string, Provider>)))
+      .then((content) => parse(content, validate))
       .catch(async (e) => {
         if (missing(e)) return undefined
-        if (cache) await fs.rm(file, { force: true }).catch(() => {})
+        // A schema change upstream should not erase a still-readable cache file.
+        if (cache && e instanceof SyntaxError) await fs.rm(file, { force: true }).catch(() => {})
         log.warn("failed to read models.dev data", {
           error: e,
           file,
@@ -389,7 +397,10 @@ export namespace ModelsDev {
     const file = Flag.OPENCODE_MODELS_PATH ?? filepath()
     const result = await read(file, !Flag.OPENCODE_MODELS_PATH, !Flag.OPENCODE_MODELS_PATH)
     if (result) return result
-    const fallback = typeof OPENCODE_MODELS_DEV === "undefined" ? undefined : Database.parse(OPENCODE_MODELS_DEV)
+    const fallback =
+      typeof OPENCODE_MODELS_DEV === "undefined"
+        ? undefined
+        : Database.parse(RemoteDatabase.parse(normalize(OPENCODE_MODELS_DEV)))
     if (fallback) return fallback
     if (Flag.OPENCODE_DISABLE_MODELS_FETCH) return {}
     const response = await fetch(`${url()}/api.json`, {
@@ -541,6 +552,7 @@ export namespace ModelsDev {
   export const Test = {
     download,
     once,
+    parse,
   }
 }
 
