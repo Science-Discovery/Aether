@@ -510,10 +510,16 @@ function descriptorFor(source: SourceFormat) {
 function normalize(ctx: Context): Required<Context> {
   const env = ctx.env ?? process.env
   return {
-    home: ctx.home ?? env.HOME ?? homedir(),
+    home: ctx.home ?? defaultHome(env),
     cwd: ctx.cwd ?? process.cwd(),
     env,
   }
+}
+
+function defaultHome(env: NodeJS.ProcessEnv) {
+  // Git Bash may expose HOME as /c/Users/...; USERPROFILE is the native root.
+  if (process.platform === "win32") return env.USERPROFILE ?? homedir()
+  return env.HOME ?? homedir()
 }
 
 function roots(ctx: Required<Context>, env: string, fallback: string, project: string): Root[] {
@@ -533,7 +539,10 @@ function roots(ctx: Required<Context>, env: string, fallback: string, project: s
 
 function dataRoot(ctx: Required<Context>, name: string): Root {
   const xdg = ctx.env.XDG_DATA_HOME
-  return { path: xdg ? join(resolve(xdg), name) : join(ctx.home, ".local/share", name), origin: xdg ? "environment" : "default" }
+  return {
+    path: xdg ? join(resolve(expand(xdg, ctx.home)), name) : join(ctx.home, ".local/share", name),
+    origin: xdg ? "environment" : "default",
+  }
 }
 
 async function available(descriptor: Descriptor, ctx: Required<Context>) {
@@ -549,7 +558,7 @@ async function available(descriptor: Descriptor, ctx: Required<Context>) {
 
 function expand(path: string, home: string) {
   if (path === "~") return home
-  if (path.startsWith("~/")) return join(home, path.slice(2))
+  if (path.startsWith("~/") || path.startsWith("~\\")) return join(home, path.slice(2))
   return path
 }
 

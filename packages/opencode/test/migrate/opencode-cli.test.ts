@@ -6,14 +6,32 @@ import * as opencode from "../../src/migrate/adapters/opencode"
 import { tmpdir } from "../fixture/fixture"
 
 const fixture = (file: string) => path.join(import.meta.dir, "fixtures", file)
+const win = process.platform === "win32"
 
 async function script(dir: string, name: string, version: string) {
-  const file = path.join(dir, name)
-  await Bun.write(
-    file,
-    `#!/bin/sh\ncase "$1" in\n  --version) echo "${version}" ;;\n  session) printf '%s\\n' '[{"id":"ses_cli_fixture","title":"CLI Fixture","time":{"updated":1787054403000}}]' ;;\n  export) cat ${JSON.stringify(fixture("opencode/basic.json"))} ;;\n  *) echo "unexpected: $@" >&2; exit 2 ;;\nesac\n`,
-  )
-  await chmod(file, 0o755)
+  const file = path.join(dir, name + (win ? ".cmd" : ""))
+  const body = win
+    ? [
+        "@echo off",
+        'if "%~1"=="--version" goto version',
+        'if "%~1"=="session" goto session',
+        'if "%~1"=="export" goto export',
+        "echo unexpected: %* 1>&2",
+        "exit /b 2",
+        ":version",
+        `echo ${version}`,
+        "exit /b 0",
+        ":session",
+        'echo [{"id":"ses_cli_fixture","title":"CLI Fixture","time":{"updated":1787054403000}}]',
+        "exit /b 0",
+        ":export",
+        `type "${fixture("opencode/basic.json")}"`,
+        "exit /b 0",
+        "",
+      ].join("\r\n")
+    : `#!/bin/sh\ncase "$1" in\n  --version) echo "${version}" ;;\n  session) printf '%s\\n' '[{"id":"ses_cli_fixture","title":"CLI Fixture","time":{"updated":1787054403000}}]' ;;\n  export) cat ${JSON.stringify(fixture("opencode/basic.json"))} ;;\n  *) echo "unexpected: $@" >&2; exit 2 ;;\nesac\n`
+  await Bun.write(file, body)
+  if (!win) await chmod(file, 0o755)
   return file
 }
 
@@ -47,7 +65,7 @@ describe("OpenCode/Kilo CLI adapter", () => {
     expect(session.sessionID).toBe("ses_11111111111141118111111111111111")
   })
 
-  test("supports Kilo with its own pinned version", async () => {
+  test("supports Kilo through its own CLI", async () => {
     await using dir = await tmpdir()
     const file = await script(dir.path, "kilo", kilo.pinned)
     const refs = await kilo.list({ cli: file })

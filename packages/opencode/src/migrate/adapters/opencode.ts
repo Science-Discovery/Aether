@@ -1,6 +1,7 @@
 import { accessSync, constants, mkdtempSync, rmSync, writeFileSync } from "node:fs"
-import { tmpdir } from "node:os"
+import { homedir, tmpdir } from "node:os"
 import { join } from "node:path"
+import { Process } from "@/util/process"
 import { which } from "@/util/which"
 import { MigrateError } from "../error"
 import type { Event, ParsedSession, SourceFormat } from "../model"
@@ -227,7 +228,7 @@ export async function parse(path: string, source: "opencode" | "kilo" = "opencod
 
 export async function list(source: "opencode" | "kilo", options: CliOptions = {}) {
   const cli = resolve(source, options)
-  const output = run(cli, ["session", "list", "--format", "json", "--pure"], options, source)
+  const output = await run(cli, ["session", "list", "--format", "json", "--pure"], options, source)
   if (output.length > 64 * 1024 * 1024) throw new MigrateError(`${label(source)} session list exceeded the safety limit`)
   const text = output.toString().trim()
   if (!text) return []
@@ -258,7 +259,7 @@ export async function exportSession(id: string, source: "opencode" | "kilo", opt
   const directory = mkdtempSync(join(tmpdir(), "aether-migrate-"))
   const path = join(directory, "bundle.json")
   try {
-    const output = run(cli, ["export", id, "--pure"], options, source)
+    const output = await run(cli, ["export", id, "--pure"], options, source)
     if (output.length > 256 * 1024 * 1024) throw new MigrateError(`${label(source)} export exceeded the safety limit`)
     writeFileSync(path, output, { mode: 0o600 })
     return { ...(await parse(path, source)), path: `${source}:${id}` }
@@ -270,11 +271,14 @@ export async function exportSession(id: string, source: "opencode" | "kilo", opt
 function resolve(source: "opencode" | "kilo", options: CliOptions) {
   const env = options.env ?? process.env
   const name = source === "opencode" ? "opencode" : "kilo"
+  const home = process.platform === "win32" ? env.USERPROFILE ?? homedir() : env.HOME ?? homedir()
+  const fallback = source === "opencode" ? ".opencode/bin/opencode" : ".kilo/bin/kilo"
   const candidates = [
     options.cli,
     env[source === "opencode" ? "OPENCODE_BIN" : "KILO_BIN"],
     which(name, env) ?? undefined,
-    join(env.HOME ?? "", source === "opencode" ? ".opencode/bin/opencode" : ".kilo/bin/kilo"),
+    ...(process.platform === "win32" ? [join(home, `${fallback}.exe`)] : []),
+    join(home, fallback),
   ].filter((value): value is string => !!value)
   for (const candidate of candidates) {
     try {
@@ -287,16 +291,14 @@ function resolve(source: "opencode" | "kilo", options: CliOptions) {
   )
 }
 
-function run(cli: string, args: string[], options: CliOptions, source: "opencode" | "kilo") {
-  const proc = Bun.spawnSync({
-    cmd: [cli, ...args],
-    env: { ...process.env, ...options.env },
-    stdout: "pipe",
-    stderr: "pipe",
+async function run(cli: string, args: string[], options: CliOptions, source: "opencode" | "kilo") {
+  const proc = await Process.run([cli, ...args], {
+    env: options.env,
+    nothrow: true,
   })
-  if (proc.exitCode !== 0) {
+  if (proc.code !== 0) {
     const error = proc.stderr.toString().trim()
-    throw new MigrateError(`${label(source)} command failed: ${error || `exit ${proc.exitCode}`}`)
+    throw new MigrateError(`${label(source)} command failed: ${error || `exit ${proc.code}`}`)
   }
   return proc.stdout
 }

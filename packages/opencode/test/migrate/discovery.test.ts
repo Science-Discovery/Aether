@@ -85,6 +85,17 @@ describe("migrate discovery", () => {
     expect(root?.path).toBe(path.join(cwd, ".claude"))
   })
 
+  test("expands home-relative environment roots", async () => {
+    await using dir = await tmpdir()
+    const home = path.join(dir.path, "home")
+    const cwd = path.join(dir.path, "work")
+    await mkdir(cwd, { recursive: true })
+    await copy(fixture("claude/basic.jsonl"), path.join(home, "alt-claude/projects/-work", `${claudeID}.jsonl`))
+    const found = await detect({ home, cwd, env: { CLAUDE_CONFIG_DIR: "~\\alt-claude" } })
+    const root = found.find((item) => item.id === "claude")?.roots.find((item) => item.origin === "environment")
+    expect(root?.path).toBe(path.join(home, "alt-claude"))
+  })
+
   test("detects source files", async () => {
     expect(await detectFile(fixture("claude/basic.jsonl"))).toBe("claude")
     expect(await detectFile(fixture("codex/basic.jsonl"))).toBe("codex")
