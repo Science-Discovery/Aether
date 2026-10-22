@@ -12,6 +12,7 @@ import { SettingsKnowledge } from "./settings-knowledge"
 import { SettingsCron } from "./settings-cron"
 import { SettingsMemory } from "./settings-memory"
 import { SettingsSkills } from "./settings-skills"
+import { SettingsImport } from "./settings-import"
 
 export const DialogSettings: Component = () => {
   const language = useLanguage()
@@ -65,6 +66,10 @@ export const DialogSettings: Component = () => {
                       <Icon name="brain" />
                       Memory
                     </Tabs.Trigger>
+                    <Tabs.Trigger value="import">
+                      <Icon name="arrow-down-to-line" />
+                      {language.t("settings.tab.import")}
+                    </Tabs.Trigger>
                   </div>
                 </div>
               </div>
@@ -97,6 +102,9 @@ export const DialogSettings: Component = () => {
         </Tabs.Content>
         <Tabs.Content value="memory" class="no-scrollbar">
           <SettingsMemory />
+        </Tabs.Content>
+        <Tabs.Content value="import" class="no-scrollbar">
+          <SettingsImport />
         </Tabs.Content>
       </Tabs>
     </Dialog>

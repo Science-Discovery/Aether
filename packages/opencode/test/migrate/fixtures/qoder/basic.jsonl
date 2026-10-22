@@ -1,0 +1,5 @@
+{"type":"runtime-config","sessionId":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa","cwd":"/work","version":"1.0.20","timestamp":"2026-10-01T12:00:00Z"}
+{"type":"user","uuid":"aaaaaaaa-0000-4000-8000-000000000001","parentUuid":null,"sessionId":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa","timestamp":"2026-10-01T12:00:00Z","cwd":"/work","version":"1.0.20","isSidechain":false,"message":{"role":"user","content":"QODER_USER_MARKER"}}
+{"type":"assistant","uuid":"aaaaaaaa-0000-4000-8000-000000000002","parentUuid":"aaaaaaaa-0000-4000-8000-000000000001","sessionId":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa","timestamp":"2026-10-01T12:00:01Z","cwd":"/work","version":"1.0.20","isSidechain":false,"message":{"role":"assistant","model":"qoder-model","content":[{"type":"text","text":"QODER_ASSISTANT_MARKER"}]}}
+{"type":"ai-title","aiTitle":"QODER_TITLE","sessionId":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"}
+{"type":"last-prompt","leafUuid":"aaaaaaaa-0000-4000-8000-000000000002","sessionId":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"}

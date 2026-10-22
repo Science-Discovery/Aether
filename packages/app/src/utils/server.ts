@@ -20,6 +20,28 @@ type Kb = {
   apiKey?: string
   baseURL?: string
 }
+type MigrateSource = {
+  id: string
+  name: string
+  sessions?: number
+}
+type MigrateSession = {
+  source: string
+  id: string
+  title?: string
+  cwd?: string
+  parentID?: string
+  updated?: number
+}
+type MigrateImportResult = {
+  sessionID: string
+  title: string
+  directory?: string
+  fallback?: boolean
+  parentID?: string
+  linked?: boolean
+  manifest?: Record<string, unknown>
+}
 type ProjectInfo = {
   id: string
   worktree: string
@@ -138,6 +160,11 @@ export type AppClient = Base & {
       sessionCount?: number
     }>
     sessionCount(input: { projectID: string }): Req<{ count: number }>
+  }
+  migrate: {
+    sources(): Req<MigrateSource[]>
+    sessions(input: { source: string; limit?: number }): Req<MigrateSession[]>
+    importSession(input: { source: string; sessionID: string; parentSessionID?: string }): Req<MigrateImportResult>
   }
   cron: {
     jobs: {
@@ -523,5 +550,44 @@ export function addSkillEvolutionDirsMethod(
   // non-extensible target by deep-merging the method in.
   safeAssign((client.config as { skills: object }).skills, "evolutionDirs", methods.evolutionDirs)
   safeAssign((client.config as { skills: object }).skills, "evolutionReveal", methods.evolutionReveal)
+  return client
+}
+
+export function addMigrateMethods(
+  client: AppClient,
+  baseUrl: string,
+  auth?: Record<string, string>,
+  options?: RequestHelperOptions,
+  directory?: string,
+): AppClient {
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    ...auth,
+    ...(directory
+      ? { "x-opencode-directory": /[^\x00-\x7F]/.test(directory) ? encodeURIComponent(directory) : directory }
+      : {}),
+  }
+  const methods = {
+    async sources() {
+      return requestJSON<MigrateSource[]>(`${baseUrl}/migrate/sources`, { headers }, options)
+    },
+    async sessions(input: { source: string; limit?: number }) {
+      const query = new URLSearchParams({ source: input.source })
+      if (input.limit !== undefined) query.set("limit", String(input.limit))
+      return requestJSON<MigrateSession[]>(`${baseUrl}/migrate/sessions?${query.toString()}`, { headers }, options)
+    },
+    async importSession(input: { source: string; sessionID: string; parentSessionID?: string }) {
+      return requestJSON<MigrateImportResult>(
+        `${baseUrl}/migrate/import`,
+        {
+          method: "POST",
+          headers,
+          body: JSON.stringify(input),
+        },
+        options,
+      )
+    },
+  }
+  safeAssign(client, "migrate", methods)
   return client
 }

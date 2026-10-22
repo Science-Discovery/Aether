@@ -1,0 +1,5 @@
+{"type":"runtime-config","sessionId":"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb","cwd":"/work","version":"1.0.26","timestamp":"2026-10-01T12:00:00Z"}
+{"type":"user","uuid":"bbbbbbbb-0000-4000-8000-000000000001","parentUuid":null,"sessionId":"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb","timestamp":"2026-10-01T12:00:00Z","cwd":"/work","version":"1.0.26","message":{"role":"user","content":"QODERCN_USER_MARKER"}}
+{"type":"assistant","uuid":"bbbbbbbb-0000-4000-8000-000000000002","parentUuid":"bbbbbbbb-0000-4000-8000-000000000001","sessionId":"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb","timestamp":"2026-10-01T12:00:01Z","cwd":"/work","version":"1.0.26","message":{"role":"assistant","model":"qodercn-model","content":[{"type":"text","text":"QODERCN_ASSISTANT_MARKER"}]}}
+{"type":"ai-title","aiTitle":"QODERCN_TITLE","sessionId":"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"}
+{"type":"last-prompt","leafUuid":"bbbbbbbb-0000-4000-8000-000000000002","sessionId":"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"}

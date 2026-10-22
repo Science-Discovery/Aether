@@ -28,6 +28,11 @@ export const InvalidSessionBackupError = NamedError.create(
 
 export const SessionImportActiveError = NamedError.create("SessionImportActiveError", z.object({ message: z.string() }))
 
+export type ImportSessionOptions = {
+  parentID?: SessionID
+  title?: string
+}
+
 function invalid(message: string): never {
   throw new InvalidSessionBackupError({ message })
 }
@@ -92,7 +97,11 @@ export async function estimateSessionBackup(sessionID: SessionID) {
   }
 }
 
-export async function importSessionBackup(input: SessionBackupInput, signal?: AbortSignal) {
+export async function importSessionBackup(
+  input: SessionBackupInput,
+  signal?: AbortSignal,
+  options?: ImportSessionOptions,
+) {
   const data = parseSessionBackup(input)
   const parsed = (() => {
     try {
@@ -134,6 +143,10 @@ export async function importSessionBackup(input: SessionBackupInput, signal?: Ab
     }
   }
 
+  const parent = options?.parentID
+    ? await Session.get(options.parentID).catch(() => undefined)
+    : undefined
+  if (options?.parentID && !parent) invalid("Parent session not found")
   const sid = SessionID.descending()
   const now = Date.now()
   const info = Session.Info.parse({
@@ -142,10 +155,10 @@ export async function importSessionBackup(input: SessionBackupInput, signal?: Ab
     slug: Slug.create(),
     version: Installation.VERSION,
     projectID: Instance.project.id,
-    workspaceID: WorkspaceContext.workspaceID,
-    directory: Instance.directory,
-    parentID: undefined,
-    treeID: TreeID.descending(),
+    workspaceID: parent?.workspaceID ?? WorkspaceContext.workspaceID,
+    directory: parent?.directory ?? Instance.directory,
+    parentID: parent?.id,
+    treeID: parent?.treeID ?? TreeID.descending(),
     forkIndex: undefined,
     forkParentSessionID: undefined,
     forkAfterUserMessageID: undefined,
@@ -153,6 +166,7 @@ export async function importSessionBackup(input: SessionBackupInput, signal?: Ab
     revert: undefined,
     permission: undefined,
     readingMode: undefined,
+    title: options?.title ?? src.title,
     time: { created: now, updated: Math.max(Date.now(), now + 1) },
   })
 
@@ -223,4 +237,76 @@ export async function importSessionBackup(input: SessionBackupInput, signal?: Ab
   })
 
   return { sessionID: sid, title: info.title }
+}
+
+export async function linkSubagent(input: {
+  parentID: SessionID
+  childID: SessionID
+  title: string
+  agent?: string
+  anchor?: number
+}) {
+  const messages = await Session.messages({ sessionID: input.parentID })
+  for (const message of messages) {
+    for (const part of message.parts) {
+      if (part.type !== "tool" || part.tool !== "task" || part.state.status !== "completed") continue
+      if (part.state.metadata?.sessionId === input.childID) return true
+    }
+  }
+  const last = messages.at(-1)?.info
+  const previous =
+    last?.role === "assistant" ? (last.time.completed ?? last.time.created) : (last?.time.created ?? 0)
+  const requested =
+    input.anchor !== undefined && Number.isFinite(input.anchor) ? input.anchor : Math.max(Date.now(), previous + 1)
+  const user =
+    messages.findLast((message) => message.info.role === "user" && message.info.time.created <= requested) ??
+    messages.find((message) => message.info.role === "user")
+  if (!user) return false
+  const time = Math.max(requested, user.info.time.created + 1)
+  const assistant =
+    messages.findLast((message) => message.info.role === "assistant" && message.info.time.created <= time) ??
+    messages.findLast((message) => message.info.role === "assistant")
+  const modelID = assistant?.info.role === "assistant" ? assistant.info.modelID : "unknown"
+  const providerID = assistant?.info.role === "assistant" ? assistant.info.providerID : "unknown"
+  const messageID = MessageID.ascending()
+  await Session.updateMessage(
+    MessageV2.Info.parse({
+      id: messageID,
+      sessionID: input.parentID,
+      role: "assistant",
+      time: { created: time, completed: time },
+      parentID: user.info.id,
+      modelID,
+      providerID,
+      mode: "build",
+      agent: input.agent ?? "build",
+      path: { cwd: Instance.directory, root: Instance.directory },
+      cost: 0,
+      tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+      finish: "tool-calls",
+    }),
+  )
+  await Session.updatePart(
+    MessageV2.Part.parse({
+      id: PartID.ascending(),
+      sessionID: input.parentID,
+      messageID,
+      type: "tool",
+      callID: `call_import_subagent_${input.childID}`,
+      tool: "task",
+      state: {
+        status: "completed",
+        input: {
+          description: input.title,
+          subagent_type: input.agent ?? "general",
+          prompt: input.title,
+        },
+        output: "Imported subagent session",
+        title: input.title,
+        metadata: { sessionId: input.childID, imported: true },
+        time: { start: time, end: time },
+      },
+    }),
+  )
+  return true
 }
