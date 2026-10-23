@@ -1,0 +1,4 @@
+{"type":"session_meta","payload":{"id":"40000000-0000-4000-8000-000000000000","cwd":"/work","history_mode":"paginated"}}
+{"ordinal":0,"type":"response_item","timestamp":"2026-10-01T12:00:00Z","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"PARENT_ACTIVITY_USER"}]}}
+{"ordinal":1,"type":"event_msg","timestamp":"2026-10-01T12:00:01Z","payload":{"type":"item_completed","item":{"type":"SubAgentActivity","kind":"started","agent_thread_id":"50000000-0000-4000-8000-000000000000","agent_path":"/root/fixture_agent","id":"call_fixture_subagent"}}}
+{"ordinal":2,"type":"event_msg","timestamp":"2026-10-01T12:00:02Z","payload":{"type":"item_completed","item":{"type":"AgentMessage","content":[{"type":"Text","text":"PARENT_ACTIVITY_ASSISTANT"}]}}}

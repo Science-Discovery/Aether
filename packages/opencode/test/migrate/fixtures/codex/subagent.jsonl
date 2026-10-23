@@ -1,0 +1,4 @@
+{"type":"session_meta","payload":{"id":"codex-subagent-fixture","cwd":"/work","history_mode":"paginated","subagent_history_start_ordinal":4,"thread_source":"subagent","parent_thread_id":"20000000-0000-4000-8000-000000000000"}}
+{"ordinal":0,"type":"response_item","timestamp":"2026-10-01T12:00:00Z","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"SUBAGENT_USER_MARKER"}]}}
+{"ordinal":1,"type":"event_msg","timestamp":"2026-10-01T12:00:01Z","payload":{"type":"item_completed","item":{"type":"AgentMessage","content":[{"type":"Text","text":"SUBAGENT_ASSISTANT_MARKER"}]}}}
+{"ordinal":2,"type":"session_meta","timestamp":"2026-10-01T12:00:02Z","payload":{"id":"parent-session","cwd":"/work","history_mode":"paginated"}}
