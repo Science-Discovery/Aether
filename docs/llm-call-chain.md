@@ -198,7 +198,7 @@ flowchart LR
 
 ```mermaid
 flowchart TB
-    A["models.dev/api.json<br/>(远程)"] -->|定时刷新 每小时| B["$XDG_CACHE_HOME/aether/models.json<br/>(本地缓存)"]
+    A["models.dev/experimental/v2.0/api.json<br/>(远程 v2，入口归一化为 v1)"] -->|定时刷新 每小时| B["$XDG_CACHE_HOME/aether/models.json<br/>(本地缓存)"]
     C["OPENCODE_MODELS_DEV<br/>(构建时注入 fallback)"] -->|备用| D["ModelsDev.get()"]
     B --> D
     A -->|无缓存且允许联网| D
