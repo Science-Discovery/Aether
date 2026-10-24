@@ -365,7 +365,7 @@ export namespace Config {
         // TODO: get rid of this case (see: https://github.com/oven-sh/bun/issues/19936)
         ...(proxied() || process.env.CI ? ["--no-cache"] : []),
       ],
-      { cwd: dir },
+      { cwd: dir, abort: AbortSignal.timeout(60_000), timeout: 5_000 },
     ).catch((err) => {
       if (err instanceof Process.RunFailedError) {
         const detail = {
