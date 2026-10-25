@@ -29,6 +29,7 @@ import {
 } from "@/utils/comment-note"
 import { createConversationQuoteMetadata } from "@/utils/conversation-quote-metadata"
 import { formatServerError } from "@/utils/server-errors"
+import type { NativeEngine } from "@/utils/native"
 
 type PendingPrompt = {
   abort: AbortController
@@ -52,6 +53,7 @@ export type FollowupDraft = {
   agent: string
   model: { providerID: string; modelID: string }
   variant?: string
+  engine?: NativeEngine
   selectedPaths?: string[]
   pdfSelectedText?: string
 }
@@ -202,7 +204,7 @@ export async function sendFollowupDraft(input: FollowupSendInput) {
 
   const [head, ...tail] = text.split(" ")
   const cmd = head?.startsWith("/") ? head.slice(1) : undefined
-  if (cmd && input.sync.data.command.find((item) => item.name === cmd)) {
+  if (!input.draft.engine && cmd && input.sync.data.command.find((item) => item.name === cmd)) {
     setBusy()
     try {
       if (!(await wait())) {
@@ -289,7 +291,7 @@ export async function sendFollowupDraft(input: FollowupSendInput) {
       messageID,
       parts: requestParts,
       variant: input.draft.variant,
-      knowledgeBase: input.knowledgeBase,
+      knowledgeBase: input.draft.engine ? undefined : input.knowledgeBase,
     })
     return true
   } catch (err) {
@@ -570,16 +572,19 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       return
     }
 
-    const currentModel = local.model.current()
-    const currentAgent = local.agent.current()
-    const variant = local.model.variant.current()
-    if (!currentModel || !currentAgent) {
+    const selection = local.selection()
+    if (!selection) {
       showToast({
         title: language.t("prompt.toast.modelAgentRequired.title"),
-        description: language.t("prompt.toast.modelAgentRequired.description"),
+        description: language.t(
+          local.native.engine() ? "native.notReady" : "prompt.toast.modelAgentRequired.description",
+        ),
       })
       return
     }
+    const engine = selection.engine
+    if (engine && mode === "shell") return
+    const variant = selection.variant
 
     input.addToHistory(currentPrompt, mode)
     input.resetHistoryNavigation()
@@ -650,13 +655,16 @@ export function createPromptSubmit(input: PromptSubmitInput) {
         title: `New session - ${new Date().toISOString()}`,
         version: "",
         time: { created: Date.now(), updated: Date.now() },
+        engine,
       }
       seed(sessionDirectory, info)
       session = info
       local.session.promote(sessionDirectory, sessionID)
       navigate(`/${base64Encode(sessionDirectory)}/session/${sessionID}`)
 
-      claimed = claimSession(sessionID, () => client.session.create({ id: sessionID }).then((x) => x.data ?? undefined))
+      claimed = claimSession(sessionID, () =>
+        client.session.create({ id: sessionID, engine }).then((x) => x.data ?? undefined),
+      )
     }
 
     if (!session) {
@@ -704,17 +712,14 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       }
       seed(sessionDirectory, created)
       if (isNewSession) knowledge.rekey(NEW_SESSION_KEY, session.id)
-      if (isNewSession) {
+      if (isNewSession && !engine) {
         permission.setMode(session.id, sessionDirectory, permission.effectiveMode(undefined, projectDirectory))
       }
       return true
     }
 
-    const model = {
-      modelID: currentModel.id,
-      providerID: currentModel.provider.id,
-    }
-    const agent = currentAgent.name
+    const model = selection.model
+    const agent = selection.agent
     const context = prompt.context.items().slice()
     const openPaths = input.openTabPaths?.() ?? []
     const selText = fileCtx.selectedText()
@@ -733,6 +738,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       agent,
       model,
       variant,
+      engine,
       selectedPaths: openPaths.length > 0 ? openPaths : undefined,
       pdfSelectedText: selText || undefined,
     }
@@ -786,7 +792,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       return
     }
 
-    if (quoteQuestions.length === 0 && !readingQuestion && !quickReadingQuestion && text.startsWith("/")) {
+    if (!engine && quoteQuestions.length === 0 && !readingQuestion && !quickReadingQuestion && text.startsWith("/")) {
       const [cmdName, ...args] = text.split(" ")
       const commandName = cmdName.slice(1)
       const customCommand = sync.data.command.find((c) => c.name === commandName)
@@ -958,6 +964,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
         agent,
         model,
         variant,
+        engine,
         selectedPaths: openPaths.length > 0 ? openPaths : undefined,
         extraTextParts: [
           {
@@ -1017,6 +1024,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
         agent,
         model,
         variant,
+        engine,
         selectedPaths: openPaths.length > 0 ? openPaths : undefined,
         extraTextParts: [
           {
@@ -1075,6 +1083,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
         agent,
         model,
         variant,
+        engine,
         selectedPaths: openPaths.length > 0 ? openPaths : undefined,
         extraTextParts: [
           {
@@ -1162,6 +1171,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
           agent,
           model,
           variant,
+          engine,
           selectedPaths: openPaths.length > 0 ? openPaths : undefined,
           extraTextParts: [
             {

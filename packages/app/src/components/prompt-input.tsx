@@ -73,6 +73,7 @@ import { childMapByParent } from "@/pages/layout/helpers"
 import { SteerButton } from "@/components/steer-button"
 import { VoiceInputButton, type VoiceInputAPI } from "@/components/voice-input-button"
 import { VariantSelect } from "./prompt-input/variant-select"
+import { EngineSelect, NativeModels } from "./native-controls"
 
 interface PromptInputProps {
   class?: string
@@ -350,6 +351,11 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     mode: "normal",
     applyingHistory: false,
   })
+  createEffect(() => {
+    if (!local.native.engine()) return
+    if (store.mode === "shell") setStore("mode", "normal")
+    if (store.popover === "slash") setStore("popover", null)
+  })
 
   const buttonsSpring = useSpring(() => (store.mode === "normal" ? 1 : 0), { visualDuration: 0.2, bounce: 0 })
   const motion = (value: number) => ({
@@ -509,6 +515,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
   const pick = () => fileInputRef?.click()
 
   const setMode = (mode: "normal" | "shell") => {
+    if (mode === "shell" && local.native.engine()) return
     setStore("mode", mode)
     setStore("popover", null)
     requestAnimationFrame(() => editorRef?.focus())
@@ -535,7 +542,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
       title: language.t("command.prompt.mode.shell"),
       category: language.t("command.category.session"),
       keybind: shellModeKey,
-      disabled: store.mode === "shell",
+      disabled: store.mode === "shell" || !!local.native.engine(),
       onSelect: () => setMode("shell"),
     },
     {
@@ -650,7 +657,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
   }
 
   const agentList = createMemo(() =>
-    sync.data.agent
+    (local.native.engine() ? [] : sync.data.agent)
       .filter((agent) => !agent.hidden && agent.mode !== "primary")
       .map((agent): AtOption => ({ type: "agent", name: agent.name, display: agent.name })),
   )
@@ -707,6 +714,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
   })
 
   const slashCommands = createMemo<SlashCommand[]>(() => {
+    if (local.native.engine()) return []
     const builtin = command.options
       .filter((opt) => !opt.disabled && !opt.id.startsWith("suggested.") && opt.slash)
       .map((opt) => ({
@@ -1244,7 +1252,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
       }
     }
 
-    if (event.key === "!" && store.mode === "normal") {
+    if (event.key === "!" && store.mode === "normal" && !local.native.engine()) {
       const cursorPosition = getCursorPosition(editorRef)
       if (cursorPosition === 0) {
         setStore("mode", "shell")
@@ -1613,44 +1621,78 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
               <div class="flex items-center gap-1.5 min-w-0 flex-1">
                 {/* 左侧：文本类选择器，可压缩截断 */}
                 <div class="flex items-center gap-1.5 min-w-0 overflow-hidden">
-                  <div data-component="prompt-agent-control">
-                    <TooltipKeybind
-                      placement="top"
-                      gutter={4}
-                      title={language.t("command.agent.cycle")}
-                      keybind={command.keybind("agent.cycle")}
-                    >
-                      <Select
-                        size="normal"
-                        options={agentNames()}
-                        current={local.agent.current()?.name ?? ""}
-                        onSelect={local.agent.set}
-                        class="capitalize max-w-[160px] text-text-base"
-                        valueClass="truncate text-13-regular text-text-base"
-                        triggerStyle={control()}
-                        triggerProps={{ "data-action": "prompt-agent" }}
-                        variant="ghost"
-                      />
-                    </TooltipKeybind>
-                  </div>
-                  <div data-component="prompt-model-control">
-                    <Show
-                      when={providers.paid().length > 0}
-                      fallback={
+                  <EngineSelect />
+                  <Show when={!local.native.engine()} fallback={<NativeModels />}>
+                    <div data-component="prompt-agent-control">
+                      <TooltipKeybind
+                        placement="top"
+                        gutter={4}
+                        title={language.t("command.agent.cycle")}
+                        keybind={command.keybind("agent.cycle")}
+                      >
+                        <Select
+                          size="normal"
+                          options={agentNames()}
+                          current={local.agent.current()?.name ?? ""}
+                          onSelect={local.agent.set}
+                          class="capitalize max-w-[160px] text-text-base"
+                          valueClass="truncate text-13-regular text-text-base"
+                          triggerStyle={control()}
+                          triggerProps={{ "data-action": "prompt-agent" }}
+                          variant="ghost"
+                        />
+                      </TooltipKeybind>
+                    </div>
+                    <div data-component="prompt-model-control">
+                      <Show
+                        when={providers.paid().length > 0}
+                        fallback={
+                          <TooltipKeybind
+                            placement="top"
+                            gutter={4}
+                            title={language.t("command.model.choose")}
+                            keybind={command.keybind("model.choose")}
+                          >
+                            <Button
+                              data-action="prompt-model"
+                              as="div"
+                              variant="ghost"
+                              size="normal"
+                              class="min-w-0 max-w-[320px] text-13-regular text-text-base group"
+                              style={control()}
+                              onClick={() => dialog.show(() => <DialogSelectModelUnpaid model={local.model} />)}
+                            >
+                              <Show when={local.model.current()?.provider?.id}>
+                                <ProviderIcon
+                                  id={local.model.current()?.provider?.id ?? ""}
+                                  class="size-4 shrink-0 opacity-40 group-hover:opacity-100 transition-opacity duration-150"
+                                  style={{ "will-change": "opacity", transform: "translateZ(0)" }}
+                                />
+                              </Show>
+                              <span class="truncate">
+                                {local.model.current()?.name ?? language.t("dialog.model.select.title")}
+                              </span>
+                              <Icon name="chevron-down" size="small" class="shrink-0" />
+                            </Button>
+                          </TooltipKeybind>
+                        }
+                      >
                         <TooltipKeybind
                           placement="top"
                           gutter={4}
                           title={language.t("command.model.choose")}
                           keybind={command.keybind("model.choose")}
                         >
-                          <Button
-                            data-action="prompt-model"
-                            as="div"
-                            variant="ghost"
-                            size="normal"
-                            class="min-w-0 max-w-[320px] text-13-regular text-text-base group"
-                            style={control()}
-                            onClick={() => dialog.show(() => <DialogSelectModelUnpaid model={local.model} />)}
+                          <ModelSelectorPopover
+                            model={local.model}
+                            triggerAs={Button}
+                            triggerProps={{
+                              variant: "ghost",
+                              size: "normal",
+                              style: control(),
+                              class: "min-w-0 max-w-[320px] text-13-regular text-text-base group",
+                              "data-action": "prompt-model",
+                            }}
                           >
                             <Show when={local.model.current()?.provider?.id}>
                               <ProviderIcon
@@ -1663,115 +1705,86 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                               {local.model.current()?.name ?? language.t("dialog.model.select.title")}
                             </span>
                             <Icon name="chevron-down" size="small" class="shrink-0" />
-                          </Button>
+                          </ModelSelectorPopover>
                         </TooltipKeybind>
-                      }
-                    >
+                      </Show>
+                    </div>
+                    <div data-component="prompt-variant-control">
                       <TooltipKeybind
                         placement="top"
                         gutter={4}
-                        title={language.t("command.model.choose")}
-                        keybind={command.keybind("model.choose")}
+                        title={language.t("command.model.variant.cycle")}
+                        keybind={command.keybind("model.variant.cycle")}
                       >
-                        <ModelSelectorPopover
-                          model={local.model}
-                          triggerAs={Button}
-                          triggerProps={{
-                            variant: "ghost",
-                            size: "normal",
-                            style: control(),
-                            class: "min-w-0 max-w-[320px] text-13-regular text-text-base group",
-                            "data-action": "prompt-model",
-                          }}
-                        >
-                          <Show when={local.model.current()?.provider?.id}>
-                            <ProviderIcon
-                              id={local.model.current()?.provider?.id ?? ""}
-                              class="size-4 shrink-0 opacity-40 group-hover:opacity-100 transition-opacity duration-150"
-                              style={{ "will-change": "opacity", transform: "translateZ(0)" }}
-                            />
-                          </Show>
-                          <span class="truncate">
-                            {local.model.current()?.name ?? language.t("dialog.model.select.title")}
-                          </span>
-                          <Icon name="chevron-down" size="small" class="shrink-0" />
-                        </ModelSelectorPopover>
+                        <VariantSelect
+                          variants={local.model.variant.list()}
+                          current={local.model.variant.current()}
+                          label={language.t("common.default")}
+                          provider={local.model.current()?.provider.name ?? ""}
+                          onSelect={(value) => local.model.variant.set(value)}
+                          style={control()}
+                        />
                       </TooltipKeybind>
-                    </Show>
-                  </div>
-                  <div data-component="prompt-variant-control">
-                    <TooltipKeybind
-                      placement="top"
-                      gutter={4}
-                      title={language.t("command.model.variant.cycle")}
-                      keybind={command.keybind("model.variant.cycle")}
-                    >
-                      <VariantSelect
-                        variants={local.model.variant.list()}
-                        current={local.model.variant.current()}
-                        label={language.t("common.default")}
-                        provider={local.model.current()?.provider.name ?? ""}
-                        onSelect={(value) => local.model.variant.set(value)}
-                        style={control()}
-                      />
-                    </TooltipKeybind>
-                  </div>
+                    </div>
+                  </Show>
                 </div>
                 {/* 右侧：图标按钮，始终可见；极窄时折叠进 ⋯ Popover */}
-                <div class="flex items-center gap-0.5 shrink-0">
-                  <TooltipKeybind
-                    placement="top"
-                    gutter={8}
-                    title={acceptLabel()}
-                    keybind={command.keybind("permissions.autoaccept")}
-                  >
-                    <Button
-                      data-action="prompt-permissions"
-                      variant="ghost"
-                      onClick={toggleAccept}
-                      classList={{
-                        "h-7 w-7 p-0 shrink-0 flex items-center justify-center": true,
-                        "text-text-base": mode() === "off",
-                        "bg-surface-warning-base": mode() === "safe",
-                        "bg-surface-success-base": mode() === "full",
-                      }}
-                      style={control()}
-                      aria-label={acceptLabel()}
-                      aria-pressed={mode() !== "off"}
+                <Show when={!local.native.engine()}>
+                  <div class="flex items-center gap-0.5 shrink-0">
+                    <TooltipKeybind
+                      placement="top"
+                      gutter={8}
+                      title={acceptLabel()}
+                      keybind={command.keybind("permissions.autoaccept")}
                     >
-                      <Icon
-                        name="shield"
-                        size="small"
+                      <Button
+                        data-action="prompt-permissions"
+                        variant="ghost"
+                        onClick={toggleAccept}
                         classList={{
-                          "text-icon-warning-base": mode() === "safe",
-                          "text-icon-success-base": mode() === "full",
+                          "h-7 w-7 p-0 shrink-0 flex items-center justify-center": true,
+                          "text-text-base": mode() === "off",
+                          "bg-surface-warning-base": mode() === "safe",
+                          "bg-surface-success-base": mode() === "full",
                         }}
-                      />
-                    </Button>
-                  </TooltipKeybind>
-                  <SteerButton />
-                  <div
-                    style={{
-                      opacity: buttonsSpring(),
-                      transform: `scale(${0.95 + buttonsSpring() * 0.05})`,
-                      filter: `blur(${(1 - buttonsSpring()) * 2}px)`,
-                      "pointer-events": buttonsSpring() > 0.5 ? "auto" : "none",
-                    }}
-                  >
-                    <KnowledgeButton sessionID={params.id} />
-                  </div>
-                  <Tooltip placement="top" gutter={4} value={language.t("evolvedSkills.title")}>
-                    <Button
-                      variant="ghost"
-                      size="normal"
-                      class="h-7 w-7 p-0 flex items-center justify-center text-icon-weak shrink-0"
-                      onClick={() => dialog.show(() => <DialogEvolvedSkills />)}
-                      aria-label={language.t("evolvedSkills.title")}
+                        style={control()}
+                        aria-label={acceptLabel()}
+                        aria-pressed={mode() !== "off"}
+                      >
+                        <Icon
+                          name="shield"
+                          size="small"
+                          classList={{
+                            "text-icon-warning-base": mode() === "safe",
+                            "text-icon-success-base": mode() === "full",
+                          }}
+                        />
+                      </Button>
+                    </TooltipKeybind>
+                    <SteerButton />
+                    <div
+                      style={{
+                        opacity: buttonsSpring(),
+                        transform: `scale(${0.95 + buttonsSpring() * 0.05})`,
+                        filter: `blur(${(1 - buttonsSpring()) * 2}px)`,
+                        "pointer-events": buttonsSpring() > 0.5 ? "auto" : "none",
+                      }}
                     >
-                      <Icon name="list-square" class="size-4" />
-                    </Button>
-                  </Tooltip>
-                </div>
+                      <KnowledgeButton sessionID={params.id} />
+                    </div>
+                    <Tooltip placement="top" gutter={4} value={language.t("evolvedSkills.title")}>
+                      <Button
+                        variant="ghost"
+                        size="normal"
+                        class="h-7 w-7 p-0 flex items-center justify-center text-icon-weak shrink-0"
+                        onClick={() => dialog.show(() => <DialogEvolvedSkills />)}
+                        aria-label={language.t("evolvedSkills.title")}
+                      >
+                        <Icon name="list-square" class="size-4" />
+                      </Button>
+                    </Tooltip>
+                  </div>
+                </Show>
               </div>
             </div>
           </div>

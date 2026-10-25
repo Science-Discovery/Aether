@@ -469,6 +469,14 @@ export type PermissionRule = {
 
 export type PermissionRuleset = Array<PermissionRule>
 
+export type NativeEngine = {
+  type: "codex"
+  model?: string
+  effort?: string
+  thread?: string
+  cursor?: string
+}
+
 export type Session = {
   id: string
   slug: string
@@ -498,6 +506,7 @@ export type Session = {
     archived?: number
   }
   permission?: PermissionRuleset
+  engine?: NativeEngine
   revert?: {
     messageID: string
     partID?: string
@@ -1245,6 +1254,7 @@ export type SyncEventSessionUpdated = {
         archived: number | null
       }
       permission: PermissionRuleset | null
+      engine: NativeEngine | null
       revert: {
         messageID: string
         partID?: string
@@ -1677,6 +1687,14 @@ export type Config = {
   $schema?: string
   logLevel?: LogLevel
   server?: ServerConfig
+  /**
+   * Native agent settings. Executable paths are read only from the user's global configuration.
+   */
+  native?: {
+    codex?: {
+      path?: string
+    }
+  }
   /**
    * Command configuration, see https://opencode.ai/docs/commands
    */
@@ -2188,6 +2206,7 @@ export type GlobalSession = {
     archived?: number
   }
   permission?: PermissionRuleset
+  engine?: NativeEngine
   revert?: {
     messageID: string
     partID?: string
@@ -2281,6 +2300,12 @@ export type SessionGraphResult =
       kind: "legacy"
       message: string
     }
+
+export type NativeEngineInput = {
+  type: "codex"
+  model?: string
+  effort?: string
+}
 
 export type TextPartInput = {
   id?: string
@@ -2386,6 +2411,25 @@ export type ProviderAuthAuthorization = {
   url: string
   method: "auto" | "code"
   instructions: string
+}
+
+export type NativeCodexModel = {
+  id: string
+  name: string
+  default: boolean
+  efforts: Array<string>
+  effort?: string
+  images?: boolean
+}
+
+export type NativeCodexStatus = {
+  installed: boolean
+  path?: string
+  version?: string
+  connected: boolean
+  auth: "chatgpt" | "apiKey" | "unknown" | "missing"
+  models: Array<NativeCodexModel>
+  error?: string
 }
 
 export type Symbol = {
@@ -3267,6 +3311,36 @@ export type ProjectCurrentResponses = {
 }
 
 export type ProjectCurrentResponse = ProjectCurrentResponses[keyof ProjectCurrentResponses]
+
+export type ProjectOpenData = {
+  body?: {
+    directory: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/project/open"
+}
+
+export type ProjectOpenErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type ProjectOpenError = ProjectOpenErrors[keyof ProjectOpenErrors]
+
+export type ProjectOpenResponses = {
+  /**
+   * Project information
+   */
+  200: Project
+}
+
+export type ProjectOpenResponse = ProjectOpenResponses[keyof ProjectOpenResponses]
 
 export type ProjectInitGitData = {
   body?: never
@@ -4370,6 +4444,7 @@ export type SessionCreateData = {
     parentID?: string
     title?: string
     permission?: PermissionRuleset
+    engine?: NativeEngineInput
     workspaceID?: string
   }
   path?: never
@@ -6188,6 +6263,25 @@ export type ProviderOauthCallbackResponses = {
 }
 
 export type ProviderOauthCallbackResponse = ProviderOauthCallbackResponses[keyof ProviderOauthCallbackResponses]
+
+export type NativeStatusData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/native/codex"
+}
+
+export type NativeStatusResponses = {
+  /**
+   * Codex installation and connection status
+   */
+  200: NativeCodexStatus
+}
+
+export type NativeStatusResponse = NativeStatusResponses[keyof NativeStatusResponses]
 
 export type DatabaseLegacyStatusData = {
   body?: never
@@ -9290,6 +9384,181 @@ export type MemoryDailyReflectSyncResponses = {
 
 export type MemoryDailyReflectSyncResponse = MemoryDailyReflectSyncResponses[keyof MemoryDailyReflectSyncResponses]
 
+export type MigrateSourcesData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/migrate/sources"
+}
+
+export type MigrateSourcesResponses = {
+  /**
+   * Detected sources
+   */
+  200: Array<{
+    id:
+      | "claude"
+      | "codex"
+      | "pi"
+      | "omp"
+      | "copilot"
+      | "opencode"
+      | "kilo"
+      | "qwen"
+      | "kimi"
+      | "vibe"
+      | "muse"
+      | "grok"
+      | "openhands"
+      | "qoder"
+      | "qodercn"
+      | "codebuddy"
+    name: string
+    sessions?: number
+  }>
+}
+
+export type MigrateSourcesResponse = MigrateSourcesResponses[keyof MigrateSourcesResponses]
+
+export type MigrateSessionsData = {
+  body?: never
+  path?: never
+  query: {
+    directory?: string
+    workspace?: string
+    source:
+      | "claude"
+      | "codex"
+      | "pi"
+      | "omp"
+      | "copilot"
+      | "opencode"
+      | "kilo"
+      | "qwen"
+      | "kimi"
+      | "vibe"
+      | "muse"
+      | "grok"
+      | "openhands"
+      | "qoder"
+      | "qodercn"
+      | "codebuddy"
+    limit?: number
+  }
+  url: "/migrate/sessions"
+}
+
+export type MigrateSessionsErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type MigrateSessionsError = MigrateSessionsErrors[keyof MigrateSessionsErrors]
+
+export type MigrateSessionsResponses = {
+  /**
+   * Importable sessions
+   */
+  200: Array<{
+    source:
+      | "claude"
+      | "codex"
+      | "pi"
+      | "omp"
+      | "copilot"
+      | "opencode"
+      | "kilo"
+      | "qwen"
+      | "kimi"
+      | "vibe"
+      | "muse"
+      | "grok"
+      | "openhands"
+      | "qoder"
+      | "qodercn"
+      | "codebuddy"
+    id: string
+    title?: string
+    cwd?: string
+    parentID?: string
+    updated?: number
+  }>
+}
+
+export type MigrateSessionsResponse = MigrateSessionsResponses[keyof MigrateSessionsResponses]
+
+export type MigrateImportData = {
+  body?: {
+    source:
+      | "claude"
+      | "codex"
+      | "pi"
+      | "omp"
+      | "copilot"
+      | "opencode"
+      | "kilo"
+      | "qwen"
+      | "kimi"
+      | "vibe"
+      | "muse"
+      | "grok"
+      | "openhands"
+      | "qoder"
+      | "qodercn"
+      | "codebuddy"
+    sessionID: string
+    parentSessionID?: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/migrate/import"
+}
+
+export type MigrateImportErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Conflict
+   */
+  409: {
+    name: string
+    data: {
+      message: string
+    }
+  }
+}
+
+export type MigrateImportError = MigrateImportErrors[keyof MigrateImportErrors]
+
+export type MigrateImportResponses = {
+  /**
+   * Imported session
+   */
+  200: {
+    sessionID: string
+    title: string
+    directory: string
+    fallback: boolean
+    parentID?: string
+    linked?: boolean
+    manifest: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type MigrateImportResponse = MigrateImportResponses[keyof MigrateImportResponses]
+
 export type PostVoiceTranscribeData = {
   body?: {
     providerID: string
@@ -9762,6 +10031,7 @@ export type ReadingModeSessionFromFileData = {
       autoFirstRead?: boolean
     }
     forceNew?: boolean
+    engine?: NativeEngineInput
   }
   path?: never
   query?: {

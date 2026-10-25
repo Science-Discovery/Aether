@@ -309,6 +309,8 @@ export function getToolInfo(tool: string, input: any = {}): ToolInfo {
           ? `${input.files.length} ${i18n.t(input.files.length > 1 ? "ui.common.file.other" : "ui.common.file.one")}`
           : undefined,
       }
+    case "codex.fileChange":
+      return { icon: "code-lines", title: i18n.t("ui.tool.patch"), subtitle: "Codex" }
     case "todowrite":
       return {
         icon: "checklist",
@@ -2109,6 +2111,70 @@ ToolRegistry.register({
           <DiagnosticsDisplay diagnostics={diagnostics()} />
         </BasicTool>
       </div>
+    )
+  },
+})
+
+ToolRegistry.register({
+  name: "codex.fileChange",
+  render(props) {
+    const i18n = useI18n()
+    const pending = () => props.status === "pending" || props.status === "running"
+    const files = createMemo(() => {
+      const raw: unknown = props.input.changes ?? props.metadata.native?.changes
+      if (!Array.isArray(raw)) return []
+      return raw.flatMap((value: unknown) => {
+        if (!value || typeof value !== "object" || !("path" in value) || typeof value.path !== "string") return []
+        const kind = "kind" in value ? value.kind : undefined
+        return [
+          {
+            path: value.path,
+            kind:
+              typeof kind === "string"
+                ? kind
+                : kind && typeof kind === "object" && "type" in kind && typeof kind.type === "string"
+                  ? kind.type
+                  : "",
+            move:
+              kind && typeof kind === "object" && "move_path" in kind && typeof kind.move_path === "string"
+                ? kind.move_path
+                : undefined,
+            diff: "diff" in value && typeof value.diff === "string" ? value.diff : "",
+          },
+        ]
+      })
+    })
+    return (
+      <BasicTool
+        {...props}
+        icon="code-lines"
+        trigger={{ title: i18n.t("ui.tool.patch"), subtitle: "Codex" }}
+        defaultOpen
+        forceOpen={pending()}
+        hideDetails={pending() ? false : props.hideDetails}
+      >
+        <div data-component="codex-file-change">
+          <For each={files()}>
+            {(file) => (
+              <section>
+                <div data-slot="codex-change-header">
+                  <span>{file.path}</span>
+                  <span>{file.kind}</span>
+                </div>
+                <Show when={file.move}>
+                  <div>
+                    {file.path} → {file.move}
+                  </div>
+                </Show>
+                <pre data-slot="codex-change-diff">{file.diff}</pre>
+              </section>
+            )}
+          </For>
+          <Show when={!files().length && props.output}>
+            <pre data-slot="codex-change-diff">{props.output}</pre>
+          </Show>
+        </div>
+      </BasicTool>
     )
   },
 })

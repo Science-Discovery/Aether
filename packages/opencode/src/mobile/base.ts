@@ -12,6 +12,7 @@ import { Project } from "@/project/project"
 import { Session } from "@/session"
 import { SessionPrompt } from "@/session/prompt"
 import { SessionCompaction } from "@/session/compaction"
+import { Native } from "@/native/schema"
 import { MessageV2 } from "@/session/message-v2"
 import { PartID, SessionID } from "@/session/schema"
 import { SessionStatus } from "@/session/status"
@@ -758,6 +759,7 @@ export abstract class MobileManagerBase {
         }
         try {
           await this.provide(active.directory, async () => {
+            Native.guard(await Session.get(SessionID.make(active.sessionId)), "Steering an active turn")
             const msgs = await MessageV2.filterCompacted(MessageV2.stream(SessionID.make(active.sessionId)))
             const lastUser = msgs.findLast((msg) => msg.info.role === "user")
             if (!lastUser) throw new Error("no user message")

@@ -10,6 +10,7 @@ import { MessageV2 } from "../../session/message-v2"
 import { SessionPrompt } from "../../session/prompt"
 import { SessionCompaction } from "../../session/compaction"
 import { SessionRevert } from "../../session/revert"
+import { Native } from "../../native/schema"
 import { SessionStatus } from "@/session/status"
 import { SessionSummary } from "@/session/summary"
 import { Todo } from "../../session/todo"
@@ -699,6 +700,7 @@ export const SessionRoutes = lazy(() =>
         const sessionID = c.req.valid("param").sessionID
         const body = c.req.valid("json")
         const session = await Session.get(sessionID)
+        Native.guard(session, "Aether conversation compaction")
         await SessionRevert.cleanup(session)
         const msgs = await Session.messages({ sessionID })
         let currentAgent = await Agent.defaultAgent()
@@ -877,6 +879,7 @@ export const SessionRoutes = lazy(() =>
       async (c) => {
         const params = c.req.valid("param")
         SessionPrompt.assertNotBusy(params.sessionID)
+        Native.guard(await Session.get(params.sessionID), "Deleting conversation messages")
         await Session.removeMessage({
           sessionID: params.sessionID,
           messageID: params.messageID,
@@ -911,6 +914,7 @@ export const SessionRoutes = lazy(() =>
       ),
       async (c) => {
         const params = c.req.valid("param")
+        Native.guard(await Session.get(params.sessionID), "Deleting conversation content")
         await Session.removePart({
           sessionID: params.sessionID,
           messageID: params.messageID,
@@ -953,6 +957,7 @@ export const SessionRoutes = lazy(() =>
             `Part mismatch: body.id='${body.id}' vs partID='${params.partID}', body.messageID='${body.messageID}' vs messageID='${params.messageID}', body.sessionID='${body.sessionID}' vs sessionID='${params.sessionID}'`,
           )
         }
+        Native.guard(await Session.get(params.sessionID), "Editing conversation history")
         const part = await Session.updatePart(body)
         return c.json(part)
       },
@@ -1254,6 +1259,7 @@ export const SessionRoutes = lazy(() =>
       async (c) => {
         const sessionID = c.req.valid("param").sessionID
         const text = c.req.valid("json").text
+        Native.guard(await Session.get(sessionID), "Steering an active turn")
         const msgs = await MessageV2.filterCompacted(MessageV2.stream(sessionID))
         const lastUser = msgs.findLast((msg) => msg.info.role === "user")
         if (!lastUser) {

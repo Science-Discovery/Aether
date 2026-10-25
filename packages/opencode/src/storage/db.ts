@@ -489,12 +489,28 @@ export namespace Database {
     }
   }
 
-  function applyMigrations(db: Client) {
+  function applyMigrations(db: DrizzleClient) {
     const entries =
       typeof OPENCODE_MIGRATIONS !== "undefined"
         ? OPENCODE_MIGRATIONS
         : migrations(path.join(import.meta.dirname, "../../migration"))
     if (entries.length > 0) migrate(db, entries)
+    upgrade(db)
+  }
+
+  function upgrade(db: DrizzleClient) {
+    const sqlite = db.$client
+    if (!sqlite.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='session'").get()) return
+    // Older stores seed new migrations as applied. Repair the nullable engine
+    // column under the database write lock before any session queries run.
+    db.transaction(
+      () => {
+        const columns = sqlite.prepare("PRAGMA table_info(session)").all() as { name: string }[]
+        if (columns.some((column) => column.name === "engine")) return
+        sqlite.exec("ALTER TABLE session ADD COLUMN engine text")
+      },
+      { behavior: "immediate" },
+    )
   }
 
   function initAndSetup(dbPath: string): DrizzleClient {
@@ -524,6 +540,7 @@ export namespace Database {
       migrate(db, entries)
     }
     if (isNewDb) postSplitFixupMain(db)
+    upgrade(db)
     void registerUntrackedProjects(db)
     return db
   }

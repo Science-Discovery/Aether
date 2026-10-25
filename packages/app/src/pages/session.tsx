@@ -2313,7 +2313,7 @@ function SessionPageContent(props: SessionPageProps = {}) {
                           loadingClass: "px-4 py-4 text-text-weak",
                           emptyClass: "h-full pb-64 -mt-4 flex flex-col items-center justify-center text-center gap-6",
                         })}
-                        actions={actions}
+                        actions={info()?.engine ? undefined : actions}
                         scroll={ui.scroll}
                         onResumeScroll={resumeScroll}
                         setScrollRef={setScrollRef}
@@ -2495,7 +2495,7 @@ function SessionPageContent(props: SessionPageProps = {}) {
                         loadingClass: "px-4 py-4 text-text-weak",
                         emptyClass: "h-full pb-64 -mt-4 flex flex-col items-center justify-center text-center gap-6",
                       })}
-                      actions={actions}
+                      actions={info()?.engine ? undefined : actions}
                       scroll={ui.scroll}
                       onResumeScroll={resumeScroll}
                       setScrollRef={setScrollRef}

@@ -55,6 +55,8 @@ import { iife } from "@/util/iife"
 import type { ReadingMode } from "../reading-mode/types"
 import { SessionPreference } from "./preference"
 import { PROJECT } from "@/persist/naming"
+import { Native } from "../native/schema"
+import { NativeInput } from "../native/input"
 
 export namespace Session {
   const log = Log.create({ service: "session" })
@@ -113,6 +115,7 @@ export namespace Session {
       share,
       revert,
       permission: row.permission ?? undefined,
+      engine: row.engine ?? undefined,
       readingMode: row.reading_mode
         ? {
             ...row.reading_mode,
@@ -151,6 +154,7 @@ export namespace Session {
       summary_diffs: info.summary?.diffs,
       revert: info.revert ?? null,
       permission: info.permission,
+      engine: info.engine ?? null,
       reading_mode: info.readingMode ?? null,
       time_created: info.time.created,
       time_updated: info.time.updated,
@@ -471,6 +475,7 @@ export namespace Session {
         archived: z.number().optional(),
       }),
       permission: Permission.Ruleset.optional(),
+      engine: Native.Engine.optional(),
       revert: z
         .object({
           messageID: MessageID.zod,
@@ -684,6 +689,7 @@ export namespace Session {
         parentID: SessionID.zod.optional(),
         title: z.string().optional(),
         permission: Info.shape.permission,
+        engine: Native.Input.optional(),
         workspaceID: WorkspaceID.zod.optional(),
       })
       .optional(),
@@ -694,6 +700,7 @@ export namespace Session {
         directory: Instance.directory,
         title: input?.title,
         permission: input?.permission,
+        engine: input?.engine,
         workspaceID: input?.workspaceID,
       })
     },
@@ -707,6 +714,7 @@ export namespace Session {
     async (input) => {
       const original = await get(input.sessionID)
       if (!original) throw new Error("session not found")
+      Native.guard(original, "Forking")
       if (original.treeID) {
         await repairTreeForkParents({
           projectID: original.projectID,
@@ -810,6 +818,7 @@ export namespace Session {
     workspaceID?: WorkspaceID
     directory: string
     permission?: Permission.Ruleset
+    engine?: Native.Engine
   }) {
     const treeID = await (async () => {
       if (input.treeID) return input.treeID
@@ -832,6 +841,7 @@ export namespace Session {
       forkAfterUserMessageID: input.forkAfterUserMessageID,
       title: input.title ?? createDefaultTitle(!!input.parentID),
       permission: input.permission,
+      engine: input.engine,
       time: {
         created: Date.now(),
         updated: Date.now(),
@@ -1066,6 +1076,15 @@ export namespace Session {
       })
     },
   )
+
+  export const setEngine = fn(z.object({ sessionID: SessionID.zod, engine: Native.Engine }), async (input) => {
+    const session = await get(input.sessionID)
+    if (session.engine?.type !== input.engine.type) throw new Error("A session's engine cannot be changed")
+    SyncEvent.run(Event.Updated, {
+      sessionID: input.sessionID,
+      info: { engine: input.engine, time: { updated: Date.now() } },
+    })
+  })
 
   export const setRevert = fn(
     z.object({
@@ -1755,6 +1774,12 @@ export namespace Session {
   export const remove = fn(SessionID.zod, async (sessionID) => {
     try {
       const session = await get(sessionID)
+      if (session.engine) {
+        await SessionPrompt.cancel(sessionID)
+        await fs.rm(NativeInput.directory(sessionID), { recursive: true, force: true }).catch((error) => {
+          log.error("failed to remove native session attachments", { sessionID, error })
+        })
+      }
       for (const child of await children(sessionID)) {
         await remove(child.id)
       }

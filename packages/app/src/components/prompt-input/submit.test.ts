@@ -1,11 +1,13 @@
 import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test"
 import type { Prompt } from "@/context/prompt"
 import { readFileQuoteMetadata } from "@/utils/comment-note"
+import type { NativeEngine } from "@/utils/native"
 
 let createPromptSubmit: typeof import("./submit").createPromptSubmit
 
 const createdClients: string[] = []
 const createdSessions: string[] = []
+const engines: Array<NativeEngine | undefined> = []
 const setModes: Array<{ sessionID: string; directory: string; mode: string }> = []
 const optimistic: Array<{
   directory?: string
@@ -30,6 +32,10 @@ let variant: string | undefined
 let failCreate: Error | undefined
 let directoryAutoAccept = false
 let defaultMode: "off" | "safe" | "full" = "safe"
+let engine: NativeEngine | undefined
+let ready = true
+const commands: Array<{ name: string }> = []
+let invoked = 0
 
 const promptValue: Prompt = [{ type: "text", content: "ls", start: 0, end: 2 }]
 
@@ -39,13 +45,15 @@ const clientFor = (directory: string) => {
   createdClients.push(directory)
   return {
     session: {
-      create: async (input: { id?: string }) => {
+      create: async (input: { id?: string; engine?: NativeEngine }) => {
         createdSessions.push(directory)
+        engines.push(input.engine)
         if (failCreate) throw failCreate
         return {
           data: {
             id: input?.id ?? `session-${createdSessions.length}`,
             title: `New session ${createdSessions.length}`,
+            engine: input.engine,
           },
         }
       },
@@ -58,7 +66,10 @@ const clientFor = (directory: string) => {
         prompted.push(input)
         return { data: undefined }
       },
-      command: async () => ({ data: undefined }),
+      command: async () => {
+        invoked++
+        return { data: undefined }
+      },
       abort: async () => ({ data: undefined }),
     },
     worktree: {
@@ -92,6 +103,18 @@ beforeAll(async () => {
 
   mock.module("@/context/local", () => ({
     useLocal: () => ({
+      native: { engine: () => engine },
+      selection: () =>
+        ready
+          ? {
+              engine,
+              agent: engine ? "codex" : "agent",
+              model: engine
+                ? { providerID: "codex-native", modelID: engine.model! }
+                : { providerID: "provider", modelID: "model" },
+              variant: engine?.effort ?? variant,
+            }
+          : undefined,
       model: {
         current: () => ({ id: "model", provider: { id: "provider" } }),
         variant: { current: () => variant },
@@ -159,7 +182,7 @@ beforeAll(async () => {
 
   mock.module("@/context/sync", () => ({
     useSync: () => ({
-      data: { command: [] },
+      data: { command: commands },
       session: {
         optimistic: {
           add: (value: {
@@ -248,6 +271,7 @@ beforeAll(async () => {
 beforeEach(() => {
   createdClients.length = 0
   createdSessions.length = 0
+  engines.length = 0
   setModes.length = 0
   optimistic.length = 0
   optimisticSeeded.length = 0
@@ -262,7 +286,101 @@ beforeEach(() => {
   failCreate = undefined
   directoryAutoAccept = false
   defaultMode = "safe"
+  engine = undefined
+  ready = true
+  commands.length = 0
+  invoked = 0
+  promptValue.splice(0, promptValue.length, { type: "text", content: "ls", start: 0, end: 2 })
   for (const key of Object.keys(storedSessions)) delete storedSessions[key]
+})
+
+function nativeSubmit(overrides: Partial<Parameters<typeof createPromptSubmit>[0]> = {}) {
+  return createPromptSubmit({
+    info: () => undefined,
+    imageAttachments: () => [],
+    commentCount: () => 0,
+    autoAccept: () => true,
+    mode: () => "normal",
+    working: () => false,
+    editor: () => undefined,
+    queueScroll: () => undefined,
+    promptLength: () => 2,
+    addToHistory: () => undefined,
+    resetHistoryNavigation: () => undefined,
+    setMode: () => undefined,
+    setPopover: () => undefined,
+    ...overrides,
+  })
+}
+
+describe("native prompt submission", () => {
+  test("pins the engine at creation and sends native model settings without Aether auto approvals", async () => {
+    engine = { type: "codex", model: "native-model", effort: "high" }
+    const submit = nativeSubmit()
+    await submit.handleSubmit({ preventDefault: () => undefined } as Event)
+    await flush()
+    expect(engines).toEqual([engine])
+    expect(prompted).toHaveLength(1)
+    expect(prompted[0]).toMatchObject({
+      agent: "codex",
+      model: { providerID: "codex-native", modelID: "native-model" },
+      variant: "high",
+    })
+    expect(setModes).toEqual([])
+  })
+
+  test("does not run legacy slash commands in native conversations", async () => {
+    engine = { type: "codex", model: "native-model" }
+    commands.push({ name: "legacy" })
+    promptValue.splice(0, promptValue.length, { type: "text", content: "/legacy task", start: 0, end: 12 })
+    await nativeSubmit().handleSubmit({ preventDefault: () => undefined } as Event)
+    await flush()
+    expect(invoked).toBe(0)
+    expect(prompted).toHaveLength(1)
+    expect(prompted[0].parts).toEqual(expect.arrayContaining([expect.objectContaining({ text: "/legacy task" })]))
+  })
+
+  test("does not create a session when native discovery has not completed", async () => {
+    engine = { type: "codex" }
+    ready = false
+    await nativeSubmit().handleSubmit({ preventDefault: () => undefined } as Event)
+    expect(createdSessions).toEqual([])
+    expect(prompted).toEqual([])
+    expect(toasts).toHaveLength(1)
+  })
+
+  test("blocks a restored shell mode for native conversations", async () => {
+    engine = { type: "codex", model: "native-model" }
+    await nativeSubmit({ mode: () => "shell" }).handleSubmit({ preventDefault: () => undefined } as Event)
+    expect(createdSessions).toEqual([])
+    expect(sentShell).toEqual([])
+  })
+
+  test("captures the native engine and model in queued followups", async () => {
+    params = { id: "native-session" }
+    engine = { type: "codex", model: "native-model", effort: "high" }
+    const queue: import("./submit").FollowupDraft[] = []
+    const submit = nativeSubmit({
+      info: () => ({
+        id: "native-session",
+        slug: "",
+        projectID: "project",
+        directory: "/repo/main",
+        title: "Native",
+        version: "",
+        time: { created: 0, updated: 0 },
+        engine,
+      }),
+      shouldQueue: () => true,
+      onQueue: (draft) => queue.push(draft),
+    })
+    await submit.handleSubmit({ preventDefault: () => undefined } as Event)
+    engine = undefined
+    expect(queue).toHaveLength(1)
+    expect(queue[0].engine).toEqual({ type: "codex", model: "native-model", effort: "high" })
+    expect(queue[0].model).toEqual({ providerID: "codex-native", modelID: "native-model" })
+    expect(prompted).toEqual([])
+  })
 })
 
 describe("prompt submit worktree selection", () => {

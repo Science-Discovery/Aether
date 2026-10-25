@@ -65,6 +65,8 @@ import { SkillEvolutionHook } from "../skill-evolution"
 import { isReviewSession } from "../skill-evolution/review-agent"
 import { reviewCharLimits, createReviewCharCounter } from "../skill-evolution/limits"
 import { Config } from "@/config/config"
+import { Native } from "../native/schema"
+import { NativeSession } from "../native/session"
 
 // @ts-ignore
 globalThis.AI_SDK_LOG_WARNINGS = false
@@ -84,13 +86,14 @@ export namespace SessionPrompt {
 
   const state = Instance.state(
     () => {
-      const data: Record<string, { abort: AbortController }> = {}
+      const data: Record<string, { abort: AbortController; native?: Promise<void> }> = {}
       return data
     },
     async (current) => {
       for (const item of Object.values(current)) {
         item.abort.abort()
       }
+      await Promise.allSettled(Object.values(current).flatMap((item) => (item.native ? [item.native] : [])))
     },
   )
 
@@ -195,6 +198,18 @@ export namespace SessionPrompt {
         const s = state()
         if (s[input.sessionID]?.abort.signal === claim) delete s[input.sessionID]
       })
+
+      if (session.engine) {
+        await using native = defer(() => finish(input.sessionID, claim))
+        if (!input.noReply) await SessionStatus.set(input.sessionID, { type: "busy" })
+        claim.throwIfAborted()
+        const work = NativeSession.prompt(input, session, claim)
+        state()[input.sessionID].native = work.then(
+          () => undefined,
+          () => undefined,
+        )
+        return await work
+      }
 
       await SessionRevert.awaitPending(input.sessionID)
       await SessionRevert.cleanup(await Session.get(input.sessionID))
@@ -345,6 +360,10 @@ export namespace SessionPrompt {
     const match = s[sessionID]
     if (match) {
       match.abort.abort()
+      if (match.native) {
+        await match.native
+        if (s[sessionID] !== match) return
+      }
       delete s[sessionID]
     }
     // Canceling also stops a pending connection-failure retry wait.
@@ -360,6 +379,7 @@ export namespace SessionPrompt {
   export type LoopInput = z.output<typeof LoopInput>
   async function runLoop(input: LoopInput, claim?: AbortSignal): Promise<MessageV2.WithParts> {
     return home(input.sessionID, async (session) => {
+      Native.guard(session, "Running the Aether agent loop")
       const { sessionID, resume_existing } = input
 
       // cancel() racing the prompt prep may have removed the caller's claim;
@@ -1756,6 +1776,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
   export type ShellInput = z.infer<typeof ShellInput>
   export async function shell(input: ShellInput): Promise<MessageV2.WithParts> {
     return home(input.sessionID, async (session) => {
+      Native.guard(session, "Shell mode")
       const abort = start(input.sessionID)
       if (!abort) {
         throw new Session.BusyError(input.sessionID)
@@ -2179,6 +2200,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
   }
 
   export async function command(input: CommandInput) {
+    Native.guard(await Session.getGlobal(input.sessionID), "Aether slash commands")
     log.info("command", input)
     const command = await Command.get(input.command)
     if (!command) {

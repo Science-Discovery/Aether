@@ -180,15 +180,13 @@ const ReadingFirstReadDialog: Component<{
   }
 
   const queue = async (start: number, end: number) => {
-    const currentModel = local.model.current()
-    const currentAgent = local.agent.current()
-    const variant = local.model.variant.current()
+    const selection = local.selection()
     const sessionMeta = meta()
-    if (!currentModel || !currentAgent || !sessionMeta) {
+    if (!selection || !sessionMeta) {
       showToast({
         variant: "error",
         title: language.t("common.requestFailed"),
-        description: language.t("prompt.toast.modelAgentRequired.description"),
+        description: language.t(local.native.engine() ? "native.notReady" : "prompt.toast.modelAgentRequired.description"),
       })
       return
     }
@@ -231,12 +229,7 @@ const ReadingFirstReadDialog: Component<{
           },
         ],
         context: [],
-        agent: currentAgent.name,
-        model: {
-          providerID: currentModel.provider.id,
-          modelID: currentModel.id,
-        },
-        variant,
+        ...selection,
       }
 
       const ok = await sendFollowupDraft({

@@ -454,13 +454,14 @@ export function FileTabContent(props: { tab: string }) {
     attachments?: FollowupDraft["attachments"]
   }) => {
     const sessionID = params.id
-    const model = local.model.current()
-    const agent = local.agent.current()
-    if (!sessionID || !model || !agent) {
+    const selection = local.selection()
+    if (!sessionID || !selection) {
       showToast({
         variant: "error",
         title: language.t("common.requestFailed"),
-        description: language.t("prompt.toast.modelAgentRequired.description"),
+        description: language.t(
+          local.native.engine() ? "native.notReady" : "prompt.toast.modelAgentRequired.description",
+        ),
       })
       return
     }
@@ -477,9 +478,7 @@ export function FileTabContent(props: { tab: string }) {
         prompt: DEFAULT_PROMPT,
         attachments: input.attachments,
         context: [],
-        agent: agent.name,
-        model: { providerID: model.provider.id, modelID: model.id },
-        variant: local.model.variant.current(),
+        ...selection,
         extraTextParts: input.extraTextParts,
       },
     }).catch((cause) => {

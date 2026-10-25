@@ -189,6 +189,13 @@ import type {
   MemoryReflectResponses,
   MemorySearchResponses,
   MemoryStatusResponses,
+  MigrateImportErrors,
+  MigrateImportResponses,
+  MigrateSessionsErrors,
+  MigrateSessionsResponses,
+  MigrateSourcesResponses,
+  NativeEngineInput,
+  NativeStatusResponses,
   OutputFormat,
   Part as Part2,
   PartDeleteErrors,
@@ -209,6 +216,8 @@ import type {
   ProjectDirectoriesResponses,
   ProjectInitGitResponses,
   ProjectListResponses,
+  ProjectOpenErrors,
+  ProjectOpenResponses,
   ProjectRecentResponses,
   ProjectSessionCountErrors,
   ProjectSessionCountResponses,
@@ -1071,6 +1080,51 @@ export class Project extends HeyApiClient {
       url: "/project/current",
       ...options,
       ...params,
+    })
+  }
+
+  /**
+   * Open a project directory
+   *
+   * Validate, register and boot a project directory. This is the explicit entry point for opening projects: arbitrary request-supplied directories never boot instances on their own.
+   */
+  public open<ThrowOnError extends boolean = false>(
+    parameters?: {
+      query_directory?: string
+      workspace?: string
+      body_directory?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            {
+              in: "query",
+              key: "query_directory",
+              map: "directory",
+            },
+            { in: "query", key: "workspace" },
+            {
+              in: "body",
+              key: "body_directory",
+              map: "directory",
+            },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<ProjectOpenResponses, ProjectOpenErrors, ThrowOnError>({
+      url: "/project/open",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
     })
   }
 
@@ -2549,6 +2603,7 @@ export class Session2 extends HeyApiClient {
       parentID?: string
       title?: string
       permission?: PermissionRuleset
+      engine?: NativeEngineInput
       workspaceID?: string
     },
     options?: Options<never, ThrowOnError>,
@@ -2564,6 +2619,7 @@ export class Session2 extends HeyApiClient {
             { in: "body", key: "parentID" },
             { in: "body", key: "title" },
             { in: "body", key: "permission" },
+            { in: "body", key: "engine" },
             { in: "body", key: "workspaceID" },
           ],
         },
@@ -4275,6 +4331,38 @@ export class Provider extends HeyApiClient {
   private _oauth?: Oauth
   get oauth(): Oauth {
     return (this._oauth ??= new Oauth({ client: this.client }))
+  }
+}
+
+export class Native extends HeyApiClient {
+  /**
+   * Inspect the native Codex agent
+   *
+   * Discover Codex on the server and inspect its protocol, account status and model catalog without running inference.
+   */
+  public status<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<NativeStatusResponses, unknown, ThrowOnError>({
+      url: "/native/codex",
+      ...options,
+      ...params,
+    })
   }
 }
 
@@ -7492,6 +7580,145 @@ export class Memory extends HeyApiClient {
   }
 }
 
+export class Migrate extends HeyApiClient {
+  /**
+   * Detect importable AI apps
+   *
+   * Detect supported AI apps with local session data and return their session counts.
+   */
+  public sources<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<MigrateSourcesResponses, unknown, ThrowOnError>({
+      url: "/migrate/sources",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * List importable sessions
+   *
+   * List session metadata for one detected AI app without reading conversation bodies.
+   */
+  public sessions<ThrowOnError extends boolean = false>(
+    parameters: {
+      directory?: string
+      workspace?: string
+      source:
+        | "claude"
+        | "codex"
+        | "pi"
+        | "omp"
+        | "copilot"
+        | "opencode"
+        | "kilo"
+        | "qwen"
+        | "kimi"
+        | "vibe"
+        | "muse"
+        | "grok"
+        | "openhands"
+        | "qoder"
+        | "qodercn"
+        | "codebuddy"
+      limit?: number
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "source" },
+            { in: "query", key: "limit" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<MigrateSessionsResponses, MigrateSessionsErrors, ThrowOnError>({
+      url: "/migrate/sessions",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Import a session from another AI app
+   *
+   * Convert one source session and import it into the current Aether project.
+   */
+  public import<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      source?:
+        | "claude"
+        | "codex"
+        | "pi"
+        | "omp"
+        | "copilot"
+        | "opencode"
+        | "kilo"
+        | "qwen"
+        | "kimi"
+        | "vibe"
+        | "muse"
+        | "grok"
+        | "openhands"
+        | "qoder"
+        | "qodercn"
+        | "codebuddy"
+      sessionID?: string
+      parentSessionID?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "source" },
+            { in: "body", key: "sessionID" },
+            { in: "body", key: "parentSessionID" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<MigrateImportResponses, MigrateImportErrors, ThrowOnError>({
+      url: "/migrate/import",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+}
+
 export class Session3 extends HeyApiClient {
   /**
    * Clear wechat session
@@ -8108,6 +8335,7 @@ export class Session6 extends HeyApiClient {
         autoFirstRead?: boolean
       }
       forceNew?: boolean
+      engine?: NativeEngineInput
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -8121,6 +8349,7 @@ export class Session6 extends HeyApiClient {
             { in: "body", key: "path" },
             { in: "body", key: "settings" },
             { in: "body", key: "forceNew" },
+            { in: "body", key: "engine" },
           ],
         },
       ],
@@ -9071,6 +9300,11 @@ export class OpencodeClient extends HeyApiClient {
     return (this._provider ??= new Provider({ client: this.client }))
   }
 
+  private _native?: Native
+  get native(): Native {
+    return (this._native ??= new Native({ client: this.client }))
+  }
+
   private _database?: Database
   get database(): Database {
     return (this._database ??= new Database({ client: this.client }))
@@ -9114,6 +9348,11 @@ export class OpencodeClient extends HeyApiClient {
   private _memory?: Memory
   get memory(): Memory {
     return (this._memory ??= new Memory({ client: this.client }))
+  }
+
+  private _migrate?: Migrate
+  get migrate(): Migrate {
+    return (this._migrate ??= new Migrate({ client: this.client }))
   }
 
   private _wechat?: Wechat

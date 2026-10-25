@@ -1227,6 +1227,12 @@ export namespace Config {
       $schema: z.string().optional().describe("JSON schema reference for configuration validation"),
       logLevel: Log.Level.optional().describe("Log level"),
       server: Server.optional().describe("Server configuration for opencode serve and web commands"),
+      native: z
+        .object({
+          codex: z.object({ path: z.string().trim().optional() }).optional(),
+        })
+        .optional()
+        .describe("Native agent settings. Executable paths are read only from the user's global configuration."),
       command: z
         .record(z.string(), Command)
         .optional()

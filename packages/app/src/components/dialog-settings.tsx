@@ -13,6 +13,7 @@ import { SettingsCron } from "./settings-cron"
 import { SettingsMemory } from "./settings-memory"
 import { SettingsSkills } from "./settings-skills"
 import { SettingsImport } from "./settings-import"
+import { SettingsNative } from "./settings-native"
 
 export const DialogSettings: Component = () => {
   const language = useLanguage()
@@ -45,6 +46,10 @@ export const DialogSettings: Component = () => {
                     <Tabs.Trigger value="providers">
                       <Icon name="providers" />
                       {language.t("settings.providers.title")}
+                    </Tabs.Trigger>
+                    <Tabs.Trigger value="native">
+                      <Icon name="terminal" />
+                      {language.t("native.title")}
                     </Tabs.Trigger>
                     <Tabs.Trigger value="models">
                       <Icon name="models" />
@@ -87,6 +92,9 @@ export const DialogSettings: Component = () => {
         </Tabs.Content>
         <Tabs.Content value="providers" class="no-scrollbar">
           <SettingsProviders />
+        </Tabs.Content>
+        <Tabs.Content value="native" class="no-scrollbar">
+          <SettingsNative />
         </Tabs.Content>
         <Tabs.Content value="models" class="no-scrollbar">
           <SettingsModels />
