@@ -999,7 +999,7 @@ export function SessionSidePanel(props: {
                 </Show>
 
                 <Show when={activeFileTab()} keyed>
-                  {(tab) => <FileTabContent tab={tab} />}
+                  {(tab) => <FileTabContent tab={tab} visible={reviewOpen()} />}
                 </Show>
               </Tabs>
             </div>

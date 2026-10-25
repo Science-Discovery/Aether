@@ -5,6 +5,7 @@ import { createRequire } from "module"
 import os from "os"
 import z from "zod"
 import { ModelsDev } from "../provider/models"
+import { LatexSchema } from "../latex/schema"
 import { mergeDeep, pipe, unique } from "remeda"
 import { Global } from "../global"
 import fs from "fs/promises"
@@ -1227,6 +1228,7 @@ export namespace Config {
       $schema: z.string().optional().describe("JSON schema reference for configuration validation"),
       logLevel: Log.Level.optional().describe("Log level"),
       server: Server.optional().describe("Server configuration for opencode serve and web commands"),
+      latex: LatexSchema.Config.optional().describe("Local LaTeX compiler executable paths"),
       command: z
         .record(z.string(), Command)
         .optional()

@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process"
 import { randomUUID } from "node:crypto"
+import { cp, mkdir } from "node:fs/promises"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 import { freePort } from "./port"
@@ -111,6 +112,13 @@ async function launch(label: string, input?: { llmUrl?: string }): Promise<Handl
   const url = `http://127.0.0.1:${port}`
   try {
     await waitForHealth(url, proc, `/global/health?run=${run}`)
+    // Opt-in local compiler tests reuse downloaded resources, but every worker
+    // still gets its own writable cache and never touches the source cache.
+    if (process.env.AETHER_E2E_TECTONIC_CACHE) {
+      const cache = path.join(sandbox, "cache", "aether", "latex", "tectonic")
+      await mkdir(cache, { recursive: true })
+      await cp(process.env.AETHER_E2E_TECTONIC_CACHE, cache, { recursive: true })
+    }
   } catch (error) {
     proc.kill("SIGTERM")
     await waitExit(proc)

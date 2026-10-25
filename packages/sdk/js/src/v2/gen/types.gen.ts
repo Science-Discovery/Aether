@@ -1678,6 +1678,17 @@ export type Config = {
   logLevel?: LogLevel
   server?: ServerConfig
   /**
+   * Local LaTeX compiler executable paths
+   */
+  latex?: {
+    tectonic?: {
+      path?: string
+    }
+    latexmk?: {
+      path?: string
+    }
+  }
+  /**
    * Command configuration, see https://opencode.ai/docs/commands
    */
   command?: {
@@ -2386,6 +2397,73 @@ export type ProviderAuthAuthorization = {
   url: string
   method: "auto" | "code"
   instructions: string
+}
+
+export type LatexStatus = {
+  tools: Array<{
+    driver: "tectonic" | "latexmk"
+    installed: boolean
+    path?: string
+    version?: string
+    error?: string
+  }>
+}
+
+export type LatexBinding = {
+  root: string
+  main: string
+  driver: "auto" | "tectonic" | "latexmk"
+  program: "auto" | "pdflatex" | "xelatex"
+  revision: string
+  updatedAt: number
+}
+
+export type LatexFreshness = {
+  state: "fresh" | "stale" | "unknown"
+  checkedAt?: number
+  sourceRevision?: string
+}
+
+export type LatexDiagnostic = {
+  severity: "error" | "warning" | "info"
+  message: string
+  path?: string
+  line?: number
+}
+
+export type LatexBuild = {
+  id: string
+  root: string
+  main: string
+  bindingRevision: string
+  sourceRevision?: string
+  state: "preparing" | "running" | "succeeded" | "failed" | "cancelled"
+  driver?: "tectonic" | "latexmk"
+  program?: "pdflatex" | "xelatex"
+  createdAt: number
+  startedAt?: number
+  completedAt?: number
+  diagnostics: Array<LatexDiagnostic>
+  log: string
+  truncated: boolean
+  pdf: boolean
+  error?: string
+}
+
+export type LatexProject = {
+  root: string
+  main?: string
+  binding?: LatexBinding
+  candidates: Array<string>
+  reason: "binding" | "magic" | "single" | "ambiguous" | "missing"
+  issue?: string
+  freshness: LatexFreshness
+  latest?: LatexBuild
+  lastSuccessful?: LatexBuild
+  editors: Array<{
+    path: string
+    checksum: string | null
+  }>
 }
 
 export type Symbol = {
@@ -3267,6 +3345,36 @@ export type ProjectCurrentResponses = {
 }
 
 export type ProjectCurrentResponse = ProjectCurrentResponses[keyof ProjectCurrentResponses]
+
+export type ProjectOpenData = {
+  body?: {
+    directory: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/project/open"
+}
+
+export type ProjectOpenErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type ProjectOpenError = ProjectOpenErrors[keyof ProjectOpenErrors]
+
+export type ProjectOpenResponses = {
+  /**
+   * Project information
+   */
+  200: Project
+}
+
+export type ProjectOpenResponse = ProjectOpenResponses[keyof ProjectOpenResponses]
 
 export type ProjectInitGitData = {
   body?: never
@@ -6328,6 +6436,364 @@ export type DatabaseLegacyMergeResponses = {
 
 export type DatabaseLegacyMergeResponse = DatabaseLegacyMergeResponses[keyof DatabaseLegacyMergeResponses]
 
+export type LatexStatusData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/latex/status"
+}
+
+export type LatexStatusErrors = {
+  /**
+   * Invalid project or request
+   */
+  400: unknown
+  /**
+   * Build or artifact not found
+   */
+  404: unknown
+  /**
+   * Project changed or build already running
+   */
+  409: unknown
+  /**
+   * Project exceeds snapshot limits
+   */
+  413: unknown
+  /**
+   * Compiler unavailable
+   */
+  503: unknown
+}
+
+export type LatexStatusResponses = {
+  /**
+   * LaTeX result
+   */
+  200: LatexStatus
+}
+
+export type LatexStatusResponse = LatexStatusResponses[keyof LatexStatusResponses]
+
+export type LatexProjectData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+    path?: string
+    root?: string
+  }
+  url: "/latex/project"
+}
+
+export type LatexProjectErrors = {
+  /**
+   * Invalid project or request
+   */
+  400: unknown
+  /**
+   * Build or artifact not found
+   */
+  404: unknown
+  /**
+   * Project changed or build already running
+   */
+  409: unknown
+  /**
+   * Project exceeds snapshot limits
+   */
+  413: unknown
+  /**
+   * Compiler unavailable
+   */
+  503: unknown
+}
+
+export type LatexProjectResponses = {
+  /**
+   * LaTeX result
+   */
+  200: LatexProject
+}
+
+export type LatexProjectResponse = LatexProjectResponses[keyof LatexProjectResponses]
+
+export type LatexBindData = {
+  body?: {
+    root: string
+    main: string
+    driver?: "auto" | "tectonic" | "latexmk"
+    program?: "auto" | "pdflatex" | "xelatex"
+    expectedRevision?: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/latex/project"
+}
+
+export type LatexBindErrors = {
+  /**
+   * Invalid project or request
+   */
+  400: unknown
+  /**
+   * Build or artifact not found
+   */
+  404: unknown
+  /**
+   * Project changed or build already running
+   */
+  409: unknown
+  /**
+   * Project exceeds snapshot limits
+   */
+  413: unknown
+  /**
+   * Compiler unavailable
+   */
+  503: unknown
+}
+
+export type LatexBindResponses = {
+  /**
+   * LaTeX result
+   */
+  200: LatexProject
+}
+
+export type LatexBindResponse = LatexBindResponses[keyof LatexBindResponses]
+
+export type LatexRefreshData = {
+  body?: {
+    root: string
+    editors?: Array<string>
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/latex/project/refresh"
+}
+
+export type LatexRefreshErrors = {
+  /**
+   * Invalid project or request
+   */
+  400: unknown
+  /**
+   * Build or artifact not found
+   */
+  404: unknown
+  /**
+   * Project changed or build already running
+   */
+  409: unknown
+  /**
+   * Project exceeds snapshot limits
+   */
+  413: unknown
+  /**
+   * Compiler unavailable
+   */
+  503: unknown
+}
+
+export type LatexRefreshResponses = {
+  /**
+   * LaTeX result
+   */
+  200: LatexProject
+}
+
+export type LatexRefreshResponse = LatexRefreshResponses[keyof LatexRefreshResponses]
+
+export type LatexBuildData = {
+  body?: {
+    root: string
+    bindingRevision: string
+    sourceRevision?: string
+    allowDownloads?: boolean
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/latex/build"
+}
+
+export type LatexBuildErrors = {
+  /**
+   * Invalid project or request
+   */
+  400: unknown
+  /**
+   * Build or artifact not found
+   */
+  404: unknown
+  /**
+   * Project changed or build already running
+   */
+  409: unknown
+  /**
+   * Project exceeds snapshot limits
+   */
+  413: unknown
+  /**
+   * Compiler unavailable
+   */
+  503: unknown
+}
+
+export type LatexBuildResponses = {
+  /**
+   * Build accepted
+   */
+  202: LatexBuild
+}
+
+export type LatexBuildResponse = LatexBuildResponses[keyof LatexBuildResponses]
+
+export type LatexGetData = {
+  body?: never
+  path: {
+    id: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/latex/build/{id}"
+}
+
+export type LatexGetErrors = {
+  /**
+   * Invalid project or request
+   */
+  400: unknown
+  /**
+   * Build or artifact not found
+   */
+  404: unknown
+  /**
+   * Project changed or build already running
+   */
+  409: unknown
+  /**
+   * Project exceeds snapshot limits
+   */
+  413: unknown
+  /**
+   * Compiler unavailable
+   */
+  503: unknown
+}
+
+export type LatexGetResponses = {
+  /**
+   * LaTeX result
+   */
+  200: LatexBuild
+}
+
+export type LatexGetResponse = LatexGetResponses[keyof LatexGetResponses]
+
+export type LatexCancelData = {
+  body?: never
+  path: {
+    id: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/latex/build/{id}/cancel"
+}
+
+export type LatexCancelErrors = {
+  /**
+   * Invalid project or request
+   */
+  400: unknown
+  /**
+   * Build or artifact not found
+   */
+  404: unknown
+  /**
+   * Project changed or build already running
+   */
+  409: unknown
+  /**
+   * Project exceeds snapshot limits
+   */
+  413: unknown
+  /**
+   * Compiler unavailable
+   */
+  503: unknown
+}
+
+export type LatexCancelResponses = {
+  /**
+   * LaTeX result
+   */
+  200: LatexBuild
+}
+
+export type LatexCancelResponse = LatexCancelResponses[keyof LatexCancelResponses]
+
+export type LatexPdfData = {
+  body?: never
+  path: {
+    id: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/latex/build/{id}/pdf"
+}
+
+export type LatexPdfErrors = {
+  /**
+   * Invalid project or request
+   */
+  400: unknown
+  /**
+   * Build or artifact not found
+   */
+  404: unknown
+  /**
+   * Project changed or build already running
+   */
+  409: unknown
+  /**
+   * Project exceeds snapshot limits
+   */
+  413: unknown
+  /**
+   * Compiler unavailable
+   */
+  503: unknown
+}
+
+export type LatexPdfResponses = {
+  /**
+   * PDF bytes
+   */
+  200: Blob | File
+}
+
+export type LatexPdfResponse = LatexPdfResponses[keyof LatexPdfResponses]
+
 export type FileActiveTasksData = {
   body?: never
   path?: never
@@ -9289,6 +9755,181 @@ export type MemoryDailyReflectSyncResponses = {
 }
 
 export type MemoryDailyReflectSyncResponse = MemoryDailyReflectSyncResponses[keyof MemoryDailyReflectSyncResponses]
+
+export type MigrateSourcesData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/migrate/sources"
+}
+
+export type MigrateSourcesResponses = {
+  /**
+   * Detected sources
+   */
+  200: Array<{
+    id:
+      | "claude"
+      | "codex"
+      | "pi"
+      | "omp"
+      | "copilot"
+      | "opencode"
+      | "kilo"
+      | "qwen"
+      | "kimi"
+      | "vibe"
+      | "muse"
+      | "grok"
+      | "openhands"
+      | "qoder"
+      | "qodercn"
+      | "codebuddy"
+    name: string
+    sessions?: number
+  }>
+}
+
+export type MigrateSourcesResponse = MigrateSourcesResponses[keyof MigrateSourcesResponses]
+
+export type MigrateSessionsData = {
+  body?: never
+  path?: never
+  query: {
+    directory?: string
+    workspace?: string
+    source:
+      | "claude"
+      | "codex"
+      | "pi"
+      | "omp"
+      | "copilot"
+      | "opencode"
+      | "kilo"
+      | "qwen"
+      | "kimi"
+      | "vibe"
+      | "muse"
+      | "grok"
+      | "openhands"
+      | "qoder"
+      | "qodercn"
+      | "codebuddy"
+    limit?: number
+  }
+  url: "/migrate/sessions"
+}
+
+export type MigrateSessionsErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type MigrateSessionsError = MigrateSessionsErrors[keyof MigrateSessionsErrors]
+
+export type MigrateSessionsResponses = {
+  /**
+   * Importable sessions
+   */
+  200: Array<{
+    source:
+      | "claude"
+      | "codex"
+      | "pi"
+      | "omp"
+      | "copilot"
+      | "opencode"
+      | "kilo"
+      | "qwen"
+      | "kimi"
+      | "vibe"
+      | "muse"
+      | "grok"
+      | "openhands"
+      | "qoder"
+      | "qodercn"
+      | "codebuddy"
+    id: string
+    title?: string
+    cwd?: string
+    parentID?: string
+    updated?: number
+  }>
+}
+
+export type MigrateSessionsResponse = MigrateSessionsResponses[keyof MigrateSessionsResponses]
+
+export type MigrateImportData = {
+  body?: {
+    source:
+      | "claude"
+      | "codex"
+      | "pi"
+      | "omp"
+      | "copilot"
+      | "opencode"
+      | "kilo"
+      | "qwen"
+      | "kimi"
+      | "vibe"
+      | "muse"
+      | "grok"
+      | "openhands"
+      | "qoder"
+      | "qodercn"
+      | "codebuddy"
+    sessionID: string
+    parentSessionID?: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/migrate/import"
+}
+
+export type MigrateImportErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Conflict
+   */
+  409: {
+    name: string
+    data: {
+      message: string
+    }
+  }
+}
+
+export type MigrateImportError = MigrateImportErrors[keyof MigrateImportErrors]
+
+export type MigrateImportResponses = {
+  /**
+   * Imported session
+   */
+  200: {
+    sessionID: string
+    title: string
+    directory: string
+    fallback: boolean
+    parentID?: string
+    linked?: boolean
+    manifest: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type MigrateImportResponse = MigrateImportResponses[keyof MigrateImportResponses]
 
 export type PostVoiceTranscribeData = {
   body?: {
