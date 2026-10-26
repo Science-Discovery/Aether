@@ -21,6 +21,7 @@ import { javascript } from "@codemirror/lang-javascript"
 import { css } from "@codemirror/lang-css"
 import { json } from "@codemirror/lang-json"
 import { markdown } from "@codemirror/lang-markdown"
+import { latex } from "./code-editor-latex"
 
 const customHighlightStyle = HighlightStyle.define([
   { tag: t.keyword, color: "var(--syntax-keyword)" },
@@ -74,7 +75,7 @@ function getLanguageExtension(filename: string) {
     case "markdown":
       return markdown()
     default:
-      return null
+      return latex(filename) ?? null
   }
 }
 
@@ -84,6 +85,7 @@ export function CodeEditor(props: {
   onChange: (value: string) => void
   disabled?: boolean
   wordWrap?: boolean
+  location?: { line: number; column?: number; nonce: number }
   initialScroll?: { x: number; y: number }
   /** 进入编辑模式时从预览中提取的文本锚点，编辑器挂载后滚动到该文本 */
   initialAnchorText?: string
@@ -97,6 +99,14 @@ export function CodeEditor(props: {
   let view: EditorView | undefined
   const editableCompartment = new Compartment()
   const wrapCompartment = new Compartment()
+  const locate = () => {
+    const target = props.location
+    if (target?.nonce === undefined || !view) return
+    const line = view.state.doc.line(Math.max(1, Math.min(view.state.doc.lines, target.line)))
+    const anchor = Math.min(line.to, line.from + Math.max(0, (target.column ?? 1) - 1))
+    view.dispatch({ selection: { anchor }, effects: EditorView.scrollIntoView(anchor, { y: "center" }) })
+    view.focus()
+  }
 
   const editorTheme = EditorView.theme({
     "&": {
@@ -215,6 +225,7 @@ export function CodeEditor(props: {
       }),
       parent: container,
     })
+    locate()
 
     const scroller = container.querySelector(".cm-scroller") as HTMLElement | null
     let frame: number | undefined
@@ -246,9 +257,9 @@ export function CodeEditor(props: {
 
     // 等内容渲染完毕后，滚动到对应位置
     if (
-      props.initialAnchorText ||
+      !props.location && (props.initialAnchorText ||
       (props.initialScrollRatio != null && props.initialScrollRatio > 0) ||
-      props.initialScroll
+      props.initialScroll)
     ) {
       requestAnimationFrame(() => {
         if (!view) return
@@ -277,6 +288,8 @@ export function CodeEditor(props: {
       })
     }
   })
+
+  createEffect(locate)
 
   createEffect(() => {
     if (!view) return

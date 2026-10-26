@@ -16,6 +16,7 @@ import { showToast } from "@opencode-ai/ui/toast"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { Markdown } from "@opencode-ai/ui/markdown"
 import { CodeEditor } from "@/components/code-editor"
+import { LatexPanel } from "@/components/latex-panel"
 import { PdfViewerShell } from "@/components/pdf-viewer-shell-official"
 import {
   registerOpenFileCallback,
@@ -82,7 +83,7 @@ function FileCommentMenu(props: {
   )
 }
 
-export function FileTabContent(props: { tab: string }) {
+export function FileTabContent(props: { tab: string; visible: boolean }) {
   const file = useFile()
   const comments = useComments()
   const globalSync = useGlobalSync()
@@ -348,6 +349,15 @@ export function FileTabContent(props: { tab: string }) {
   }
 
   const path = createMemo(() => file.pathFromTab(props.tab))
+  const latex = createMemo(() => /\.(tex|bib)$/i.test(path() ?? ""))
+  const navigate = async (target: string, line: number) => {
+    const tab = file.tab(target)
+    tabs().open(tab)
+    tabs().setActive(tab)
+    await file.load(target)
+    file.locate(target, line)
+    file.reveal(target)
+  }
   const editorScroll = createMemo(() => {
     const p = path()
     if (!p) return
@@ -1392,6 +1402,14 @@ export function FileTabContent(props: { tab: string }) {
     )
   }
 
+  createEffect(on(
+    () => [path(), state()?.loaded, file.location(path() ?? "")?.nonce, file.ready()] as const,
+    ([p, loaded, nonce, ready]) => {
+      if (!p || !loaded || !ready || isStale() || isEditing() || !isTextFile()) return
+      if (latex() || nonce !== undefined) startEditing()
+    },
+  ))
+
   return (
     <Tabs.Content
       ref={(el: HTMLDivElement) => (tabRoot = el)}
@@ -1476,6 +1494,7 @@ export function FileTabContent(props: { tab: string }) {
           </div>
         </div>
       </Show>
+      <LatexPanel enabled={latex()} active={props.visible && activeFileTab() === props.tab} path={path() ?? ""} auth={pdfAuthHeader()} onNavigate={(target, line) => void navigate(target, line)}>
       <Show
         when={isEditing()}
         fallback={
@@ -1523,6 +1542,7 @@ export function FileTabContent(props: { tab: string }) {
         <CodeEditor
           content={editContent()}
           filename={path() ?? ""}
+          location={file.location(path() ?? "")}
           onChange={setEditContent}
           disabled={isSaving()}
           wordWrap={wordWrap()}
@@ -1536,6 +1556,7 @@ export function FileTabContent(props: { tab: string }) {
           }}
         />
       </Show>
+      </LatexPanel>
       <Show when={ask.open}>
         <button
           type="button"

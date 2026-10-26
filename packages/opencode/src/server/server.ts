@@ -134,6 +134,8 @@ import { SessionRoutes } from "./routes/session"
 import { PtyRoutes } from "./routes/pty"
 import { McpRoutes } from "./routes/mcp"
 import { FileRoutes, type ServerEnv } from "./routes/file"
+import { LatexRoutes } from "./routes/latex"
+import { LatexSchema } from "../latex/schema"
 import { ConfigRoutes } from "./routes/config"
 import { ExperimentalRoutes } from "./routes/experimental"
 import { ProviderRoutes } from "./routes/provider"
@@ -232,6 +234,7 @@ export namespace Server {
     })
     return app
       .onError((err, c) => {
+        if (err instanceof LatexSchema.Error) return c.json({ error: err.message }, err.code)
         log.error("failed", {
           error: err,
         })
@@ -486,6 +489,7 @@ export namespace Server {
       .route("/provider", ProviderRoutes())
       .route("/native", NativeRoutes())
       .route("/database", DatabaseRoutes())
+      .route("/latex", LatexRoutes())
       .route("/", FileRoutes())
       .route("/", EventRoutes(opts.onBrowserConnectionChange))
       .route("/mcp", McpRoutes())

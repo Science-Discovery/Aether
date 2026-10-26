@@ -5,6 +5,7 @@ import { createRequire } from "module"
 import os from "os"
 import z from "zod"
 import { ModelsDev } from "../provider/models"
+import { LatexSchema } from "../latex/schema"
 import { mergeDeep, pipe, unique } from "remeda"
 import { Global } from "../global"
 import fs from "fs/promises"
@@ -1233,6 +1234,7 @@ export namespace Config {
         })
         .optional()
         .describe("Native agent settings. Executable paths are read only from the user's global configuration."),
+      latex: LatexSchema.Config.optional().describe("Local LaTeX compiler executable paths"),
       command: z
         .record(z.string(), Command)
         .optional()

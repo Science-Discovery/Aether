@@ -167,6 +167,22 @@ import type {
   KnowledgeStatsResponses,
   KnowledgeSyncErrors,
   KnowledgeSyncResponses,
+  LatexBindErrors,
+  LatexBindResponses,
+  LatexBuildErrors,
+  LatexBuildResponses,
+  LatexCancelErrors,
+  LatexCancelResponses,
+  LatexGetErrors,
+  LatexGetResponses,
+  LatexPdfErrors,
+  LatexPdfResponses,
+  LatexProjectErrors,
+  LatexProjectResponses,
+  LatexRefreshErrors,
+  LatexRefreshResponses,
+  LatexStatusErrors,
+  LatexStatusResponses,
   LspStatusResponses,
   McpAddErrors,
   McpAddResponses,
@@ -4506,6 +4522,279 @@ export class Database extends HeyApiClient {
   private _legacy?: Legacy
   get legacy(): Legacy {
     return (this._legacy ??= new Legacy({ client: this.client }))
+  }
+}
+
+export class Latex extends HeyApiClient {
+  /**
+   * Inspect local LaTeX compilers
+   */
+  public status<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<LatexStatusResponses, LatexStatusErrors, ThrowOnError>({
+      url: "/latex/status",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Resolve a LaTeX main document and its saved binding
+   */
+  public project<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      path?: string
+      root?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "path" },
+            { in: "query", key: "root" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<LatexProjectResponses, LatexProjectErrors, ThrowOnError>({
+      url: "/latex/project",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Bind a LaTeX project to its main document
+   */
+  public bind<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      root?: string
+      main?: string
+      driver?: "auto" | "tectonic" | "latexmk"
+      program?: "auto" | "pdflatex" | "xelatex"
+      expectedRevision?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "root" },
+            { in: "body", key: "main" },
+            { in: "body", key: "driver" },
+            { in: "body", key: "program" },
+            { in: "body", key: "expectedRevision" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).put<LatexBindResponses, LatexBindErrors, ThrowOnError>({
+      url: "/latex/project",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Hash saved project files and recheck preview freshness
+   */
+  public refresh<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      root?: string
+      editors?: Array<string>
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "root" },
+            { in: "body", key: "editors" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<LatexRefreshResponses, LatexRefreshErrors, ThrowOnError>({
+      url: "/latex/project/refresh",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Compile a saved LaTeX project asynchronously
+   */
+  public build<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      root?: string
+      bindingRevision?: string
+      sourceRevision?: string
+      allowDownloads?: boolean
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "root" },
+            { in: "body", key: "bindingRevision" },
+            { in: "body", key: "sourceRevision" },
+            { in: "body", key: "allowDownloads" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<LatexBuildResponses, LatexBuildErrors, ThrowOnError>({
+      url: "/latex/build",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Read LaTeX build progress and diagnostics
+   */
+  public get<ThrowOnError extends boolean = false>(
+    parameters: {
+      id: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "id" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<LatexGetResponses, LatexGetErrors, ThrowOnError>({
+      url: "/latex/build/{id}",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Cancel a LaTeX build and stop its process tree
+   */
+  public cancel<ThrowOnError extends boolean = false>(
+    parameters: {
+      id: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "id" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<LatexCancelResponses, LatexCancelErrors, ThrowOnError>({
+      url: "/latex/build/{id}/cancel",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Read an immutable successful LaTeX PDF
+   */
+  public pdf<ThrowOnError extends boolean = false>(
+    parameters: {
+      id: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "id" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<LatexPdfResponses, LatexPdfErrors, ThrowOnError>({
+      url: "/latex/build/{id}/pdf",
+      ...options,
+      ...params,
+    })
   }
 }
 
@@ -9308,6 +9597,11 @@ export class OpencodeClient extends HeyApiClient {
   private _database?: Database
   get database(): Database {
     return (this._database ??= new Database({ client: this.client }))
+  }
+
+  private _latex?: Latex
+  get latex(): Latex {
+    return (this._latex ??= new Latex({ client: this.client }))
   }
 
   private _file?: File

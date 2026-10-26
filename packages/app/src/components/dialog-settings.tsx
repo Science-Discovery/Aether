@@ -14,6 +14,7 @@ import { SettingsMemory } from "./settings-memory"
 import { SettingsSkills } from "./settings-skills"
 import { SettingsImport } from "./settings-import"
 import { SettingsNative } from "./settings-native"
+import { SettingsLatex } from "./settings-latex"
 
 export const DialogSettings: Component = () => {
   const language = useLanguage()
@@ -54,6 +55,10 @@ export const DialogSettings: Component = () => {
                     <Tabs.Trigger value="models">
                       <Icon name="models" />
                       {language.t("settings.models.title")}
+                    </Tabs.Trigger>
+                    <Tabs.Trigger value="latex">
+                      <Icon name="open-file" />
+                      {language.t("latex.settings")}
                     </Tabs.Trigger>
                     <Tabs.Trigger value="knowledge">
                       <Icon name="brain" />
@@ -98,6 +103,9 @@ export const DialogSettings: Component = () => {
         </Tabs.Content>
         <Tabs.Content value="models" class="no-scrollbar">
           <SettingsModels />
+        </Tabs.Content>
+        <Tabs.Content value="latex" class="no-scrollbar">
+          <SettingsLatex />
         </Tabs.Content>
         <Tabs.Content value="knowledge" class="no-scrollbar">
           <SettingsKnowledge />
