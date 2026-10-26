@@ -17,6 +17,7 @@ import { batch } from "solid-js"
 import { reconcile, type SetStoreFunction, type Store } from "solid-js/store"
 import type { State, VcsCache } from "./types"
 import { cmp } from "./utils"
+import * as Status from "./status"
 import { formatServerError } from "@/utils/server-errors"
 
 type GlobalStore = {
@@ -195,7 +196,12 @@ export async function bootstrapDirectory(input: {
           if (next) input.setStore("project", next)
         }),
       ),
-    () => retry(() => input.sdk.session.status().then((x) => input.setStore("session_status", x.data!))),
+    () => {
+      const before = Status.capture(input.store)
+      return retry(() => input.sdk.session.status()).then((x) => {
+        input.setStore("session_status", reconcile(Status.rebase(x.data ?? {}, before, input.store)))
+      })
+    },
     () =>
       retry(() =>
         input.sdk.vcs.get().then((x) => {

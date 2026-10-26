@@ -22,14 +22,14 @@ Codex 是原生会话执行历史的唯一权威来源。Aether 通过原生接�
 
 改造前 `native/session.ts` 的 `queue()` 通过本地用户消息、对应 assistant 和 `engine.cursor` 计算待发送内容。此次迁移先把原输入及相关元数据转存到 `native_input`，把可识别的历史交付与回复标识转存到 `native_dispatch`，再允许原生历史刷新展示缓存。`noReply` 科研上下文与失败普通消息保持不同状态，不会自动重放。
 
-调用 `turn/start` 前会推进 `engine.cursor`，避免传输失败后重放可能已经执行的输入。因此现有消息表同时承担历史、待发送队列和部分发送记录，不能直接视为纯缓存。
+改造前，调用 `turn/start` 前会推进 `engine.cursor`，避免传输失败后重放可能已经执行的输入。因此旧消息表同时承担历史、待发送队列和部分发送记录，必须完成迁移后才能作为展示缓存。
 
 此外还有这些依赖：
 
 - `Session.messages()`、`MessageV2.page()` 从本地消息表读取；搜索直接查询消息与 part，导出也使用本地历史。
 - 阅读引用、文件引用和对话引用中有 `ignored` 元数据，并未原样发送给 Codex，不能保证从原生历史恢复。对话引用还使用 Aether `sourceMessageID`。
 - `NativeInput` 保存的上传资源可能以本地路径进入 Codex 历史；阅读模式另存 PDF、批注和阅读位置。
-- 当前删除 Aether 会话会删除这些资源，但不会相应删除 Codex 原生线程。将该操作改成“解除关联”时必须同步调整资源生命周期。
+- 改造前删除 Aether 会话会删除这些资源，但不会相应删除 Codex 原生线程。本次已为绑定原生线程的会话保留上传附件和阅读文件；解除关联及保留资源的清理界面仍待实现。
 
 主要代码入口：`packages/opencode/src/native/{session,events,input,tree}.ts`、`packages/opencode/src/session/{index,message-v2,session.sql,backup}.ts`、`packages/opencode/src/server/routes/reading-mode.ts`、`packages/app/src/components/prompt-input/submit.ts`。
 

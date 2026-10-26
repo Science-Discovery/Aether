@@ -543,3 +543,47 @@ test("backend selection and typing remain available while Codex connection detec
     await Promise.all(pending.map((route) => route.abort().catch(() => undefined)))
   }
 })
+
+test("native completion missed before SSE connects is recovered without another prompt", async ({ page, project }) => {
+  await project.open({ setup: fixture, beforeGoto: configure })
+  await choose(page, "prompt-engine", "Codex")
+  await send(page, "Seed a conversation before the connection gap.")
+  const id = sessionIDFromUrl(page.url())
+  if (!id) throw new Error("Native session was not created")
+  project.trackSession(id)
+  await expect(page.getByText("Native response", { exact: true })).toBeVisible()
+  await waitSessionIdle(project.sdk, id)
+  const pending: Route[] = []
+  let held = true
+  const handler = async (route: Route) => {
+    if (!held) return route.continue()
+    pending.push(route)
+  }
+  await page.route("**/global/event*", handler)
+  try {
+    await page.reload()
+    await expect(page.locator('[data-action="prompt-engine"]')).toHaveText("Codex")
+    await expect.poll(() => pending.length).toBeGreaterThan(0)
+    await send(page, "Finish while the browser has no event connection.")
+    await expect
+      .poll(async () => {
+        const messages = (await project.sdk.session.messages({ sessionID: id })).data ?? []
+        return messages.filter((entry) => entry.info.role === "assistant" && entry.info.time.completed).length
+      })
+      .toBe(2)
+    const messages = (await project.sdk.session.messages({ sessionID: id })).data ?? []
+    const user = messages.filter((entry) => entry.info.role === "user").at(-1)
+    if (!user) throw new Error("Native user message was not saved")
+    held = false
+    await Promise.all(pending.splice(0).map((route) => route.continue()))
+    await expect(
+      page.locator(`[data-message-id="${user.info.id}"]`).getByText("Native response", { exact: true }),
+    ).toBeVisible()
+    await expect(page.getByRole("button", { name: "Stop", exact: true })).toHaveCount(0)
+    expect((await calls(project.directory)).filter((call) => call.method === "turn/start")).toHaveLength(2)
+  } finally {
+    held = false
+    await page.unroute("**/global/event*", handler)
+    await Promise.all(pending.splice(0).map((route) => route.abort().catch(() => undefined)))
+  }
+})

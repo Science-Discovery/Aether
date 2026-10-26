@@ -30,6 +30,7 @@ import { bootstrapDirectory, bootstrapGlobal } from "./global-sync/bootstrap"
 import { createChildStoreManager } from "./global-sync/child-store"
 import { applyDirectoryEvent, applyGlobalEvent, cleanupDroppedSessionCaches } from "./global-sync/event-reducer"
 import { createReconnectTracker } from "./global-sync/reconnect"
+import * as Status from "./global-sync/status"
 import { createRefreshQueue } from "./global-sync/queue"
 import { createProviderRefresh } from "./global-sync/provider-refresh"
 import { clearSessionPrefetchDirectory, resetSessionPrefetch } from "./global-sync/session-prefetch"
@@ -308,14 +309,16 @@ function createGlobalSync() {
 
     children.pin(directory)
     const [store, setStore] = children.child(directory, { bootstrap: false })
-    const refreshStatus = () =>
-      retry(() => globalSDK.client.session.status({ directory }))
+    const refreshStatus = () => {
+      const before = Status.capture(store)
+      return retry(() => globalSDK.client.session.status({ directory }))
         .then((x) => {
-          setStore("session_status", reconcile(x.data!))
+          setStore("session_status", reconcile(Status.rebase(x.data ?? {}, before, store)))
         })
         .catch((err) => {
           console.error("Failed to refresh session status", err)
         })
+    }
     if (opts?.force) sessionMeta.delete(directory)
     const meta = sessionMeta.get(directory)
     if (planSessionLoad(meta, store.limit) === "trim") {
@@ -476,11 +479,11 @@ function createGlobalSync() {
         void refreshRecent()
       }
       if (event.type === "server.connected" || event.type === "global.disposed") {
+        if (event.type === "server.connected") reconnects.fire()
         if (recent) return
         for (const directory of Object.keys(children.children)) {
           queue.push(directory)
         }
-        if (event.type === "server.connected") reconnects.fire()
       }
       return
     }
