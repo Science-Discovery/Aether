@@ -11,7 +11,7 @@ import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { getFilename } from "@opencode-ai/util/path"
 import { A, useNavigate, useParams } from "@solidjs/router"
 import { decode64 } from "@/utils/base64"
-import { backend, backends, workspaceKey } from "./helpers"
+import { backend, workspaceKey } from "./helpers"
 import { type Accessor, createMemo, createSignal, For, type JSX, Match, onCleanup, Show, Switch } from "solid-js"
 import { useGlobalSync } from "@/context/global-sync"
 import { useLanguage } from "@/context/language"
@@ -253,13 +253,6 @@ const SessionRow = (props: {
       </span>
     </Show>
     <span class="text-14-regular text-text-strong min-w-0 flex-1 truncate">{props.session.title}</span>
-    <span
-      data-component="session-backend"
-      data-backend={backend(props.session)}
-      class="shrink-0 rounded border border-border-weak-base px-1 text-[10px] leading-4 text-text-weak"
-    >
-      {backends[backend(props.session)]}
-    </span>
   </A>
 )
 
