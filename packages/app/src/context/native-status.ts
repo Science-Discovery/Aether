@@ -38,8 +38,10 @@ export function createNativeStatus(opts: {
     })
     pending = opts
       .read(refresh)
-      .then((data) => {
+      .then((value) => {
         if (run !== epoch || !opts.enabled() || opts.key() !== key) return
+        // Older servers predate the switch and omit enabled from discovery.
+        const data = value && { ...value, enabled: value.enabled !== false }
         const good = !!data?.enabled && data.installed && data.connected && data.auth !== "missing" && !data.error
         setStore({ data, fresh: true, expires: Date.now() + (good ? 60_000 : 5_000) })
         timer = setTimeout(

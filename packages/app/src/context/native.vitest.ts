@@ -10,6 +10,9 @@ const mocks = vi.hoisted(() => ({
   calls: 0,
   fail: false,
   auth: "chatgpt",
+  legacy: false,
+  enabled: true,
+  error: undefined as string | undefined,
   queries: [] as boolean[],
   wait: undefined as Promise<void> | undefined,
 }))
@@ -51,10 +54,11 @@ vi.mock("./sdk", () => ({
           if (mocks.fail) throw new Error("disconnected")
           return {
             data: {
-              enabled: true,
+              enabled: mocks.legacy ? undefined : mocks.enabled,
               installed: true,
               connected: true,
               auth: mocks.auth,
+              error: mocks.error,
               models: [
                 { id: "one", name: "One", default: true, efforts: ["low", "high"], effort: "low" },
                 { id: "two", name: "Two", default: false, efforts: ["medium"], effort: "medium" },
@@ -79,12 +83,66 @@ beforeEach(() => {
   mocks.calls = 0
   mocks.fail = false
   mocks.auth = "chatgpt"
+  mocks.legacy = false
+  mocks.enabled = true
+  mocks.error = undefined
   mocks.queries = []
   mocks.wait = undefined
 })
-afterEach(() => dispose?.())
+afterEach(() => {
+  dispose?.()
+  vi.useRealTimers()
+})
 
 describe("native session controls", () => {
+  test("accepts legacy discovery without enabled but honors an explicit disabled response", async () => {
+    mocks.legacy = true
+    const native = mount()
+    native.select("codex")
+    await vi.waitFor(() => expect(native.ready()).toBe(true))
+    expect(native.status()?.enabled).toBe(true)
+    expect(native.selection()?.model).toBe("one")
+    mocks.legacy = false
+    mocks.enabled = false
+    await native.refresh()
+    expect(native.ready()).toBe(false)
+    expect(native.status()?.enabled).toBe(false)
+  })
+
+  test("keeps a usable selection after TTL expiry and a transient refresh failure", async () => {
+    vi.useFakeTimers()
+    const native = mount()
+    native.select("codex")
+    await vi.advanceTimersByTimeAsync(0)
+    expect(native.ready()).toBe(true)
+    const pending = Promise.withResolvers<void>()
+    mocks.wait = pending.promise
+    mocks.fail = true
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(mocks.calls).toBe(2)
+    expect(native.loading()).toBe(true)
+    expect(native.ready()).toBe(true)
+    pending.resolve()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(native.loading()).toBe(false)
+    expect(native.error()).toBeInstanceOf(Error)
+    expect(native.ready()).toBe(true)
+    expect(native.selection()).toEqual({ type: "codex", model: "one", effort: "low" })
+    mocks.fail = false
+    mocks.auth = "missing"
+    await native.refresh()
+    expect(native.ready()).toBe(false)
+    mocks.auth = "chatgpt"
+    mocks.error = "Account discovery failed"
+    await native.refresh()
+    expect(native.ready()).toBe(false)
+    mocks.error = undefined
+    await native.refresh()
+    expect(native.ready()).toBe(true)
+    native.setModel("removed")
+    expect(native.ready()).toBe(false)
+  })
+
   test("prefetches once and switching engines or models does not repeat discovery", async () => {
     const native = mount()
     await vi.waitFor(() => expect(native.status()?.connected).toBe(true))

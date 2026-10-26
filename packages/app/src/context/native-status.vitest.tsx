@@ -160,7 +160,7 @@ describe("native connection status", () => {
     expect(probe.fresh()).toBe(true)
   })
 
-  test("an expired inactive catalog is not ready and refreshes when selected", async () => {
+  test("an expired inactive catalog is marked stale and refreshes when selected", async () => {
     vi.useFakeTimers()
     const wait = deferred()
     const [state, setState] = createStore({ active: false })

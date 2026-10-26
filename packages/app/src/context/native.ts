@@ -55,10 +55,11 @@ export function createNative() {
     locked: () => !!params.id,
     ready: () => {
       const status = result.data()
+      // Discovery freshness is not the session connection's health. The
+      // server validates the selected model again when dispatching a turn.
       return (
         enabled() &&
         active() &&
-        result.fresh() &&
         !!status?.enabled &&
         status.installed &&
         status.connected &&
