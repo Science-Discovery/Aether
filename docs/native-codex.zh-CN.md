@@ -66,3 +66,5 @@ Codex 请求命令执行、文件修改或额外权限时，Aether 显示问题�
 ![文件修改差异与原生审批](images/native-codex/approval.png)
 
 Codex 协议以安装版本支持的 `app-server` 为准。升级后应重新运行协议测试和真实安装的连接验证。SDK 使用仓库的 `packages/sdk/js/script/build.ts` 从服务端 schema 重新生成。
+
+关于跨客户端历史、实时事件与执行归属，见 [2026-10-26 互通验证](native-codex-interop.zh-CN.md)及[下一阶段的历史数据设计](native-codex-history-design.zh-CN.md)。这些是验证结果和待实现方案，不改变上述当前产品行为。
