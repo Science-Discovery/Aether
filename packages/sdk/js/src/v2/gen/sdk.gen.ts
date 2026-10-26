@@ -195,6 +195,8 @@ import type {
   MigrateSessionsResponses,
   MigrateSourcesResponses,
   NativeEngineInput,
+  NativeHistoryResponses,
+  NativePermission,
   NativeStatusResponses,
   OutputFormat,
   Part as Part2,
@@ -2828,6 +2830,10 @@ export class Session2 extends HeyApiClient {
       directory?: string
       workspace?: string
       title?: string
+      engine?: {
+        type: "codex"
+        permission?: NativePermission
+      }
       time?: {
         archived?: number
       }
@@ -2843,6 +2849,7 @@ export class Session2 extends HeyApiClient {
             { in: "query", key: "directory" },
             { in: "query", key: "workspace" },
             { in: "body", key: "title" },
+            { in: "body", key: "engine" },
             { in: "body", key: "time" },
           ],
         },
@@ -4362,6 +4369,40 @@ export class Native extends HeyApiClient {
     )
     return (options?.client ?? this.client).get<NativeStatusResponses, unknown, ThrowOnError>({
       url: "/native/codex",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Refresh Codex conversation history
+   *
+   * Read saved native history without resuming the thread. Incomplete reads preserve existing display records.
+   */
+  public history<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+      refresh?: boolean
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "refresh" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<NativeHistoryResponses, unknown, ThrowOnError>({
+      url: "/native/codex/{sessionID}/history",
       ...options,
       ...params,
     })

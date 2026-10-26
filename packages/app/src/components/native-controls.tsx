@@ -2,10 +2,11 @@ import { Show } from "solid-js"
 import { Button } from "@opencode-ai/ui/button"
 import { Select } from "@opencode-ai/ui/select"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
-import { Icon } from "@opencode-ai/ui/icon"
 import { useLanguage } from "@/context/language"
 import { useLocal } from "@/context/local"
+import type { NativePermission } from "@/utils/native"
 import { VariantSelect } from "./prompt-input/variant-select"
+import { NativeHistoryControl } from "./native-history"
 
 export function EngineSelect() {
   const local = useLocal()
@@ -59,7 +60,7 @@ export function NativeModels() {
           {language.t("native.disabledShort")}
         </span>
       </Show>
-      <Show when={native.enabled() && !native.ready() && !native.loading()}>
+      <Show when={native.enabled() && !native.ready() && !native.loading() && !native.saving()}>
         <Button
           variant="ghost"
           size="small"
@@ -71,11 +72,56 @@ export function NativeModels() {
           {language.t("native.refresh")}
         </Button>
       </Show>
-      <Tooltip value={language.t("native.permissions")}>
-        <span class="flex items-center p-1 text-icon-weak" aria-label={language.t("native.permissions")}>
-          <Icon name="shield" size="small" />
-        </span>
+      <Tooltip
+        value={`${language.t(`native.permission.${native.permission()}.description`)} ${language.t("native.permission.next")}`}
+      >
+        <div>
+          <Select<NativePermission>
+            options={["user", "auto", "full"]}
+            current={native.permission()}
+            label={(value) => language.t(`native.permission.${value}`)}
+            onSelect={(value) => value && void native.setPermission(value)}
+            disabled={!native.enabled() || native.saving()}
+            variant="ghost"
+            size="normal"
+            valueClass="truncate text-13-regular text-text-base"
+            triggerProps={{ "data-action": "prompt-native-permission", "aria-label": language.t("native.permission") }}
+          >
+            {(value) =>
+              value && (
+                <div class="max-w-[280px]">
+                  <div>{language.t(`native.permission.${value}`)}</div>
+                  <div class="text-12-regular text-text-weak whitespace-normal">
+                    {language.t(`native.permission.${value}.description`)}
+                  </div>
+                </div>
+              )
+            }
+          </Select>
+        </div>
       </Tooltip>
+      <Show when={native.saving()}>
+        <span role="status" class="text-12-regular text-text-weak">
+          {language.t("native.permission.saving")}
+        </span>
+      </Show>
+      <Show when={native.permissionError()}>
+        {(error) => (
+          <span role="alert" class="text-12-regular text-text-weak">
+            {language.t("native.permission.failed", { error: error() })}
+          </span>
+        )}
+      </Show>
+      <Show
+        when={
+          native.enabled() && native.permission() === "auto" && !native.loading() && !native.status()?.permissions?.auto
+        }
+      >
+        <span role="status" class="text-12-regular text-text-weak">
+          {language.t("native.permission.unavailable")}
+        </span>
+      </Show>
+      <NativeHistoryControl />
     </>
   )
 }

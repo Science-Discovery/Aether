@@ -15,20 +15,45 @@ const mocks = vi.hoisted(() => ({
   error: undefined as string | undefined,
   queries: [] as boolean[],
   wait: undefined as Promise<void> | undefined,
+  auto: true,
+  updates: [] as { sessionID: string; engine: NativeEngine }[],
+  save: undefined as Promise<void> | undefined,
+  reject: false,
+  ignored: false,
+  sse: true,
+  updated: 200,
 }))
 let controls: ReturnType<typeof createNative>
 const [state, setState] = createStore<{
   id?: string
   path: string
   ready: boolean
+  server: string
   enabled?: boolean
-  sessions: Record<string, { engine?: NativeEngine } | undefined>
-}>({ path: "", ready: true, sessions: {} })
+  sessions: Record<string, { engine?: NativeEngine; time?: { updated: number } } | undefined>
+}>({ path: "", server: "http://localhost:1234", ready: true, sessions: {} })
 
 vi.mock("@solidjs/router", () => ({ useParams: () => state }))
 vi.mock("./local", () => ({ useLocal: () => ({ native: controls }) }))
 vi.mock("./language", () => ({ useLanguage: () => ({ t: (key: string) => key }) }))
-vi.mock("./sync", () => ({ useSync: () => ({ session: { get: (id: string) => state.sessions[id] } }) }))
+vi.mock("@/components/native-history", () => ({ NativeHistoryControl: () => null }))
+vi.mock("./sync", () => ({
+  useSync: () => ({
+    session: {
+      get: (id: string) =>
+        state.sessions[id] && { ...state.sessions[id], time: state.sessions[id]?.time ?? { updated: 100 } },
+    },
+    set: (
+      _key: string,
+      match: (item: { id: string }) => boolean,
+      value: { engine: NativeEngine; time: { updated: number } },
+    ) => {
+      for (const id of Object.keys(state.sessions)) {
+        if (match({ id })) setState("sessions", id, value)
+      }
+    },
+  }),
+}))
 vi.mock("./global-sync", () => ({
   useGlobalSync: () => ({
     get ready() {
@@ -43,9 +68,28 @@ vi.mock("./global-sync", () => ({
 }))
 vi.mock("./sdk", () => ({
   useSDK: () => ({
-    url: "http://localhost:1234",
+    get url() {
+      return state.server
+    },
     directory: "/project",
     client: {
+      session: {
+        update: async (input: { sessionID: string; engine: NativeEngine }) => {
+          const server = state.server
+          const original = { ...state.sessions[input.sessionID]?.engine }
+          mocks.updates.push(input)
+          await mocks.save
+          if (mocks.reject) throw new Error("Save failed")
+          if (mocks.ignored) return { data: { engine: original } }
+          const engine = { ...original, ...input.engine }
+          if (state.server === server && mocks.sse)
+            setState("sessions", input.sessionID, {
+              engine,
+              time: { updated: mocks.updated },
+            })
+          return { data: { engine, time: { updated: mocks.updated } } }
+        },
+      },
       native: {
         status: async (input?: { refresh?: boolean }) => {
           mocks.calls++
@@ -59,6 +103,7 @@ vi.mock("./sdk", () => ({
               connected: true,
               auth: mocks.auth,
               error: mocks.error,
+              permissions: { auto: mocks.auto },
               models: [
                 { id: "one", name: "One", default: true, efforts: ["low", "high"], effort: "low" },
                 { id: "two", name: "Two", default: false, efforts: ["medium"], effort: "medium" },
@@ -79,7 +124,7 @@ const mount = () =>
   })
 
 beforeEach(() => {
-  setState({ id: undefined, path: "", ready: true, enabled: undefined, sessions: {} })
+  setState({ id: undefined, path: "", server: "http://localhost:1234", ready: true, enabled: undefined, sessions: {} })
   mocks.calls = 0
   mocks.fail = false
   mocks.auth = "chatgpt"
@@ -88,6 +133,13 @@ beforeEach(() => {
   mocks.error = undefined
   mocks.queries = []
   mocks.wait = undefined
+  mocks.auto = true
+  mocks.updates = []
+  mocks.save = undefined
+  mocks.reject = false
+  mocks.ignored = false
+  mocks.sse = true
+  mocks.updated = 200
 })
 afterEach(() => {
   dispose?.()
@@ -95,6 +147,191 @@ afterEach(() => {
 })
 
 describe("native session controls", () => {
+  test("new drafts use automatic approval while legacy sessions retain user approval across model changes", async () => {
+    const native = mount()
+    native.select("codex")
+    await vi.waitFor(() => expect(native.ready()).toBe(true))
+    expect(native.permission()).toBe("auto")
+    await native.setPermission("full")
+    native.setEffort("high")
+    expect(native.selection()).toMatchObject({ permission: "full", effort: "high" })
+    native.setModel("two")
+    expect(native.selection()).toMatchObject({ permission: "full", model: "two" })
+    expect(mocks.updates).toEqual([])
+    setState({ id: "older", sessions: { older: { engine: { type: "codex", model: "one" } } } })
+    expect(native.permission()).toBe("user")
+    native.setModel("two")
+    expect(native.selection()).toMatchObject({ permission: "user", model: "two" })
+  })
+
+  test("saves permissions for the original session without overwriting another session or a draft", async () => {
+    setState({
+      id: "source",
+      sessions: {
+        source: { engine: { type: "codex", model: "one" } },
+        target: { engine: { type: "codex", model: "two", permission: "user" } },
+      },
+    })
+    const native = mount()
+    await vi.waitFor(() => expect(native.ready()).toBe(true))
+    native.setEffort("high")
+    const pending = Promise.withResolvers<void>()
+    mocks.save = pending.promise
+    const saving = native.setPermission("full")
+    expect(native.saving()).toBe(true)
+    expect(native.selection()).toBeUndefined()
+    expect(native.permission()).toBe("user")
+    setState("id", "target")
+    expect(native.permission()).toBe("user")
+    expect(native.saving()).toBe(false)
+    setState("id", undefined)
+    native.select("codex")
+    expect(native.permission()).toBe("auto")
+    pending.resolve()
+    await saving
+    expect(native.permission()).toBe("auto")
+    setState("id", "target")
+    expect(native.permission()).toBe("user")
+    setState("id", "source")
+    expect(native.selection()).toMatchObject({ permission: "full", effort: "high" })
+    expect(mocks.updates).toEqual([{ sessionID: "source", engine: { type: "codex", permission: "full" } }])
+    expect(state.sessions.source?.engine?.permission).toBe("full")
+  })
+
+  test("a failed save keeps the previous permission and can be retried", async () => {
+    setState({ id: "retry", sessions: { retry: { engine: { type: "codex", model: "one", permission: "user" } } } })
+    const native = mount()
+    await vi.waitFor(() => expect(native.ready()).toBe(true))
+    mocks.reject = true
+    await native.setPermission("full")
+    expect(native.permission()).toBe("user")
+    expect(native.permissionError()).toBe("Save failed")
+    expect(native.saving()).toBe(false)
+    mocks.reject = false
+    await native.setPermission("auto")
+    expect(native.permission()).toBe("auto")
+    expect(native.permissionError()).toBeUndefined()
+  })
+
+  test("a response from the previous server cannot change a same-id session on the current server", async () => {
+    setState({ id: "cloned", sessions: { cloned: { engine: { type: "codex", model: "one", permission: "user" } } } })
+    const native = mount()
+    await vi.waitFor(() => expect(native.ready()).toBe(true))
+    const pending = Promise.withResolvers<void>()
+    mocks.save = pending.promise
+    const saving = native.setPermission("full")
+    setState("server", "http://another-server:1234")
+    expect(native.saving()).toBe(false)
+    expect(native.permission()).toBe("user")
+    native.setModel("two")
+    pending.resolve()
+    await saving
+    expect(native.permission()).toBe("user")
+    expect(native.model()?.id).toBe("two")
+    setState("server", "http://localhost:1234")
+    // Until this server's saved metadata arrives, an old request response must
+    // not become another authority for persisted permissions.
+    expect(native.permission()).toBe("user")
+    setState("sessions", "cloned", "engine", "permission", "full")
+    expect(native.permission()).toBe("full")
+  })
+
+  test("saved permission updates override model drafts without replacing their unsent model or effort", async () => {
+    setState({ id: "remote", sessions: { remote: { engine: { type: "codex", model: "one", permission: "auto" } } } })
+    const native = mount()
+    await vi.waitFor(() => expect(native.ready()).toBe(true))
+    native.setModel("two")
+    native.setEffort("medium")
+    setState("sessions", "remote", "engine", "permission", "full")
+    expect(native.permission()).toBe("full")
+    expect(native.selection()).toMatchObject({ model: "two", effort: "medium", permission: "full" })
+    setState("sessions", "remote", "engine", "permission", undefined)
+    expect(native.permission()).toBe("user")
+    expect(native.selection()).toMatchObject({ model: "two", effort: "medium", permission: "user" })
+  })
+
+  test("a confirmed save updates session metadata when SSE is absent", async () => {
+    setState({
+      id: "delayed",
+      sessions: { delayed: { engine: { type: "codex", model: "one", permission: "user" }, time: { updated: 100 } } },
+    })
+    mocks.sse = false
+    const native = mount()
+    await vi.waitFor(() => expect(native.ready()).toBe(true))
+    native.setModel("two")
+    await native.setPermission("full")
+    expect(native.permission()).toBe("full")
+    expect(state.sessions.delayed?.engine).toMatchObject({ model: "one", permission: "full" })
+    expect(native.model()?.id).toBe("two")
+    expect(state.sessions.delayed?.time?.updated).toBe(200)
+  })
+
+  test("an old save response cannot overwrite a newer permission event", async () => {
+    setState({
+      id: "newer",
+      sessions: { newer: { engine: { type: "codex", model: "one", permission: "auto" }, time: { updated: 100 } } },
+    })
+    mocks.sse = false
+    const native = mount()
+    await vi.waitFor(() => expect(native.ready()).toBe(true))
+    const pending = Promise.withResolvers<void>()
+    mocks.save = pending.promise
+    const saving = native.setPermission("full")
+    setState("sessions", "newer", {
+      engine: { type: "codex", model: "two", permission: "user" },
+      time: { updated: 300 },
+    })
+    pending.resolve()
+    await saving
+    expect(native.permission()).toBe("user")
+    expect(native.model()?.id).toBe("two")
+    expect(state.sessions.newer?.time?.updated).toBe(300)
+  })
+
+  test("an older server ignoring the permission field cannot appear to have saved full access", async () => {
+    setState({ id: "unsupported", sessions: { unsupported: { engine: { type: "codex", model: "one" } } } })
+    const native = mount()
+    await vi.waitFor(() => expect(native.ready()).toBe(true))
+    mocks.ignored = true
+    await native.setPermission("full")
+    expect(native.permission()).toBe("user")
+    expect(native.permissionError()).toContain("did not confirm")
+    expect(native.selection()?.permission).toBe("user")
+  })
+
+  test("permission controls expose three modes and show unverified automatic approval without a silent fallback", async () => {
+    mocks.auto = false
+    const host = document.createElement("div")
+    document.body.append(host)
+    const cleanup = render(() => {
+      controls = createNative()
+      controls.select("codex")
+      return createComponent(NativeModels, {})
+    }, host)
+    dispose = () => {
+      cleanup()
+      host.remove()
+    }
+    await vi.waitFor(() => expect(controls.ready()).toBe(true))
+    expect(controls.permission()).toBe("auto")
+    expect(host.textContent).toContain("native.permission.unavailable")
+    const trigger = host.querySelector("[data-action=prompt-native-permission]")!
+    expect(trigger.textContent).toBe("native.permission.auto")
+    trigger.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }))
+    await Promise.resolve()
+    const options = [...document.querySelectorAll<HTMLElement>("[role=option]")]
+    for (const mode of ["user", "auto", "full"]) {
+      expect(options.some((option) => option.textContent?.startsWith(`native.permission.${mode}`))).toBe(true)
+    }
+    options
+      .find((option) => option.textContent?.startsWith("native.permission.user"))!
+      .dispatchEvent(new MouseEvent("click", { bubbles: true }))
+    await Promise.resolve()
+    expect(controls.permission()).toBe("user")
+    expect(host.textContent).not.toContain("native.permission.unavailable")
+    expect(mocks.updates).toEqual([])
+  })
+
   test("accepts legacy discovery without enabled but honors an explicit disabled response", async () => {
     mocks.legacy = true
     const native = mount()
@@ -127,7 +364,7 @@ describe("native session controls", () => {
     expect(native.loading()).toBe(false)
     expect(native.error()).toBeInstanceOf(Error)
     expect(native.ready()).toBe(true)
-    expect(native.selection()).toEqual({ type: "codex", model: "one", effort: "low" })
+    expect(native.selection()).toEqual({ type: "codex", model: "one", effort: "low", permission: "auto" })
     mocks.fail = false
     mocks.auth = "missing"
     await native.refresh()
@@ -149,11 +386,11 @@ describe("native session controls", () => {
     expect(native.engine()).toBeUndefined()
     native.select("codex")
     await vi.waitFor(() => expect(native.ready()).toBe(true))
-    expect(native.selection()).toEqual({ type: "codex", model: "one", effort: "low" })
+    expect(native.selection()).toEqual({ type: "codex", model: "one", effort: "low", permission: "auto" })
     native.setEffort("high")
     expect(native.selection()?.effort).toBe("high")
     native.setModel("two")
-    expect(native.selection()).toEqual({ type: "codex", model: "two", effort: "medium" })
+    expect(native.selection()).toEqual({ type: "codex", model: "two", effort: "medium", permission: "auto" })
     expect(mocks.calls).toBe(1)
     native.select("aether")
     expect(native.engine()).toBeUndefined()

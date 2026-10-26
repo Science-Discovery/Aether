@@ -6,6 +6,7 @@ import { Global } from "@/global"
 import { which } from "@/util/which"
 import { Protocol } from "./protocol"
 import { Native } from "./schema"
+import { NativePermissions } from "./permissions"
 
 export namespace Codex {
   export const Config = Native.Config
@@ -28,6 +29,7 @@ export namespace Codex {
       connected: z.boolean(),
       auth: z.enum(["chatgpt", "apiKey", "unknown", "missing"]),
       models: z.array(Model),
+      permissions: NativePermissions.Capabilities.optional(),
       error: z.string().optional(),
     })
     .meta({ ref: "NativeCodexStatus" })
@@ -125,7 +127,7 @@ export namespace Codex {
     if (!file) throw new Error("Codex executable was not found; install Codex or configure its executable path")
     const client = Protocol.connect({ ...opts, executable: file })
     return (async () => {
-      const result = z.object({ userAgent: z.string() }).parse(
+      const result = z.object({ userAgent: z.string(), codexHome: z.string().optional() }).parse(
         await client.request(
           "initialize",
           {
@@ -136,7 +138,11 @@ export namespace Codex {
         ),
       )
       await client.notify("initialized")
-      return { client, version: result.userAgent.match(/\d+\.\d+\.\d+(?:[-+][\w.-]+)?/)?.[0] }
+      return {
+        client,
+        version: result.userAgent.match(/\d+\.\d+\.\d+(?:[-+][\w.-]+)?/)?.[0],
+        home: result.codexHome,
+      }
     })().catch(async (error: unknown) => {
       await client.close()
       throw error
@@ -230,6 +236,7 @@ export namespace Codex {
       const results = await Promise.allSettled([
         opened.client.request("account/read", { refreshToken: false }).then((value) => account.parse(value)),
         models(opened.client),
+        NativePermissions.discover(resolved),
       ])
       const current = results[0].status === "fulfilled" ? results[0].value : undefined
       const type = current?.account?.type
@@ -246,7 +253,8 @@ export namespace Codex {
               ? "missing"
               : "unknown",
         models: results[1].status === "fulfilled" ? results[1].value : [],
-        ...(results.some((result) => result.status === "rejected")
+        permissions: results[2].status === "fulfilled" ? results[2].value : { auto: false },
+        ...(results.slice(0, 2).some((result) => result.status === "rejected")
           ? { error: "Codex connected, but account or model discovery failed" }
           : {}),
       } satisfies Status

@@ -469,10 +469,16 @@ export type PermissionRule = {
 
 export type PermissionRuleset = Array<PermissionRule>
 
+/**
+ * Session approval mode; omitted on legacy sessions means user
+ */
+export type NativePermission = "user" | "auto" | "full"
+
 export type NativeEngine = {
   type: "codex"
   model?: string
   effort?: string
+  permission?: NativePermission
   thread?: string
   cursor?: string
 }
@@ -2315,6 +2321,7 @@ export type NativeEngineInput = {
   type: "codex"
   model?: string
   effort?: string
+  permission?: NativePermission
 }
 
 export type TextPartInput = {
@@ -2432,6 +2439,11 @@ export type NativeCodexModel = {
   images?: boolean
 }
 
+export type NativePermissionCapabilities = {
+  auto: boolean
+  error?: string
+}
+
 export type NativeCodexStatus = {
   enabled: boolean
   installed: boolean
@@ -2440,6 +2452,14 @@ export type NativeCodexStatus = {
   connected: boolean
   auth: "chatgpt" | "apiKey" | "unknown" | "missing"
   models: Array<NativeCodexModel>
+  permissions?: NativePermissionCapabilities
+  error?: string
+}
+
+export type NativeHistoryStatus = {
+  state: "synced" | "partial" | "unavailable" | "busy" | "disabled" | "pending"
+  messages: number
+  updated?: number
   error?: string
 }
 
@@ -4676,6 +4696,10 @@ export type SessionGetResponse = SessionGetResponses[keyof SessionGetResponses]
 export type SessionUpdateData = {
   body?: {
     title?: string
+    engine?: {
+      type: "codex"
+      permission?: NativePermission
+    }
     time?: {
       archived?: number
     }
@@ -6294,6 +6318,28 @@ export type NativeStatusResponses = {
 }
 
 export type NativeStatusResponse = NativeStatusResponses[keyof NativeStatusResponses]
+
+export type NativeHistoryData = {
+  body?: never
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+    refresh?: boolean
+  }
+  url: "/native/codex/{sessionID}/history"
+}
+
+export type NativeHistoryResponses = {
+  /**
+   * History refresh status
+   */
+  200: NativeHistoryStatus
+}
+
+export type NativeHistoryResponse = NativeHistoryResponses[keyof NativeHistoryResponses]
 
 export type DatabaseLegacyStatusData = {
   body?: never

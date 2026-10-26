@@ -14,6 +14,9 @@ import { NativeInput } from "./input"
 import { Protocol } from "./protocol"
 import { NativeTree } from "./tree"
 import { NativeRuntime } from "./runtime"
+import { NativeStore } from "./store"
+import { NativeLock } from "./lock"
+import { NativePermissions } from "./permissions"
 
 export namespace NativeSession {
   const object = z.record(z.string(), z.unknown())
@@ -42,20 +45,6 @@ export namespace NativeSession {
 
   function message(err: unknown) {
     return err instanceof Error ? err.message : String(err)
-  }
-
-  function queue(history: MessageV2.WithParts[], cursor?: string) {
-    const boundary = cursor ? history.findIndex((entry) => entry.info.role === "user" && entry.info.id === cursor) : -1
-    // Answered failures are not implicitly retried; unanswered noReply context
-    // stays queued until a native dispatch consumes it.
-    const answered = new Set(history.flatMap((entry) => (entry.info.role === "assistant" ? [entry.info.parentID] : [])))
-    return {
-      boundary,
-      parts: history
-        .slice(boundary + 1)
-        .filter((entry) => entry.info.role === "user" && !answered.has(entry.info.id))
-        .flatMap((entry) => entry.parts),
-    }
   }
 
   async function request(
@@ -217,6 +206,14 @@ export namespace NativeSession {
     session: Session.Info,
     signal: AbortSignal,
   ): Promise<MessageV2.WithParts> {
+    return NativeLock.run(session.id, async () => execute(input, await Session.get(session.id), signal), signal)
+  }
+
+  async function execute(
+    input: SessionPrompt.PromptInput,
+    session: Session.Info,
+    signal: AbortSignal,
+  ): Promise<MessageV2.WithParts> {
     if (session.engine?.type !== "codex") throw new Error("This session does not use the Codex native engine.")
     if (input.model && input.model.providerID !== "codex-native")
       throw new Error("Choose a native Codex model for this session.")
@@ -227,6 +224,7 @@ export namespace NativeSession {
     const cfg = await Config.getGlobal()
     if (cfg.native?.codex?.enabled === false)
       throw new Error("The native Codex backend is disabled in Aether settings.")
+    await NativeStore.migrate(session)
     if (input.messageID) {
       const existing = await MessageV2.get({ sessionID: session.id, messageID: input.messageID }).catch(
         (err: unknown) => {
@@ -234,7 +232,8 @@ export namespace NativeSession {
           throw err
         },
       )
-      if (existing) throw new Error("This message has already been submitted. Send a new message to continue.")
+      if (existing || NativeStore.inputs(session.id).some((entry) => entry.id === input.messageID))
+        throw new Error("This message has already been submitted. Send a new message to continue.")
     }
     const user: MessageV2.User = {
       id: input.messageID ?? MessageID.ascending(),
@@ -259,18 +258,16 @@ export namespace NativeSession {
     // Queued research context has no assistant response to retire invalid
     // input later, so validate it before making it part of the conversation.
     if (input.noReply) {
-      const history = await Session.messages({ sessionID: session.id })
-      const pending = queue(history, session.engine.cursor)
-      if (session.engine.cursor && pending.boundary === -1)
-        throw new Error("The native input cursor is missing from this session. Start a new session.")
+      const pending = NativeStore.pending(session.id).flatMap((entry) => entry.data.parts)
       // Keep one MiB for the next normal message and its protocol fields so
       // saved context cannot fill an otherwise immutable native conversation.
       Protocol.check(
         "turn/start",
-        { input: await NativeInput.build([...pending.parts, ...parts], session.id, signal) },
+        { input: await NativeInput.build([...pending, ...parts], session.id, signal) },
         1024 * 1024,
       )
     }
+    NativeStore.add({ info: user, parts }, input.noReply === true)
     await Session.updateMessage(user)
     for (const part of parts) await Session.updatePart(part)
     await Session.touch(session.id)
@@ -284,8 +281,7 @@ export namespace NativeSession {
       if (title) await Session.setTitle({ sessionID: session.id, title })
     }
     if (input.noReply) return { info: user, parts }
-    const history = await Session.messages({ sessionID: session.id })
-    const pending = queue(history, session.engine.cursor)
+    const pending = NativeStore.pending(session.id)
     const assistant: MessageV2.Assistant = {
       id: MessageID.ascending(),
       sessionID: session.id,
@@ -330,12 +326,6 @@ export namespace NativeSession {
     signal.addEventListener("abort", abort, { once: true })
     try {
       signal.throwIfAborted()
-      if (session.engine.cursor && pending.boundary === -1)
-        throw new Error(
-          "The native input cursor is missing from this session. Start a new session instead of replaying history.",
-        )
-      if (!session.engine.cursor && session.engine.thread && history.some((entry) => entry.info.role === "assistant"))
-        throw new Error("This native thread has no input cursor. Start a new session instead of replaying history.")
       const revision = NativeRuntime.revision()
       await NativeRuntime.configure((await Config.getGlobal()).native?.codex, revision)
       const connection = await NativeRuntime.acquire({
@@ -366,6 +356,7 @@ export namespace NativeSession {
       })
       state.lease = connection
       state.client = connection.client
+      NativeStore.bind(session.id, connection.home, false)
       signal.throwIfAborted()
       const models = await Codex.models(connection.client)
       const selected = input.model?.modelID ?? session.engine.model
@@ -382,7 +373,11 @@ export namespace NativeSession {
         input.variant ?? (model.id === session.engine.model ? session.engine.effort : undefined) ?? model.effort
       if (effort && !model.efforts.includes(effort))
         throw new Error(`Codex model ${model.id} does not support reasoning effort ${effort}.`)
-      const native = await NativeInput.build(pending.parts, session.id, signal)
+      const native = await NativeInput.build(
+        pending.flatMap((entry) => entry.data.parts),
+        session.id,
+        signal,
+      )
       if (model.images === false && native.some((item) => item.type === "image" || item.type === "localImage"))
         throw new Error(`Codex model ${model.id} does not support image input. Choose a model that supports images.`)
       if (input.system)
@@ -392,12 +387,16 @@ export namespace NativeSession {
           text_elements: [],
         })
       if (!native.length) throw new Error("The message has no supported content to send to Codex.")
+      const file = session.engine.permission === "auto" ? await Codex.discover(cfg.native?.codex?.path) : undefined
+      const permissions = NativePermissions.resolve(
+        session.engine.permission,
+        session.directory,
+        file ? await NativePermissions.discover(file) : undefined,
+      )
       const params = {
         model: model.id,
         cwd: session.directory,
-        approvalPolicy: "on-request",
-        approvalsReviewer: "user",
-        sandbox: "workspace-write",
+        ...permissions.thread,
         ...(session.engine.thread
           ? { threadId: session.engine.thread, excludeTurns: true }
           : { serviceName: "aether" }),
@@ -418,9 +417,10 @@ export namespace NativeSession {
       if (session.engine.thread && thread.thread.id !== session.engine.thread)
         throw new Error("Codex resumed a different thread; the conversation was not continued.")
       if (thread.thread.status?.type === "active")
-        throw new Error("The native Codex thread is already active in another process.")
+        throw new Error("The native Codex thread is already active in this execution service.")
       if (thread.thread.status?.type === "systemError")
         throw new Error("The native Codex thread entered a system error.")
+      NativeStore.bind(session.id, connection.home)
       connection.bind(thread.thread.id)
       events.state.thread = thread.thread.id
       tree.registerRoot(thread.thread)
@@ -439,6 +439,7 @@ export namespace NativeSession {
         model: model.id,
         effort,
         clientUserMessageId: user.id,
+        ...permissions.turn,
         ...(input.format?.type === "json_schema" ? { outputSchema: input.format.schema } : {}),
       }
       Protocol.check("turn/start", payload)
@@ -446,15 +447,25 @@ export namespace NativeSession {
       // potentially executed input. Before this point, queued context stays pending.
       await Session.setEngine({
         sessionID: session.id,
+        preserve: true,
         engine: { type: "codex", thread: thread.thread.id, model: model.id, effort, cursor: user.id },
       })
       if (signal.aborted) {
-        await Session.setEngine({ sessionID: session.id, engine: session.engine })
+        await Session.setEngine({ sessionID: session.id, engine: session.engine, preserve: true })
         signal.throwIfAborted()
       }
       events.state.active = true
       tree.activate()
+      NativeStore.begin(
+        session.id,
+        user.id,
+        assistant.id,
+        thread.thread.id,
+        pending.map((entry) => entry.id),
+      )
+      NativeStore.receipt(assistant)
       const turn = started.parse(await connection.client.request("turn/start", payload, { signal }))
+      NativeStore.accept(session.id, user.id, turn.turn.id)
       if (events.state.turn && events.state.turn !== turn.turn.id) throw new Error("Codex started an unexpected turn.")
       events.state.turn = turn.turn.id
       tree.bindTurn(turn.turn.id)
@@ -472,10 +483,15 @@ export namespace NativeSession {
       const outcome = await Promise.race([events.done, exited.promise])
       await connection.client.drain()
       const result = await events.finish(signal.aborted ? { status: "interrupted" } : outcome)
+      NativeStore.receipt(assistant)
       state.keep = !signal.aborted && outcome.status === "completed"
       return result
     } catch (err) {
-      return await events.finish({ status: signal.aborted ? "interrupted" : "failed", error: message(err) })
+      NativeStore.fail(session.id, user.id)
+      NativeStore.uncertain(session.id, user.id)
+      const result = await events.finish({ status: signal.aborted ? "interrupted" : "failed", error: message(err) })
+      NativeStore.receipt(assistant)
+      return result
     } finally {
       signal.removeEventListener("abort", abort)
       state.off?.()

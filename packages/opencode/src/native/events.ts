@@ -3,6 +3,7 @@ import { NamedError } from "@opencode-ai/util/error"
 import { Session } from "@/session"
 import { MessageV2 } from "@/session/message-v2"
 import { PartID } from "@/session/schema"
+import { NativeStore } from "./store"
 
 export namespace NativeEvents {
   export type Outcome = { status: "completed" | "failed" | "interrupted"; error?: string }
@@ -161,6 +162,35 @@ export namespace NativeEvents {
       }
       if (!state.turn) return
       if (typeof data.turnId === "string" && state.turn && data.turnId !== state.turn) return
+      if (method === "item/autoApprovalReview/started" || method === "item/autoApprovalReview/completed") {
+        const id = string(data.reviewId)
+        const review = object.safeParse(data.review)
+        if (!id || !review.success) return
+        const key = `review:${id}`
+        const previous = parts.get(key)
+        const status = string(review.data.status)
+        const title = `Codex automatic approval: ${status || "unknown"}`
+        const input = { action: data.action, targetItemId: data.targetItemId }
+        const metadata = { native: { engine: "codex", type: "autoApprovalReview", turn: state.turn, raw: data } }
+        const time = { start: number(data.startedAtMs) || Date.now(), end: number(data.completedAtMs) || Date.now() }
+        const part: MessageV2.ToolPart = {
+          ...(previous?.type === "tool" ? previous : base()),
+          type: "tool",
+          tool: "codex.autoApprovalReview",
+          callID: key,
+          metadata,
+          state:
+            status === "inProgress" && method.endsWith("/started")
+              ? { status: "running", input, title, metadata, time: { start: time.start } }
+              : status === "approved"
+                ? { status: "completed", input, title, output: render(review.data), metadata, time }
+                : { status: "error", input, error: `${title}\n${render(review.data)}`, metadata, time },
+        }
+        parts.set(key, part)
+        NativeStore.review(assistant.sessionID, assistant.parentID, part)
+        await Session.updatePart(part)
+        return
+      }
       if (method === "item/started" || method === "item/completed") {
         await item(data.item, method === "item/completed", data.nativeAgent)
         return
@@ -268,6 +298,8 @@ export namespace NativeEvents {
             time: { start: part.state.status === "running" ? part.state.time.start : Date.now(), end: Date.now() },
           }
           await Session.updatePart(part)
+          if (part.tool === "codex.autoApprovalReview")
+            NativeStore.review(assistant.sessionID, assistant.parentID, part)
         }
         if (part.type === "text" || part.type === "reasoning") {
           part.time = { start: part.time?.start ?? assistant.time.created, end: Date.now() }

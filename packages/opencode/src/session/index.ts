@@ -705,7 +705,7 @@ export namespace Session {
         directory: Instance.directory,
         title: input?.title,
         permission: input?.permission,
-        engine: input?.engine,
+        engine: input?.engine ? { ...input.engine, permission: input.engine.permission ?? "auto" } : undefined,
         workspaceID: input?.workspaceID,
       })
     },
@@ -1082,14 +1082,45 @@ export namespace Session {
     },
   )
 
-  export const setEngine = fn(z.object({ sessionID: SessionID.zod, engine: Native.Engine }), async (input) => {
-    const session = await get(input.sessionID)
-    if (session.engine?.type !== input.engine.type) throw new Error("A session's engine cannot be changed")
-    SyncEvent.run(Event.Updated, {
-      sessionID: input.sessionID,
-      info: { engine: input.engine, time: { updated: Date.now() } },
-    })
-  })
+  export const setEngine = fn(
+    z.object({ sessionID: SessionID.zod, engine: Native.Engine, preserve: z.boolean().optional() }),
+    async (input) => {
+      const session = await get(input.sessionID)
+      if (session.engine?.type !== input.engine.type) throw new Error("A session's engine cannot be changed")
+      const current = Database.useProject(session.projectID, (db) =>
+        db.select({ engine: SessionTable.engine }).from(SessionTable).where(eq(SessionTable.id, input.sessionID)).get(),
+      )
+      if (!current?.engine) throw new Error("The native session no longer exists")
+      SyncEvent.run(Event.Updated, {
+        sessionID: input.sessionID,
+        info: {
+          projectID: session.projectID,
+          engine: input.preserve ? { ...input.engine, permission: current.engine.permission } : input.engine,
+          time: { updated: Date.now() },
+        },
+      })
+    },
+  )
+
+  export const setNativePermission = fn(
+    z.object({ sessionID: SessionID.zod, permission: Native.Permission }),
+    async (input) => {
+      const session = await get(input.sessionID)
+      if (!session.engine) throw new Error("This session does not use the native Codex backend")
+      const current = Database.useProject(session.projectID, (db) =>
+        db.select({ engine: SessionTable.engine }).from(SessionTable).where(eq(SessionTable.id, input.sessionID)).get(),
+      )
+      if (!current?.engine) throw new Error("The native session no longer exists")
+      SyncEvent.run(Event.Updated, {
+        sessionID: input.sessionID,
+        info: {
+          projectID: session.projectID,
+          engine: { ...current.engine, permission: input.permission },
+          time: { updated: Date.now() },
+        },
+      })
+    },
+  )
 
   export const setRevert = fn(
     z.object({
@@ -1782,15 +1813,17 @@ export namespace Session {
       if (session.engine) {
         await SessionPrompt.cancel(sessionID)
         await NativeRuntime.remove(sessionID)
-        await fs.rm(NativeInput.directory(sessionID), { recursive: true, force: true }).catch((error) => {
-          log.error("failed to remove native session attachments", { sessionID, error })
-        })
+        if (!session.engine.thread)
+          await fs.rm(NativeInput.directory(sessionID), { recursive: true, force: true }).catch((error) => {
+            log.error("failed to remove native session attachments", { sessionID, error })
+          })
       }
       for (const child of await children(sessionID)) {
         await remove(child.id)
       }
 
-      if (session.readingMode) {
+      // The native thread survives unlinking and can still refer to these files.
+      if (session.readingMode && !session.engine?.thread) {
         const dir = readingModeDir(sessionID)
         await fs.rm(dir, { recursive: true, force: true }).catch((error) => {
           log.error("failed to remove reading mode session directory", {

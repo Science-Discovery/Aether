@@ -90,6 +90,121 @@ async function stopped(pid: number) {
 }
 
 describe("native Codex session", () => {
+  test("permission updates and preserved engine writes do not lose each other's fields", async () => {
+    await scenario("normal", async (session) => {
+      for (let attempt = 0; attempt < 12; attempt++) {
+        await Session.setEngine({ sessionID: session.id, engine: { type: "codex", permission: "user" } })
+        const engine = {
+          type: "codex" as const,
+          thread: `thread-${attempt}`,
+          cursor: `cursor-${attempt}`,
+          model: "native-model",
+          effort: "high",
+        }
+        const writes = [
+          () => Session.setEngine({ sessionID: session.id, engine, preserve: true }),
+          () => Session.setNativePermission({ sessionID: session.id, permission: "full" }),
+        ]
+        await Promise.all((attempt % 2 ? writes.reverse() : writes).map((write) => write()))
+        expect((await Session.get(session.id)).engine).toEqual({ ...engine, permission: "full" })
+      }
+      await Session.setEngine({ sessionID: session.id, engine: { type: "codex", thread: "legacy" } })
+      await Session.setEngine({
+        sessionID: session.id,
+        engine: { type: "codex", thread: "legacy", cursor: "next" },
+        preserve: true,
+      })
+      expect((await Session.get(session.id)).engine).toEqual({ type: "codex", thread: "legacy", cursor: "next" })
+    })
+  })
+
+  test("permission changes apply to every next turn of the same warm thread and legacy omission remains user", async () => {
+    await scenario("normal", async (session, dir) => {
+      expect(session.engine?.permission).toBe("auto")
+      for (const mode of ["auto", "full", "user"] as const) {
+        await Session.setNativePermission({ sessionID: session.id, permission: mode })
+        const result = await NativeSession.prompt(
+          { sessionID: session.id, parts: [{ type: "text", text: `Turn with ${mode} permission` }] },
+          await Session.get(session.id),
+          new AbortController().signal,
+        )
+        expect(result.info.role === "assistant" && result.info.error).toBeUndefined()
+        expect((await Session.get(session.id)).engine?.permission).toBe(mode)
+      }
+      const saved = (await Session.get(session.id)).engine!
+      await Session.setEngine({ sessionID: session.id, engine: { ...saved, permission: undefined } })
+      const result = await NativeSession.prompt(
+        { sessionID: session.id, parts: [{ type: "text", text: "Legacy permission omission" }] },
+        await Session.get(session.id),
+        new AbortController().signal,
+      )
+      expect(result.info.role === "assistant" && result.info.error).toBeUndefined()
+      expect((await Session.get(session.id)).engine?.permission).toBeUndefined()
+      const log = await calls(dir)
+      const turns = log.filter((call) => call.method === "turn/start")
+      expect(turns).toHaveLength(4)
+      expect(log.filter((call) => call.method === "thread/start")).toHaveLength(1)
+      expect(log.filter((call) => call.method === "thread/resume")).toHaveLength(0)
+      expect(new Set(turns.map((call) => call.params?.threadId))).toEqual(new Set([saved.thread]))
+      expect(new Set(turns.map((call) => call.pid)).size).toBe(1)
+      expect(turns.map((call) => call.params?.approvalsReviewer)).toEqual(["auto_review", "user", "user", "user"])
+      expect(turns.map((call) => call.params?.approvalPolicy)).toEqual([
+        "on-request",
+        "never",
+        "on-request",
+        "on-request",
+      ])
+      expect(turns.map((call) => call.params?.sandboxPolicy)).toEqual([
+        {
+          type: "workspaceWrite",
+          writableRoots: [dir],
+          networkAccess: false,
+          excludeTmpdirEnvVar: false,
+          excludeSlashTmp: false,
+        },
+        { type: "dangerFullAccess" },
+        {
+          type: "workspaceWrite",
+          writableRoots: [dir],
+          networkAccess: false,
+          excludeTmpdirEnvVar: false,
+          excludeSlashTmp: false,
+        },
+        {
+          type: "workspaceWrite",
+          writableRoots: [dir],
+          networkAccess: false,
+          excludeTmpdirEnvVar: false,
+          excludeSlashTmp: false,
+        },
+      ])
+    })
+  })
+
+  test("a permission change during an active turn does not resolve its approval or overwrite the saved next-turn mode", async () => {
+    await scenario("approval", async (session, dir) => {
+      await Session.setNativePermission({ sessionID: session.id, permission: "user" })
+      const running = NativeSession.prompt(
+        { sessionID: session.id, parts: [{ type: "text", text: "Ask before running" }] },
+        await Session.get(session.id),
+        new AbortController().signal,
+      )
+      const pending = await question()
+      const before = (await Session.get(session.id)).engine!
+      await Session.setNativePermission({ sessionID: session.id, permission: "full" })
+      expect((await Session.get(session.id)).engine).toEqual({ ...before, permission: "full" })
+      expect((await Question.list()).some((item) => item.id === pending.id)).toBe(true)
+      expect(
+        (await calls(dir)).filter((call) => call.method === "turn/start").map((call) => call.params?.approvalPolicy),
+      ).toEqual(["on-request"])
+      await Question.reply({ requestID: pending.id, answers: [["Allow once"]] })
+      const result = await running
+      expect(result.info.role === "assistant" && result.info.error).toBeUndefined()
+      expect((await Session.get(session.id)).engine).toEqual({ ...before, permission: "full" })
+      expect(await Question.list()).toHaveLength(0)
+    })
+  })
+
   test("disabling Codex preserves an active turn, retires its process, and rejects all new input before storage", async () => {
     await scenario("approval", async (session, dir) => {
       const running = NativeSession.prompt(
@@ -713,12 +828,14 @@ describe("native Codex session", () => {
         sessionID: session.id,
         engine: { type: "codex", thread: "existing-thread", cursor: MessageID.ascending() },
       })
-      const result = await NativeSession.prompt(
-        { sessionID: session.id, parts: [{ type: "text", text: "Continue" }] },
-        await Session.get(session.id),
-        new AbortController().signal,
-      )
-      expect(result.info.role === "assistant" && result.info.error?.name).toBe("UnknownError")
+      await expect(
+        NativeSession.prompt(
+          { sessionID: session.id, parts: [{ type: "text", text: "Continue" }] },
+          await Session.get(session.id),
+          new AbortController().signal,
+        ),
+      ).rejects.toThrow("input cursor is missing")
+      expect(await Session.messages({ sessionID: session.id })).toEqual([])
       expect(await Bun.file(path.join(dir, "calls.jsonl")).exists()).toBe(false)
     })
   })

@@ -511,6 +511,21 @@ export namespace Database {
       },
       { behavior: "immediate" },
     )
+    // Existing databases seed new migration names without running their SQL.
+    // Reuse the idempotent delivery migration rather than a second schema copy.
+    const present = sqlite
+      .prepare(
+        "SELECT name FROM sqlite_master WHERE name IN ('native_state', 'native_input', 'native_dispatch', 'native_input_session_idx', 'native_dispatch_session_idx')",
+      )
+      .all()
+    if (present.length === 5) return
+    const entries =
+      typeof OPENCODE_MIGRATIONS !== "undefined"
+        ? OPENCODE_MIGRATIONS
+        : migrations(path.join(import.meta.dirname, "../../migration"))
+    const delivery = entries.find((entry) => entry.name === "20261026134819_native_delivery")
+    if (!delivery) throw new Error("The native delivery migration is missing")
+    db.transaction(() => sqlite.exec(delivery.sql), { behavior: "immediate" })
   }
 
   function initAndSetup(dbPath: string): DrizzleClient {

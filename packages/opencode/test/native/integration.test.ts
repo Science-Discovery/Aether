@@ -103,7 +103,7 @@ describe("native engine integration", () => {
         expect((await Session.get(legacy.id)).engine).toBeUndefined()
         const native = await Session.create({ engine: { type: "codex" } })
         Database.detach(id)
-        expect((await Session.get(native.id)).engine).toEqual({ type: "codex" })
+        expect((await Session.get(native.id)).engine).toEqual({ type: "codex", permission: "auto" })
       },
     })
   })
@@ -160,7 +160,7 @@ describe("native engine integration", () => {
         expect(legacy.action).toBe("created")
         expect(native.action).toBe("created")
         expect(native.session.id).not.toBe(legacy.session.id)
-        expect(native.session.engine).toEqual({ type: "codex" })
+        expect(native.session.engine).toEqual({ type: "codex", permission: "auto" })
         const reused = (await (await request({ type: "codex" })).json()) as { action: string; session: Session.Info }
         expect(reused.action).toBe("existing")
         expect(reused.session.id).toBe(native.session.id)
@@ -173,7 +173,7 @@ describe("native engine integration", () => {
         expect((await app.request("/session", { method: "POST", body: form })).status).toBe(400)
         form.set("engine", JSON.stringify({ type: "codex" }))
         const uploaded = (await (await app.request("/session", { method: "POST", body: form })).json()) as Session.Info
-        expect(uploaded.engine).toEqual({ type: "codex" })
+        expect(uploaded.engine).toEqual({ type: "codex", permission: "auto" })
         await Promise.all([legacy.session.id, native.session.id, uploaded.id].map(Session.remove))
       },
     })

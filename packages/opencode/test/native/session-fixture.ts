@@ -1,6 +1,19 @@
 import { createInterface } from "node:readline"
 import { appendFile } from "node:fs/promises"
+import { existsSync, readFileSync, writeFileSync } from "node:fs"
 import path from "node:path"
+
+if (process.argv.includes("generate-json-schema")) {
+  const out = process.argv[process.argv.indexOf("--out") + 1]
+  const schema = {
+    properties: { approvalsReviewer: { $ref: "#/definitions/ApprovalsReviewer" } },
+    definitions: { ApprovalsReviewer: { enum: ["user", "auto_review"] } },
+  }
+  for (const name of ["ThreadStartParams", "ThreadResumeParams", "TurnStartParams"]) {
+    await Bun.write(path.join(out, "v2", `${name}.json`), JSON.stringify(schema))
+  }
+  process.exit(0)
+}
 
 if (process.argv.includes("--version")) {
   process.stdout.write("codex-cli 1.0.0\n")
@@ -10,6 +23,25 @@ if (process.argv.includes("--version")) {
 const root = process.cwd()
 const cfg = (await Bun.file(path.join(root, "scenario.json")).json()) as { mode?: string }
 const pending = new Map<string, { threadId: string; turnId: string; itemId: string }>()
+type Journal = Record<
+  string,
+  {
+    id: string
+    createdAt: number
+    updatedAt: number
+    status: { type: string }
+    turns: {
+      id: string
+      status: string
+      itemsView: string
+      startedAt: number
+      completedAt?: number
+      items: Record<string, unknown>[]
+    }[]
+  }
+>
+const file = path.join(root, "native-history.json")
+const journal: Journal = cfg.mode === "history" && existsSync(file) ? JSON.parse(readFileSync(file, "utf8")) : {}
 const threads = new Map<
   string,
   {
@@ -22,7 +54,21 @@ const threads = new Map<
   }
 >()
 const write = (value: unknown) => process.stdout.write(JSON.stringify(value) + "\n")
-const notify = (method: string, params: unknown) => write({ method, params })
+const notify = (method: string, params: Record<string, unknown>) => {
+  if (cfg.mode === "history" && typeof params.threadId === "string") {
+    const thread = journal[params.threadId]
+    const turn = thread?.turns.at(-1)
+    if (turn && method === "item/completed") turn.items.push(params.item as Record<string, unknown>)
+    if (thread && turn && method === "turn/completed") {
+      turn.status = "completed"
+      turn.completedAt = Date.now() / 1000
+      thread.updatedAt = turn.completedAt
+      thread.status.type = "notLoaded"
+    }
+    writeFileSync(file, JSON.stringify(journal))
+  }
+  write({ method, params })
+}
 const changes = [
   { path: "paper.tex", kind: { type: "update", move_path: null }, diff: "-Old result\n+Verified result" },
 ]
@@ -134,7 +180,7 @@ for await (const line of createInterface({ input: process.stdin })) {
     continue
   }
   if (value.method === "thread/read") {
-    const thread = threads.get(String(params.threadId))
+    const thread = cfg.mode === "history" ? journal[String(params.threadId)] : threads.get(String(params.threadId))
     if (!thread) {
       write({ id: value.id, error: { code: -32000, message: "Thread not found" } })
       continue
@@ -143,7 +189,13 @@ for await (const line of createInterface({ input: process.stdin })) {
     continue
   }
   if (value.method === "thread/turns/list") {
-    respond({ data: threads.get(String(params.threadId))?.turns ?? [], nextCursor: null })
+    respond({
+      data:
+        (cfg.mode === "history"
+          ? journal[String(params.threadId)]?.turns
+          : threads.get(String(params.threadId))?.turns) ?? [],
+      nextCursor: null,
+    })
     continue
   }
   if (value.method === "thread/start" || value.method === "thread/resume") {
@@ -152,6 +204,14 @@ for await (const line of createInterface({ input: process.stdin })) {
       continue
     }
     const id = typeof params.threadId === "string" ? params.threadId : crypto.randomUUID()
+    if (cfg.mode === "history")
+      journal[id] ??= {
+        id,
+        createdAt: Date.now() / 1000,
+        updatedAt: Date.now() / 1000,
+        status: { type: "idle" },
+        turns: [],
+      }
     threads.set(id, {
       id,
       parentThreadId: null,
@@ -185,6 +245,18 @@ for await (const line of createInterface({ input: process.stdin })) {
   }
   const threadId = String(params.threadId)
   const turnId = crypto.randomUUID()
+  if (cfg.mode === "history") {
+    journal[threadId].status.type = "active"
+    journal[threadId].turns.push({
+      id: turnId,
+      status: "inProgress",
+      startedAt: Date.now() / 1000,
+      itemsView: "full",
+      items: [
+        { id: `user-${turnId}`, type: "userMessage", clientId: params.clientUserMessageId, content: params.input },
+      ],
+    })
+  }
   const thread = threads.get(threadId)
   if (thread) {
     thread.status.type = "active"

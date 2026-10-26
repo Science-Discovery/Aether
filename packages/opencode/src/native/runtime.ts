@@ -13,6 +13,7 @@ export namespace NativeRuntime {
     id: string
     directory: string
     path?: string
+    home?: string
     active: boolean
     retain: boolean
     order: number
@@ -137,7 +138,9 @@ export namespace NativeRuntime {
             signal: entry.abort.signal,
             ...handlers,
           })
-          entry.client = (await entry.opening).client
+          const opened = await entry.opening
+          entry.client = opened.client
+          entry.home = opened.home
           watch(entry)
         }
         signal.throwIfAborted()
@@ -147,6 +150,7 @@ export namespace NativeRuntime {
         return {
           client: entry.client,
           thread: entry.thread,
+          home: entry.home,
           bind(thread: string) {
             if (entry.thread && entry.thread !== thread)
               throw new Error("The native connection belongs to another thread.")

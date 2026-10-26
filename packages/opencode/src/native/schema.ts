@@ -2,6 +2,9 @@ import z from "zod"
 import { NamedError } from "@opencode-ai/util/error"
 
 export namespace Native {
+  export const Permission = z.enum(["user", "auto", "full"]).meta({ ref: "NativePermission" })
+  export type Permission = z.infer<typeof Permission>
+
   export const Config = z
     .object({
       path: z.string().trim().optional(),
@@ -21,6 +24,7 @@ export namespace Native {
       type: z.literal("codex"),
       model: z.string().trim().min(1).max(200).optional(),
       effort: z.string().trim().min(1).max(40).optional(),
+      permission: Permission.optional().describe("Session approval mode; omitted on legacy sessions means user"),
     })
     .strict()
     .meta({ ref: "NativeEngineInput" })

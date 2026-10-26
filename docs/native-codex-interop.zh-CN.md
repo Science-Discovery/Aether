@@ -1,6 +1,6 @@
 # Codex 互通验证：历史、实时流与执行归属
 
-状态：**第一阶段验证已完成；尚未接入产品界面**。验证日期为 2026-10-26，基于本机 `codex-cli 0.164.0-alpha.11.1`。它为[下一阶段的数据改造](native-codex-history-design.zh-CN.md)提供依据，不表示已实现 Desktop 同步。
+状态：**第一阶段验证报告**。验证日期为 2026-10-26，基于本机 `codex-cli 0.164.0-alpha.11.1`。后续已接入的历史读取与权限界面见[当前产品说明](native-codex.zh-CN.md)，更完整的目标见[数据边界设计](native-codex-history-design.zh-CN.md)；本报告中的共享服务实验不表示已实现 Desktop 实时同步。
 
 ## 结论
 

@@ -1,6 +1,6 @@
 # Codex 原生历史与 Aether 数据边界设计
 
-状态：**待实现设计**，不是已完成功能说明。2026-10-26 基于 `codex/aether-next` 的现有实现审查；当前使用方式见 [Codex 原生智能体](native-codex.zh-CN.md)，已验证的范围见[互通验证报告](native-codex-interop.zh-CN.md)。本文不承诺已实现 Desktop 实时同步。
+状态：**部分实施，保留完整目标设计**。2026-10-26 在 `codex/aether-next` 实现了独立输入/交付账本、旧游标迁移、原生历史分页读取与展示刷新、稳定回复标识、会话权限和自动审批事件。当前使用方式及限制以 [Codex 原生智能体](native-codex.zh-CN.md)为准，底层协议证据见[互通验证报告](native-codex-interop.zh-CN.md)。以下涉及 Desktop owner/follower、实时事件恢复、完整子线程/图片重建、搜索导出范围标记、清缓存、外部回退及原生归档的内容仍是设计目标。
 
 ## 目标与已知协议边界
 
@@ -20,7 +20,7 @@ Codex 是原生会话执行历史的唯一权威来源。Aether 通过原生接�
 
 ## 现有消息表为什么不能直接删除
 
-当前 `native/session.ts` 的 `queue()` 通过本地用户消息、对应 assistant 和 `engine.cursor` 计算待发送内容。未立即要求回复的 `noReply` 科研上下文也保存在消息表；普通消息已有失败回复时，不会自动重新排队。
+改造前 `native/session.ts` 的 `queue()` 通过本地用户消息、对应 assistant 和 `engine.cursor` 计算待发送内容。此次迁移先把原输入及相关元数据转存到 `native_input`，把可识别的历史交付与回复标识转存到 `native_dispatch`，再允许原生历史刷新展示缓存。`noReply` 科研上下文与失败普通消息保持不同状态，不会自动重放。
 
 调用 `turn/start` 前会推进 `engine.cursor`，避免传输失败后重放可能已经执行的输入。因此现有消息表同时承担历史、待发送队列和部分发送记录，不能直接视为纯缓存。
 

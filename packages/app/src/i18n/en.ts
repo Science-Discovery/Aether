@@ -38,6 +38,29 @@ export const dict = {
   "native.models": "Available models",
   "native.permissions":
     "Codex uses a workspace sandbox and asks for approval when needed. Review each native permission request in the conversation.",
+  "native.permission": "Codex permissions",
+  "native.permission.user": "Ask for approval",
+  "native.permission.auto": "Approve for me",
+  "native.permission.full": "Full access",
+  "native.permission.user.description": "Use the workspace sandbox and ask you to review approval requests.",
+  "native.permission.auto.description":
+    "Use the workspace sandbox; Codex reviews approval requests based on risk and may approve or deny them.",
+  "native.permission.full.description":
+    "Run without the Codex sandbox or approval prompts, with access to files and the network.",
+  "native.permission.next":
+    "Saved for this conversation; changes apply to the next turn and do not change Codex's global settings.",
+  "native.permission.saving": "Saving permissions…",
+  "native.permission.failed": "Could not save permissions: {{error}}",
+  "native.permission.unavailable":
+    "Automatic approval support could not be verified. Check the connection or choose Ask for approval.",
+  "native.history.refresh": "Refresh Codex history",
+  "native.history.syncing": "Refreshing Codex history…",
+  "native.history.synced": "Codex history is up to date",
+  "native.history.partial": "Some Codex history items could not be displayed.",
+  "native.history.unavailable": "Codex history is unavailable. Check the connection and try again.",
+  "native.history.busy": "Wait for the current Codex turn to finish before refreshing history.",
+  "native.history.disabled": "Enable Codex in Settings to refresh its history.",
+  "native.history.pending": "Send or resolve pending messages before refreshing Codex history.",
   "command.category.suggested": "Suggested",
   "command.category.view": "View",
   "command.category.project": "Project",

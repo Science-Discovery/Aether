@@ -1,0 +1,316 @@
+import path from "node:path"
+import { pathToFileURL } from "node:url"
+import z from "zod"
+import type { MessageV2 } from "@/session/message-v2"
+import { MessageID, PartID, SessionID } from "@/session/schema"
+import { ModelID, ProviderID } from "@/provider/schema"
+import { NativeHistory } from "./history"
+
+export type Link = { turn: string; item: string; message: MessageID; client?: string }
+export type Options = {
+  sessionID: SessionID
+  scope: string
+  cwd: string
+  existing?: MessageV2.WithParts[]
+  receipts?: MessageV2.Assistant[]
+}
+
+const object = z.record(z.string(), z.unknown())
+const strings = z.array(z.string())
+const tools = new Set([
+  "commandExecution",
+  "fileChange",
+  "mcpToolCall",
+  "dynamicToolCall",
+  "functionCallOutput",
+  "webSearch",
+  "imageView",
+  "sleep",
+  "imageGeneration",
+  "enteredReviewMode",
+  "exitedReviewMode",
+  "contextCompaction",
+  "hookPrompt",
+])
+
+function string(value: unknown) {
+  return typeof value === "string" ? value : ""
+}
+
+function render(value: unknown) {
+  return typeof value === "string" ? value : value === undefined || value === null ? "" : JSON.stringify(value, null, 2)
+}
+
+function mime(url: string) {
+  const data = /^data:(image\/[\w.+-]+);/i.exec(url)
+  if (data) return data[1]
+  const extension = path.extname(url.split(/[?#]/)[0]).toLowerCase()
+  return (
+    {
+      ".jpg": "image/jpeg",
+      ".jpeg": "image/jpeg",
+      ".png": "image/png",
+      ".gif": "image/gif",
+      ".webp": "image/webp",
+      ".svg": "image/svg+xml",
+    }[extension] ?? "image/*"
+  )
+}
+
+/** Pure display projection. Incomplete results must never replace or erase old history. */
+export function project(snapshot: NativeHistory.Snapshot, opts: Options) {
+  const messages: MessageV2.WithParts[] = []
+  const links: Link[] = []
+  const issues = [...snapshot.issues]
+  const thread = snapshot.thread
+  if (!thread) return { messages, links, complete: false, issues }
+  const existing = (opts.existing ?? []).filter((row) => row.info.sessionID === opts.sessionID)
+  const users = new Map(existing.filter((row) => row.info.role === "user").map((row) => [String(row.info.id), row]))
+  const replies = new Map(
+    [
+      ...existing.flatMap((row) => (row.info.role === "assistant" ? [row.info] : [])),
+      ...(opts.receipts ?? []).filter((row) => row.sessionID === opts.sessionID),
+    ].map((row) => [String(row.parentID), row]),
+  )
+  const claimed = new Set<string>()
+  const used = new Set<string>()
+  const provider = ProviderID.make("codex-native")
+  const unknown = ModelID.make("unknown")
+
+  for (const turn of snapshot.turns) {
+    if (turn.status !== "completed") {
+      issues.push({ code: "unsettled", turn: turn.id, message: "Only completed native turns can be projected" })
+      continue
+    }
+    const created = Math.max(0, (turn.startedAt ?? thread.createdAt) * 1_000)
+    const completed = Math.max(created, (turn.completedAt ?? turn.startedAt ?? thread.createdAt) * 1_000)
+    const state: { user?: MessageV2.WithParts; assistant?: MessageV2.WithParts } = {}
+    if (!turn.items.length)
+      issues.push({ code: "empty", turn: turn.id, message: "The completed turn contains no items" })
+
+    for (const [ordinal, item] of turn.items.entries()) {
+      const key = NativeHistory.key(opts.sessionID, opts.scope, thread.id, turn.id, item.id)
+      if (used.has(key)) {
+        issues.push({ code: "duplicate", turn: turn.id, item: item.id, message: "Repeated native item identity" })
+        continue
+      }
+      used.add(key)
+      const native = {
+        engine: "codex",
+        scope: opts.scope,
+        thread: thread.id,
+        turn: turn.id,
+        item: item.id,
+        type: item.type,
+        raw: item,
+      }
+      const issue = (message: string) => issues.push({ code: "unrepresented", turn: turn.id, item: item.id, message })
+      // Parts are sorted by ID in both storage and the UI. The fixed-width
+      // prefix records display position; the suffix and metadata retain native
+      // identity. A reordered native snapshot can change a display ID, so use
+      // native thread/turn/item identity (not PartID) for durable references.
+      const base = (message: MessageID, index = 0) => ({
+        id: PartID.make(
+          `prt_${ordinal.toString(16).padStart(8, "0")}${index.toString(16).padStart(8, "0")}_${NativeHistory.key(key, String(index))}`,
+        ),
+        sessionID: opts.sessionID,
+        messageID: message,
+      })
+
+      if (item.type === "userMessage") {
+        const client = string(item.clientId)
+        const previous = client && !claimed.has(client) ? users.get(client) : undefined
+        if (client && claimed.has(client)) issue("The same client message ID occurs more than once")
+        if (client) claimed.add(client)
+        const id = previous?.info.id ?? MessageID.make(`msg_${key}`)
+        const info: MessageV2.User = {
+          ...(previous?.info.role === "user" ? previous.info : {}),
+          id,
+          sessionID: opts.sessionID,
+          role: "user",
+          time: { created },
+          agent: "codex",
+          model: previous?.info.role === "user" ? previous.info.model : { providerID: provider, modelID: unknown },
+        }
+        const identity = { ...native, raw: undefined }
+        const parts: MessageV2.Part[] = [
+          { ...base(id), type: "text", text: "", ignored: true, synthetic: true, metadata: { native } },
+        ]
+        const texts: string[] = []
+        const content = z.array(object).safeParse(item.content)
+        if (!content.success) issue("The native user message has invalid content")
+        for (const [index, value] of (content.success ? content.data : [item]).entries()) {
+          const part = base(id, index + 2)
+          if (value.type === "text" && typeof value.text === "string") {
+            texts.push(value.text)
+            continue
+          }
+          const url =
+            value.type === "localImage" && typeof value.path === "string"
+              ? path.isAbsolute(value.path)
+                ? pathToFileURL(value.path).href
+                : ""
+              : value.type === "image" && typeof value.url === "string"
+                ? value.url
+                : ""
+          if (url && /^(?:https?:|file:|data:image\/)/i.test(url)) {
+            parts.push({ ...part, type: "file", mime: mime(url), url })
+            continue
+          }
+          issue(`Unsupported native user content: ${string(value.type) || "unknown"}`)
+          texts.push(`[Unsupported Codex content: ${string(value.type) || "unknown"}]\n${render(value)}`)
+        }
+        // The shared user bubble renders one non-synthetic text part. Preserve
+        // every text segment there; the hidden anchor retains original input
+        // ordering (including images) without shadowing that visible body.
+        if (texts.length)
+          parts.splice(1, 0, {
+            ...base(id, 1),
+            type: "text",
+            text: texts.join("\n\n"),
+            metadata: { native: identity, content: "text" },
+          })
+        state.user = { info, parts }
+        state.assistant = undefined
+        messages.push(state.user)
+        links.push({ turn: turn.id, item: item.id, message: id, ...(client ? { client } : {}) })
+        continue
+      }
+
+      if (!state.user) {
+        issue("The native turn has no preceding user item; a display-only placeholder was required")
+        const id = MessageID.make(
+          `msg_${NativeHistory.key(opts.sessionID, opts.scope, thread.id, turn.id, "missing-user")}`,
+        )
+        state.user = {
+          info: {
+            id,
+            sessionID: opts.sessionID,
+            role: "user",
+            time: { created },
+            agent: "codex",
+            model: { providerID: provider, modelID: unknown },
+          },
+          parts: [
+            {
+              id: PartID.make(
+                `prt_${ordinal.toString(16).padStart(8, "0")}00000000_${NativeHistory.key(key, "missing-user")}`,
+              ),
+              sessionID: opts.sessionID,
+              messageID: id,
+              type: "text",
+              text: "[Codex history: user input unavailable]",
+              ignored: true,
+              metadata: { native },
+            },
+          ],
+        }
+        messages.push(state.user)
+      }
+      if (!state.assistant) {
+        const prior = replies.get(state.user.info.id)
+        const id = prior?.id ?? MessageID.make(`msg_${NativeHistory.key(key, "assistant")}`)
+        state.assistant = {
+          info: {
+            id,
+            sessionID: opts.sessionID,
+            role: "assistant",
+            parentID: state.user.info.id,
+            time: { created, completed },
+            modelID: prior?.modelID ?? unknown,
+            providerID: provider,
+            mode: "codex",
+            agent: "codex",
+            path: { cwd: opts.cwd, root: opts.cwd },
+            cost: prior?.cost ?? 0,
+            tokens: prior?.tokens ?? { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+            ...(prior?.variant ? { variant: prior.variant } : {}),
+            finish: "stop",
+          },
+          parts: [],
+        }
+        messages.push(state.assistant)
+      }
+      const part = base(state.assistant.info.id)
+      links.push({ turn: turn.id, item: item.id, message: state.assistant.info.id })
+      if (item.type === "agentMessage" || item.type === "plan") {
+        if (typeof item.text !== "string") issue("Native text item has no text")
+        state.assistant.parts.push({
+          ...part,
+          type: "text",
+          text: typeof item.text === "string" ? item.text : render(item),
+          time: { start: created, end: completed },
+          metadata: { native, phase: item.phase },
+        })
+        continue
+      }
+      if (item.type === "reasoning") {
+        const summary = strings.safeParse(item.summary)
+        const content = strings.safeParse(item.content)
+        if ((item.summary !== undefined && !summary.success) || (item.content !== undefined && !content.success))
+          issue("Native reasoning has an unsupported format")
+        state.assistant.parts.push({
+          ...part,
+          type: "reasoning",
+          text: (summary.success && summary.data.length ? summary.data : content.success ? content.data : []).join(
+            "\n\n",
+          ),
+          time: { start: created, end: completed },
+          metadata: { native },
+        })
+        continue
+      }
+      if (!tools.has(item.type)) issue(`Unsupported native item: ${item.type}`)
+      const failed =
+        ["failed", "declined", "cancelled", "interrupted"].includes(string(item.status)) || item.success === false
+      if (["inProgress", "running", "pending"].includes(string(item.status)))
+        issue("A completed turn contains an unfinished item")
+      if (item.type === "commandExecution" && typeof item.aggregatedOutput !== "string")
+        issue("The native history does not contain the command output")
+      const name =
+        item.type === "commandExecution"
+          ? "bash"
+          : item.type === "fileChange"
+            ? "codex.fileChange"
+            : item.type === "mcpToolCall"
+              ? `mcp.${string(item.server)}.${string(item.tool)}`
+              : `codex.${item.type}`
+      const output =
+        item.type === "commandExecution"
+          ? render(item.aggregatedOutput)
+          : item.type === "fileChange"
+            ? render(item.changes)
+            : render(item.result ?? item.contentItems ?? item.output ?? item)
+      const input =
+        item.type === "commandExecution"
+          ? { command: item.command, cwd: item.cwd }
+          : item.type === "fileChange"
+            ? { changes: item.changes }
+            : { ...item }
+      state.assistant.parts.push({
+        ...part,
+        type: "tool",
+        callID: item.id,
+        tool: name,
+        metadata: { native },
+        state: failed
+          ? {
+              status: "error",
+              input,
+              error: render(item.error ?? item.failure) || output,
+              metadata: { native: item },
+              time: { start: created, end: completed },
+            }
+          : {
+              status: "completed",
+              input,
+              output,
+              title: string(item.command) || string(item.tool) || item.type,
+              metadata: { native: item, exit: item.exitCode },
+              time: { start: created, end: completed },
+            },
+      })
+    }
+  }
+  return { messages, links, complete: snapshot.complete && !issues.length, issues }
+}

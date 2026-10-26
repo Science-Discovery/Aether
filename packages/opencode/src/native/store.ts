@@ -1,0 +1,239 @@
+import { and, eq, inArray } from "drizzle-orm"
+import { Database } from "@/storage/db"
+import { Instance } from "@/project/instance"
+import { MessageV2 } from "@/session/message-v2"
+import type { MessageID, SessionID } from "@/session/schema"
+import type { Session } from "@/session"
+import { NativeDispatchTable, NativeInputTable, NativeStateTable } from "./store.sql"
+
+export namespace NativeStore {
+  export async function history(session: SessionID) {
+    const result: MessageV2.WithParts[] = []
+    for await (const item of MessageV2.stream(session)) result.push(item)
+    return result.reverse()
+  }
+
+  export function state(session: SessionID) {
+    return Database.useProject(Instance.project.id, (db) =>
+      db.select().from(NativeStateTable).where(eq(NativeStateTable.session_id, session)).get(),
+    )
+  }
+
+  export function inputs(session: SessionID) {
+    return Database.useProject(Instance.project.id, (db) =>
+      db
+        .select()
+        .from(NativeInputTable)
+        .where(eq(NativeInputTable.session_id, session))
+        .orderBy(NativeInputTable.time_created, NativeInputTable.id)
+        .all(),
+    )
+  }
+
+  export function pending(session: SessionID) {
+    return inputs(session).filter((entry) => entry.state === "pending")
+  }
+
+  export function dispatches(session: SessionID) {
+    return Database.useProject(Instance.project.id, (db) =>
+      db.select().from(NativeDispatchTable).where(eq(NativeDispatchTable.session_id, session)).all(),
+    )
+  }
+
+  // Run before replacing any legacy display cache. Preserve all original inputs,
+  // including noReply research context and failed messages that must not replay.
+  export async function migrate(session: Session.Info) {
+    if (state(session.id)) return
+    const messages = await history(session.id)
+    const cursor = session.engine?.cursor
+    const boundary = cursor ? messages.findIndex((entry) => entry.info.role === "user" && entry.info.id === cursor) : -1
+    if (cursor && boundary === -1)
+      throw new Error("The native input cursor is missing; legacy input was preserved without replay.")
+    if (!cursor && session.engine?.thread && messages.some((entry) => entry.info.role === "assistant"))
+      throw new Error("This native thread has no input cursor; legacy input was preserved without replay.")
+    const answered = new Set(
+      messages.flatMap((entry) => (entry.info.role === "assistant" ? [entry.info.parentID] : [])),
+    )
+    Database.transactionProject(Instance.project.id, (db) => {
+      if (db.select().from(NativeStateTable).where(eq(NativeStateTable.session_id, session.id)).get()) return
+      messages.forEach((entry, index) => {
+        if (entry.info.role !== "user") return
+        const assistant =
+          index <= boundary && session.engine?.thread
+            ? messages.find((item) => item.info.role === "assistant" && item.info.parentID === entry.info.id)?.info
+            : undefined
+        db.insert(NativeInputTable)
+          .values({
+            id: entry.info.id,
+            session_id: session.id,
+            data: entry,
+            context: !answered.has(entry.info.id),
+            state: index <= boundary ? "consumed" : answered.has(entry.info.id) ? "failed" : "pending",
+            dispatch_id: assistant ? entry.info.id : undefined,
+            time_created: entry.info.time.created,
+          })
+          .run()
+        if (assistant?.role === "assistant" && session.engine?.thread)
+          db.insert(NativeDispatchTable)
+            .values({
+              id: entry.info.id,
+              session_id: session.id,
+              assistant_id: assistant.id,
+              assistant,
+              thread_id: session.engine.thread,
+              state: "uncertain",
+              time_created: entry.info.time.created,
+              time_updated: Date.now(),
+            })
+            .run()
+      })
+      db.insert(NativeStateTable).values({ session_id: session.id, version: 1 }).run()
+    })
+  }
+
+  export function add(message: MessageV2.WithParts, context: boolean) {
+    Database.useProject(Instance.project.id, (db) =>
+      db
+        .insert(NativeInputTable)
+        .values({
+          id: message.info.id,
+          session_id: message.info.sessionID,
+          data: message,
+          context,
+          state: "pending",
+          time_created: message.info.time.created,
+        })
+        .run(),
+    )
+  }
+
+  export function fail(session: SessionID, id: MessageID) {
+    Database.useProject(Instance.project.id, (db) =>
+      db
+        .update(NativeInputTable)
+        .set({ state: "failed" })
+        .where(
+          and(
+            eq(NativeInputTable.session_id, session),
+            eq(NativeInputTable.id, id),
+            eq(NativeInputTable.state, "pending"),
+          ),
+        )
+        .run(),
+    )
+  }
+
+  export function begin(session: SessionID, id: MessageID, assistant: MessageID, thread: string, ids: MessageID[]) {
+    Database.transactionProject(Instance.project.id, (db) => {
+      const rows = db
+        .select()
+        .from(NativeInputTable)
+        .where(and(eq(NativeInputTable.session_id, session), inArray(NativeInputTable.id, ids)))
+        .all()
+      if (!ids.length || rows.length !== ids.length || rows.some((row) => row.state !== "pending"))
+        throw new Error("Native input has already been dispatched or changed.")
+      db.insert(NativeDispatchTable)
+        .values({
+          id,
+          session_id: session,
+          assistant_id: assistant,
+          thread_id: thread,
+          state: "sending",
+          time_created: Date.now(),
+          time_updated: Date.now(),
+        })
+        .run()
+      db.update(NativeInputTable)
+        .set({ state: "consumed", dispatch_id: id })
+        .where(and(eq(NativeInputTable.session_id, session), inArray(NativeInputTable.id, ids)))
+        .run()
+    })
+  }
+
+  export function accept(session: SessionID, id: MessageID, turn: string) {
+    Database.transactionProject(Instance.project.id, (db) => {
+      const row = db
+        .select()
+        .from(NativeDispatchTable)
+        .where(and(eq(NativeDispatchTable.session_id, session), eq(NativeDispatchTable.id, id)))
+        .get()
+      if (!row) return
+      if (row.turn_id && row.turn_id !== turn) throw new Error("Native dispatch refers to a different turn")
+      db.update(NativeDispatchTable)
+        .set({ state: "accepted", turn_id: turn, time_updated: Date.now() })
+        .where(and(eq(NativeDispatchTable.session_id, session), eq(NativeDispatchTable.id, id)))
+        .run()
+    })
+  }
+
+  export function review(session: SessionID, id: MessageID, part: MessageV2.ToolPart) {
+    Database.transactionProject(Instance.project.id, (db) => {
+      const row = db
+        .select()
+        .from(NativeDispatchTable)
+        .where(and(eq(NativeDispatchTable.session_id, session), eq(NativeDispatchTable.id, id)))
+        .get()
+      if (!row) return
+      db.update(NativeDispatchTable)
+        .set({ reviews: [...row.reviews.filter((item) => item.id !== part.id), part] })
+        .where(and(eq(NativeDispatchTable.session_id, session), eq(NativeDispatchTable.id, id)))
+        .run()
+    })
+  }
+
+  export function receipt(assistant: MessageV2.Assistant) {
+    Database.useProject(Instance.project.id, (db) =>
+      db
+        .update(NativeDispatchTable)
+        .set({ assistant })
+        .where(
+          and(
+            eq(NativeDispatchTable.session_id, assistant.sessionID),
+            eq(NativeDispatchTable.id, assistant.parentID),
+            eq(NativeDispatchTable.assistant_id, assistant.id),
+          ),
+        )
+        .run(),
+    )
+  }
+
+  export function uncertain(session: SessionID, id: MessageID) {
+    Database.useProject(Instance.project.id, (db) =>
+      db
+        .update(NativeDispatchTable)
+        .set({ state: "uncertain", time_updated: Date.now() })
+        .where(
+          and(
+            eq(NativeDispatchTable.session_id, session),
+            eq(NativeDispatchTable.id, id),
+            eq(NativeDispatchTable.state, "sending"),
+          ),
+        )
+        .run(),
+    )
+  }
+
+  export function bind(session: SessionID, home?: string, record = true) {
+    if (!home) return
+    Database.transactionProject(Instance.project.id, (db) => {
+      const row = db.select().from(NativeStateTable).where(eq(NativeStateTable.session_id, session)).get()
+      if (!row) throw new Error("Native input storage was not initialized.")
+      if (row.home && row.home !== home)
+        throw new Error(
+          "This session belongs to a different Codex home. Restore the original connection before continuing.",
+        )
+      if (!row.home && record)
+        db.update(NativeStateTable).set({ home }).where(eq(NativeStateTable.session_id, session)).run()
+    })
+  }
+
+  export function synced(session: SessionID) {
+    Database.useProject(Instance.project.id, (db) =>
+      db
+        .update(NativeStateTable)
+        .set({ time_synced: Date.now() })
+        .where(eq(NativeStateTable.session_id, session))
+        .run(),
+    )
+  }
+}
