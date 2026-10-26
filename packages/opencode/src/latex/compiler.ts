@@ -6,6 +6,7 @@ import { Global } from "@/global"
 import { which } from "@/util/which"
 import { LatexSchema } from "./schema"
 import { LatexProject } from "./project"
+import { LatexSetup } from "./setup"
 
 export namespace LatexCompiler {
   export class StopError extends Error {}
@@ -14,7 +15,9 @@ export namespace LatexCompiler {
 
   async function executable(name: "tectonic" | "latexmk", cfg: Config) {
     const value = cfg[name]?.path?.trim()
-    const target = value ? path.resolve(value) : which(name)
+    const target = value
+      ? path.resolve(value)
+      : ((name === "tectonic" ? await LatexSetup.executable() : undefined) ?? which(name))
     if (!target) return
     return (await fs.stat(target).catch(() => undefined))?.isFile() ? target : undefined
   }

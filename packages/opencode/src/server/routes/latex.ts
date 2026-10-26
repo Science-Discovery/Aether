@@ -2,6 +2,7 @@ import { Hono } from "hono"
 import { describeRoute, resolver, validator } from "hono-openapi"
 import z from "zod"
 import { Latex, LatexSchema } from "../../latex"
+import { LatexSetup } from "../../latex/setup"
 import { lazy } from "../../util/lazy"
 
 const response = (schema: z.ZodType) => ({
@@ -25,6 +26,33 @@ export const LatexRoutes = lazy(() =>
         responses: { ...response(LatexSchema.Status), ...failure },
       }),
       async (c) => c.json(await Latex.status()),
+    )
+    .get(
+      "/setup",
+      describeRoute({
+        operationId: "latex.setupStatus",
+        summary: "Read the local Tectonic installation state without starting a download",
+        responses: { ...response(LatexSchema.Setup), ...failure },
+      }),
+      async (c) => c.json(await LatexSetup.status()),
+    )
+    .post(
+      "/setup",
+      describeRoute({
+        operationId: "latex.setupStart",
+        summary: "Download and configure the verified Tectonic release on this server",
+        responses: { ...response(LatexSchema.Setup), ...failure },
+      }),
+      async (c) => c.json(await LatexSetup.start()),
+    )
+    .post(
+      "/setup/cancel",
+      describeRoute({
+        operationId: "latex.setupCancel",
+        summary: "Cancel the current Tectonic setup without changing a previous installation",
+        responses: { ...response(LatexSchema.Setup), ...failure },
+      }),
+      async (c) => c.json(await LatexSetup.cancel()),
     )
     .get(
       "/project",

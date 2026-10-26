@@ -7,6 +7,18 @@ export namespace LatexSchema {
   })
   export const Driver = z.enum(["auto", "tectonic", "latexmk"])
   export const Program = z.enum(["auto", "pdflatex", "xelatex"])
+  export const Setup = z
+    .object({
+      state: z.enum(["idle", "downloading", "verifying", "extracting", "checking", "ready", "failed", "cancelled"]),
+      supported: z.boolean(),
+      version: z.string(),
+      downloaded: z.number().int().nonnegative(),
+      total: z.number().int().nonnegative().optional(),
+      path: z.string().optional(),
+      error: z.string().optional(),
+    })
+    .meta({ ref: "LatexSetup" })
+  export type Setup = z.infer<typeof Setup>
   export const Binding = z
     .object({
       root: z.string(),

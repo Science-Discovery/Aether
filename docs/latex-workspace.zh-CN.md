@@ -4,9 +4,13 @@ Aether 的 LaTeX 工作区在文件面板中连接源码编辑、主文档选择
 
 ## 编译器
 
-在运行 Aether 后端的机器上安装 Tectonic，或包含 latexmk 和所需 TeX 引擎的 TeX 发行版。在设置的 LaTeX 页面查看安装状态；自动发现失败时，可以填写可执行文件的完整路径。远程访问 Aether 时，使用的是服务端机器的编译器。
+在设置的 **LaTeX 编译器** 页面，点击 **安装 Tectonic** 即可一键配置。Aether 从官方发布下载固定版本，核验 SHA-256、解压并检查程序后，放入自己的持久数据目录。界面显示阶段与下载进度，支持取消及失败重试；下载失败不会替换已有的受管安装。安装目标是运行 Aether 后端的机器，远程访问时不是浏览器所在电脑。
 
-安装资料见 [Tectonic 官方项目](https://github.com/tectonic-typesetting/tectonic) 与 [TeX Live 官方安装说明](https://tug.org/texlive/acquire-netinstall.html)。Aether 不会自动安装或修改系统 TeX 发行版。
+首版的一键配置使用 [Tectonic 0.17.0 官方发布](https://github.com/tectonic-typesetting/tectonic/releases/tag/tectonic%400.17.0)，支持 Windows x64、macOS x64/ARM64、Linux x64/ARM64。其他架构仍可手动安装和填写路径。它只安装 Tectonic 程序；宏包和字体仍受下文的编译资源规则约束。访问官方发布受网络限制时会报告失败，可以重试或改用手动配置。
+
+一键配置不修改系统 PATH，不需要写入系统安装目录，也不在普通启动时联网查更新或启动常驻安装进程。安装结束后，留空的 Tectonic 路径会自动使用受管程序，其次查找 PATH。已有手填路径仍优先；路径无效时不会静默改掉它，可以清空并保存来使用自动发现。**检查/修复安装** 会检查现有受管程序，检查失败时重新下载；修复后保留旧程序目录，以免影响正在进行的编译，目前不自动清理这些旧目录。
+
+latexmk 仍使用已有 TeX 环境，设置页提供 [TeX Live 安装说明](https://tug.org/texlive/acquire-netinstall.html)和 [MiKTeX 安装说明](https://miktex.org/download)。它需要相应的 TeX 引擎，Aether 不自动安装或修改整套系统 TeX 发行版。也可以手动安装 [Tectonic](https://tectonic-typesetting.github.io/book/latest/installation/)；自动发现失败时，在设置里填写可执行文件的完整路径。
 
 首版支持 Tectonic 与 latexmk 的 pdfLaTeX、XeLaTeX 工作流。Tectonic 使用 XeTeX，不能保证兼容要求其他引擎的论文模板。LuaLaTeX 暂不支持；不能通过填写任意程序名来执行其他命令。
 
@@ -50,7 +54,7 @@ Tectonic 首次编译可能缺少宏包缓存。默认不下载缺失资源，�
 
 - 编译依赖本机安装的宏包、字体和引擎版本，不承诺与 Overleaf 的环境完全一致。
 - 禁用 shell escape，latexmk 不读取项目 `.latexmkrc`，Tectonic 使用 `--untrusted`。这些限制不等同于完整的操作系统或文件系统沙箱；本机 TeX 引擎仍可能读取工程以外的可访问文件。
-- 编译器可执行路径仅来自 Aether 全局配置。工程内的注释和配置不能指定任意可执行程序。
+- 编译器可执行路径来自服务端全局配置、Aether 受管安装或 PATH 自动发现。工程内的注释和配置不能指定任意可执行程序。
 - 预览与成功产物留在 Aether 管理的存储中；需要交付 PDF 时通过预览器下载。
 - 历史成功 PDF 当前会持续保留，尚未提供自动磁盘清理策略。
 - Overleaf 同步和实时协作不在本阶段范围内。

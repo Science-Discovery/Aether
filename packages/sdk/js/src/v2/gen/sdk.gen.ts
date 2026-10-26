@@ -181,6 +181,12 @@ import type {
   LatexProjectResponses,
   LatexRefreshErrors,
   LatexRefreshResponses,
+  LatexSetupCancelErrors,
+  LatexSetupCancelResponses,
+  LatexSetupStartErrors,
+  LatexSetupStartResponses,
+  LatexSetupStatusErrors,
+  LatexSetupStatusResponses,
   LatexStatusErrors,
   LatexStatusResponses,
   LspStatusResponses,
@@ -4513,6 +4519,90 @@ export class Latex extends HeyApiClient {
     )
     return (options?.client ?? this.client).get<LatexStatusResponses, LatexStatusErrors, ThrowOnError>({
       url: "/latex/status",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Read the local Tectonic installation state without starting a download
+   */
+  public setupStatus<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<LatexSetupStatusResponses, LatexSetupStatusErrors, ThrowOnError>({
+      url: "/latex/setup",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Download and configure the verified Tectonic release on this server
+   */
+  public setupStart<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<LatexSetupStartResponses, LatexSetupStartErrors, ThrowOnError>({
+      url: "/latex/setup",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Cancel the current Tectonic setup without changing a previous installation
+   */
+  public setupCancel<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<LatexSetupCancelResponses, LatexSetupCancelErrors, ThrowOnError>({
+      url: "/latex/setup/cancel",
       ...options,
       ...params,
     })

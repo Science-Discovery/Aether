@@ -2409,6 +2409,16 @@ export type LatexStatus = {
   }>
 }
 
+export type LatexSetup = {
+  state: "idle" | "downloading" | "verifying" | "extracting" | "checking" | "ready" | "failed" | "cancelled"
+  supported: boolean
+  version: string
+  downloaded: number
+  total?: number
+  path?: string
+  error?: string
+}
+
 export type LatexBinding = {
   root: string
   main: string
@@ -6477,6 +6487,132 @@ export type LatexStatusResponses = {
 }
 
 export type LatexStatusResponse = LatexStatusResponses[keyof LatexStatusResponses]
+
+export type LatexSetupStatusData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/latex/setup"
+}
+
+export type LatexSetupStatusErrors = {
+  /**
+   * Invalid project or request
+   */
+  400: unknown
+  /**
+   * Build or artifact not found
+   */
+  404: unknown
+  /**
+   * Project changed or build already running
+   */
+  409: unknown
+  /**
+   * Project exceeds snapshot limits
+   */
+  413: unknown
+  /**
+   * Compiler unavailable
+   */
+  503: unknown
+}
+
+export type LatexSetupStatusResponses = {
+  /**
+   * LaTeX result
+   */
+  200: LatexSetup
+}
+
+export type LatexSetupStatusResponse = LatexSetupStatusResponses[keyof LatexSetupStatusResponses]
+
+export type LatexSetupStartData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/latex/setup"
+}
+
+export type LatexSetupStartErrors = {
+  /**
+   * Invalid project or request
+   */
+  400: unknown
+  /**
+   * Build or artifact not found
+   */
+  404: unknown
+  /**
+   * Project changed or build already running
+   */
+  409: unknown
+  /**
+   * Project exceeds snapshot limits
+   */
+  413: unknown
+  /**
+   * Compiler unavailable
+   */
+  503: unknown
+}
+
+export type LatexSetupStartResponses = {
+  /**
+   * LaTeX result
+   */
+  200: LatexSetup
+}
+
+export type LatexSetupStartResponse = LatexSetupStartResponses[keyof LatexSetupStartResponses]
+
+export type LatexSetupCancelData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/latex/setup/cancel"
+}
+
+export type LatexSetupCancelErrors = {
+  /**
+   * Invalid project or request
+   */
+  400: unknown
+  /**
+   * Build or artifact not found
+   */
+  404: unknown
+  /**
+   * Project changed or build already running
+   */
+  409: unknown
+  /**
+   * Project exceeds snapshot limits
+   */
+  413: unknown
+  /**
+   * Compiler unavailable
+   */
+  503: unknown
+}
+
+export type LatexSetupCancelResponses = {
+  /**
+   * LaTeX result
+   */
+  200: LatexSetup
+}
+
+export type LatexSetupCancelResponse = LatexSetupCancelResponses[keyof LatexSetupCancelResponses]
 
 export type LatexProjectData = {
   body?: never

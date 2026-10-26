@@ -1838,5 +1838,32 @@ export const dict = {
   "latex.installed": "Available",
   "latex.notInstalled": "Not found",
   "latex.settingsSaved": "Compiler paths saved and detection refreshed.",
+  "latex.setup.install": "Install Tectonic",
+  "latex.setup.retry": "Retry installation",
+  "latex.setup.repair": "Check / repair installation",
+  "latex.setup.manual": "Manual installation guide",
+  "latex.setup.help":
+    "Download Tectonic from its official release and install it on the machine running the Aether server.",
+  "latex.setup.packages":
+    "This installs the compiler only. Missing TeX packages may need a separate download on the first build; allow downloads for that build when needed.",
+  "latex.setup.latexmk":
+    "Install TeX Live or MiKTeX with latexmk on the Aether server, then refresh detection or enter its executable path.",
+  "latex.setup.starting": "Starting installation…",
+  "latex.setup.cancelling": "Cancelling installation…",
+  "latex.setup.idle": "Ready to install",
+  "latex.setup.downloading": "Downloading Tectonic…",
+  "latex.setup.verifying": "Verifying download…",
+  "latex.setup.extracting": "Extracting Tectonic…",
+  "latex.setup.checking": "Checking the compiler…",
+  "latex.setup.ready": "Tectonic installed",
+  "latex.setup.failed": "Installation failed",
+  "latex.setup.cancelled": "Installation cancelled",
+  "latex.setup.progress": "Downloaded {{downloaded}}",
+  "latex.setup.progressTotal": "Downloaded {{downloaded}} of {{total}}",
+  "latex.setup.automatic": "Aether discovers this installation automatically when the custom Tectonic path is empty.",
+  "latex.setup.custom":
+    "A custom Tectonic path is still configured. To use this installation, clear the Tectonic path above and save.",
+  "latex.setup.unsupported":
+    "Automatic installation is unavailable for this server platform. Use the manual installation guide.",
   "latex.checked": "Sources checked at {{time}}",
 }
