@@ -32,6 +32,17 @@ const roots = (store: SessionStore) =>
 
 export const sortedRootSessions = (store: SessionStore, now: number) => roots(store).sort(sortSessions(now))
 
+export const backends = { aether: "Aether", codex: "Codex" } as const
+
+export const backend = (session: Pick<Session, "engine">) => session.engine?.type ?? "aether"
+
+export const grouped = (sessions: Session[]) =>
+  (Object.keys(backends) as (keyof typeof backends)[]).map((type) => ({
+    type,
+    label: backends[type],
+    sessions: sessions.filter((session) => !session.parentID && backend(session) === type),
+  }))
+
 export const latestRootSession = (stores: SessionStore[], now: number) =>
   stores.flatMap(roots).sort(sortSessions(now))[0]
 

@@ -4,8 +4,18 @@ type Keys = keyof typeof en
 
 export const dict = {
   "native.title": "智能体后端",
+  "sidebar.session.backends.partial": "按已加载会话分组，加载更多可查看更早会话",
+  "native.enable": "启用 Codex",
+  "native.enableHelp": "在 Aether 中使用已安装的 Codex。关闭后停止新请求，已有对话仍可阅读，正在运行的任务可正常结束。",
+  "native.disabled": "Codex 已关闭。在此重新启用后，可以新建或继续 Codex 对话。",
+  "native.disabledShort": "Codex 已在设置中关闭",
+  "native.limit": "保留的空闲 Codex 进程上限",
+  "native.limitHelp":
+    "可保留 0–16 个空闲会话进程，默认 4 个，以加快后续消息。设为 0 时每轮结束后关闭；空闲超过 30 分钟会自动回收，此上限不会停止正在运行的任务。",
+  "native.limitInvalid": "请输入 0 到 16 之间的整数作为空闲进程上限。",
   "native.engine": "智能体后端",
-  "native.description": "在 Aether 中运行已安装的 Codex 智能体，使用其现有账户和原生工具。新建对话时选择后端，已有对话继续使用原来的后端。",
+  "native.description":
+    "在 Aether 中运行已安装的 Codex 智能体，使用其现有账户和原生工具。新建对话时选择后端，已有对话继续使用原来的后端。",
   "native.path": "Codex 可执行文件路径",
   "native.pathHelp": "填写 Aether 服务端所在电脑上的路径，留空则自动发现。连接前请先在该电脑上登录 Codex。",
   "native.automatic": "自动查找 Codex",

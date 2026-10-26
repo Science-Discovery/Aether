@@ -1537,7 +1537,11 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                 <IconButton
                   data-action="prompt-submit"
                   type="submit"
-                  disabled={store.mode !== "normal" || (!prompt.dirty() && !working() && commentCount() === 0)}
+                  disabled={
+                    store.mode !== "normal" ||
+                    (!working() && !!local.native.engine() && !local.native.enabled()) ||
+                    (!prompt.dirty() && !working() && commentCount() === 0)
+                  }
                   tabIndex={store.mode === "normal" ? undefined : -1}
                   icon={working() ? "stop" : "arrow-up"}
                   variant="primary"

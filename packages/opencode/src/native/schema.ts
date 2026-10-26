@@ -2,6 +2,20 @@ import z from "zod"
 import { NamedError } from "@opencode-ai/util/error"
 
 export namespace Native {
+  export const Config = z
+    .object({
+      path: z.string().trim().optional(),
+      enabled: z.boolean().optional().describe("Enable Codex connections (default: true)"),
+      limit: z
+        .number()
+        .int()
+        .min(0)
+        .max(16)
+        .optional()
+        .describe("Maximum retained idle Codex processes (default: 4; 0 disables retention)"),
+    })
+    .meta({ ref: "NativeCodexConfig" })
+
   export const Input = z
     .object({
       type: z.literal("codex"),

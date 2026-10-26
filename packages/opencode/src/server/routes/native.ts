@@ -1,5 +1,6 @@
 import { Hono } from "hono"
-import { describeRoute, resolver } from "hono-openapi"
+import { describeRoute, resolver, validator } from "hono-openapi"
+import z from "zod"
 import { Config } from "../../config/config"
 import { Codex } from "../../native/codex"
 import { lazy } from "../../util/lazy"
@@ -19,9 +20,22 @@ export const NativeRoutes = lazy(() =>
         },
       },
     }),
+    validator(
+      "query",
+      z.object({
+        refresh: z
+          .preprocess((value) => (value === "true" ? true : value === "false" ? false : value), z.boolean())
+          .optional(),
+      }),
+    ),
     async (c) => {
       const config = await Config.getGlobal()
-      return c.json(await Codex.status(config.native?.codex?.path))
+      return c.json(
+        await Codex.status(config.native?.codex?.path, {
+          enabled: config.native?.codex?.enabled,
+          refresh: c.req.valid("query").refresh,
+        }),
+      )
     },
   ),
 )

@@ -4344,6 +4344,7 @@ export class Native extends HeyApiClient {
     parameters?: {
       directory?: string
       workspace?: string
+      refresh?: boolean
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -4354,6 +4355,7 @@ export class Native extends HeyApiClient {
           args: [
             { in: "query", key: "directory" },
             { in: "query", key: "workspace" },
+            { in: "query", key: "refresh" },
           ],
         },
       ],

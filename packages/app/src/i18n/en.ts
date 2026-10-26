@@ -1,14 +1,27 @@
 export const dict = {
   "native.title": "Agent backends",
+  "sidebar.session.backends.partial": "Grouped from loaded conversations. Load more to see older conversations.",
+  "native.enable": "Enable Codex",
+  "native.enableHelp":
+    "Use the installed Codex agent in Aether. Turning this off stops new Codex requests; existing conversations stay readable and running tasks can finish.",
+  "native.disabled": "Codex is turned off. Enable it here to start or continue Codex conversations.",
+  "native.disabledShort": "Codex is turned off in Settings",
+  "native.limit": "Idle Codex processes to keep",
+  "native.limitHelp":
+    "Keep up to 0–16 idle conversation processes (default: 4) to speed up follow-up messages. Use 0 to close them after each turn. Idle processes expire after 30 minutes; running tasks are not stopped by this limit.",
+  "native.limitInvalid": "Enter a whole number from 0 to 16 for the idle process limit.",
   "native.engine": "Agent backend",
-  "native.description": "Run the installed Codex agent in Aether using its existing account and native tools. Choose a backend when starting a conversation; existing conversations keep their backend.",
+  "native.description":
+    "Run the installed Codex agent in Aether using its existing account and native tools. Choose a backend when starting a conversation; existing conversations keep their backend.",
   "native.path": "Codex executable path",
-  "native.pathHelp": "Path on the Aether server's computer. Leave empty for automatic discovery. Sign in with Codex on that computer before connecting.",
+  "native.pathHelp":
+    "Path on the Aether server's computer. Leave empty for automatic discovery. Sign in with Codex on that computer before connecting.",
   "native.automatic": "Find Codex automatically",
   "native.refresh": "Check connection",
   "native.checking": "Checking Codex…",
   "native.chooseModel": "Select Codex model",
-  "native.notReady": "Codex is not ready. Check Agent backends in Settings, then check the connection and select an available model.",
+  "native.notReady":
+    "Codex is not ready. Check Agent backends in Settings, then check the connection and select an available model.",
   "native.installation": "Installation",
   "native.found": "Found",
   "native.missing": "Not found",
@@ -23,7 +36,8 @@ export const dict = {
   "native.auth.unknown": "Could not verify",
   "native.auth.missing": "Sign-in required",
   "native.models": "Available models",
-  "native.permissions": "Codex uses a workspace sandbox and asks for approval when needed. Review each native permission request in the conversation.",
+  "native.permissions":
+    "Codex uses a workspace sandbox and asks for approval when needed. Review each native permission request in the conversation.",
   "command.category.suggested": "Suggested",
   "command.category.view": "View",
   "command.category.project": "Project",

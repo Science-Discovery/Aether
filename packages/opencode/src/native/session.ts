@@ -13,6 +13,7 @@ import { NativeEvents } from "./events"
 import { NativeInput } from "./input"
 import { Protocol } from "./protocol"
 import { NativeTree } from "./tree"
+import { NativeRuntime } from "./runtime"
 
 export namespace NativeSession {
   const object = z.record(z.string(), z.unknown())
@@ -223,6 +224,9 @@ export namespace NativeSession {
       throw new Error("Aether tool overrides and knowledge-base retrieval are not supported in a Codex native session.")
     }
     signal.throwIfAborted()
+    const cfg = await Config.getGlobal()
+    if (cfg.native?.codex?.enabled === false)
+      throw new Error("The native Codex backend is disabled in Aether settings.")
     if (input.messageID) {
       const existing = await MessageV2.get({ sessionID: session.id, messageID: input.messageID }).catch(
         (err: unknown) => {
@@ -303,6 +307,9 @@ export namespace NativeSession {
     const state = {
       client: undefined as Protocol.Client | undefined,
       interrupt: undefined as Promise<void> | undefined,
+      lease: undefined as Awaited<ReturnType<typeof NativeRuntime.acquire>> | undefined,
+      keep: false,
+      off: undefined as (() => void) | undefined,
     }
     const tree = NativeTree.create({
       request: (method, params) => {
@@ -329,10 +336,11 @@ export namespace NativeSession {
         )
       if (!session.engine.cursor && session.engine.thread && history.some((entry) => entry.info.role === "assistant"))
         throw new Error("This native thread has no input cursor. Start a new session instead of replaying history.")
-      const cfg = await Config.getGlobal()
-      const connection = await Codex.connect({
-        executable: cfg.native?.codex?.path,
-        cwd: session.directory,
+      const revision = NativeRuntime.revision()
+      await NativeRuntime.configure((await Config.getGlobal()).native?.codex, revision)
+      const connection = await NativeRuntime.acquire({
+        id: session.id,
+        directory: session.directory,
         signal: controller.signal,
         onNotification: (method, value) => {
           if (signal.aborted) return
@@ -356,6 +364,7 @@ export namespace NativeSession {
           })
         },
       })
+      state.lease = connection
       state.client = connection.client
       signal.throwIfAborted()
       const models = await Codex.models(connection.client)
@@ -393,13 +402,26 @@ export namespace NativeSession {
           ? { threadId: session.engine.thread, excludeTurns: true }
           : { serviceName: "aether" }),
       }
-      const thread = response.parse(
-        await connection.client.request(session.engine.thread ? "thread/resume" : "thread/start", params, { signal }),
+      if (connection.thread && connection.thread !== session.engine.thread)
+        throw new Error("The native connection does not match this session's saved thread.")
+      const metadata = response.parse(
+        await connection.client.request(
+          connection.thread ? "thread/read" : session.engine.thread ? "thread/resume" : "thread/start",
+          connection.thread ? { threadId: connection.thread, includeTurns: false } : params,
+          { signal },
+        ),
       )
+      const thread =
+        connection.thread && metadata.thread.status?.type === "notLoaded"
+          ? response.parse(await connection.client.request("thread/resume", params, { signal }))
+          : metadata
       if (session.engine.thread && thread.thread.id !== session.engine.thread)
         throw new Error("Codex resumed a different thread; the conversation was not continued.")
       if (thread.thread.status?.type === "active")
         throw new Error("The native Codex thread is already active in another process.")
+      if (thread.thread.status?.type === "systemError")
+        throw new Error("The native Codex thread entered a system error.")
+      connection.bind(thread.thread.id)
       events.state.thread = thread.thread.id
       tree.registerRoot(thread.thread)
       user.model.modelID = ModelID.make(model.id)
@@ -436,26 +458,36 @@ export namespace NativeSession {
       if (events.state.turn && events.state.turn !== turn.turn.id) throw new Error("Codex started an unexpected turn.")
       events.state.turn = turn.turn.id
       tree.bindTurn(turn.turn.id)
-      const outcome = await Promise.race([
-        events.done,
-        connection.client.exited.then(async () => {
+      const exited = Promise.withResolvers<NativeEvents.Outcome>()
+      state.off = connection.client.onExit(() => {
+        void (async () => {
           await connection.client.drain()
-          if (events.state.settled) return events.done
-          return {
+          if (events.state.settled) return exited.resolve(await events.done)
+          exited.resolve({
             status: signal.aborted ? "interrupted" : "failed",
             error: "Codex exited before completing the turn.",
-          } satisfies NativeEvents.Outcome
-        }),
-      ])
+          })
+        })().catch(() => exited.resolve({ status: "failed", error: "Codex exited before completing the turn." }))
+      })
+      const outcome = await Promise.race([events.done, exited.promise])
       await connection.client.drain()
-      return await events.finish(signal.aborted ? { status: "interrupted" } : outcome)
+      const result = await events.finish(signal.aborted ? { status: "interrupted" } : outcome)
+      state.keep = !signal.aborted && outcome.status === "completed"
+      return result
     } catch (err) {
       return await events.finish({ status: signal.aborted ? "interrupted" : "failed", error: message(err) })
     } finally {
       signal.removeEventListener("abort", abort)
+      state.off?.()
       await state.interrupt
       tree.close()
-      await state.client?.close()
+      const revision = NativeRuntime.revision()
+      await Config.getGlobal()
+        .then((cfg) => NativeRuntime.configure(cfg.native?.codex, revision))
+        .catch(() => {
+          state.keep = false
+        })
+      await state.lease?.release(state.keep)
     }
   }
 }

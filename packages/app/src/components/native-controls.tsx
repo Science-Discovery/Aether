@@ -10,10 +10,9 @@ import { VariantSelect } from "./prompt-input/variant-select"
 export function EngineSelect() {
   const local = useLocal()
   const language = useLanguage()
-  const options = ["aether", "codex"] as const
   return (
     <Select<"aether" | "codex">
-      options={[...options]}
+      options={local.native.enabled() || local.native.engine() ? ["aether", "codex"] : ["aether"]}
       current={local.native.known() ? (local.native.engine() ? "codex" : "aether") : undefined}
       placeholder={language.t("common.loading")}
       label={(value) => (value === "codex" ? "Codex" : "Aether")}
@@ -39,14 +38,14 @@ export function NativeModels() {
         label={(model) => model.name}
         onSelect={(model) => model && native.setModel(model.id)}
         placeholder={language.t(native.loading() ? "native.checking" : "native.chooseModel")}
-        disabled={native.loading()}
+        disabled={!native.enabled() || native.loading()}
         variant="ghost"
         size="normal"
         class="min-w-0 max-w-[240px]"
         valueClass="truncate text-13-regular text-text-base"
         triggerProps={{ "data-action": "prompt-native-model", "aria-label": language.t("native.chooseModel") }}
       />
-      <Show when={(native.model()?.efforts.length ?? 0) > 0}>
+      <Show when={native.enabled() && (native.model()?.efforts.length ?? 0) > 0}>
         <VariantSelect
           variants={native.model()?.efforts ?? []}
           current={native.effort()}
@@ -55,7 +54,12 @@ export function NativeModels() {
           onSelect={native.setEffort}
         />
       </Show>
-      <Show when={!native.ready() && !native.loading()}>
+      <Show when={!native.enabled()}>
+        <span role="status" class="text-12-regular text-text-weak">
+          {language.t("native.disabledShort")}
+        </span>
+      </Show>
+      <Show when={native.enabled() && !native.ready() && !native.loading()}>
         <Button
           variant="ghost"
           size="small"

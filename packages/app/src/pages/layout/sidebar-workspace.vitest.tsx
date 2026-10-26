@@ -8,10 +8,21 @@ import {
   type WorkspaceSidebarContext,
 } from "./sidebar-workspace"
 import type { useLanguage } from "@/context/language"
+import type { Session } from "@opencode-ai/sdk/v2"
+import type { SessionItemProps } from "./sidebar-items"
+import { childMapByParent } from "./helpers"
 
 vi.mock("./sidebar-items", () => ({
   NewSessionItem: () => null,
-  SessionItem: () => null,
+  SessionItem: (props: SessionItemProps) => (
+    <button
+      data-session-id={props.session.id}
+      data-selected={props.selected?.()}
+      onClick={() => props.onToggleSelect?.(props.session)}
+    >
+      {props.session.title}
+    </button>
+  ),
   SessionSkeleton: () => null,
   StatusDot: () => null,
 }))
@@ -151,7 +162,15 @@ function mount(props: {
   canCollapse: boolean
   loadMore: () => Promise<void>
   collapseAll: () => Promise<void>
+  sessions?: Accessor<Session[]>
+  all?: Accessor<Session[]>
+  select?: Accessor<boolean>
+  selected?: Accessor<Set<string>>
+  toggle?: (session: Session) => void
+  ctx?: WorkspaceSidebarContext
 }) {
+  const sessions = props.sessions ?? (() => [])
+  const all = props.all ?? sessions
   const host = document.createElement("div")
   document.body.append(host)
   const off = render(
@@ -159,16 +178,16 @@ function mount(props: {
       <WorkspaceSessionList
         slug={() => "slug"}
         currentSessionID={() => undefined}
-        ctx={ctx}
+        ctx={props.ctx ?? ctx}
         loading={() => false}
-        rootSessions={() => []}
-        allSessions={() => []}
-        children={() => new Map()}
+        rootSessions={sessions}
+        allSessions={all}
+        children={() => childMapByParent(all())}
         language={language}
-        selectMode={() => false}
-        selectedIds={() => new Set()}
-        total={() => 0}
-        onToggleSelect={() => undefined}
+        selectMode={props.select ?? (() => false)}
+        selectedIds={props.selected ?? (() => new Set())}
+        total={() => sessions().length}
+        onToggleSelect={props.toggle ?? (() => undefined)}
         onSelectAll={() => undefined}
         onDeselectAll={() => undefined}
         onBatchArchive={() => Promise.resolve()}
@@ -260,6 +279,106 @@ describe("WorkspaceSessionList load-more row", () => {
     expect(host.querySelector('[aria-label="common.loadMore"]')).toBeNull()
     expect(host.querySelector('[aria-label="common.collapseAll"]')).toBeNull()
 
+    off()
+  })
+})
+
+const session = (id: string, engine?: Session["engine"], parent?: string): Session => ({
+  id,
+  title: id,
+  slug: id,
+  projectID: "project",
+  directory: "/workspace",
+  version: "v2",
+  time: { created: 1, updated: 1 },
+  engine,
+  parentID: parent,
+})
+
+describe("WorkspaceSessionList backend groups", () => {
+  test("groups roots in existing order and keeps children under their own parent", () => {
+    const roots = [
+      session("codex-new", { type: "codex" }),
+      session("legacy"),
+      session("codex-old", { type: "codex" }),
+    ]
+    const child = session("child", { type: "codex" }, "legacy")
+    const { host, off } = mount({
+      sessions: () => roots,
+      all: () => [...roots, child],
+      ctx: { ...ctx, sessionExpanded: () => true },
+      hasMore: false,
+      canCollapse: false,
+      loadMore: () => Promise.resolve(),
+      collapseAll: () => Promise.resolve(),
+    })
+
+    const groups = [...host.querySelectorAll('[data-component="session-backend-group"]')]
+    expect(groups.map((group) => group.getAttribute("aria-label"))).toEqual(["Aether", "Codex"])
+    expect(
+      groups.map((group) =>
+        [...group.querySelectorAll("[data-session-id]")].map((row) => row.getAttribute("data-session-id")),
+      ),
+    ).toEqual([["legacy", "child"], ["codex-new", "codex-old"]])
+    expect(host.querySelectorAll('[data-session-id="child"]')).toHaveLength(1)
+    expect(host.querySelector('[data-component="session-backends-partial"]')).toBeNull()
+    off()
+  })
+
+  test("labels partial results, adds newly loaded groups and retains existing rows", () => {
+    const codex = session("codex", { type: "codex" })
+    const [rows, update] = createSignal([codex])
+    const [more, paginate] = createSignal(true)
+    const load = vi.fn(async () => {
+      update([codex, session("legacy")])
+      paginate(false)
+    })
+    const { host, off } = mount({
+      sessions: rows,
+      get hasMore() {
+        return more()
+      },
+      canCollapse: false,
+      loadMore: load,
+      collapseAll: () => Promise.resolve(),
+    })
+
+    expect(host.querySelectorAll('[data-component="session-backend-group"]')).toHaveLength(1)
+    expect(host.querySelector('[data-component="session-backends-partial"]')?.textContent).toBe(
+      "sidebar.session.backends.partial",
+    )
+    const row = host.querySelector('[data-session-id="codex"]')
+    host.querySelector<HTMLButtonElement>('[aria-label="common.loadMore"]')!.click()
+    expect(load).toHaveBeenCalledTimes(1)
+    expect(
+      [...host.querySelectorAll('[data-component="session-backend-group"]')].map((group) => group.getAttribute("data-backend")),
+    ).toEqual(["aether", "codex"])
+    expect(host.querySelector('[data-session-id="codex"]')).toBe(row)
+    expect(host.querySelector('[data-component="session-backends-partial"]')).toBeNull()
+    off()
+  })
+
+  test("keeps batch selection callbacks and selection state across backend groups", () => {
+    const rows = [session("codex", { type: "codex" }), session("legacy")]
+    const [selected, select] = createSignal(new Set<string>())
+    const toggle = vi.fn((item: Session) => select(new Set([item.id])))
+    const { host, off } = mount({
+      sessions: () => rows,
+      select: () => true,
+      selected,
+      toggle,
+      hasMore: false,
+      canCollapse: false,
+      loadMore: () => Promise.resolve(),
+      collapseAll: () => Promise.resolve(),
+    })
+
+    const codex = host.querySelector<HTMLButtonElement>('[data-session-id="codex"]')!
+    codex.click()
+    expect(toggle).toHaveBeenCalledWith(rows[0])
+    expect(codex.dataset.selected).toBe("true")
+    expect(host.querySelector<HTMLElement>('[data-session-id="legacy"]')?.dataset.selected).toBe("false")
+    expect(host.querySelectorAll('[data-component="session-backend-group"]')).toHaveLength(2)
     off()
   })
 })

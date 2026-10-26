@@ -9,6 +9,7 @@ if (process.argv[2] === "leaf") {
 const input = createInterface({ input: process.stdin })
 const approvals = new Map<string | number, number>()
 let initialized = false
+let initializes = 0
 
 function send(value: unknown) {
   process.stdout.write(JSON.stringify(value) + "\n")
@@ -22,7 +23,17 @@ for await (const line of input) {
     continue
   }
   if (message.method === "initialize") {
+    initializes++
     send({ id: message.id, result: { userAgent: "codex_cli_rs/0.164.0-test" } })
+    continue
+  }
+  if (message.method === "info") {
+    send({ id: message.id, result: { pid: process.pid, initializes } })
+    continue
+  }
+  if (message.method === "notify") {
+    send(message.params)
+    send({ id: message.id, result: true })
     continue
   }
   if (message.method === "initialized") {

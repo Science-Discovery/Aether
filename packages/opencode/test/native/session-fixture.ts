@@ -56,7 +56,7 @@ function complete(threadId: string, turnId: string) {
   const turn = { id: turnId, status: "completed", items: [item], error: null }
   const thread = threads.get(threadId)
   if (thread) {
-    thread.status.type = "idle"
+    thread.status.type = cfg.mode === "unloaded" ? "notLoaded" : "idle"
     thread.turns = [turn]
   }
   notify("turn/completed", { threadId, turn })
@@ -69,7 +69,7 @@ for await (const line of createInterface({ input: process.stdin })) {
     params?: Record<string, unknown>
     result?: unknown
   }
-  await appendFile(path.join(root, "calls.jsonl"), JSON.stringify(value) + "\n")
+  await appendFile(path.join(root, "calls.jsonl"), JSON.stringify({ ...value, pid: process.pid }) + "\n")
   if (!value.method) {
     const turn = pending.get(String(value.id))
     if (turn) {

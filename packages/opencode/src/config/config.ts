@@ -5,6 +5,7 @@ import { createRequire } from "module"
 import os from "os"
 import z from "zod"
 import { ModelsDev } from "../provider/models"
+import { Native } from "../native/schema"
 import { mergeDeep, pipe, unique } from "remeda"
 import { Global } from "../global"
 import fs from "fs/promises"
@@ -1229,7 +1230,7 @@ export namespace Config {
       server: Server.optional().describe("Server configuration for opencode serve and web commands"),
       native: z
         .object({
-          codex: z.object({ path: z.string().trim().optional() }).optional(),
+          codex: Native.Config.optional(),
         })
         .optional()
         .describe("Native agent settings. Executable paths are read only from the user's global configuration."),
@@ -1829,6 +1830,7 @@ export namespace Config {
   }
 
   const SAFE_CONFIG_KEYS = new Set([
+    "native",
     "model",
     "small_model",
     "disabled_models",
@@ -1904,6 +1906,13 @@ export namespace Config {
     })()
 
     global.reset()
+
+    if (config.native) {
+      const { Codex } = await import("../native/codex")
+      const { NativeRuntime } = await import("../native/runtime")
+      Codex.invalidate()
+      await NativeRuntime.configure((await getGlobal()).native?.codex)
+    }
 
     const keys = Object.keys(config)
     const provider = keys.some((key) => PROVIDER_CONFIG_KEYS.has(key))

@@ -41,6 +41,7 @@ async function scenario(mode: string, run: (session: Session.Info, dir: string) 
       },
     })
   } finally {
+    await Instance.disposeDirectory(dir.path)
     Global.Path.config = previous
     Config.global.reset()
   }
@@ -54,6 +55,7 @@ async function calls(dir: string) {
       (line) =>
         JSON.parse(line) as {
           id?: string
+          pid?: number
           method?: string
           params?: Record<string, unknown>
           result?: Record<string, unknown>
@@ -71,7 +73,73 @@ async function question() {
   throw new Error("Codex did not ask a question")
 }
 
+async function stopped(pid: number) {
+  for (let attempt = 0; attempt < 20; attempt++) {
+    const alive = (() => {
+      try {
+        process.kill(pid, 0)
+        return true
+      } catch {
+        return false
+      }
+    })()
+    if (!alive) return
+    await Bun.sleep(50)
+  }
+  throw new Error("The Codex fixture process did not exit")
+}
+
 describe("native Codex session", () => {
+  test("disabling Codex preserves an active turn, retires its process, and rejects all new input before storage", async () => {
+    await scenario("approval", async (session, dir) => {
+      const running = NativeSession.prompt(
+        { sessionID: session.id, parts: [{ type: "text", text: "Wait for approval" }] },
+        session,
+        new AbortController().signal,
+      )
+      const pending = await question()
+      const pid = (await calls(dir)).find((call) => call.method === "initialize")?.pid
+      expect(pid).toBeNumber()
+      await Config.updateGlobal({ native: { codex: { enabled: false } } })
+      expect((await Config.getGlobal()).native?.codex?.enabled).toBe(false)
+      expect(() => process.kill(pid!, 0)).not.toThrow()
+      expect((await Question.list()).some((item) => item.id === pending.id)).toBe(true)
+      await Question.reply({ requestID: pending.id, answers: [["Allow once"]] })
+      const result = await running
+      expect(result.info.role === "assistant" && result.info.error).toBeUndefined()
+      await stopped(pid!)
+      const count = (await Session.messages({ sessionID: session.id })).length
+      for (const noReply of [false, true]) {
+        await expect(
+          NativeSession.prompt(
+            { sessionID: session.id, noReply, parts: [{ type: "text", text: "Rejected" }] },
+            await Session.get(session.id),
+            new AbortController().signal,
+          ),
+        ).rejects.toThrow("disabled")
+      }
+      expect(await Session.messages({ sessionID: session.id })).toHaveLength(count)
+    })
+  })
+
+  test("deleting a session and disposing an instance release their idle processes", async () => {
+    for (const action of ["delete", "dispose"]) {
+      await scenario("normal", async (session, dir) => {
+        await NativeSession.prompt(
+          { sessionID: session.id, parts: [{ type: "text", text: "Finish" }] },
+          session,
+          new AbortController().signal,
+        )
+        const pid = (await calls(dir)).find((call) => call.method === "initialize")?.pid
+        expect(pid).toBeNumber()
+        expect(() => process.kill(pid!, 0)).not.toThrow()
+        if (action === "delete") await Session.remove(session.id)
+        if (action === "dispose") await Instance.dispose()
+        await stopped(pid!)
+      })
+    }
+  })
+
   test("a model declaring text-only input rejects images before starting a thread", async () => {
     await scenario("normal", async (session, dir) => {
       const result = await NativeSession.prompt(
@@ -85,6 +153,25 @@ describe("native Codex session", () => {
       )
       expect(result.info.role === "assistant" && result.info.error?.name).toBe("UnknownError")
       expect((await calls(dir)).some((call) => call.method === "thread/start")).toBe(false)
+    })
+  })
+
+  test("an unloaded thread resumes on its retained connection without replaying the previous input", async () => {
+    await scenario("unloaded", async (session, dir) => {
+      for (const text of ["First", "Second"]) {
+        const result = await NativeSession.prompt(
+          { sessionID: session.id, parts: [{ type: "text", text }] },
+          await Session.get(session.id),
+          new AbortController().signal,
+        )
+        expect(result.info.role === "assistant" && result.info.error).toBeUndefined()
+      }
+      const log = await calls(dir)
+      expect(log.filter((call) => call.method === "initialize")).toHaveLength(1)
+      expect(log.filter((call) => call.method === "thread/resume")).toHaveLength(1)
+      expect(log.filter((call) => call.method === "turn/start").at(-1)?.params?.input).toEqual([
+        { type: "text", text: "Second", text_elements: [] },
+      ])
     })
   })
 
@@ -111,7 +198,7 @@ describe("native Codex session", () => {
     })
   })
 
-  test("persists real protocol events and resumes the same native thread", async () => {
+  test("persists real protocol events and reuses one initialized process and native thread across turns", async () => {
     await scenario("normal", async (session, dir) => {
       await Bun.write(
         path.join(dir, "aether.json"),
@@ -140,7 +227,12 @@ describe("native Codex session", () => {
       expect(next.parts.filter((part) => part.type === "text").map((part) => part.text)).toEqual(["Native response"])
       const log = await calls(dir)
       expect(log.filter((call) => call.method === "thread/start")).toHaveLength(1)
-      expect(log.find((call) => call.method === "thread/resume")?.params?.threadId).toBe(saved.engine?.thread)
+      expect(log.filter((call) => call.method === "thread/resume")).toHaveLength(0)
+      expect(log.filter((call) => call.method === "initialize")).toHaveLength(1)
+      expect(new Set(log.map((call) => call.pid)).size).toBe(1)
+      expect(log.some((call) => call.method === "thread/read" && call.params?.threadId === saved.engine?.thread)).toBe(
+        true,
+      )
       expect(
         (await Session.messages({ sessionID: session.id })).filter((entry) => entry.info.role === "assistant"),
       ).toHaveLength(2)
@@ -569,6 +661,10 @@ describe("native Codex session", () => {
       )
       const input = (await calls(dir)).filter((call) => call.method === "turn/start").at(-1)?.params?.input
       expect(input).toEqual([{ type: "text", text: "Continue", text_elements: [] }])
+      const log = await calls(dir)
+      expect(log.filter((call) => call.method === "initialize")).toHaveLength(2)
+      expect(new Set(log.map((call) => call.pid)).size).toBe(2)
+      expect(log.filter((call) => call.method === "thread/resume")).toHaveLength(1)
     })
   })
 

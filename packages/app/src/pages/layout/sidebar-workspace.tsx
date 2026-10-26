@@ -4,6 +4,7 @@ import {
   createMemo,
   createSignal,
   For,
+  Index,
   on,
   onCleanup,
   onMount,
@@ -42,7 +43,7 @@ import { useSettings } from "@/context/settings"
 import { enqueueRun, runKey } from "@/context/terminal"
 import { isWorking } from "@/utils/working-state"
 import { NewSessionItem, SessionItem, SessionSkeleton, StatusDot } from "./sidebar-items"
-import { canCollapseAll, childMapByParent, hasProjectPermissions, sortedRootSessions, workspaceKey } from "./helpers"
+import { canCollapseAll, childMapByParent, grouped, hasProjectPermissions, sortedRootSessions, workspaceKey } from "./helpers"
 import { formatServerError } from "@/utils/server-errors"
 import { SessionImportInput } from "@/components/session-import-input"
 import { MathConfirm } from "@/components/math-confirm"
@@ -789,6 +790,30 @@ const WorkspaceActions = (props: {
 
 const sortByUpdatedDesc = (a: Session, b: Session) => (b.time?.updated ?? 0) - (a.time?.updated ?? 0)
 
+const SessionGroups = (props: {
+  sessions: Accessor<Session[]>
+  children: (sessions: Accessor<Session[]>) => JSX.Element
+}) => {
+  const groups = createMemo(() => grouped(props.sessions()))
+  return (
+    <Index each={groups()}>
+      {(group) => (
+        <Show when={group().sessions.length > 0}>
+          <section
+            aria-label={group().label}
+            data-component="session-backend-group"
+            data-backend={group().type}
+            class="flex min-w-0 flex-col gap-1"
+          >
+            <h3 class="px-4 pt-2 pb-0.5 text-12-medium text-text-weak">{group().label}</h3>
+            {props.children(() => group().sessions)}
+          </section>
+        </Show>
+      )}
+    </Index>
+  )
+}
+
 const SessionTreeNodes = (props: {
   slug: Accessor<string>
   currentSessionID: Accessor<string | undefined>
@@ -961,7 +986,11 @@ const SessionTreeNodes = (props: {
   }
 
   return (
-    <For each={props.rootSessions()}>{(session) => <SessionNode session={session} depth={0} chain={new Set()} />}</For>
+    <SessionGroups sessions={props.rootSessions}>
+      {(sessions) => (
+        <For each={sessions()}>{(session) => <SessionNode session={session} depth={0} chain={new Set()} />}</For>
+      )}
+    </SessionGroups>
   )
 }
 
@@ -1241,27 +1270,31 @@ export const WorkspaceSessionList = (props: {
         <Show
           when={!props.selectMode()}
           fallback={
-            <For each={props.rootSessions()}>
-              {(session) => (
-                <SessionItem
-                  session={session}
-                  list={props.rootSessions()}
-                  navList={props.ctx.navList}
-                  slug={props.slug()}
-                  children={props.children()}
-                  sidebarHovering={props.ctx.sidebarHovering}
-                  setHoverSession={props.ctx.setHoverSession}
-                  clearHoverProjectSoon={props.ctx.clearHoverProjectSoon}
-                  prefetchSession={props.ctx.prefetchSession}
-                  archiveSession={props.ctx.archiveSession}
-                  deleteSession={props.ctx.deleteSession}
-                  renameSession={props.ctx.renameSession}
-                  selectMode={props.selectMode}
-                  selected={() => props.selectedIds().has(session.id)}
-                  onToggleSelect={props.onToggleSelect}
-                />
+            <SessionGroups sessions={props.rootSessions}>
+              {(sessions) => (
+                <For each={sessions()}>
+                  {(session) => (
+                    <SessionItem
+                      session={session}
+                      list={props.rootSessions()}
+                      navList={props.ctx.navList}
+                      slug={props.slug()}
+                      children={props.children()}
+                      sidebarHovering={props.ctx.sidebarHovering}
+                      setHoverSession={props.ctx.setHoverSession}
+                      clearHoverProjectSoon={props.ctx.clearHoverProjectSoon}
+                      prefetchSession={props.ctx.prefetchSession}
+                      archiveSession={props.ctx.archiveSession}
+                      deleteSession={props.ctx.deleteSession}
+                      renameSession={props.ctx.renameSession}
+                      selectMode={props.selectMode}
+                      selected={() => props.selectedIds().has(session.id)}
+                      onToggleSelect={props.onToggleSelect}
+                    />
+                  )}
+                </For>
               )}
-            </For>
+            </SessionGroups>
           }
         >
           <SessionTreeNodes
@@ -1272,6 +1305,11 @@ export const WorkspaceSessionList = (props: {
             allSessions={props.allSessions}
             children={props.children}
           />
+        </Show>
+        <Show when={props.hasMore() && props.rootSessions().length > 0}>
+          <p data-component="session-backends-partial" class="px-4 pt-1 text-12-regular text-text-weaker">
+            {props.language.t("sidebar.session.backends.partial")}
+          </p>
         </Show>
         <Show when={(props.hasMore() || props.canCollapse()) && !props.selectMode()}>
           <div class="relative w-full py-1 flex items-center gap-0.5 pl-9">

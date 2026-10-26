@@ -1336,6 +1336,18 @@ export type ServerConfig = {
   idleTimeout?: number
 }
 
+export type NativeCodexConfig = {
+  path?: string
+  /**
+   * Enable Codex connections (default: true)
+   */
+  enabled?: boolean
+  /**
+   * Maximum retained idle Codex processes (default: 4; 0 disables retention)
+   */
+  limit?: number
+}
+
 export type PermissionActionConfig = "ask" | "allow" | "deny"
 
 export type PermissionObjectConfig = {
@@ -1691,9 +1703,7 @@ export type Config = {
    * Native agent settings. Executable paths are read only from the user's global configuration.
    */
   native?: {
-    codex?: {
-      path?: string
-    }
+    codex?: NativeCodexConfig
   }
   /**
    * Command configuration, see https://opencode.ai/docs/commands
@@ -2423,6 +2433,7 @@ export type NativeCodexModel = {
 }
 
 export type NativeCodexStatus = {
+  enabled: boolean
   installed: boolean
   path?: string
   version?: string
@@ -6270,6 +6281,7 @@ export type NativeStatusData = {
   query?: {
     directory?: string
     workspace?: string
+    refresh?: boolean
   }
   url: "/native/codex"
 }

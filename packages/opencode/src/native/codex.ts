@@ -5,9 +5,10 @@ import z from "zod"
 import { Global } from "@/global"
 import { which } from "@/util/which"
 import { Protocol } from "./protocol"
+import { Native } from "./schema"
 
 export namespace Codex {
-  export const Config = z.object({ path: z.string().trim().optional() }).meta({ ref: "NativeCodexConfig" })
+  export const Config = Native.Config
   export const Model = z
     .object({
       id: z.string(),
@@ -20,6 +21,7 @@ export namespace Codex {
     .meta({ ref: "NativeCodexModel" })
   export const Status = z
     .object({
+      enabled: z.boolean(),
       installed: z.boolean(),
       path: z.string().optional(),
       version: z.string().optional(),
@@ -166,10 +168,47 @@ export namespace Codex {
     throw new Error("Codex model catalog exceeds the pagination limit")
   }
 
-  export async function status(file?: string): Promise<Status> {
+  const cache: { key?: string; value?: { promise: Promise<Status>; expires: number } } = {}
+
+  export function invalidate() {
+    cache.key = undefined
+    cache.value = undefined
+  }
+
+  export function status(file?: string, opts: { enabled?: boolean; refresh?: boolean } = {}): Promise<Status> {
+    if (opts.enabled === false) {
+      invalidate()
+      return Promise.resolve({ enabled: false, installed: false, connected: false, auth: "unknown", models: [] })
+    }
+    const key = file?.trim() ?? ""
+    if (
+      cache.key === key &&
+      cache.value &&
+      (cache.value.expires === Infinity || (!opts.refresh && cache.value.expires > Date.now()))
+    )
+      return cache.value.promise
+    const value = {
+      expires: Infinity,
+      promise: probe(file)
+        .then((result) => {
+          value.expires = Date.now() + (result.connected && !result.error && result.auth !== "missing" ? 60_000 : 5_000)
+          return result
+        })
+        .catch((error: unknown) => {
+          value.expires = 0
+          throw error
+        }),
+    }
+    cache.key = key
+    cache.value = value
+    return value.promise
+  }
+
+  async function probe(file?: string): Promise<Status> {
     const resolved = await discover(file)
     if (!resolved)
       return {
+        enabled: true,
         installed: false,
         connected: false,
         auth: "missing",
@@ -179,6 +218,7 @@ export namespace Codex {
     const opened = await connect({ executable: resolved, signal: AbortSignal.timeout(20_000) }).catch(() => undefined)
     if (!opened)
       return {
+        enabled: true,
         installed: true,
         path: resolved,
         connected: false,
@@ -194,6 +234,7 @@ export namespace Codex {
       const current = results[0].status === "fulfilled" ? results[0].value : undefined
       const type = current?.account?.type
       return {
+        enabled: true,
         installed: true,
         path: resolved,
         version: opened.version,

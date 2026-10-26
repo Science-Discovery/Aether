@@ -45,6 +45,8 @@ export namespace Protocol {
   }
 
   export interface Client {
+    readonly closed: boolean
+    readonly busy: boolean
     request<T = unknown>(
       method: string,
       params?: unknown,
@@ -53,11 +55,14 @@ export namespace Protocol {
     notify(method: string, params?: unknown): Promise<void>
     close(): Promise<void>
     drain(): Promise<void>
+    listen(handlers: Pick<Options, "onNotification" | "onRequest">): void
+    onExit(listener: (code: number | null) => void): () => void
     exited: Promise<number | null>
   }
 
   export function connect(opts: Options): Client {
-    opts.signal?.throwIfAborted()
+    const lifetime = opts.signal
+    lifetime?.throwIfAborted()
     const child = launch(opts.executable, opts.args ?? ["app-server"], {
       cwd: opts.cwd,
       stdio: "pipe",
@@ -78,13 +83,15 @@ export namespace Protocol {
     let failure: Error | undefined
     let closing: Promise<void> | undefined
     let notifications = Promise.resolve()
+    let handlers = { onNotification: opts.onNotification, onRequest: opts.onRequest }
+    const listeners = new Set<(code: number | null) => void>()
 
     function terminate(error: Error) {
       if (failure) return
       failure = error
       controller.abort(error)
       incoming.clear()
-      opts.signal?.removeEventListener("abort", abort)
+      lifetime?.removeEventListener("abort", abort)
       for (const request of pending.values()) request.reject(error)
       pending.clear()
     }
@@ -161,14 +168,15 @@ export namespace Protocol {
           const request = { abort: new AbortController(), thread: scope.success ? scope.data.threadId : undefined }
           const signal = AbortSignal.any([controller.signal, request.abort.signal])
           incoming.set(message.id, request)
+          const handler = handlers.onRequest
           // Do not await interactive requests in the stdout reader: approvals
           // can remain open while the server sends other events or responses.
           void Promise.resolve()
             .then(() => {
               if (failure) throw failure
               signal.throwIfAborted()
-              if (!opts.onRequest) throw new RpcError(-32601, "Unsupported client request")
-              return opts.onRequest(message.method!, message.params, signal)
+              if (!handler) throw new RpcError(-32601, "Unsupported client request")
+              return handler(message.method!, message.params, signal)
             })
             .then(
               (result) => (signal.aborted ? undefined : send({ id: message.id, result: result ?? null })),
@@ -203,11 +211,12 @@ export namespace Protocol {
           }
         }
         const size = Buffer.byteLength(line)
+        const handler = handlers.onNotification
         queued += size
         if (queued > limit * 2) throw new Error("Codex notification queue exceeds the transport buffer limit")
         notifications = notifications
           .then(() => {
-            if (!discarded) return opts.onNotification?.(message.method!, message.params)
+            if (!discarded) return handler?.(message.method!, message.params)
           })
           .catch(() => fail(new Error("Unable to process a Codex notification")))
           .finally(() => {
@@ -257,11 +266,29 @@ export namespace Protocol {
       ended = true
       terminate(new Error(`Codex app-server exited${code === null ? "" : ` (${code})`}`))
       completion.resolve(code)
+      for (const listener of listeners) listener(code)
+      listeners.clear()
     })
-    opts.signal?.addEventListener("abort", abort, { once: true })
-    if (opts.signal?.aborted) abort()
+    lifetime?.addEventListener("abort", abort, { once: true })
+    if (lifetime?.aborted) abort()
 
     return {
+      get closed() {
+        return Boolean(failure)
+      },
+      get busy() {
+        return pending.size > 0 || incoming.size > 0
+      },
+      listen(value) {
+        handlers = { onNotification: value.onNotification, onRequest: value.onRequest }
+      },
+      onExit(listener) {
+        if (ended) listener(child.exitCode)
+        if (!ended) listeners.add(listener)
+        return () => {
+          listeners.delete(listener)
+        }
+      },
       request<T = unknown>(method: string, params?: unknown, options?: { signal?: AbortSignal; timeout?: number }) {
         if (failure) return Promise.reject<T>(failure)
         if (pending.size >= 128) return Promise.reject<T>(new Error("Too many pending Codex requests"))

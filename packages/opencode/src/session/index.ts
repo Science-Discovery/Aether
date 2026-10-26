@@ -57,6 +57,7 @@ import { SessionPreference } from "./preference"
 import { PROJECT } from "@/persist/naming"
 import { Native } from "../native/schema"
 import { NativeInput } from "../native/input"
+import { NativeRuntime } from "../native/runtime"
 
 export namespace Session {
   const log = Log.create({ service: "session" })
@@ -694,6 +695,10 @@ export namespace Session {
       })
       .optional(),
     async (input) => {
+      if (input?.engine && (await Config.getGlobal()).native?.codex?.enabled === false)
+        throw new Native.Unsupported({
+          message: "Codex is disabled in Settings. Enable it before starting a Codex session.",
+        })
       return createNext({
         id: input?.id,
         parentID: input?.parentID,
@@ -1776,6 +1781,7 @@ export namespace Session {
       const session = await get(sessionID)
       if (session.engine) {
         await SessionPrompt.cancel(sessionID)
+        await NativeRuntime.remove(sessionID)
         await fs.rm(NativeInput.directory(sessionID), { recursive: true, force: true }).catch((error) => {
           log.error("failed to remove native session attachments", { sessionID, error })
         })

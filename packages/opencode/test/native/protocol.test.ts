@@ -67,6 +67,48 @@ test("notifications preserve order across asynchronous handlers", async () => {
   }
 })
 
+test("queued notifications retain their original handler when a connection is leased again", async () => {
+  const pending = Promise.withResolvers<void>()
+  const first: unknown[] = []
+  const next: unknown[] = []
+  const client = Protocol.connect({
+    ...options,
+    onNotification: async (_method, value) => {
+      await pending.promise
+      first.push(value)
+    },
+  })
+  try {
+    await client.request("notifications")
+    client.listen({
+      onNotification: (_method, value) => {
+        next.push(value)
+      },
+    })
+    pending.resolve()
+    await client.drain()
+    expect(first).toEqual([1, 2])
+    expect(next).toEqual([])
+    await client.request("notifications")
+    await client.drain()
+    expect(next).toEqual([1, 2])
+  } finally {
+    pending.resolve()
+    await client.close()
+  }
+})
+
+test("completed turns can remove their process-exit subscriptions", async () => {
+  const client = Protocol.connect(options)
+  const received: string[] = []
+  const off = client.onExit(() => received.push("old turn"))
+  off()
+  client.onExit(() => received.push("current turn"))
+  await client.close()
+  client.onExit(() => received.push("already exited"))
+  expect(received).toEqual(["current turn", "already exited"])
+})
+
 test("timeout and individual cancellation release requests without closing the connection", async () => {
   const client = Protocol.connect(options)
   const controller = new AbortController()
