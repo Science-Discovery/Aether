@@ -46,6 +46,8 @@ function Workspace(props: Props) {
     program: "auto" as LatexBinding["program"],
     busy: false,
     error: "",
+    loadError: "",
+    scanning: false,
     downloads: false,
     pane: "source" as "source" | "pdf",
     width: 0,
@@ -55,6 +57,7 @@ function Workspace(props: Props) {
   let container!: HTMLDivElement
   let epoch = 0
   let serial = 0
+  let edits = 0
   let timer: ReturnType<typeof setTimeout> | undefined
   const scope = createMemo(() => `${sdk.url}\n${sdk.directory}\n${props.path}`)
   const drafts = createMemo(() => file.drafts().filter((draft) => contains(state.project?.root ?? "", draft.path)))
@@ -80,7 +83,9 @@ function Workspace(props: Props) {
       pending().length === 0 &&
       conflicts().length === 0 &&
       !state.busy &&
-      !state.error
+      !state.error &&
+      !state.loadError &&
+      !state.scanning
     )
   })
   const changed = createMemo(() => {
@@ -115,17 +120,17 @@ function Workspace(props: Props) {
   const read = async (refresh = false, root = state.project?.root, form = false) => {
     const version = epoch
     const request = ++serial
+    const revision = edits
+    const initialize = form || (!state.project && edits === 0)
     const client = sdk.client
-    const reject = (cause: unknown) => {
-      if (version === epoch && request === serial) throw cause
-      return undefined
-    }
-    const project = (await client.latex.project({ path: props.path, root }, { throwOnError: true }).catch(reject))?.data
-    if (!project || version !== epoch || request !== serial) return
-    const result = refresh
-      ? (
-          await client.latex
-            .refresh(
+    setState("scanning", refresh)
+    try {
+      const project = (await client.latex.project({ path: props.path, root }, { throwOnError: true })).data
+      if (!project || version !== epoch || request !== serial) return
+      assign(project, initialize && edits === revision)
+      const result = refresh
+        ? (
+            await client.latex.refresh(
               {
                 root: project.root,
                 editors: file
@@ -135,16 +140,25 @@ function Workspace(props: Props) {
               },
               { throwOnError: true },
             )
-            .catch(reject)
-        )?.data
-      : project
-    if (!result || version !== epoch || request !== serial) return
-    assign(result, form)
-    return result
+          ).data
+        : project
+      if (!result || version !== epoch || request !== serial) return
+      assign(result)
+      if (refresh) setState("loadError", "")
+      return result
+    } catch (cause) {
+      if (version !== epoch || request !== serial) return
+      setState({
+        loadError: formatServerError(cause, language.t),
+        configuring: initialize || !state.project || state.configuring,
+      })
+    } finally {
+      if (version === epoch && request === serial) setState("scanning", false)
+    }
   }
   const refresh = () => {
     if (!props.active || document.hidden || state.busy) return
-    void read(true).catch(error)
+    void read(true)
   }
   const schedule = () => {
     clearTimeout(timer)
@@ -154,7 +168,19 @@ function Workspace(props: Props) {
     on(scope, () => {
       epoch++
       serial++
-      setState({ project: undefined, root: "", main: "", error: "", busy: false })
+      edits = 0
+      setState({
+        project: undefined,
+        root: "",
+        main: "",
+        driver: "auto",
+        program: "auto",
+        error: "",
+        loadError: "",
+        scanning: false,
+        busy: false,
+        configuring: false,
+      })
     }),
   )
   createEffect(
@@ -163,9 +189,7 @@ function Workspace(props: Props) {
       ([visible]) => {
         if (!visible) return
         const version = epoch
-        void read(true, state.project?.root, true).catch((cause) => {
-          if (version === epoch) error(cause)
-        })
+        void read(true)
         void sdk.client.latex
           .status({}, { throwOnError: true })
           .then((result) => {
@@ -175,12 +199,10 @@ function Workspace(props: Props) {
             if (version === epoch) error(cause)
           })
         const interval = setInterval(() => {
-          if (document.hidden || state.busy || !active()) return
-          void read(false)
-            .then((project) => {
-              if (project && !["preparing", "running"].includes(project.latest?.state ?? "")) refresh()
-            })
-            .catch(error)
+          if (document.hidden || state.busy || state.scanning || !active()) return
+          void read(false).then((project) => {
+            if (project && !["preparing", "running"].includes(project.latest?.state ?? "")) refresh()
+          })
         }, 1500)
         const check = setInterval(refresh, 30_000)
         window.addEventListener("focus", refresh)
@@ -212,20 +234,17 @@ function Workspace(props: Props) {
     const root = state.root.trim() || "."
     epoch++
     const version = epoch
-    setState({ project: undefined, error: "", busy: true })
-    void read(true, root, true)
-      .catch((cause) => {
-        if (version === epoch) error(cause)
-      })
-      .finally(() => {
-        if (version === epoch) setState("busy", false)
-      })
+    setState({ project: undefined, error: "", loadError: "", busy: true })
+    void read(true, root, true).finally(() => {
+      if (version === epoch) setState("busy", false)
+    })
   }
   const bind = () => {
     const project = state.project
     if (!project || !state.main || state.busy) return
     const version = epoch
-    setState({ busy: true, error: "" })
+    const revision = edits
+    setState({ busy: true, error: "", scanning: false })
     serial++
     void sdk.client.latex
       .bind(
@@ -240,8 +259,8 @@ function Workspace(props: Props) {
       )
       .then(async () => {
         if (version !== epoch) return
-        await read(true, project.root, true)
-        if (version === epoch) setState("configuring", false)
+        const result = await read(true, project.root, edits === revision)
+        if (result && version === epoch && edits === revision) setState("configuring", false)
       })
       .catch((cause) => {
         if (version === epoch) error(cause)
@@ -259,7 +278,7 @@ function Workspace(props: Props) {
     const client = sdk.client
     const directory = sdk.directory
     const buffer = file.capture()
-    setState({ busy: true, error: "" })
+    setState({ busy: true, error: "", scanning: false })
     serial++
     const result = await save({
       root,
@@ -286,6 +305,7 @@ function Workspace(props: Props) {
     const fresh = (await client.latex.refresh({ root, editors: editors() }, { throwOnError: true })).data
     if (!fresh || version !== epoch) return
     assign(fresh)
+    setState("loadError", "")
     if (pending().length || conflicts().length) {
       setState(
         "error",
@@ -387,7 +407,10 @@ function Workspace(props: Props) {
                 aria-label={language.t("latex.root")}
                 class="min-w-0 flex-1 rounded border border-border-weak-base bg-background-base px-2 py-1"
                 value={state.root}
-                onInput={(event) => setState("root", event.currentTarget.value)}
+                onInput={(event) => {
+                  edits++
+                  setState("root", event.currentTarget.value)
+                }}
               />
               <Button size="small" variant="secondary" onClick={open} disabled={state.busy || active()}>
                 {language.t("latex.open")}
@@ -401,7 +424,10 @@ function Workspace(props: Props) {
                 placeholder={language.t("latex.choose")}
                 class="min-w-0 flex-1 rounded border border-border-weak-base bg-background-base px-2 py-1"
                 value={state.main}
-                onInput={(event) => setState("main", event.currentTarget.value)}
+                onInput={(event) => {
+                  edits++
+                  setState("main", event.currentTarget.value)
+                }}
               />
               <datalist id={choices}>
                 <For
@@ -423,7 +449,10 @@ function Workspace(props: Props) {
                   aria-label={language.t("latex.driver")}
                   class="rounded border border-border-weak-base bg-background-base px-2 py-1"
                   value={state.driver}
-                  onChange={(event) => setState("driver", event.currentTarget.value as LatexBinding["driver"])}
+                  onChange={(event) => {
+                    edits++
+                    setState("driver", event.currentTarget.value as LatexBinding["driver"])
+                  }}
                 >
                   <option value="auto">{language.t("latex.auto")}</option>
                   <option value="tectonic">Tectonic</option>
@@ -436,7 +465,10 @@ function Workspace(props: Props) {
                   aria-label={language.t("latex.program")}
                   class="rounded border border-border-weak-base bg-background-base px-2 py-1"
                   value={state.program}
-                  onChange={(event) => setState("program", event.currentTarget.value as LatexBinding["program"])}
+                  onChange={(event) => {
+                    edits++
+                    setState("program", event.currentTarget.value as LatexBinding["program"])
+                  }}
                 >
                   <option value="auto">{language.t("latex.auto")}</option>
                   <option value="pdflatex">pdfLaTeX</option>
@@ -497,9 +529,10 @@ function Workspace(props: Props) {
         <Show when={state.status && !state.status.tools.some((tool) => tool.installed)}>
           <p class="mt-2 text-text-weak">{language.t("latex.unavailable")}</p>
         </Show>
-        <Show when={state.error || conflicts().length}>
+        <Show when={state.error || state.loadError || conflicts().length}>
           <p role="alert" class="mt-2 text-text-strong">
             {state.error ||
+              state.loadError ||
               language.t("latex.conflict", {
                 files: conflicts()
                   .map((item) => item.path)
