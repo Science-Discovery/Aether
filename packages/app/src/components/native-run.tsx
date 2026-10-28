@@ -7,6 +7,10 @@ import type { createNativeRun } from "@/context/native-run"
 export function NativeRunPanel(props: { run: ReturnType<typeof createNativeRun>; working: boolean }) {
   const language = useLanguage()
   const queue = () => props.run.data()?.queue
+  const notice = () => {
+    const value = props.run.notice()
+    return value?.type === "accepted" ? undefined : value
+  }
   return (
     <div class="flex flex-col gap-1 px-3 py-1 text-12-regular text-text-weak" data-component="native-run">
       <Show when={props.working || props.run.data()?.active || props.run.retry()}>
@@ -19,7 +23,6 @@ export function NativeRunPanel(props: { run: ReturnType<typeof createNativeRun>;
               {language.t("native.run.discard")}
             </Button>
           </Show>
-          <span>{language.t("native.run.textOnly.hint")}</span>
         </div>
       </Show>
       <Show when={props.run.unconfirmed()}>
@@ -35,7 +38,7 @@ export function NativeRunPanel(props: { run: ReturnType<typeof createNativeRun>;
       <Show when={props.run.error() || props.run.data()?.active?.error}>
         {(error) => <div role="status">{language.t("native.run.unavailable", { error: error() })}</div>}
       </Show>
-      <Show when={props.run.notice()}>
+      <Show when={notice()}>
         {(notice) => (
           <div role="status" class="break-words">
             {language.t(`native.run.notice.${notice().type}`)}
