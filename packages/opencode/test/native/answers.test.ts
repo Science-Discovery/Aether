@@ -117,7 +117,12 @@ test("idle answers start one turn in the original thread with the Desktop reply 
       { title: "Any notes?" },
     ])
     const request = input(session.id, card)
+    const pending = await NativeAnswers.pending(session.id)
+    expect(pending).toHaveLength(1)
+    expect(pending[0]).toMatchObject({ question: card })
+    expect(pending[0].messageID).not.toBe(pending[0].parentID)
     expect((await NativeAnswers.reply(request)).state).toBe("sending")
+    expect(await NativeAnswers.pending(session.id)).toEqual([])
     await settled(session.id, card)
     const records = await calls(dir)
     const sent = records.filter((entry) => entry.method === "turn/start")
@@ -143,6 +148,7 @@ test("idle answers start one turn in the original thread with the Desktop reply 
     ])
     expect(records.filter((entry) => entry.method === "thread/start")).toHaveLength(1)
     expect(await question(session.id)).toMatchObject({ state: "answered", answers: request.answers })
+    expect(await NativeAnswers.pending(session.id)).toEqual([])
   })
 })
 

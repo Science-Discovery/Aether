@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest"
 import { createRoot } from "solid-js"
 import { createStore } from "solid-js/store"
-import { createNativeRun, type NativeRun } from "./native-run"
+import { createNativeRun, type NativeDraft, type NativeRun } from "./native-run"
 
 const idle = (): NativeRun => ({ active: null, queue: { paused: false, items: [] } })
 const active = (): NativeRun => ({
@@ -169,6 +169,73 @@ describe("native active-turn controls", () => {
     expect(await fixture.run.submit("Next task")).toBe(true)
     expect(calls[0]).toEqual(calls[1])
     expect(calls[1].model).toBe("original")
+  })
+
+  test("preserves full attachment input and identity on retry, rejecting changed attachment content", async () => {
+    const calls: Array<NativeDraft & { messageID: string }> = []
+    const fixture = setup({
+      enqueue: async (input) => {
+        calls.push(input)
+        if (calls.length === 1) throw new Error("connection closed")
+        return idle().queue
+      },
+    })
+    await vi.advanceTimersByTimeAsync(0)
+    const parts: NonNullable<NativeDraft["parts"]> = [
+      { id: "part-1", type: "file", mime: "image/png", filename: "figure.png", url: "data:image/png;base64,AAAA" },
+    ]
+    expect(await fixture.run.submit({ text: "", parts })).toBe(false)
+    parts[0] = { ...parts[0], id: "part-2" }
+    expect(
+      await fixture.run.submit({
+        text: "",
+        parts: [{ ...parts[0], type: "file", mime: "image/png", url: "data:image/png;base64,BBBB" }],
+      }),
+    ).toBe(false)
+    expect(calls).toHaveLength(1)
+    expect(await fixture.run.submit({ text: "", parts })).toBe(true)
+    expect(calls).toHaveLength(2)
+    expect(calls[0]).toEqual(calls[1])
+    expect(calls[1].parts?.[0].id).toBe("part-1")
+  })
+
+  test("explicitly retries the saved PDF without rebuilding its bytes or changing the model", async () => {
+    const calls: Array<NativeDraft & { messageID: string; model?: string }> = []
+    let model = "original"
+    const fixture = setup({
+      selection: () => ({ model }),
+      enqueue: async (input) => {
+        calls.push(input)
+        if (calls.length === 1) throw new Error("connection closed")
+        return idle().queue
+      },
+    })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(
+      await fixture.run.submit({
+        text: "Explain this page",
+        parts: [
+          { type: "file", mime: "application/pdf", filename: "page.pdf", url: "data:application/pdf;base64,AAAA" },
+        ],
+      }),
+    ).toBe(false)
+    model = "changed"
+    expect(
+      await fixture.run.submit({
+        text: "Explain this page",
+        parts: [
+          { type: "file", mime: "application/pdf", filename: "page.pdf", url: "data:application/pdf;base64,BBBB" },
+        ],
+      }),
+    ).toBe(false)
+    fixture.set("id", "two")
+    expect(await fixture.run.recover()).toBe(false)
+    fixture.set("id", "one")
+    expect(await fixture.run.recover()).toBe(true)
+    expect(calls).toHaveLength(2)
+    expect(calls[1]).toEqual(calls[0])
+    expect(calls[1].model).toBe("original")
+    expect(fixture.run.retry()).toBe(false)
   })
 
   test("allows explicitly discarding an unresolved retry without another submission", async () => {

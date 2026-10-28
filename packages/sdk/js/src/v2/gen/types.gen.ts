@@ -36,13 +36,6 @@ export type EventProviderModelsUpdated = {
   }
 }
 
-export type EventProviderUpdated = {
-  type: "provider.updated"
-  properties: {
-    [key: string]: unknown
-  }
-}
-
 export type EventDbRecoveryStarted = {
   type: "db.recovery.started"
   properties: {
@@ -124,20 +117,6 @@ export type EventServerInstanceDisposed = {
   }
 }
 
-export type EventServerConnected = {
-  type: "server.connected"
-  properties: {
-    [key: string]: unknown
-  }
-}
-
-export type EventGlobalDisposed = {
-  type: "global.disposed"
-  properties: {
-    [key: string]: unknown
-  }
-}
-
 export type EventLspClientDiagnostics = {
   type: "lsp.client.diagnostics"
   properties: {
@@ -184,6 +163,27 @@ export type EventMessagePartDelta = {
     partID: string
     field: string
     delta: string
+  }
+}
+
+export type EventProviderUpdated = {
+  type: "provider.updated"
+  properties: {
+    [key: string]: unknown
+  }
+}
+
+export type EventServerConnected = {
+  type: "server.connected"
+  properties: {
+    [key: string]: unknown
+  }
+}
+
+export type EventGlobalDisposed = {
+  type: "global.disposed"
+  properties: {
+    [key: string]: unknown
   }
 }
 
@@ -1147,7 +1147,6 @@ export type Event =
   | EventInstallationUpdated
   | EventInstallationUpdateAvailable
   | EventProviderModelsUpdated
-  | EventProviderUpdated
   | EventDbRecoveryStarted
   | EventDbRecoveryProgress
   | EventDbRecoveryCompleted
@@ -1155,14 +1154,15 @@ export type Event =
   | EventProjectUpdated
   | EventProjectRecentUpdated
   | EventServerInstanceDisposed
-  | EventServerConnected
-  | EventGlobalDisposed
   | EventLspClientDiagnostics
   | EventLspUpdated
   | EventFileWatcherUpdated
   | EventFileWatcherLimited
   | EventFileWatcherNotfound
   | EventMessagePartDelta
+  | EventProviderUpdated
+  | EventServerConnected
+  | EventGlobalDisposed
   | EventPermissionAsked
   | EventPermissionReplied
   | EventSessionStatus
@@ -2459,6 +2459,13 @@ export type ProviderAuthAuthorization = {
   instructions: string
 }
 
+export type NativePendingQuestions = Array<{
+  messageID: string
+  parentID: string
+  partID: string
+  question: NativeQuestion
+}>
+
 export type NativeUsageStatus = {
   enabled: boolean
   state: "available" | "unavailable" | "disabled"
@@ -2544,12 +2551,36 @@ export type NativeQueueStatus = {
     text: string
     model?: string
     effort?: string
+    attachments?: Array<{
+      filename?: string
+      mime: string
+    }>
     state: "pending" | "dispatching" | "uncertain" | "failed"
     turn?: string
     delivery?: NativeSteered
     error?: string
     created: number
   }>
+}
+
+export type NativeTextInput = {
+  id?: string
+  type: "text"
+  text: string
+  synthetic?: boolean
+  ignored?: boolean
+  metadata?: {
+    [key: string]: unknown
+  }
+}
+
+export type NativeFileInput = {
+  id?: string
+  type: "file"
+  mime: string
+  filename?: string
+  url: string
+  source?: FilePartSource
 }
 
 export type NativeQueueSent = {
@@ -5076,6 +5107,10 @@ export type SessionInitResponse = SessionInitResponses[keyof SessionInitResponse
 export type SessionForkData = {
   body?: {
     messageID?: string
+    /**
+     * For native Codex, retain the complete turn containing the selected message
+     */
+    after?: boolean
   }
   path: {
     sessionID: string
@@ -6394,6 +6429,27 @@ export type ProviderOauthCallbackResponses = {
 
 export type ProviderOauthCallbackResponse = ProviderOauthCallbackResponses[keyof ProviderOauthCallbackResponses]
 
+export type NativeQuestionsData = {
+  body?: never
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/native/codex/{sessionID}/questions"
+}
+
+export type NativeQuestionsResponses = {
+  /**
+   * Unsubmitted asynchronous questions
+   */
+  200: NativePendingQuestions
+}
+
+export type NativeQuestionsResponse = NativeQuestionsResponses[keyof NativeQuestionsResponses]
+
 export type NativeReplyQuestionData = {
   body?: {
     threadID: string
@@ -6521,6 +6577,7 @@ export type NativeSteerData = {
     messageID: string
     turnID: string
     text: string
+    parts?: Array<NativeTextInput | NativeFileInput>
   }
   path: {
     sessionID: string
@@ -6545,6 +6602,7 @@ export type NativeEnqueueData = {
   body?: {
     messageID: string
     text: string
+    parts?: Array<NativeTextInput | NativeFileInput>
     model?: string
     effort?: string
   }

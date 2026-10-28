@@ -531,7 +531,7 @@ export namespace NativeSession {
       NativeStore.accept(session.id, user.id, turn.turn.id)
       events.state.turn = turn.turn.id
       tree.bindTurn(turn.turn.id)
-      control.ready(connection.client, thread.thread.id, turn.turn.id, capabilities.steer)
+      control.ready(connection.client, thread.thread.id, turn.turn.id, capabilities.steer, model.images)
       const exited = Promise.withResolvers<NativeEvents.Outcome>()
       state.off = connection.client.onExit(() => {
         void (async () => {

@@ -1,8 +1,19 @@
 import z from "zod"
 import { NamedError } from "@opencode-ai/util/error"
 import { MessageID, SessionID } from "@/session/schema"
+import { MessageV2 } from "@/session/message-v2"
 
 export namespace Native {
+  export const Part = z.discriminatedUnion("type", [
+    MessageV2.TextPart.omit({ messageID: true, sessionID: true, nativeQuestion: true, time: true })
+      .partial({ id: true })
+      .meta({ ref: "NativeTextInput" }),
+    MessageV2.FilePart.omit({ messageID: true, sessionID: true })
+      .partial({ id: true })
+      .meta({ ref: "NativeFileInput" }),
+  ])
+  export type Part = z.infer<typeof Part>
+  export const Parts = z.array(Part).min(1).max(100)
   export const Mode = z.enum(["default", "plan"]).meta({ ref: "NativeMode" })
   export type Mode = z.infer<typeof Mode>
   export const Active = z
@@ -21,7 +32,8 @@ export namespace Native {
       sessionID: SessionID.zod,
       messageID: MessageID.zod,
       turnID: z.string().min(1),
-      text: z.string().trim().min(1).max(100_000),
+      text: z.string().trim().max(100_000),
+      parts: Parts.optional(),
     })
     .strict()
     .meta({ ref: "NativeSteer" })

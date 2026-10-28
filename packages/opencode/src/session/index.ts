@@ -717,11 +717,46 @@ export namespace Session {
     z.object({
       sessionID: SessionID.zod,
       messageID: MessageID.zod.optional(),
+      after: z
+        .boolean()
+        .optional()
+        .describe("For native Codex, retain the complete turn containing the selected message"),
     }),
-    async (input) => {
-      const original = await get(input.sessionID)
+    async (input): Promise<Info> => {
+      const original = await getGlobal(input.sessionID)
       if (!original) throw new Error("session not found")
-      Native.guard(original, "Forking")
+      if (original.engine) {
+        const { NativeFork } = await import("../native/fork")
+        const { NativeStore } = await import("../native/store")
+        return NativeFork.run(input, async ({ source, engine, anchor }) => {
+          const tree = source.treeID ?? TreeID.descending()
+          const index = await getNextForkIndex({ projectID: source.projectID, treeID: tree })
+          const parent = await resolveForkParent({
+            session: source,
+            messages: await NativeStore.history(source.id),
+            anchorUserMessageID: anchor,
+          })
+          const session = await createNext({
+            directory: source.directory,
+            workspaceID: source.workspaceID,
+            permission: source.permission,
+            engine,
+            parentID: parent.parentSessionID,
+            treeID: tree,
+            forkIndex: index,
+            forkParentSessionID: parent.parentSessionID,
+            forkAfterUserMessageID: parent.forkAfterUserMessageID,
+            title: getForkedTitle(source.title, index),
+          })
+          const pref = SessionPreference.get(source.id)
+          if (pref) {
+            const { sessionID: _, ...rest } = pref
+            await SessionPreference.update({ sessionID: session.id, ...rest })
+          }
+          return session
+        })
+      }
+      if (input.after) throw new Error("The after option is only supported for native Codex forks.")
       if (original.treeID) {
         await repairTreeForkParents({
           projectID: original.projectID,

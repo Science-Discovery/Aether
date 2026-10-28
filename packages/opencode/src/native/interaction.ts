@@ -8,6 +8,7 @@ import { Native } from "./schema"
 import { NativeStore } from "./store"
 import { Protocol } from "./protocol"
 import { NativeDisplay } from "./display"
+import { NativeInput } from "./input"
 
 export namespace NativeInteraction {
   const receipt = z.object({ turn: z.string(), thread: z.string(), parent: z.string(), error: z.string().optional() })
@@ -21,6 +22,7 @@ export namespace NativeInteraction {
     phase: Native.Active["phase"]
     waiting: number
     supported: boolean
+    images?: boolean
     thread?: string
     turn?: string
     client?: Protocol.Client
@@ -51,11 +53,12 @@ export namespace NativeInteraction {
     const run: Run = { ...opts, phase: "starting", waiting: 0, supported: false, queue: Promise.resolve(), pending: 0 }
     entries.set(opts.session.id, run)
     return {
-      ready(client: Protocol.Client, thread: string, turn: string, supported: boolean) {
+      ready(client: Protocol.Client, thread: string, turn: string, supported: boolean, images?: boolean) {
         run.client = client
         run.thread = thread
         run.turn = turn
         run.supported = supported
+        run.images = images
         run.phase = "running"
       },
       async wait<T>(fn: () => Promise<T>): Promise<T> {
@@ -76,6 +79,8 @@ export namespace NativeInteraction {
 
   export async function steer(value: Native.Steer): Promise<Native.Steered> {
     const input = Native.Steer.parse(value)
+    const parts = NativeInput.parts(input)
+    NativeInput.check(parts)
     const result = (status: Native.Steered["status"], error?: string): Native.Steered => ({
       status,
       messageID: input.messageID,
@@ -85,9 +90,20 @@ export namespace NativeInteraction {
     const previous = () => {
       const row = NativeStore.inputs(input.sessionID).find((entry) => entry.id === input.messageID)
       if (!row) return
-      const part = row.data.parts.find((part) => part.type === "text")
+      const part = row.data.parts.find(
+        (part): part is MessageV2.TextPart => part.type === "text" && !!part.metadata?.nativeSteer,
+      )
       const tag = receipt.safeParse(part?.metadata?.nativeSteer)
-      if (part?.type !== "text" || part.text !== input.text || !tag.success || tag.data.turn !== input.turnID)
+      const original = row.data.parts.filter(
+        (part): part is MessageV2.TextPart | MessageV2.FilePart =>
+          part.type === "file" || (part.type === "text" && !part.metadata?.nativeSteer?.anchor),
+      )
+      if (
+        part?.type !== "text" ||
+        !tag.success ||
+        tag.data.turn !== input.turnID ||
+        NativeInput.key(original) !== NativeInput.key(parts)
+      )
         return result("rejected", "This message ID already belongs to different input.")
       const dispatch = NativeStore.dispatches(input.sessionID).find((entry) => entry.id === input.messageID)
       return result(
@@ -119,13 +135,16 @@ export namespace NativeInteraction {
       )
         return result("rejected", "The expected Codex turn is no longer active; the input was not sent.")
       if (!run.supported) return result("rejected", "This Codex version does not support safely tracked steering.")
+      if (run.images === false && parts.some((part) => part.type === "file" && part.mime.startsWith("image/")))
+        return result("rejected", `Codex model ${run.assistant.modelID} does not support image input.`)
       const payload = {
         threadId: run.thread,
         expectedTurnId: input.turnID,
         clientUserMessageId: input.messageID,
-        input: [{ type: "text", text: input.text, text_elements: [] }],
+        input: await NativeInput.build(parts, input.sessionID, run.signal),
       }
       Protocol.check("turn/steer", payload)
+      if (!valid()) return result("rejected", "The expected Codex turn ended before the input was sent.")
       const user: MessageV2.User = {
         id: input.messageID,
         sessionID: input.sessionID,
@@ -135,23 +154,28 @@ export namespace NativeInteraction {
         model: { providerID: run.assistant.providerID, modelID: run.assistant.modelID },
         variant: run.assistant.variant,
       }
-      const part: MessageV2.TextPart = {
-        id: PartID.ascending(),
-        sessionID: input.sessionID,
-        messageID: input.messageID,
-        type: "text",
-        text: input.text,
-        metadata: {
-          nativeSteer: { thread: run.thread, turn: input.turnID, parent: run.assistant.parentID, status: "sending" },
-        },
-      }
-      NativeStore.steer({ info: user, parts: [part] }, NativeDisplay.id(user.id), run.thread, input.turnID)
+      const tag = { thread: run.thread, turn: input.turnID, parent: run.assistant.parentID, status: "sending" }
+      const content: MessageV2.Part[] = parts.map((part) =>
+        part.type === "text" ? { ...part, metadata: { ...part.metadata, nativeSteer: tag } } : part,
+      )
+      if (!content.some((part) => part.type === "text"))
+        content.unshift({
+          id: PartID.ascending(),
+          sessionID: input.sessionID,
+          messageID: input.messageID,
+          type: "text",
+          text: "",
+          ignored: true,
+          synthetic: true,
+          metadata: { nativeSteer: { ...tag, anchor: true } },
+        })
+      NativeStore.steer({ info: user, parts: content }, NativeDisplay.id(user.id), run.thread, input.turnID)
       let dispatched = false
       let status: Native.Steered["status"] = "accepted"
       let error: string | undefined
       try {
         await Session.updateMessage(user)
-        await Session.updatePart(part)
+        for (const part of content) await Session.updatePart(part)
         if (!valid()) throw new Error("The expected Codex turn ended before the input was sent.")
         dispatched = true
         const accepted = z

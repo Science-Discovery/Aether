@@ -143,6 +143,7 @@ export type SessionAction = (input: { sessionID: string; messageID: string }) =>
 
 export type UserActions = {
   fork?: SessionAction
+  edit?: SessionAction
   revert?: SessionAction
 }
 
@@ -1023,7 +1024,7 @@ export function UserMessageDisplay(props: {
   const i18n = useI18n()
   const [state, setState] = createStore({
     copied: false,
-    busy: undefined as "fork" | "revert" | undefined,
+    busy: undefined as "fork" | "edit" | "revert" | undefined,
   })
   const copied = () => state.copied
   const busy = () => state.busy
@@ -1099,8 +1100,8 @@ export function UserMessageDisplay(props: {
     setTimeout(() => setState("copied", false), 2000)
   }
 
-  const run = (kind: "fork" | "revert") => {
-    const act = kind === "fork" ? props.actions?.fork : props.actions?.revert
+  const run = (kind: "fork" | "edit" | "revert") => {
+    const act = props.actions?.[kind]
     if (!act || busy()) return
     setState("busy", kind)
     void Promise.resolve()
@@ -1200,6 +1201,27 @@ export function UserMessageDisplay(props: {
                     run("fork")
                   }}
                   aria-label={i18n.t("ui.message.forkMessage")}
+                />
+              </Tooltip>
+            </Show>
+            <Show
+              when={
+                props.actions?.edit &&
+                !(props.message.model?.providerID === "codex-native" && nativeAnswer(textPart()?.text ?? ""))
+              }
+            >
+              <Tooltip value={i18n.t("ui.message.editMessage")} placement="top" gutter={4}>
+                <IconButton
+                  icon="edit"
+                  size="normal"
+                  variant="ghost"
+                  disabled={!!busy()}
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    run("edit")
+                  }}
+                  aria-label={i18n.t("ui.message.editMessage")}
                 />
               </Tooltip>
             </Show>

@@ -37,7 +37,17 @@ for await (const text of line) {
   }
   if (request.method === "model/list") {
     reply({
-      data: [{ id: "fixture", displayName: "Fixture", isDefault: true, supportedReasoningEfforts: [] }],
+      data: [
+        {
+          id: "fixture",
+          displayName: "Fixture",
+          isDefault: true,
+          supportedReasoningEfforts: [],
+          inputModalities: (await Bun.file(path.join(process.cwd(), "text-only")).exists())
+            ? ["text"]
+            : ["text", "image"],
+        },
+      ],
       nextCursor: null,
     })
     continue

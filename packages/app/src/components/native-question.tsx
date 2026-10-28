@@ -6,6 +6,7 @@ import { TextField } from "@opencode-ai/ui/text-field"
 import { useSDK } from "@/context/sdk"
 import { useLanguage } from "@/context/language"
 import { formatServerError } from "@/utils/server-errors"
+import { nativeQuestionAnchor, submittedNativeQuestion } from "./native-question-events"
 
 export function NativeQuestionCard(props: { part: TextPart; message: Message }) {
   return (
@@ -73,6 +74,13 @@ function Question(props: { question: NativeQuestion; session: string }) {
     const input = answers().map((answer) => answer.trim())
     const client = sdk.client
     setStore({ busy: true, error: undefined, sent: input })
+    submittedNativeQuestion({
+      url: sdk.url,
+      directory: sdk.directory,
+      session: props.session,
+      thread: question().thread,
+      item: question().item,
+    })
     await client.native
       .replyQuestion(
         {
@@ -103,6 +111,8 @@ function Question(props: { question: NativeQuestion; session: string }) {
 
   return (
     <section
+      id={nativeQuestionAnchor(props.session, props.question)}
+      tabIndex={-1}
       class="my-2 rounded-md border border-border-base bg-background-base p-3 flex flex-col gap-3"
       data-component="native-question"
       data-state={state()}

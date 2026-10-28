@@ -2,6 +2,7 @@ import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test"
 import type { Prompt } from "@/context/prompt"
 import { readFileQuoteMetadata } from "@/utils/comment-note"
 import type { NativeEngine } from "@/utils/native"
+import type { NativeDraft } from "@/context/native-run"
 
 let createPromptSubmit: typeof import("./submit").createPromptSubmit
 
@@ -30,6 +31,8 @@ let params: { id?: string } = {}
 let selected = "/repo/worktree-a"
 let variant: string | undefined
 let failCreate: Error | undefined
+let failPrompt: Error | undefined
+let restored = 0
 let directoryAutoAccept = false
 let defaultMode: "off" | "safe" | "full" = "safe"
 let engine: NativeEngine | undefined
@@ -66,6 +69,7 @@ const clientFor = (directory: string) => {
       prompt: async () => ({ data: undefined }),
       promptAsync: async (input: Record<string, unknown>) => {
         prompted.push(input)
+        if (failPrompt) throw failPrompt
         return { data: undefined }
       },
       command: async () => {
@@ -160,7 +164,9 @@ beforeAll(async () => {
       reset: () => {
         resets++
       },
-      set: () => undefined,
+      set: () => {
+        restored++
+      },
       context: {
         add: () => undefined,
         remove: () => undefined,
@@ -292,6 +298,8 @@ beforeEach(() => {
   selected = "/repo/worktree-a"
   variant = undefined
   failCreate = undefined
+  failPrompt = undefined
+  restored = 0
   directoryAutoAccept = false
   defaultMode = "safe"
   engine = undefined
@@ -306,7 +314,19 @@ beforeEach(() => {
 
 function nativeSubmit(overrides: Partial<Parameters<typeof createPromptSubmit>[0]> = {}) {
   return createPromptSubmit({
-    info: () => undefined,
+    info: () =>
+      params.id
+        ? {
+            id: params.id,
+            slug: "",
+            projectID: "project",
+            directory: "/repo/main",
+            title: "Native",
+            version: "",
+            time: { created: 0, updated: 0 },
+            engine,
+          }
+        : undefined,
     imageAttachments: () => [],
     commentCount: () => 0,
     autoAccept: () => true,
@@ -327,7 +347,7 @@ describe("native prompt submission", () => {
   test("submits text during native execution without stopping or starting a second prompt", async () => {
     engine = { type: "codex", model: "native-model" }
     params.id = "existing"
-    const sent: string[] = []
+    const sent: NativeDraft[] = []
     const submit = nativeSubmit({
       working: () => true,
       nativeSubmit: async (text) => {
@@ -336,29 +356,145 @@ describe("native prompt submission", () => {
       },
     })
     await submit.handleSubmit({ preventDefault: () => undefined } as Event)
-    expect(sent).toEqual(["ls"])
+    expect(sent).toMatchObject([{ text: "ls", parts: [{ type: "text", text: "ls" }] }])
     expect(aborted).toBe(0)
     expect(prompted).toHaveLength(0)
     expect(resets).toBe(1)
   })
 
-  test("retains attachments and references instead of silently dropping them from an active-turn input", async () => {
+  test("queues file attachments and references with the original message", async () => {
     engine = { type: "codex", model: "native-model" }
     params.id = "existing"
     promptValue.push({ type: "file", path: "/paper.pdf", content: "@paper", start: 2, end: 8 })
-    let sent = false
+    const sent: NativeDraft[] = []
     const submit = nativeSubmit({
       working: () => true,
-      nativeSubmit: async () => {
-        sent = true
+      nativeSubmit: async (draft) => {
+        sent.push(draft)
         return true
       },
     })
     await submit.handleSubmit({ preventDefault: () => undefined } as Event)
-    expect(sent).toBe(false)
+    expect(sent).toHaveLength(1)
+    expect(sent[0].parts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "file",
+          url: "file:///paper.pdf",
+          source: expect.objectContaining({ path: "/paper.pdf" }),
+        }),
+      ]),
+    )
+    expect(resets).toBe(1)
+    expect(prompted).toHaveLength(0)
+    expect(optimistic).toHaveLength(0)
+  })
+
+  test("queues a PDF screenshot and its research prompt while preserving the pending draft on failure", async () => {
+    engine = { type: "codex", model: "native-model" }
+    params.id = "existing"
+    promptValue.push({ type: "file", path: "notes.txt", content: "@notes", start: 2, end: 8 })
+    let cleared = 0
+    const sent: NativeDraft[] = []
+    const submit = nativeSubmit({
+      working: () => true,
+      nativeSubmit: async (draft) => {
+        sent.push(draft)
+        return false
+      },
+      quickReadingQuestion: () => ({
+        sessionID: "existing",
+        kind: "image-question",
+        page: 3,
+        text: "",
+        imageDataUrl: "data:image/png;base64,aGVsbG8=",
+        pdfFileName: "paper.pdf",
+      }),
+      quickReadingSettings: () => ({ questionPrompt: "{selected_content}\n{user_question}" }),
+      onQuickReadingQuestionClear: () => {
+        cleared++
+      },
+    })
+    await submit.handleSubmit({ preventDefault: () => undefined } as Event)
+    expect(sent).toHaveLength(1)
+    expect(sent[0]).toMatchObject({ text: "ls@notes" })
+    expect(sent[0].parts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ type: "file", mime: "image/png", filename: "pdf-region-page-3.png" }),
+        expect.objectContaining({ type: "file", url: "file:///repo/main/notes.txt" }),
+        expect.objectContaining({
+          type: "text",
+          synthetic: true,
+          text: expect.stringContaining("page 3 of paper.pdf"),
+        }),
+      ]),
+    )
     expect(resets).toBe(0)
-    expect(promptValue).toHaveLength(2)
-    expect(toasts.at(-1)?.title).toBe("native.run.textOnly")
+    expect(cleared).toBe(0)
+    expect(prompted).toHaveLength(0)
+  })
+
+  test("restores a normal quoted draft and handles a rejected send without an unhandled promise", async () => {
+    engine = { type: "codex", model: "native-model" }
+    params.id = "existing"
+    failPrompt = new Error("send failed")
+    const submit = nativeSubmit({
+      fileQuoteQuestion: () => ({ sessionID: "existing", path: "paper.md", text: "quoted passage", summary: "quoted" }),
+    })
+    await submit.handleSubmit({ preventDefault: () => undefined } as Event)
+    await flush()
+    expect(restored).toBe(1)
+    expect(toasts.at(-1)?.title).toBe("prompt.toast.promptSendFailed.title")
+  })
+
+  test("resolves queued relative file references in the session directory", async () => {
+    engine = { type: "codex", model: "native-model" }
+    params.id = "existing"
+    promptValue.push({ type: "file", path: "paper.pdf", content: "@paper", start: 2, end: 8 })
+    const sent: NativeDraft[] = []
+    const submit = nativeSubmit({
+      working: () => true,
+      info: () => ({
+        id: "existing",
+        slug: "",
+        projectID: "project",
+        directory: "/repo/worktree-b",
+        title: "Native",
+        version: "",
+        time: { created: 0, updated: 0 },
+        engine,
+      }),
+      nativeSubmit: async (draft) => {
+        sent.push(draft)
+        return true
+      },
+    })
+    await submit.handleSubmit({ preventDefault: () => undefined } as Event)
+    expect(sent[0].parts).toEqual(
+      expect.arrayContaining([expect.objectContaining({ type: "file", url: "file:///repo/worktree-b/paper.pdf" })]),
+    )
+  })
+
+  test("does not clear another session or send twice while the same queue submission is pending", async () => {
+    engine = { type: "codex", model: "native-model" }
+    params.id = "existing"
+    const receipt = Promise.withResolvers<boolean>()
+    let count = 0
+    const submit = nativeSubmit({
+      working: () => true,
+      nativeSubmit: () => {
+        count++
+        return receipt.promise
+      },
+    })
+    const first = submit.handleSubmit({ preventDefault: () => undefined } as Event)
+    await submit.handleSubmit({ preventDefault: () => undefined } as Event)
+    expect(count).toBe(1)
+    params.id = "another"
+    receipt.resolve(true)
+    await first
+    expect(resets).toBe(0)
+    expect(prompted).toHaveLength(0)
   })
 
   test("preserves typing entered while an active-turn request is awaiting acknowledgement", async () => {

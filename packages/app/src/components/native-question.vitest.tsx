@@ -3,6 +3,7 @@ import { createSignal } from "solid-js"
 import { render } from "solid-js/web"
 import type { AssistantMessage, NativeQuestion } from "@opencode-ai/sdk/v2"
 import { NativeQuestionCard } from "./native-question"
+import { nativeQuestionAnchor } from "./native-question-events"
 
 type Reply = { sessionID: string; itemID: string; threadID: string; answers: string[] }
 const mocks = vi.hoisted(() => ({ reply: vi.fn<(input: Reply) => Promise<{ data: NativeQuestion }>>() }))
@@ -36,13 +37,14 @@ const cleanups: VoidFunction[] = []
 
 function mount(value = question()) {
   const [data, set] = createSignal(value)
+  const [part, setPart] = createSignal("part")
   const host = document.createElement("div")
   document.body.append(host)
   const off = render(
     () => (
       <NativeQuestionCard
         part={{
-          id: "part",
+          id: part(),
           sessionID: "session",
           messageID: "assistant",
           type: "text",
@@ -65,7 +67,7 @@ function mount(value = question()) {
     input.value = text
     input.dispatchEvent(new Event("input", { bubbles: true }))
   }
-  return { host, set, button, fill }
+  return { host, set, button, fill, setPart }
 }
 
 beforeEach(() => {
@@ -111,6 +113,24 @@ describe("native async questions", () => {
     fixture.set({ ...question() })
     expect(fixture.host.querySelector<HTMLTextAreaElement>("textarea")?.value).toBe("A custom approach")
     expect(document.activeElement).toBe(input)
+    expect(mocks.reply).not.toHaveBeenCalled()
+  })
+
+  test("keeps the same question anchor when synchronization replaces its part ID", () => {
+    const value = { ...question(), thread: "thread/α", item: "question?#" }
+    const fixture = mount(value)
+    const anchor = nativeQuestionAnchor("session", value)
+    const card = document.getElementById(anchor)
+    expect(card).toBe(fixture.host.querySelector("section"))
+    fixture.fill(0, "Keep this draft")
+    fixture.setPart("projected-part")
+    fixture.set({ ...value })
+    const projected = document.getElementById(anchor)
+    expect(projected).toBe(card)
+    projected?.focus()
+    expect(document.activeElement).toBe(projected)
+    expect(fixture.host.querySelector<HTMLTextAreaElement>("textarea")?.value).toBe("Keep this draft")
+    expect(nativeQuestionAnchor("another-session", value)).not.toBe(anchor)
     expect(mocks.reply).not.toHaveBeenCalled()
   })
 

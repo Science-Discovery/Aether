@@ -7,6 +7,7 @@ import { NativeInteraction } from "../../src/native/interaction"
 import { NativeSession } from "../../src/native/session"
 import { NativeStore } from "../../src/native/store"
 import { NativeSync } from "../../src/native/sync"
+import type { Native } from "../../src/native/schema"
 import type { NativeHistory } from "../../src/native/history"
 import { Protocol } from "../../src/native/protocol"
 import { Instance } from "../../src/project/instance"
@@ -201,6 +202,50 @@ test("steering reuses its owning client and rebuilds separate display segments w
       )
       await NativeSync.apply(session, snapshot(run.user.id, input.messageID))
       expect(await NativeStore.history(session.id)).toEqual(messages)
+    } finally {
+      await run.close()
+    }
+  })
+})
+
+test("steering validates full attachment identity on retries and preserves selected source data", async () => {
+  await scenario("accept", async (session, dir) => {
+    const run = await setup(session, dir)
+    const input = {
+      sessionID: session.id,
+      messageID: MessageID.ascending(),
+      turnID: "turn",
+      text: "Summary",
+      parts: [
+        { type: "text" as const, text: "Question", metadata: { citation: "page 2" } },
+        { type: "file" as const, mime: "image/png", url: "data:image/png;base64,aW1hZ2U=" },
+      ] satisfies [Native.Part, Native.Part],
+    }
+    try {
+      expect((await NativeSession.steer(input)).status).toBe("accepted")
+      expect((await NativeSession.steer(input)).status).toBe("accepted")
+      expect(
+        (
+          await NativeSession.steer({
+            ...input,
+            parts: [input.parts[0], { ...input.parts[1], url: "data:image/png;base64,b3RoZXI=" }],
+          })
+        ).status,
+      ).toBe("rejected")
+      expect(
+        (
+          await NativeSession.steer({
+            ...input,
+            parts: [{ ...input.parts[0], metadata: { citation: "page 3" } }, input.parts[1]],
+          })
+        ).status,
+      ).toBe("rejected")
+      expect((await calls(dir)).filter((call) => call.method === "turn/steer")).toHaveLength(1)
+      const stored = NativeStore.inputs(session.id).find((entry) => entry.id === input.messageID)!
+      expect(stored.data.parts).toContainEqual(expect.objectContaining({ type: "file", url: input.parts[1].url }))
+      expect(stored.data.parts).toContainEqual(
+        expect.objectContaining({ type: "text", metadata: expect.objectContaining({ citation: "page 2" }) }),
+      )
     } finally {
       await run.close()
     }

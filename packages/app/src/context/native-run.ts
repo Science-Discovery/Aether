@@ -1,11 +1,18 @@
 import { createEffect, on, onCleanup, type Accessor } from "solid-js"
 import { createStore } from "solid-js/store"
-import type { NativeQueueStatus, NativeRuntimeResponse, NativeSteered } from "@opencode-ai/sdk/v2"
+import type {
+  FilePartInput,
+  NativeQueueStatus,
+  NativeRuntimeResponse,
+  NativeSteered,
+  TextPartInput,
+} from "@opencode-ai/sdk/v2"
 import { Identifier } from "@/utils/id"
 import { formatServerError } from "@/utils/server-errors"
 
 export type NativeQueue = NativeQueueStatus
 export type NativeRun = NativeRuntimeResponse
+export type NativeDraft = { text: string; parts?: Array<TextPartInput | FilePartInput> }
 
 function reason(err: unknown) {
   if (err && typeof err === "object" && "error" in err && typeof err.error === "string") return err.error
@@ -28,6 +35,7 @@ export function createNativeRun(opts: {
     sessionID: string
     messageID: string
     text: string
+    parts?: NativeDraft["parts"]
     model?: string
     effort?: string
   }) => Promise<NativeQueue | undefined>
@@ -45,6 +53,8 @@ export function createNativeRun(opts: {
       | {
           id: string
           text: string
+          parts?: NativeDraft["parts"]
+          fingerprint: string
           selection: { model?: string; effort?: string }
         }
       | undefined
@@ -118,12 +128,24 @@ export function createNativeRun(opts: {
     clearTimeout(timer)
   })
 
-  async function submit(text: string) {
+  async function submit(value: string | NativeDraft) {
     const id = opts.id()
     const key = opts.key()
-    if (disposed || !id || !opts.enabled() || store.busy[key] || !text.trim()) return false
+    const input: NativeDraft = typeof value === "string" ? { text: value } : JSON.parse(JSON.stringify(value))
+    if (
+      disposed ||
+      !id ||
+      !opts.enabled() ||
+      store.busy[key] ||
+      (!input.text.trim() && !input.parts?.some((part) => part.type === "file" || (!part.ignored && part.text.trim())))
+    )
+      return false
+    const fingerprint = JSON.stringify({
+      text: input.text,
+      parts: input.parts?.map((part) => ({ ...part, id: undefined })),
+    })
     const prior = store.attempts[key]
-    const retry = prior?.text === text
+    const retry = prior?.fingerprint === fingerprint
     if (prior && !retry) {
       setStore("notices", key, { type: "retry" })
       return false
@@ -132,14 +154,22 @@ export function createNativeRun(opts: {
       ? prior
       : {
           id: Identifier.ascending("message"),
-          text,
+          text: input.text,
+          parts: input.parts,
+          fingerprint,
           selection: opts.selection(),
         }
     setStore("attempts", key, attempt)
     setStore("busy", key, true)
     setStore("notices", key, undefined)
     return (async () => {
-      const result = await opts.enqueue({ sessionID: id, messageID: attempt.id, text, ...attempt.selection })
+      const result = await opts.enqueue({
+        sessionID: id,
+        messageID: attempt.id,
+        text: attempt.text,
+        parts: attempt.parts,
+        ...attempt.selection,
+      })
       if (!result) throw new Error("The Aether server did not confirm the queued message.")
       setStore("attempts", key, undefined)
       setStore("notices", key, { type: "queued" })
@@ -212,6 +242,10 @@ export function createNativeRun(opts: {
     busy: () => !!store.busy[opts.key()],
     notice: () => store.notices[opts.key()],
     retry: () => !store.busy[opts.key()] && !!store.attempts[opts.key()],
+    recover() {
+      const attempt = store.attempts[opts.key()]
+      return attempt ? submit({ text: attempt.text, parts: attempt.parts }) : Promise.resolve(false)
+    },
     unconfirmed: () => (store.busy[opts.key()] ? undefined : store.dispatches[opts.key()]?.id),
     discard() {
       const key = opts.key()

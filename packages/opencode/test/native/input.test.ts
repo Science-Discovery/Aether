@@ -12,6 +12,58 @@ const base = () => ({ sessionID: session, messageID: MessageID.ascending(), id: 
 const signal = () => new AbortController().signal
 
 describe("native input", () => {
+  test("queued inputs require content and compare complete attachment and citation content", () => {
+    const input = { sessionID: session, messageID: MessageID.ascending(), text: "summary" }
+    const parts = NativeInput.parts({
+      ...input,
+      parts: [
+        { type: "text", text: "Question", metadata: { citation: { page: 1 } } },
+        { type: "file", mime: "image/png", url: "data:image/png;base64,aW1hZ2U=" },
+      ],
+    })
+    expect(NativeInput.parts({ ...input, parts })).toEqual(parts)
+    expect(parts.map((part) => part.id)).toEqual(parts.map((part) => part.id).sort())
+    expect(NativeInput.key(parts)).not.toBe(
+      NativeInput.key(
+        parts.map((part) => (part.type === "text" ? { ...part, metadata: { citation: { page: 2 } } } : part)),
+      ),
+    )
+    expect(NativeInput.key(parts)).toBe(
+      NativeInput.key(
+        parts.map((part) =>
+          part.type === "text"
+            ? { ...part, metadata: { ...part.metadata, nativeSteer: { status: "accepted" } } }
+            : part,
+        ),
+      ),
+    )
+    expect(() => NativeInput.parts({ ...input, text: "" })).toThrow("needs text or an attachment")
+    expect(() => NativeInput.parts({ ...input, parts: [parts[0], parts[0]] })).toThrow("duplicate part identifiers")
+  })
+
+  test("attachments owned by separate messages cannot overwrite each other through reused part IDs", async () => {
+    const part = { ...base(), type: "file" as const, mime: "image/png", url: "data:image/png;base64,b25l" }
+    const first = await NativeInput.build([part], session, signal())
+    const second = await NativeInput.build(
+      [{ ...part, messageID: MessageID.ascending(), url: "data:image/png;base64,dHdv" }],
+      session,
+      signal(),
+    )
+    if (first[0]?.type !== "localImage" || second[0]?.type !== "localImage") throw new Error("Missing images")
+    expect(first[0].path).not.toBe(second[0].path)
+    expect(await Bun.file(first[0].path).text()).toBe("one")
+    expect(await Bun.file(second[0].path).text()).toBe("two")
+  })
+
+  test("queue validation bounds aggregate inline bytes without creating files", () => {
+    const part = {
+      ...base(),
+      type: "file" as const,
+      mime: "image/png",
+      url: `data:image/png;base64,${Buffer.alloc(11 * 1024 * 1024).toString("base64")}`,
+    }
+    expect(() => NativeInput.check([part, { ...part, id: PartID.ascending() }])).toThrow("20 MiB")
+  })
   test("preserves synthetic research context while excluding display-only text", async () => {
     const result = await NativeInput.build(
       [

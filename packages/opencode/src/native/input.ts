@@ -4,7 +4,8 @@ import { createHash } from "node:crypto"
 import { fileURLToPath } from "node:url"
 import { Global } from "@/global"
 import type { MessageV2 } from "@/session/message-v2"
-import type { SessionID } from "@/session/schema"
+import { PartID, type MessageID, type SessionID } from "@/session/schema"
+import type { Native } from "./schema"
 
 export namespace NativeInput {
   export type Item =
@@ -14,6 +15,75 @@ export namespace NativeInput {
 
   const limit = 20 * 1024 * 1024
   const chars = 200_000
+
+  function metadata(part: Native.Part) {
+    if (part.type !== "text" || !part.metadata) return
+    const value = Object.fromEntries(Object.entries(part.metadata).filter(([key]) => key !== "nativeSteer"))
+    return Object.keys(value).length ? value : undefined
+  }
+
+  /** Queue identities survive retries; internal receipt metadata never comes from callers. */
+  export function parts(input: { sessionID: SessionID; messageID: MessageID; text: string; parts?: Native.Part[] }) {
+    const result = (input.parts ?? [{ type: "text" as const, text: input.text }]).map((part, index) => ({
+      ...part,
+      id:
+        part.id ??
+        PartID.make(
+          `prt_${index.toString().padStart(4, "0")}_${createHash("sha256")
+            .update(JSON.stringify([input.sessionID, input.messageID, index]))
+            .digest("hex")
+            .slice(0, 32)}`,
+        ),
+      sessionID: input.sessionID,
+      messageID: input.messageID,
+      ...(part.type === "text" ? { metadata: metadata(part) } : {}),
+    }))
+    if (!result.some((part) => part.type === "file" || (!part.ignored && !!part.text.trim())))
+      throw new Error("A queued message needs text or an attachment.")
+    if (new Set(result.map((part) => part.id)).size !== result.length)
+      throw new Error("Queued content has duplicate part identifiers.")
+    return result
+  }
+
+  export function key(parts: (MessageV2.TextPart | MessageV2.FilePart)[]) {
+    return createHash("sha256")
+      .update(
+        JSON.stringify(
+          parts.map((part) =>
+            part.type === "file"
+              ? { type: part.type, mime: part.mime, filename: part.filename, url: part.url, source: part.source }
+              : {
+                  type: part.type,
+                  text: part.text,
+                  synthetic: part.synthetic,
+                  ignored: part.ignored,
+                  metadata: metadata(part),
+                },
+          ),
+        ),
+      )
+      .digest("hex")
+  }
+
+  /** Validate queue data without creating files or running document conversion. */
+  export function check(parts: MessageV2.Part[]) {
+    if (Buffer.byteLength(JSON.stringify(parts)) > 32 * 1024 * 1024)
+      throw new Error("Native content exceeds the 32 MiB storage limit.")
+    let size = 0
+    for (const part of parts) {
+      if (part.type !== "file") continue
+      if (part.url.startsWith("file:")) {
+        fileURLToPath(part.url)
+        continue
+      }
+      if (/^https?:\/\//i.test(part.url) && part.mime.startsWith("image/")) continue
+      const match = /^data:([^;,]*)(;base64)?,([\s\S]*)$/.exec(part.url)
+      if (!match) throw new Error("Unsupported attachment URL. Attach a local file instead.")
+      if (part.url.length > limit * 1.4) throw new Error("Native attachments exceed the 20 MiB limit.")
+      size += match[2] ? Buffer.from(match[3], "base64").length : Buffer.byteLength(decodeURIComponent(match[3]))
+      if (size > limit) throw new Error("Native attachments exceed the 20 MiB limit.")
+    }
+  }
 
   export function directory(session: SessionID) {
     return path.join(Global.Path.data, "native-attachments", createHash("sha256").update(session).digest("hex"))
@@ -54,6 +124,8 @@ export namespace NativeInput {
   }
 
   export async function build(parts: MessageV2.Part[], session: SessionID, signal: AbortSignal): Promise<Item[]> {
+    signal.throwIfAborted()
+    check(parts)
     const result: Item[] = []
     let size = 0
     for (const part of parts) {
@@ -97,7 +169,12 @@ export namespace NativeInput {
         result.push(text(`${label}:\n${bounded(bytes.toString("utf8"))}`))
         continue
       }
-      const dir = path.join(directory(session), createHash("sha256").update(part.id).digest("hex"))
+      const dir = path.join(
+        directory(session),
+        createHash("sha256")
+          .update(JSON.stringify([part.messageID, part.id]))
+          .digest("hex"),
+      )
       const extension = path.extname(name)
       const target = path.join(
         dir,

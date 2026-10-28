@@ -199,9 +199,11 @@ import type {
   NativeEngineInput,
   NativeEnqueueErrors,
   NativeEnqueueResponses,
+  NativeFileInput,
   NativeHistoryResponses,
   NativeMode,
   NativePermission,
+  NativeQuestionsResponses,
   NativeReplyQuestionErrors,
   NativeReplyQuestionResponses,
   NativeResumeQueueErrors,
@@ -211,6 +213,7 @@ import type {
   NativeSendQueuedResponses,
   NativeStatusResponses,
   NativeSteerResponses,
+  NativeTextInput,
   NativeUsageResponses,
   OutputFormat,
   Part as Part2,
@@ -3128,6 +3131,7 @@ export class Session2 extends HeyApiClient {
       directory?: string
       workspace?: string
       messageID?: string
+      after?: boolean
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -3140,6 +3144,7 @@ export class Session2 extends HeyApiClient {
             { in: "query", key: "directory" },
             { in: "query", key: "workspace" },
             { in: "body", key: "messageID" },
+            { in: "body", key: "after" },
           ],
         },
       ],
@@ -4358,6 +4363,36 @@ export class Provider extends HeyApiClient {
 
 export class Native extends HeyApiClient {
   /**
+   * List unanswered Codex questions across the saved conversation
+   */
+  public questions<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<NativeQuestionsResponses, unknown, ThrowOnError>({
+      url: "/native/codex/{sessionID}/questions",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
    * Submit or inspect a durable answer to a Codex asynchronous question
    */
   public replyQuestion<ThrowOnError extends boolean = false>(
@@ -4537,6 +4572,7 @@ export class Native extends HeyApiClient {
       messageID?: string
       turnID?: string
       text?: string
+      parts?: Array<NativeTextInput | NativeFileInput>
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -4551,6 +4587,7 @@ export class Native extends HeyApiClient {
             { in: "body", key: "messageID" },
             { in: "body", key: "turnID" },
             { in: "body", key: "text" },
+            { in: "body", key: "parts" },
           ],
         },
       ],
@@ -4577,6 +4614,7 @@ export class Native extends HeyApiClient {
       workspace?: string
       messageID?: string
       text?: string
+      parts?: Array<NativeTextInput | NativeFileInput>
       model?: string
       effort?: string
     },
@@ -4592,6 +4630,7 @@ export class Native extends HeyApiClient {
             { in: "query", key: "workspace" },
             { in: "body", key: "messageID" },
             { in: "body", key: "text" },
+            { in: "body", key: "parts" },
             { in: "body", key: "model" },
             { in: "body", key: "effort" },
           ],

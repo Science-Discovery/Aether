@@ -19,6 +19,9 @@ export function NativeRunPanel(props: { run: ReturnType<typeof createNativeRun>;
             <span role="status">{language.t(`native.run.${props.run.data()?.active?.phase ?? "checking"}`)}</span>
           </Show>
           <Show when={props.run.retry()}>
+            <Button size="small" variant="ghost" onClick={() => void props.run.recover()}>
+              {language.t("native.run.recover")}
+            </Button>
             <Button size="small" variant="ghost" onClick={() => props.run.discard()}>
               {language.t("native.run.discard")}
             </Button>
@@ -71,6 +74,16 @@ export function NativeRunPanel(props: { run: ReturnType<typeof createNativeRun>;
                     <div class="truncate text-text-base" title={item.text}>
                       {item.text}
                     </div>
+                    <Show when={item.attachments?.length}>
+                      <div
+                        class="truncate"
+                        title={item.attachments
+                          ?.map((file) => file.filename ?? language.t("common.attachment"))
+                          .join(", ")}
+                      >
+                        {item.attachments?.map((file) => file.filename ?? language.t("common.attachment")).join(", ")}
+                      </div>
+                    </Show>
                     <div class="break-words">
                       {language.t(`native.queue.${item.state}`)}
                       <Show when={item.error}> · {item.error}</Show>

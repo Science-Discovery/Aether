@@ -15,13 +15,15 @@ import { Log } from "@/util/log"
 import { NativeSession } from "./session"
 import { NativeStore } from "./store"
 import { Native } from "./schema"
+import { NativeInput } from "./input"
 
 /** Pending user requests, separate from model-visible history and delivered input. */
 export namespace NativeQueue {
   export const Input = z.object({
     sessionID: SessionID.zod,
     messageID: MessageID.zod,
-    text: z.string().trim().min(1).max(65_536),
+    text: z.string().trim().max(65_536),
+    parts: Native.Parts.optional(),
     model: z.string().trim().min(1).max(200).optional(),
     effort: z.string().trim().min(1).max(40).optional(),
   })
@@ -30,6 +32,7 @@ export namespace NativeQueue {
     text: Input.shape.text,
     model: Input.shape.model,
     effort: Input.shape.effort,
+    attachments: z.array(z.object({ filename: z.string().optional(), mime: z.string() })).optional(),
     state: z.enum(["pending", "dispatching", "uncertain", "failed"]),
     turn: z.string().optional(),
     delivery: Native.Steered.optional(),
@@ -52,7 +55,7 @@ export namespace NativeQueue {
     .strict()
   export const Sent = z.object({ queue: Status, delivery: Native.Steered }).meta({ ref: "NativeQueueSent" })
   type Sent = z.infer<typeof Sent>
-  const Saved = Status.extend({ owner: z.string() })
+  const Saved = Status.extend({ owner: z.string(), items: z.array(Item.extend({ parts: Native.Parts.optional() })) })
   type Saved = z.infer<typeof Saved>
   const log = Log.create({ service: "native.queue" })
   const state = Instance.state(
@@ -129,11 +132,19 @@ export namespace NativeQueue {
     const input = Input.parse(value)
     return home(input.sessionID, async () => {
       if ((await Config.getGlobal()).native?.codex?.enabled === false) throw new Error("Codex is disabled.")
+      const parts = NativeInput.parts(input)
+      NativeInput.check(parts)
       using lock = await Lock.write(file(input.sessionID))
       const saved = await read(input.sessionID)
       const existing = saved.items.find((item) => item.id === input.messageID)
       if (existing) {
-        if (existing.text !== input.text || existing.model !== input.model || existing.effort !== input.effort)
+        if (
+          existing.text !== input.text ||
+          existing.model !== input.model ||
+          existing.effort !== input.effort ||
+          NativeInput.key(NativeInput.parts({ ...input, text: existing.text, parts: existing.parts })) !==
+            NativeInput.key(parts)
+        )
           throw new Error("This queued message ID has already been used for different input.")
         return Status.parse(saved)
       }
@@ -156,9 +167,19 @@ export namespace NativeQueue {
         text: input.text,
         model: input.model,
         effort: input.effort,
+        ...(input.parts ? { parts } : {}),
+        ...(parts.some((part) => part.type === "file")
+          ? {
+              attachments: parts.flatMap((part) =>
+                part.type === "file" ? [{ filename: part.filename?.slice(0, 512), mime: part.mime.slice(0, 256) }] : [],
+              ),
+            }
+          : {}),
         state: "pending",
         created: Date.now(),
       })
+      if (Buffer.byteLength(JSON.stringify(saved)) > 64 * 1024 * 1024)
+        throw new Error("Queued attachments exceed the 64 MiB queue limit. Remove a pending message first.")
       await write(input.sessionID, saved)
       return Status.parse(saved)
     })
@@ -212,7 +233,7 @@ export namespace NativeQueue {
       turnID: input.turnID,
       error,
     })
-    const reserved = await (async (): Promise<{ text: string } | Sent> => {
+    const reserved = await (async (): Promise<{ text: string; parts?: Native.Part[] } | Sent> => {
       using lock = await Lock.write(file(input.sessionID))
       const saved = await read(input.sessionID)
       const item = saved.items.find((item) => item.id === input.messageID)
@@ -221,7 +242,14 @@ export namespace NativeQueue {
         // A lost HTTP response can be retried after the accepted entry was
         // removed. Existing immutable input makes steer a receipt read only.
         const part = stored?.data.parts.find((part) => part.type === "text" && part.metadata?.nativeSteer)
-        if (part?.type === "text") return { text: part.text }
+        if (part?.type === "text")
+          return {
+            text: part.text,
+            parts: stored!.data.parts.filter(
+              (part): part is MessageV2.TextPart | MessageV2.FilePart =>
+                part.type === "file" || (part.type === "text" && !part.metadata?.nativeSteer?.anchor),
+            ),
+          }
         return {
           queue: Status.parse(saved),
           delivery: rejected("This queued message is no longer pending. Check the conversation before sending again."),
@@ -237,7 +265,7 @@ export namespace NativeQueue {
           queue: Status.parse(saved),
           delivery: rejected("This message already has a delivery attempt for another turn. Review its saved result."),
         }
-      if (stored) return { text: item.text }
+      if (stored) return { text: item.text, parts: item.parts }
       if (item.turn === input.turnID && item.delivery) return { queue: Status.parse(saved), delivery: item.delivery }
       if (item.state !== "pending")
         return {
@@ -267,10 +295,10 @@ export namespace NativeQueue {
       delete item.delivery
       delete item.error
       await write(input.sessionID, saved)
-      return { text: item.text }
+      return { text: item.text, parts: item.parts }
     })()
     if ("delivery" in reserved) return reserved
-    const request = { ...input, text: reserved.text }
+    const request = { ...input, ...reserved }
     // Do not hold the queue mutex across RPC: cancelling a task pauses its
     // queue before aborting the native turn. The persisted reservation excludes
     // both removal and automatic drain while this await is pending.
@@ -395,7 +423,7 @@ export namespace NativeQueue {
               ? { model: { providerID: ProviderID.make("codex-native"), modelID: ModelID.make(item.model) } }
               : {}),
             variant: item.effort,
-            parts: [{ type: "text", text: item.text }],
+            parts: item.parts ?? [{ type: "text", text: item.text }],
           },
           () => !current.closed && !current.halted.has(id),
         )

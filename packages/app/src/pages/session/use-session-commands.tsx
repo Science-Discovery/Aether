@@ -537,7 +537,7 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
         title: language.t("command.session.fork"),
         description: language.t("command.session.fork.description"),
         slash: "fork",
-        disabled: !!local.native.engine() || !params.id || visibleUserMessages().length === 0,
+        disabled: !params.id || visibleUserMessages().length === 0,
         onSelect: () => dialog.show(() => <DialogFork />),
       }),
       ...share,

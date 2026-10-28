@@ -439,6 +439,11 @@ export const dict = {
   "mcp.status.disabled": "disabled",
 
   "dialog.fork.empty": "No messages to fork from",
+  "dialog.fork.native":
+    "Keep the selected completed turn in a new Codex session. The original session stays unchanged.",
+  "native.fork.questionReply": "A saved question reply cannot be edited here. Start a new message instead.",
+  "native.fork.unsupportedDraft":
+    "This message contains attachments or context that cannot yet be restored to the editor. Fork from here, then add your question.",
 
   "dialog.revert.confirm.title": "Revert to this point?",
   "dialog.revert.confirm.description":
@@ -1869,6 +1874,7 @@ export const dict = {
   "native.settings.failed": "Could not save settings: {{error}}",
   "native.run.action": "Send while running",
   "native.run.discard": "Discard retry",
+  "native.run.recover": "Retry original message",
   "native.run.notice.discarded":
     "Local retry discarded; your draft is preserved. Check the conversation before sending again to avoid duplicate input.",
   "native.run.action.steer": "Add instructions now",
@@ -1878,10 +1884,6 @@ export const dict = {
   "native.run.running": "Running",
   "native.run.waiting": "Waiting for your response",
   "native.run.stopping": "Stopping…",
-  "native.run.textOnly": "Only text can be sent while running",
-  "native.run.textOnly.description":
-    "Files, images, and references remain in your draft. Send them after this turn ends.",
-  "native.run.textOnly.hint": "New messages are queued for the next turn (text only)",
   "native.run.unavailable": "Codex task state is unavailable: {{error}}",
   "native.run.notice.queued": "Message queued. It will run in order.",
   "native.run.notice.accepted": "Codex received your additional instructions.",
@@ -1904,6 +1906,10 @@ export const dict = {
   "native.queue.failed": "Failed",
   "native.queue.remove": "Remove queued message",
   "native.question.title": "Codex question",
+  "native.question.pending": "{{count}} AI question group(s) still need your answer",
+  "native.question.open": "View question",
+  "native.question.locating": "Finding question…",
+  "native.question.unavailable": "The question could not be located. Refresh the conversation and try again.",
   "native.question.answer": "Your answer",
   "native.question.placeholder": "Choose an option or write your own answer…",
   "native.question.submit": "Submit answers",

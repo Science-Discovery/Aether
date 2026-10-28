@@ -1,17 +1,12 @@
-import { Component, createMemo } from "solid-js"
-import { useNavigate, useParams } from "@solidjs/router"
+import { Component, createMemo, Show } from "solid-js"
+import { useParams } from "@solidjs/router"
 import { useSync } from "@/context/sync"
-import { useSDK } from "@/context/sdk"
-import { usePrompt } from "@/context/prompt"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { Dialog } from "@opencode-ai/ui/dialog"
 import { List } from "@opencode-ai/ui/list"
-import { showToast } from "@opencode-ai/ui/toast"
-import { extractPromptFromParts } from "@/utils/prompt"
 import type { TextPart as SDKTextPart } from "@opencode-ai/sdk/v2/client"
-import { base64Encode } from "@opencode-ai/util/encode"
 import { useLanguage } from "@/context/language"
-import { formatServerError } from "@/utils/server-errors"
+import { useSessionFork } from "@/pages/session/use-session-fork"
 
 interface ForkableMessage {
   id: string
@@ -26,12 +21,11 @@ function formatTime(date: Date): string {
 
 export const DialogFork: Component = () => {
   const params = useParams()
-  const navigate = useNavigate()
   const sync = useSync()
-  const sdk = useSDK()
-  const prompt = usePrompt()
   const dialog = useDialog()
   const language = useLanguage()
+  const fork = useSessionFork()
+  const native = () => sync.data.session.find((item) => item.id === params.id)?.engine?.type === "codex"
 
   const messages = createMemo((): ForkableMessage[] => {
     const sessionID = params.id
@@ -46,6 +40,7 @@ export const DialogFork: Component = () => {
       const parts = sync.data.part[message.id] ?? []
       const textPart = parts.find((x): x is SDKTextPart => x.type === "text" && !x.synthetic && !x.ignored)
       if (!textPart) continue
+      if (native() && /^\s*<send_user_message_question_reply>/.test(textPart.text)) continue
 
       result.push({
         id: message.id,
@@ -63,31 +58,14 @@ export const DialogFork: Component = () => {
     const sessionID = params.id
     if (!sessionID) return
 
-    const parts = sync.data.part[item.id] ?? []
-    const restored = extractPromptFromParts(parts, {
-      directory: sdk.directory,
-      attachmentName: language.t("common.attachment"),
-    })
-    const dir = base64Encode(sdk.directory)
-
-    sdk.client.session
-      .fork({ sessionID, messageID: item.id })
-      .then((forked) => {
-        if (!forked.data) {
-          showToast({ title: language.t("common.requestFailed") })
-          return
-        }
-        dialog.close()
-        prompt.set(restored, undefined, { dir, id: forked.data.id })
-        navigate(`/${dir}/session/${forked.data.id}`)
-      })
-      .catch((err: unknown) => {
-        showToast({ title: language.t("common.requestFailed"), description: formatServerError(err, language.t) })
-      })
+    void fork({ sessionID, messageID: item.id }, "fork", () => dialog.close())
   }
 
   return (
     <Dialog title={language.t("command.session.fork")}>
+      <Show when={native()}>
+        <p class="px-6 pb-3 text-12-regular text-text-weak">{language.t("dialog.fork.native")}</p>
+      </Show>
       <List
         class="flex-1 min-h-0 [&_[data-slot=list-scroll]]:flex-1 [&_[data-slot=list-scroll]]:min-h-0"
         search={{ placeholder: language.t("common.search.placeholder"), autofocus: true }}

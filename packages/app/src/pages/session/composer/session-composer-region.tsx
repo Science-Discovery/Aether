@@ -19,6 +19,7 @@ import { SessionTodoDock } from "@/pages/session/composer/session-todo-dock"
 import { getSessionHandoff, setSessionHandoff } from "@/pages/session/handoff"
 import { useSessionKey } from "@/pages/session/session-layout"
 import { formatReadingPageRange } from "@/utils/comment-note"
+import { NativeQuestionHint, type PendingQuestion } from "@/components/native-question-hint"
 
 export function SessionComposerRegion(props: {
   state: SessionComposerState
@@ -29,6 +30,7 @@ export function SessionComposerRegion(props: {
   onNewSessionWorktreeReset: () => void
   onSubmit: () => void
   onResponseSubmit: () => void
+  questions?: { items: PendingQuestion[]; busy: boolean; onOpen: (item: PendingQuestion) => void }
   followup?: {
     queue: () => boolean
     items: { id: string; text: string }[]
@@ -159,6 +161,7 @@ export function SessionComposerRegion(props: {
           "md:max-w-[2400px] md:mx-auto 2xl:max-w-[3000px]": props.centered,
         }}
       >
+        <Show when={props.questions}>{(questions) => <NativeQuestionHint {...questions()} />}</Show>
         <Show when={props.state.questionRequest()} keyed>
           {(request) => (
             <div>

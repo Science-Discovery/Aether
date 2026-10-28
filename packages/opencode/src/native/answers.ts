@@ -5,7 +5,7 @@ import { Config } from "@/config/config"
 import { Global } from "@/global"
 import { Instance } from "@/project/instance"
 import { Session } from "@/session"
-import { MessageID, SessionID } from "@/session/schema"
+import { MessageID, PartID, SessionID } from "@/session/schema"
 import { SessionStatus } from "@/session/status"
 import { Filesystem } from "@/util/filesystem"
 import { Lock } from "@/util/lock"
@@ -21,6 +21,16 @@ export namespace NativeAnswers {
     threadID: z.string().min(1).max(200),
     answers: z.array(z.string().trim().min(1).max(100_000)).min(1).max(32),
   })
+  export const Pending = z
+    .array(
+      z.object({
+        messageID: MessageID.zod,
+        parentID: MessageID.zod,
+        partID: PartID.zod,
+        question: NativeQuestion.Info,
+      }),
+    )
+    .meta({ ref: "NativePendingQuestions" })
   const Record = z.object({
     question: NativeQuestion.Info,
     message: MessageID.zod.optional(),
@@ -104,6 +114,33 @@ export namespace NativeAnswers {
       await write(id, records)
     }
     return { ...question, state: result.state, answers: result.answers, error: result.error }
+  }
+
+  export async function pending(id: SessionID): Promise<z.infer<typeof Pending>> {
+    const session = await Session.getGlobal(id)
+    if (Filesystem.resolve(session.directory) !== Instance.directory)
+      return Instance.provide({ directory: session.directory, fn: () => pending(id) })
+    if (session.engine?.type !== "codex" || state().removed.has(id)) return []
+    const items = new Map<string, z.infer<typeof Pending>[number]>()
+    for (const message of await NativeStore.history(id)) {
+      if (message.info.role !== "assistant" || message.info.providerID !== "codex-native") continue
+      for (const part of message.parts) {
+        if (part.type !== "text" || !part.nativeQuestion || part.nativeQuestion.thread !== session.engine.thread)
+          continue
+        const question = await decorate(id, part.nativeQuestion)
+        if (question.state !== "pending" || question.answers) {
+          items.delete(question.item)
+          continue
+        }
+        items.set(question.item, {
+          messageID: message.info.id,
+          parentID: message.info.parentID,
+          partID: part.id,
+          question,
+        })
+      }
+    }
+    return state().removed.has(id) ? [] : [...items.values()]
   }
 
   async function publish(id: SessionID, question: NativeQuestion.Info) {

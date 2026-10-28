@@ -15,6 +15,21 @@ import { lazy } from "../../util/lazy"
 
 export const NativeRoutes = lazy(() =>
   new Hono()
+    .get(
+      "/codex/:sessionID/questions",
+      describeRoute({
+        summary: "List unanswered Codex questions across the saved conversation",
+        operationId: "native.questions",
+        responses: {
+          200: {
+            description: "Unsubmitted asynchronous questions",
+            content: { "application/json": { schema: resolver(NativeAnswers.Pending) } },
+          },
+        },
+      }),
+      validator("param", z.object({ sessionID: SessionID.zod })),
+      async (c) => c.json(await NativeAnswers.pending(c.req.valid("param").sessionID)),
+    )
     .post(
       "/codex/:sessionID/questions/:itemID/reply",
       describeRoute({
