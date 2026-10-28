@@ -53,6 +53,7 @@ export function NativeHistoryControl() {
   )
 
   const label = () => language.t(state.loading ? "native.history.syncing" : "native.history.refresh")
+  const error = () => (state.status === "partial" ? "" : state.error)
   return (
     <Show when={params.id && thread()}>
       <IconButton
@@ -64,11 +65,11 @@ export function NativeHistoryControl() {
         aria-label={label()}
         aria-busy={state.loading}
         data-action="prompt-native-history"
-        title={state.error || label()}
+        title={error() || label()}
       />
-      <Show when={state.error}>
-        <span role="status" class="max-w-[240px] truncate text-12-regular text-text-weak" title={state.error}>
-          {language.t(state.status === "partial" ? "native.history.partial" : "native.history.unavailable")}
+      <Show when={error()}>
+        <span role="status" class="max-w-[240px] truncate text-12-regular text-text-weak" title={error()}>
+          {language.t("native.history.unavailable")}
         </span>
       </Show>
     </Show>
