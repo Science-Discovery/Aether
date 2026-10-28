@@ -21,6 +21,7 @@ export namespace NativeAnswers {
     threadID: z.string().min(1).max(200),
     answers: z.array(z.string().trim().min(1).max(100_000)).min(1).max(32),
   })
+  export const Skip = Input.omit({ answers: true })
   export const Pending = z
     .array(
       z.object({
@@ -113,7 +114,7 @@ export namespace NativeAnswers {
       record.question = result
       await write(id, records)
     }
-    return { ...question, state: result.state, answers: result.answers, error: result.error }
+    return { ...question, state: result.state, answers: result.answers, skipped: result.skipped, error: result.error }
   }
 
   export async function pending(id: SessionID): Promise<z.infer<typeof Pending>> {
@@ -179,10 +180,19 @@ export namespace NativeAnswers {
   }
 
   export async function reply(value: z.infer<typeof Input>): Promise<NativeQuestion.Info> {
-    const input = Input.parse(value)
+    return submit(Input.parse(value))
+  }
+
+  export async function skip(value: z.infer<typeof Skip>): Promise<NativeQuestion.Info> {
+    return submit({ ...Skip.parse(value), skipped: true })
+  }
+
+  async function submit(
+    input: z.infer<typeof Input> | (z.infer<typeof Skip> & { skipped: true }),
+  ): Promise<NativeQuestion.Info> {
     const session = await Session.getGlobal(input.sessionID)
     if (Filesystem.resolve(session.directory) !== Instance.directory)
-      return Instance.provide({ directory: session.directory, fn: () => reply(input) })
+      return Instance.provide({ directory: session.directory, fn: () => submit(input) })
     if (session.engine?.type !== "codex" || session.engine.thread !== input.threadID)
       throw new Error("This question does not belong to the current Codex thread.")
     const current = state()
@@ -205,16 +215,20 @@ export namespace NativeAnswers {
         )
       if (question?.type !== "text" || !question.nativeQuestion)
         throw new Error("This question is no longer available. Refresh the conversation.")
-      if (question.nativeQuestion.questions.length !== input.answers.length)
+      const answers =
+        "skipped" in input ? question.nativeQuestion.questions.map(() => NativeQuestion.skipped) : input.answers
+      if (question.nativeQuestion.questions.length !== answers.length)
         throw new Error("Answer every question before submitting.")
-      const text = NativeQuestion.reply(question.nativeQuestion, input.answers)
+      const text = NativeQuestion.reply(question.nativeQuestion, answers)
       if (Buffer.byteLength(text) > 1_000_000) throw new Error("These answers are too long to submit.")
       const records = await read(input.sessionID)
       const prior = records.find(
         (entry) => entry.question.thread === input.threadID && entry.question.item === input.itemID,
       )
       if (prior) {
-        if (JSON.stringify(prior.question.answers) !== JSON.stringify(input.answers))
+        if (JSON.stringify(prior.question.questions) !== JSON.stringify(question.nativeQuestion.questions))
+          throw new Error("This question group changed after submission. Refresh the conversation before continuing.")
+        if (JSON.stringify(prior.question.answers) !== JSON.stringify(answers))
           throw new Error("This question already has a submitted answer. Check its saved result before continuing.")
         const result = status(input.sessionID, prior)
         if (result.state !== "failed" || current.jobs.has(key)) return { question: result }
@@ -231,7 +245,13 @@ export namespace NativeAnswers {
       if (!active && (await SessionStatus.get(input.sessionID)).type !== "idle")
         throw new Error("The current task is still finishing. Please submit the answer again shortly.")
       const record: Record = {
-        question: { ...question.nativeQuestion, state: "sending", answers: input.answers, error: undefined },
+        question: {
+          ...question.nativeQuestion,
+          state: "sending",
+          answers,
+          skipped: answers.every((answer) => answer === NativeQuestion.skipped) ? true : undefined,
+          error: undefined,
+        },
         message: prior?.message ?? MessageID.ascending(),
       }
       if (prior) Object.assign(prior, record)

@@ -30,7 +30,7 @@ export function SessionComposerRegion(props: {
   onNewSessionWorktreeReset: () => void
   onSubmit: () => void
   onResponseSubmit: () => void
-  questions?: { items: PendingQuestion[]; busy: boolean; onOpen: (item: PendingQuestion) => void }
+  questions?: { session: string; items: PendingQuestion[]; busy: boolean; onOpen: (item: PendingQuestion) => void }
   followup?: {
     queue: () => boolean
     items: { id: string; text: string }[]

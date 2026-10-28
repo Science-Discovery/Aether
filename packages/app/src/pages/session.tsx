@@ -2431,7 +2431,7 @@ function SessionPageContent(props: SessionPageProps = {}) {
               </div>
 
               <SessionComposerRegion
-                questions={{ items: questions(), busy: !!question.target, onOpen: reveal }}
+                questions={{ session: params.id ?? "", items: questions(), busy: !!question.target, onOpen: reveal }}
                 state={composer}
                 ready={!store.deferRender && messagesReady()}
                 centered={centered()}
@@ -2615,7 +2615,7 @@ function SessionPageContent(props: SessionPageProps = {}) {
             </div>
 
             <SessionComposerRegion
-              questions={{ items: questions(), busy: !!question.target, onOpen: reveal }}
+              questions={{ session: params.id ?? "", items: questions(), busy: !!question.target, onOpen: reveal }}
               state={composer}
               ready={!store.deferRender && messagesReady()}
               centered={centered()}

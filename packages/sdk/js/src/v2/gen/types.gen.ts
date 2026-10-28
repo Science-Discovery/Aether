@@ -835,6 +835,7 @@ export type NativeQuestion = {
   }>
   state: "pending" | "sending" | "answered" | "uncertain" | "failed"
   answers?: Array<string>
+  skipped?: true
   error?: string
 }
 
@@ -6485,6 +6486,41 @@ export type NativeReplyQuestionResponses = {
 }
 
 export type NativeReplyQuestionResponse = NativeReplyQuestionResponses[keyof NativeReplyQuestionResponses]
+
+export type NativeSkipQuestionData = {
+  body?: {
+    threadID: string
+  }
+  path: {
+    sessionID: string
+    itemID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/native/codex/{sessionID}/questions/{itemID}/skip"
+}
+
+export type NativeSkipQuestionErrors = {
+  /**
+   * Skip cannot be submitted
+   */
+  409: {
+    error: string
+  }
+}
+
+export type NativeSkipQuestionError = NativeSkipQuestionErrors[keyof NativeSkipQuestionErrors]
+
+export type NativeSkipQuestionResponses = {
+  /**
+   * Saved question and skip delivery status
+   */
+  200: NativeQuestion
+}
+
+export type NativeSkipQuestionResponse = NativeSkipQuestionResponses[keyof NativeSkipQuestionResponses]
 
 export type NativeUsageData = {
   body?: never

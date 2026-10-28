@@ -6,10 +6,17 @@ import { NativeQuestionCard } from "./native-question"
 import { nativeQuestionAnchor } from "./native-question-events"
 
 type Reply = { sessionID: string; itemID: string; threadID: string; answers: string[] }
-const mocks = vi.hoisted(() => ({ reply: vi.fn<(input: Reply) => Promise<{ data: NativeQuestion }>>() }))
+const mocks = vi.hoisted(() => ({
+  reply: vi.fn<(input: Reply) => Promise<{ data: NativeQuestion }>>(),
+  skip: vi.fn<(input: Omit<Reply, "answers">) => Promise<{ data: NativeQuestion }>>(),
+}))
 vi.mock("@/context/language", () => ({ useLanguage: () => ({ t: (key: string) => key }) }))
 vi.mock("@/context/sdk", () => ({
-  useSDK: () => ({ url: "local", directory: "/project", client: { native: { replyQuestion: mocks.reply } } }),
+  useSDK: () => ({
+    url: "local",
+    directory: "/project",
+    client: { native: { replyQuestion: mocks.reply, skipQuestion: mocks.skip } },
+  }),
 }))
 
 const question = (): NativeQuestion => ({
@@ -72,6 +79,8 @@ function mount(value = question()) {
 
 beforeEach(() => {
   mocks.reply.mockReset()
+  mocks.skip.mockReset()
+  mocks.skip.mockResolvedValue({ data: { ...question(), skipped: true, state: "answered" } })
   mocks.reply.mockImplementation(async (input) => ({
     data: { ...question(), answers: input.answers, state: "answered" },
   }))
@@ -79,6 +88,57 @@ beforeEach(() => {
 afterEach(() => cleanups.splice(0).forEach((off) => off()))
 
 describe("native async questions", () => {
+  test("skips the group without sending its draft and waits for delivery confirmation", async () => {
+    const pending = Promise.withResolvers<{ data: NativeQuestion }>()
+    mocks.skip.mockReturnValue(pending.promise)
+    const fixture = mount()
+    fixture.fill(0, "Unsubmitted preference")
+    const button = fixture.button("native.question.skip")
+    button.click()
+    button.click()
+    expect(mocks.reply).not.toHaveBeenCalled()
+    expect(mocks.skip).toHaveBeenCalledExactlyOnceWith(
+      { sessionID: "session", itemID: "question", threadID: "thread" },
+      { throwOnError: true },
+    )
+    expect(fixture.host.querySelector("section")?.dataset.state).not.toBe("skipped")
+    pending.resolve({ data: { ...question(), skipped: true, state: "sending" } })
+    await vi.waitFor(() => expect(fixture.host.querySelector("section")?.dataset.state).toBe("sending"))
+    fixture.set({ ...question(), skipped: true, state: "answered" })
+    expect(fixture.host.querySelector("section")?.dataset.state).toBe("skipped")
+    expect(fixture.host.querySelector("button")).toBeNull()
+    expect(fixture.host.textContent).toContain("Which method?")
+    expect(fixture.host.textContent).not.toContain("Unsubmitted preference")
+  })
+
+  test("checks an uncertain skip with the same action instead of submitting empty answers", async () => {
+    mocks.skip.mockRejectedValueOnce(new Error("connection lost"))
+    const fixture = mount()
+    fixture.button("native.question.skip").click()
+    await vi.waitFor(() => expect(fixture.host.querySelector("section")?.dataset.state).toBe("uncertain"))
+    expect(fixture.host.querySelector('[role="alert"]')).not.toBeNull()
+    fixture.button("native.question.check").click()
+    await vi.waitFor(() => expect(fixture.host.querySelector("section")?.dataset.state).toBe("skipped"))
+    expect(mocks.skip).toHaveBeenCalledTimes(2)
+    expect(mocks.skip.mock.calls[0]).toEqual(mocks.skip.mock.calls[1])
+    expect(mocks.reply).not.toHaveBeenCalled()
+  })
+
+  test("restores failed and delivered skips and ignores their late response after navigation", async () => {
+    const pending = Promise.withResolvers<{ data: NativeQuestion }>()
+    mocks.skip.mockReturnValue(pending.promise)
+    const fixture = mount({ ...question(), skipped: true, state: "failed" })
+    fixture.button("native.question.skip.retry").click()
+    fixture.set({ ...question(), item: "other" })
+    pending.resolve({ data: { ...question(), skipped: true, state: "answered" } })
+    await Promise.resolve()
+    expect(fixture.host.querySelector("section")?.dataset.state).toBe("pending")
+    expect(fixture.button("native.question.skip")).toBeDefined()
+    const restored = mount({ ...question(), skipped: true, state: "answered" })
+    expect(restored.host.querySelector("section")?.dataset.state).toBe("skipped")
+    expect(restored.host.querySelector("button")).toBeNull()
+  })
+
   test("requires every answer, supports options and custom text, and submits once", async () => {
     const fixture = mount()
     const submit = fixture.button("native.question.submit")

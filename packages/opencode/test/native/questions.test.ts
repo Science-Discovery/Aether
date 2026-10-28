@@ -46,6 +46,22 @@ test("replies round trip the observed Desktop wrapper with stable item and quest
   expect(() => NativeQuestion.reply(question(), ["Short", ""])).toThrow()
 })
 
+test("only a complete group of Aether's exact no-answer responses rebuilds as skipped", () => {
+  const answers = item.questions.map(() => NativeQuestion.skipped)
+  const text = NativeQuestion.reply(question(), answers)
+  expect(NativeQuestion.responses(text)).toEqual([
+    { questionItemId: '["request_user_input_async","call_fixture",0]', question: "Style?", answer: answers[0] },
+    { questionItemId: '["request_user_input_async","call_fixture",1]', question: "Destination?", answer: answers[1] },
+  ])
+  expect(NativeQuestion.answered(question(), [text])).toMatchObject({ state: "answered", answers, skipped: true })
+  for (const values of [[NativeQuestion.skipped, "folder"], answers.map((answer) => `${answer} Please continue.`)]) {
+    const result = NativeQuestion.answered(question(), [NativeQuestion.reply(question(), values)])
+    expect(result.state).toBe("answered")
+    expect(result.skipped).toBeUndefined()
+  }
+  expect(NativeQuestion.answered(question(), [NativeQuestion.skipped]).state).toBe("pending")
+})
+
 test("malformed or quoted reply envelopes and non-question tools never confirm answers", () => {
   const text = NativeQuestion.reply(question(), ["Short", "folder"])
   for (const value of [

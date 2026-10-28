@@ -1,16 +1,22 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest"
 import { createRoot, createSignal } from "solid-js"
 import type { Event } from "@opencode-ai/sdk/v2"
+import type { AsyncStorage } from "@solid-primitives/storage"
 import { render } from "solid-js/web"
 import { createNativeQuestions, NativeQuestionHint, type PendingQuestion } from "./native-question-hint"
 import { submittedNativeQuestion } from "./native-question-events"
 
-const mocks = vi.hoisted(() => ({ questions: vi.fn() }))
+const mocks = vi.hoisted(() => ({ questions: vi.fn(), storage: undefined as AsyncStorage | undefined }))
 const listeners = new Set<(event: { details: Event }) => void>()
+let backend = () => ({ url: "local", directory: "/project" })
 vi.mock("@/context/sdk", () => ({
   useSDK: () => ({
-    url: "local",
-    directory: "/project",
+    get url() {
+      return backend().url
+    },
+    get directory() {
+      return backend().directory
+    },
     client: { native: { questions: mocks.questions } },
     event: {
       listen: (fn: (event: { details: Event }) => void) => {
@@ -21,6 +27,9 @@ vi.mock("@/context/sdk", () => ({
   }),
 }))
 vi.mock("@/context/language", () => ({ useLanguage: () => ({ t: (key: string) => key }) }))
+vi.mock("@/context/platform", () => ({
+  usePlatform: () => ({ platform: mocks.storage ? "desktop" : "web", storage: () => mocks.storage }),
+}))
 
 const item = (): PendingQuestion => ({
   messageID: "assistant",
@@ -46,6 +55,8 @@ function mount() {
 beforeEach(() => {
   mocks.questions.mockReset()
   mocks.questions.mockResolvedValue({ data: [item()] })
+  mocks.storage = undefined
+  backend = () => ({ url: "local", directory: "/project" })
 })
 afterEach(() => {
   cleanups.splice(0).forEach((dispose) => dispose())
@@ -59,7 +70,10 @@ describe("native pending question hint", () => {
     const open = vi.fn()
     const host = document.createElement("div")
     document.body.append(host)
-    const dispose = render(() => <NativeQuestionHint items={fixture.items()} busy={false} onOpen={open} />, host)
+    const dispose = render(
+      () => <NativeQuestionHint session="session" items={fixture.items()} busy={false} onOpen={open} />,
+      host,
+    )
     cleanups.push(() => {
       dispose()
       host.remove()
@@ -158,5 +172,95 @@ describe("native pending question hint", () => {
     expect(fixture.items()).toHaveLength(0)
     fixture.set("another")
     await vi.waitFor(() => expect(fixture.items()).toHaveLength(1))
+  })
+})
+
+function hint(session: string, initial = [item()]) {
+  const [id, setSession] = createSignal(session)
+  const [items, setItems] = createSignal(initial)
+  const [scope, setScope] = createSignal({ url: "local", directory: "/project" })
+  backend = scope
+  const host = document.createElement("div")
+  document.body.append(host)
+  const open = vi.fn()
+  const dispose = render(() => <NativeQuestionHint session={id()} items={items()} busy={false} onOpen={open} />, host)
+  const off = () => {
+    dispose()
+    host.remove()
+  }
+  cleanups.push(off)
+  const button = (key: string) =>
+    [...host.querySelectorAll<HTMLButtonElement>("button")].find((node) => node.textContent === key)
+  return { host, open, setSession, setItems, setScope, off, button }
+}
+
+describe("dismissed native question reminders", () => {
+  test("dismisses only the current snapshot, without answering or changing the pending source", () => {
+    const rows = [item(), { ...item(), question: { ...item().question, item: "second" } }]
+    const fixture = hint("dismiss-current", rows)
+    fixture.button("native.question.ignore")!.click()
+    expect(fixture.host.querySelector('[data-component="native-question-hint"]')).toBeNull()
+    expect(rows.every((row) => row.question.state === "pending" && !row.question.answers)).toBe(true)
+    expect(mocks.questions).not.toHaveBeenCalled()
+    const next = { ...item(), question: { ...item().question, item: "new" } }
+    fixture.setItems([...rows, next])
+    expect(fixture.button("native.question.open")).toBeDefined()
+    fixture.button("native.question.open")!.click()
+    expect(fixture.open).toHaveBeenCalledExactlyOnceWith(next)
+  })
+
+  test("restores dismissals after remount even if projection changes message and part IDs", () => {
+    const fixture = hint("dismiss-remount")
+    fixture.button("native.question.ignore")!.click()
+    fixture.off()
+    const next = hint("dismiss-remount", [
+      { ...item(), messageID: "projected", parentID: "projected-user", partID: "projected-part" },
+    ])
+    expect(next.host.querySelector('[data-component="native-question-hint"]')).toBeNull()
+    next.setItems([{ ...item(), question: { ...item().question, thread: "another-thread" } }])
+    expect(next.button("native.question.open")).toBeDefined()
+  })
+
+  test("isolates server, directory and session scopes while restoring the original dismissal", () => {
+    const fixture = hint("dismiss-scope")
+    fixture.button("native.question.ignore")!.click()
+    fixture.setSession("another-session")
+    expect(fixture.button("native.question.open")).toBeDefined()
+    fixture.setSession("dismiss-scope")
+    expect(fixture.button("native.question.open")).toBeUndefined()
+    fixture.setScope({ url: "remote", directory: "/project" })
+    expect(fixture.button("native.question.open")).toBeDefined()
+    fixture.setScope({ url: "local", directory: "/other" })
+    expect(fixture.button("native.question.open")).toBeDefined()
+    fixture.setScope({ url: "local", directory: "/project" })
+    expect(fixture.button("native.question.open")).toBeUndefined()
+  })
+
+  test("waits for desktop hydration before exposing or modifying saved dismissals", async () => {
+    const read = Promise.withResolvers<string | null>()
+    const writes = new Map<string, string>()
+    mocks.storage = {
+      getItem: () => read.promise,
+      setItem: async (key, value) => {
+        writes.set(key, value)
+      },
+      removeItem: async (key) => {
+        writes.delete(key)
+      },
+    }
+    const fixture = hint("dismiss-desktop")
+    expect(fixture.host.querySelector("button")).toBeNull()
+    const next = { ...item(), question: { ...item().question, item: "during-hydration" } }
+    fixture.setItems([item(), next])
+    read.resolve(JSON.stringify({ ignored: [JSON.stringify(["thread", "question"])] }))
+    await vi.waitFor(() => expect(fixture.button("native.question.open")).toBeDefined())
+    fixture.button("native.question.open")!.click()
+    expect(fixture.open).toHaveBeenCalledWith(next)
+    fixture.button("native.question.ignore")!.click()
+    await vi.waitFor(() => expect([...writes.values()].some((value) => value.includes("during-hydration"))).toBe(true))
+    expect(JSON.parse([...writes.values()].at(-1)!).ignored).toEqual([
+      JSON.stringify(["thread", "question"]),
+      JSON.stringify(["thread", "during-hydration"]),
+    ])
   })
 })

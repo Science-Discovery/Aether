@@ -1,6 +1,8 @@
 import z from "zod"
 
 export namespace NativeQuestion {
+  // Aether's explicit no-answer message, not a Codex protocol sentinel.
+  export const skipped = "The user chose not to answer this question. This does not grant approval or consent."
   const question = z.object({
     title: z.string().min(1).max(16_000),
     options: z.array(z.string().min(1).max(4_000)).max(64).optional(),
@@ -16,6 +18,7 @@ export namespace NativeQuestion {
       questions: z.array(question).min(1).max(32),
       state: z.enum(["pending", "sending", "answered", "uncertain", "failed"]),
       answers: z.array(answer).max(32).optional(),
+      skipped: z.literal(true).optional(),
       error: z.string().optional(),
     })
     .meta({ ref: "NativeQuestion" })
@@ -103,6 +106,12 @@ export namespace NativeQuestion {
       return values.length && values.every((item) => item.answer === values[0].answer) ? values[0].answer : undefined
     })
     if (!answers.every((value): value is string => value !== undefined)) return value
-    return { ...value, state: "answered", answers, error: undefined }
+    return {
+      ...value,
+      state: "answered",
+      answers,
+      skipped: answers.every((answer) => answer === skipped) ? true : undefined,
+      error: undefined,
+    }
   }
 }

@@ -211,6 +211,8 @@ import type {
   NativeRuntimeResponses,
   NativeSendQueuedErrors,
   NativeSendQueuedResponses,
+  NativeSkipQuestionErrors,
+  NativeSkipQuestionResponses,
   NativeStatusResponses,
   NativeSteerResponses,
   NativeTextInput,
@@ -4433,6 +4435,45 @@ export class Native extends HeyApiClient {
         },
       },
     )
+  }
+
+  /**
+   * Submit or inspect an explicit decision not to answer a Codex question group
+   */
+  public skipQuestion<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      itemID: string
+      directory?: string
+      workspace?: string
+      threadID?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "path", key: "itemID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "threadID" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<NativeSkipQuestionResponses, NativeSkipQuestionErrors, ThrowOnError>({
+      url: "/native/codex/{sessionID}/questions/{itemID}/skip",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
   }
 
   /**

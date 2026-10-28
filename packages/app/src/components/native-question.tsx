@@ -27,6 +27,7 @@ function Question(props: { question: NativeQuestion; session: string }) {
     error?: string
     draft: string[]
     sent?: string[]
+    skipped?: true
     saved?: NativeQuestion
   }>({ busy: false, draft: [] })
   let revision = 0
@@ -38,10 +39,17 @@ function Question(props: { question: NativeQuestion; session: string }) {
     return store.saved ?? props.question
   })
   const saved = () => question().answers ?? store.sent
-  const locked = () => store.busy || !!saved() || question().state !== "pending"
+  const skipping = () => question().skipped ?? (question().state === "answered" ? false : !!store.skipped)
+  const locked = () => store.busy || !!saved() || skipping() || question().state !== "pending"
   const answers = () => saved() ?? store.draft
   const state = () =>
-    question().state === "answered" ? "answered" : store.error && store.sent ? "uncertain" : question().state
+    question().state === "answered"
+      ? skipping()
+        ? "skipped"
+        : "answered"
+      : store.error && (store.sent || store.skipped)
+        ? "uncertain"
+        : question().state
   const complete = () =>
     answers().length === question().questions.length &&
     question().questions.every((_, index) => !!answers()[index]?.trim())
@@ -49,7 +57,7 @@ function Question(props: { question: NativeQuestion; session: string }) {
   createEffect(
     on(key, () => {
       revision++
-      setStore({ busy: false, error: undefined, draft: [], sent: undefined, saved: undefined })
+      setStore({ busy: false, error: undefined, draft: [], sent: undefined, skipped: undefined, saved: undefined })
     }),
   )
   createEffect(
@@ -66,14 +74,14 @@ function Question(props: { question: NativeQuestion; session: string }) {
     revision++
   })
 
-  async function submit() {
-    if (disposed || store.busy || state() === "answered" || !complete()) return
+  async function submit(skip = skipping()) {
+    if (disposed || store.busy || question().state === "answered" || (!skip && !complete())) return
     const scope = key()
     const run = ++revision
     const stamp = version
-    const input = answers().map((answer) => answer.trim())
+    const input = skip ? undefined : answers().map((answer) => answer.trim())
     const client = sdk.client
-    setStore({ busy: true, error: undefined, sent: input })
+    setStore({ busy: true, error: undefined, sent: input, skipped: skip ? true : undefined })
     submittedNativeQuestion({
       url: sdk.url,
       directory: sdk.directory,
@@ -81,16 +89,12 @@ function Question(props: { question: NativeQuestion; session: string }) {
       thread: question().thread,
       item: question().item,
     })
-    await client.native
-      .replyQuestion(
-        {
-          sessionID: props.session,
-          itemID: question().item,
-          threadID: question().thread,
-          answers: input,
-        },
-        { throwOnError: true },
-      )
+    const target = { sessionID: props.session, itemID: question().item, threadID: question().thread }
+    await (
+      skip
+        ? client.native.skipQuestion(target, { throwOnError: true })
+        : client.native.replyQuestion({ ...target, answers: input! }, { throwOnError: true })
+    )
       .then((response) => {
         if (disposed || run !== revision || scope !== key() || stamp !== version) return
         if (!response.data) throw new Error(language.t("native.question.noResult"))
@@ -149,7 +153,9 @@ function Question(props: { question: NativeQuestion; session: string }) {
             <Show
               when={!locked()}
               fallback={
-                <div class="text-14-regular text-text-base whitespace-pre-wrap break-words">{answers()[index]}</div>
+                <div class="text-14-regular text-text-base whitespace-pre-wrap break-words">
+                  {skipping() ? language.t("native.question.unanswered") : answers()[index]}
+                </div>
               }
             >
               <TextField
@@ -165,26 +171,38 @@ function Question(props: { question: NativeQuestion; session: string }) {
           </fieldset>
         )}
       </Index>
-      <Show when={state() !== "answered" && (store.error || question().error)}>
+      <Show when={question().state !== "answered" && (store.error || question().error)}>
         {(error) => (
           <p role="alert" class="text-12-regular text-text-weak break-words">
             {error()}
           </p>
         )}
       </Show>
-      <Show when={state() !== "answered"}>
-        <div>
-          <Button type="button" size="small" disabled={store.busy || !complete()} onClick={() => void submit()}>
+      <Show when={question().state !== "answered"}>
+        <div class="flex flex-wrap gap-2">
+          <Button
+            type="button"
+            size="small"
+            disabled={store.busy || (!skipping() && !complete())}
+            onClick={() => void submit()}
+          >
             {language.t(
               store.busy
                 ? "native.question.submitting"
                 : state() === "sending" || state() === "uncertain"
                   ? "native.question.check"
                   : state() === "failed"
-                    ? "native.question.retry"
+                    ? skipping()
+                      ? "native.question.skip.retry"
+                      : "native.question.retry"
                     : "native.question.submit",
             )}
           </Button>
+          <Show when={!locked()}>
+            <Button type="button" size="small" variant="ghost" onClick={() => void submit(true)}>
+              {language.t("native.question.skip")}
+            </Button>
+          </Show>
         </div>
       </Show>
     </section>

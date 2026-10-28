@@ -169,6 +169,84 @@ test("concurrent identical answers and later retries preserve one delivery ident
   })
 })
 
+test("skipping a group sends every question once and rejects a different thread or changed questions", async () => {
+  await scenario(async (session, dir) => {
+    const card = await ask(session)
+    const request = { sessionID: session.id, itemID: card.item, threadID: card.thread }
+    await expect(NativeAnswers.skip({ ...request, threadID: "another-thread" })).rejects.toThrow("does not belong")
+    await Promise.all([NativeAnswers.skip(request), NativeAnswers.skip(request), NativeAnswers.skip(request)])
+    await settled(session.id, card)
+    const before = NativeStore.inputs(session.id)
+    expect(await NativeAnswers.skip(request)).toMatchObject({ state: "answered", skipped: true })
+    expect(NativeStore.inputs(session.id)).toEqual(before)
+    expect(before).toHaveLength(2)
+    const sent = (await calls(dir)).filter((entry) => entry.method === "turn/start")
+    expect(sent).toHaveLength(2)
+    expect(sent[1].params.threadId).toBe(card.thread)
+    expect(NativeQuestion.responses(sent[1].params.input?.[0].text ?? "")).toEqual(
+      card.questions.map((question, index) => ({
+        questionItemId: JSON.stringify(["request_user_input_async", card.item, index]),
+        question: question.title,
+        answer: NativeQuestion.skipped,
+      })),
+    )
+    expect(await NativeAnswers.pending(session.id)).toEqual([])
+    await expect(NativeAnswers.reply(input(session.id, card))).rejects.toThrow("already has a submitted answer")
+    const part = (await NativeStore.history(session.id))
+      .flatMap((message) => message.parts)
+      .find((part) => part.type === "text" && part.nativeQuestion?.item === card.item)
+    if (part?.type !== "text" || !part.nativeQuestion) throw new Error("The skipped question is missing")
+    await Session.updatePart({
+      ...part,
+      nativeQuestion: { ...part.nativeQuestion, questions: [{ title: "Changed question" }, card.questions[1]] },
+    })
+    await expect(NativeAnswers.skip(request)).rejects.toThrow("changed")
+    expect((await calls(dir)).filter((entry) => entry.method === "turn/start")).toHaveLength(2)
+  })
+})
+
+test("a concurrent skip and answer reserve only one delivery on the active turn", async () => {
+  await scenario(async (session, dir) => {
+    const work = SessionPrompt.prompt({ sessionID: session.id, parts: [{ type: "text", text: "ask-active" }] })
+    try {
+      await until(
+        async () =>
+          !!NativeSession.active(session.id)?.turnID &&
+          (await NativeStore.history(session.id)).some((entry) =>
+            entry.parts.some((part) => part.type === "text" && part.nativeQuestion),
+          ),
+      )
+      const card = await question(session.id)
+      const turn = NativeSession.active(session.id)!.turnID!
+      const results = await Promise.allSettled([
+        NativeAnswers.skip({ sessionID: session.id, itemID: card.item, threadID: card.thread }),
+        NativeAnswers.reply(input(session.id, card)),
+      ])
+      expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1)
+      const rejected = results.find((result) => result.status === "rejected")
+      expect(rejected?.status === "rejected" ? String(rejected.reason) : "").toContain("already has a submitted answer")
+      await until(async () => (await NativeAnswers.decorate(session.id, card)).state === "answered")
+      const sent = (await calls(dir)).filter((entry) => entry.method === "turn/steer")
+      expect(sent).toHaveLength(1)
+      expect(sent[0].params).toMatchObject({ threadId: card.thread, expectedTurnId: turn })
+      const answers =
+        results[0].status === "fulfilled"
+          ? card.questions.map(() => NativeQuestion.skipped)
+          : input(session.id, card).answers
+      expect(NativeQuestion.responses(sent[0].params.input?.[0].text ?? "").map((entry) => entry.answer)).toEqual(
+        answers,
+      )
+      expect(NativeStore.inputs(session.id)).toHaveLength(2)
+      expect((await calls(dir)).filter((entry) => entry.method === "turn/start")).toHaveLength(1)
+      await Bun.write(path.join(dir, "release"), "yes")
+      await work
+    } finally {
+      await SessionPrompt.cancel(session.id)
+      await work
+    }
+  })
+})
+
 test("an active answer steers the existing turn instead of starting another turn", async () => {
   await scenario(async (session, dir) => {
     const work = SessionPrompt.prompt({ sessionID: session.id, parts: [{ type: "text", text: "ask-active" }] })
@@ -200,19 +278,23 @@ test("an active answer steers the existing turn instead of starting another turn
   })
 })
 
-test("a lost native receipt stays uncertain and is never automatically replayed", async () => {
-  await scenario(async (session, dir) => {
-    const card = await ask(session)
-    await Bun.write(path.join(dir, "behavior"), "drop")
-    const request = input(session.id, card)
-    await NativeAnswers.reply(request)
-    await settled(session.id, card, "uncertain")
-    const before = NativeStore.inputs(session.id)
-    expect((await NativeAnswers.reply(request)).state).toBe("uncertain")
-    expect(NativeStore.inputs(session.id)).toEqual(before)
-    expect((await calls(dir)).filter((entry) => entry.method === "turn/start")).toHaveLength(2)
+for (const action of ["answer", "skip"] as const)
+  test(`a lost ${action} receipt stays uncertain and is never automatically replayed`, async () => {
+    await scenario(async (session, dir) => {
+      const card = await ask(session)
+      await Bun.write(path.join(dir, "behavior"), "drop")
+      const request = input(session.id, card)
+      const send = () => (action === "skip" ? NativeAnswers.skip(request) : NativeAnswers.reply(request))
+      await send()
+      await settled(session.id, card, "uncertain")
+      const before = NativeStore.inputs(session.id)
+      const result = await send()
+      expect(result.state).toBe("uncertain")
+      expect(result.skipped).toBe(action === "skip" ? true : undefined)
+      expect(NativeStore.inputs(session.id)).toEqual(before)
+      expect((await calls(dir)).filter((entry) => entry.method === "turn/start")).toHaveLength(2)
+    })
   })
-})
 
 test("a recorded pre-dispatch failure can retry with its original unsent message ID", async () => {
   await scenario(async (session, dir) => {
@@ -331,31 +413,36 @@ test("wrong thread, missing item, wrong count and oversized answers never create
   })
 })
 
-test("answered cards survive cache reconstruction and reopening their owning instance", async () => {
-  await scenario(async (session, dir) => {
-    const card = await ask(session)
-    const request = input(session.id, card)
-    await NativeAnswers.reply(request)
-    await settled(session.id, card)
-    const saved = (await Bun.file(path.join(dir, "history.json")).json()) as Pick<
-      NativeHistory.Snapshot,
-      "thread" | "turns"
-    >
-    for (const entry of await NativeStore.history(session.id))
-      await Session.removeMessage({ sessionID: session.id, messageID: entry.info.id })
-    await NativeSync.apply(await Session.get(session.id), { ...saved, complete: true, issues: [] })
-    expect(await question(session.id)).toMatchObject({ state: "answered", answers: request.answers })
-    await Instance.disposeDirectory(dir)
-    await Instance.provide({
-      directory: dir,
-      fn: async () => {
-        expect(await NativeAnswers.decorate(session.id, { ...card, state: "pending" })).toMatchObject({
-          state: "answered",
-          answers: request.answers,
-        })
-        expect((await NativeAnswers.reply(request)).state).toBe("answered")
-        expect((await calls(dir)).filter((entry) => entry.method === "turn/start")).toHaveLength(2)
-      },
+for (const action of ["answer", "skip"] as const)
+  test(`${action} receipts survive cache reconstruction and reopening their owning instance`, async () => {
+    await scenario(async (session, dir) => {
+      const card = await ask(session)
+      const request = input(session.id, card)
+      const send = () => (action === "skip" ? NativeAnswers.skip(request) : NativeAnswers.reply(request))
+      const expected = {
+        state: "answered",
+        answers: action === "skip" ? card.questions.map(() => NativeQuestion.skipped) : request.answers,
+        ...(action === "skip" ? { skipped: true } : {}),
+      }
+      await send()
+      await settled(session.id, card)
+      const saved = (await Bun.file(path.join(dir, "history.json")).json()) as Pick<
+        NativeHistory.Snapshot,
+        "thread" | "turns"
+      >
+      for (const entry of await NativeStore.history(session.id))
+        await Session.removeMessage({ sessionID: session.id, messageID: entry.info.id })
+      await NativeSync.apply(await Session.get(session.id), { ...saved, complete: true, issues: [] })
+      expect(await question(session.id)).toMatchObject(expected)
+      expect((await question(session.id)).skipped).toBe(action === "skip" ? true : undefined)
+      await Instance.disposeDirectory(dir)
+      await Instance.provide({
+        directory: dir,
+        fn: async () => {
+          expect(await NativeAnswers.decorate(session.id, { ...card, state: "pending" })).toMatchObject(expected)
+          expect(await send()).toMatchObject(expected)
+          expect((await calls(dir)).filter((entry) => entry.method === "turn/start")).toHaveLength(2)
+        },
+      })
     })
   })
-})

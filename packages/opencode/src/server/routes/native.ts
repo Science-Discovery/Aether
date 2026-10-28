@@ -54,6 +54,30 @@ export const NativeRoutes = lazy(() =>
           (error: unknown) => c.json({ error: error instanceof Error ? error.message : String(error) }, 409),
         ),
     )
+    .post(
+      "/codex/:sessionID/questions/:itemID/skip",
+      describeRoute({
+        summary: "Submit or inspect an explicit decision not to answer a Codex question group",
+        operationId: "native.skipQuestion",
+        responses: {
+          200: {
+            description: "Saved question and skip delivery status",
+            content: { "application/json": { schema: resolver(NativeQuestion.Info) } },
+          },
+          409: {
+            description: "Skip cannot be submitted",
+            content: { "application/json": { schema: resolver(z.object({ error: z.string() })) } },
+          },
+        },
+      }),
+      validator("param", NativeAnswers.Skip.pick({ sessionID: true, itemID: true })),
+      validator("json", NativeAnswers.Skip.pick({ threadID: true }).strict()),
+      async (c) =>
+        NativeAnswers.skip({ ...c.req.valid("param"), ...c.req.valid("json") }).then(
+          (result) => c.json(result),
+          (error: unknown) => c.json({ error: error instanceof Error ? error.message : String(error) }, 409),
+        ),
+    )
     .get(
       "/codex/usage",
       describeRoute({

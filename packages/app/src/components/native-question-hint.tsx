@@ -2,9 +2,11 @@ import { createEffect, createMemo, onCleanup, Show } from "solid-js"
 import { createStore, reconcile } from "solid-js/store"
 import type { NativePendingQuestions, NativeQuestion } from "@opencode-ai/sdk/v2"
 import { Button } from "@opencode-ai/ui/button"
+import { base64Encode } from "@opencode-ai/util/encode"
 import { useSDK } from "@/context/sdk"
 import { useLanguage } from "@/context/language"
 import { observeNativeQuestion } from "./native-question-events"
+import { Persist, persisted } from "@/utils/persist"
 
 export type PendingQuestion = NativePendingQuestions[number]
 
@@ -101,17 +103,64 @@ export function createNativeQuestions(session: () => string | undefined, active:
 }
 
 export function NativeQuestionHint(props: {
+  session: string
   items: PendingQuestion[]
   busy: boolean
   onOpen: (item: PendingQuestion) => void
 }) {
-  const language = useLanguage()
+  const sdk = useSDK()
+  const scope = createMemo(() => props.session && JSON.stringify([sdk.url, sdk.directory, props.session]))
   return (
-    <Show when={props.items.length}>
+    <Show when={scope()} keyed>
+      {(_) => <Reminder {...props} />}
+    </Show>
+  )
+}
+
+function sanitize(value: unknown) {
+  if (!value || typeof value !== "object" || !("ignored" in value) || !Array.isArray(value.ignored))
+    return { ignored: [] }
+  return {
+    ignored: [
+      ...new Set(value.ignored.filter((item): item is string => typeof item === "string" && item.length <= 1000)),
+    ],
+  }
+}
+
+function Reminder(props: Parameters<typeof NativeQuestionHint>[0]) {
+  const sdk = useSDK()
+  const language = useLanguage()
+  const [store, setStore, , ready] = persisted(
+    {
+      ...Persist.session(sdk.directory, props.session, `native-question-hints.v1:${base64Encode(sdk.url)}`),
+      migrate: sanitize,
+      sanitize,
+    },
+    createStore({ ignored: [] as string[] }),
+  )
+  const key = (item: PendingQuestion) => JSON.stringify([item.question.thread, item.question.item])
+  const ignored = createMemo(() => new Set(store.ignored))
+  const items = createMemo(() => (ready() ? props.items.filter((item) => !ignored().has(key(item))) : []))
+  const ignore = () => {
+    if (!ready() || props.busy) return
+    const current = items().map(key)
+    setStore("ignored", (previous) => [...new Set([...previous, ...current])])
+  }
+  return (
+    <Show when={items().length}>
       <div class="flex items-center gap-2 py-1 text-12-regular text-text-weak" data-component="native-question-hint">
-        <span role="status">{language.t("native.question.pending", { count: props.items.length })}</span>
-        <Button size="small" variant="ghost" disabled={props.busy} onClick={() => props.onOpen(props.items[0])}>
+        <span role="status">{language.t("native.question.pending", { count: items().length })}</span>
+        <Button size="small" variant="ghost" disabled={props.busy} onClick={() => props.onOpen(items()[0])}>
           {language.t(props.busy ? "native.question.locating" : "native.question.open")}
+        </Button>
+        <Button
+          size="small"
+          variant="ghost"
+          disabled={props.busy}
+          title={language.t("native.question.ignore.description")}
+          onClick={ignore}
+        >
+          {language.t("native.question.ignore")}
         </Button>
       </div>
     </Show>
