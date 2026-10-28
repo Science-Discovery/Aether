@@ -194,10 +194,20 @@ import type {
   MigrateSessionsErrors,
   MigrateSessionsResponses,
   MigrateSourcesResponses,
+  NativeDequeueErrors,
+  NativeDequeueResponses,
   NativeEngineInput,
+  NativeEnqueueErrors,
+  NativeEnqueueResponses,
   NativeHistoryResponses,
+  NativeMode,
   NativePermission,
+  NativeResumeQueueErrors,
+  NativeResumeQueueResponses,
+  NativeRuntimeResponses,
   NativeStatusResponses,
+  NativeSteerResponses,
+  NativeUsageResponses,
   OutputFormat,
   Part as Part2,
   PartDeleteErrors,
@@ -2833,6 +2843,7 @@ export class Session2 extends HeyApiClient {
       engine?: {
         type: "codex"
         permission?: NativePermission
+        mode?: NativeMode
       }
       time?: {
         archived?: number
@@ -4343,6 +4354,36 @@ export class Provider extends HeyApiClient {
 
 export class Native extends HeyApiClient {
   /**
+   * Read Codex account limits
+   */
+  public usage<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      refresh?: boolean
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "refresh" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<NativeUsageResponses, unknown, ThrowOnError>({
+      url: "/native/codex/usage",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
    * Inspect the native Codex agent
    *
    * Discover Codex on the server and inspect its protocol, account status and model catalog without running inference.
@@ -4403,6 +4444,182 @@ export class Native extends HeyApiClient {
     )
     return (options?.client ?? this.client).post<NativeHistoryResponses, unknown, ThrowOnError>({
       url: "/native/codex/{sessionID}/history",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Read the Aether-owned Codex run and pending queue
+   */
+  public runtime<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<NativeRuntimeResponses, unknown, ThrowOnError>({
+      url: "/native/codex/{sessionID}/runtime",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Append text to the current Aether-owned Codex turn
+   */
+  public steer<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+      messageID?: string
+      turnID?: string
+      text?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "messageID" },
+            { in: "body", key: "turnID" },
+            { in: "body", key: "text" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<NativeSteerResponses, unknown, ThrowOnError>({
+      url: "/native/codex/{sessionID}/steer",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Queue a text message after the current Codex task
+   */
+  public enqueue<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+      messageID?: string
+      text?: string
+      model?: string
+      effort?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "messageID" },
+            { in: "body", key: "text" },
+            { in: "body", key: "model" },
+            { in: "body", key: "effort" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<NativeEnqueueResponses, NativeEnqueueErrors, ThrowOnError>({
+      url: "/native/codex/{sessionID}/queue",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Remove a queued message without resending it
+   */
+  public dequeue<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      messageID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "path", key: "messageID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).delete<NativeDequeueResponses, NativeDequeueErrors, ThrowOnError>({
+      url: "/native/codex/{sessionID}/queue/{messageID}",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Resume pending Codex messages after reviewing a paused queue
+   */
+  public resumeQueue<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<NativeResumeQueueResponses, NativeResumeQueueErrors, ThrowOnError>({
+      url: "/native/codex/{sessionID}/queue/resume",
       ...options,
       ...params,
     })

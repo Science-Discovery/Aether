@@ -166,6 +166,80 @@ export namespace NativeStore {
     })
   }
 
+  /** Steering is consumed atomically: it must never enter the next-turn outbox. */
+  export function steer(message: MessageV2.WithParts, assistant: MessageID, thread: string, turn: string) {
+    Database.transactionProject(Instance.project.id, (db) => {
+      db.insert(NativeInputTable)
+        .values({
+          id: message.info.id,
+          session_id: message.info.sessionID,
+          data: message,
+          context: false,
+          state: "consumed",
+          dispatch_id: message.info.id,
+          time_created: message.info.time.created,
+        })
+        .run()
+      db.insert(NativeDispatchTable)
+        .values({
+          id: message.info.id,
+          session_id: message.info.sessionID,
+          assistant_id: assistant,
+          thread_id: thread,
+          turn_id: turn,
+          state: "sending",
+          time_created: Date.now(),
+          time_updated: Date.now(),
+        })
+        .run()
+    })
+  }
+
+  export function delivery(
+    session: SessionID,
+    id: MessageID,
+    status: "accepted" | "rejected" | "uncertain",
+    error?: string,
+  ) {
+    return Database.transactionProject(Instance.project.id, (db) => {
+      const row = db
+        .select()
+        .from(NativeInputTable)
+        .where(and(eq(NativeInputTable.session_id, session), eq(NativeInputTable.id, id)))
+        .get()
+      if (!row) throw new Error("The native steering input is missing")
+      const data = {
+        ...row.data,
+        parts: row.data.parts.map((part) =>
+          part.type === "text"
+            ? {
+                ...part,
+                metadata: {
+                  ...part.metadata,
+                  nativeSteer: {
+                    ...(typeof part.metadata?.nativeSteer === "object" && part.metadata.nativeSteer !== null
+                      ? part.metadata.nativeSteer
+                      : {}),
+                    status,
+                    ...(error ? { error } : { error: undefined }),
+                  },
+                },
+              }
+            : part,
+        ),
+      }
+      db.update(NativeInputTable)
+        .set({ data, state: status === "rejected" ? "failed" : "consumed" })
+        .where(and(eq(NativeInputTable.session_id, session), eq(NativeInputTable.id, id)))
+        .run()
+      db.update(NativeDispatchTable)
+        .set({ state: status, time_updated: Date.now() })
+        .where(and(eq(NativeDispatchTable.session_id, session), eq(NativeDispatchTable.id, id)))
+        .run()
+      return data
+    })
+  }
+
   export function review(session: SessionID, id: MessageID, part: MessageV2.ToolPart) {
     Database.transactionProject(Instance.project.id, (db) => {
       const row = db

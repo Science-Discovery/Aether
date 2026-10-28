@@ -4,7 +4,7 @@ import { Select } from "@opencode-ai/ui/select"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { useLanguage } from "@/context/language"
 import { useLocal } from "@/context/local"
-import type { NativePermission } from "@/utils/native"
+import type { NativeMode, NativePermission } from "@/utils/native"
 import { VariantSelect } from "./prompt-input/variant-select"
 import { NativeHistoryControl } from "./native-history"
 
@@ -55,6 +55,28 @@ export function NativeModels() {
           onSelect={native.setEffort}
         />
       </Show>
+      <Tooltip value={language.t("native.mode.next")}>
+        <div>
+          <Select<NativeMode>
+            options={
+              native.status()?.capabilities?.plan || native.mode() === "plan" ? ["default", "plan"] : ["default"]
+            }
+            current={native.mode()}
+            label={(value) => language.t(`native.mode.${value}`)}
+            onSelect={(value) => value && void native.setMode(value)}
+            disabled={!native.enabled() || native.loading() || native.saving()}
+            variant="ghost"
+            size="normal"
+            valueClass="truncate text-13-regular text-text-base"
+            triggerProps={{ "data-action": "prompt-native-mode", "aria-label": language.t("native.mode") }}
+          />
+        </div>
+      </Tooltip>
+      <Show when={native.enabled() && !native.loading() && !native.status()?.capabilities?.plan}>
+        <span role="status" class="text-12-regular text-text-weak" title={native.status()?.capabilities?.error}>
+          {language.t("native.mode.unavailable")}
+        </span>
+      </Show>
       <Show when={!native.enabled()}>
         <span role="status" class="text-12-regular text-text-weak">
           {language.t("native.disabledShort")}
@@ -102,13 +124,13 @@ export function NativeModels() {
       </Tooltip>
       <Show when={native.saving()}>
         <span role="status" class="text-12-regular text-text-weak">
-          {language.t("native.permission.saving")}
+          {language.t("native.settings.saving")}
         </span>
       </Show>
       <Show when={native.permissionError()}>
         {(error) => (
           <span role="alert" class="text-12-regular text-text-weak">
-            {language.t("native.permission.failed", { error: error() })}
+            {language.t("native.settings.failed", { error: error() })}
           </span>
         )}
       </Show>

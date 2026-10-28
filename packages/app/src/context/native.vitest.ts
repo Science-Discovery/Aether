@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => ({
   queries: [] as boolean[],
   wait: undefined as Promise<void> | undefined,
   auto: true,
+  plan: true,
   updates: [] as { sessionID: string; engine: NativeEngine }[],
   save: undefined as Promise<void> | undefined,
   reject: false,
@@ -104,6 +105,7 @@ vi.mock("./sdk", () => ({
               auth: mocks.auth,
               error: mocks.error,
               permissions: { auto: mocks.auto },
+              capabilities: { plan: mocks.plan, steer: true },
               models: [
                 { id: "one", name: "One", default: true, efforts: ["low", "high"], effort: "low" },
                 { id: "two", name: "Two", default: false, efforts: ["medium"], effort: "medium" },
@@ -134,6 +136,7 @@ beforeEach(() => {
   mocks.queries = []
   mocks.wait = undefined
   mocks.auto = true
+  mocks.plan = true
   mocks.updates = []
   mocks.save = undefined
   mocks.reject = false
@@ -147,6 +150,36 @@ afterEach(() => {
 })
 
 describe("native session controls", () => {
+  test("defaults to execution and persists native plan mode independently of permissions and model drafts", async () => {
+    const native = mount()
+    native.select("codex")
+    await vi.waitFor(() => expect(native.ready()).toBe(true))
+    expect(native.mode()).toBe("default")
+    await native.setMode("plan")
+    native.setModel("two")
+    await native.setPermission("user")
+    expect(native.selection()).toMatchObject({ mode: "plan", model: "two", permission: "user" })
+    expect(mocks.updates).toEqual([])
+    setState({ id: "saved", sessions: { saved: { engine: { type: "codex", model: "one", permission: "auto" } } } })
+    mocks.sse = false
+    native.setModel("two")
+    await native.setMode("plan")
+    expect(mocks.updates).toEqual([{ sessionID: "saved", engine: { type: "codex", mode: "plan" } }])
+    expect(native.selection()).toMatchObject({ model: "two", mode: "plan", permission: "auto" })
+    setState("sessions", "saved", "engine", "mode", "default")
+    expect(native.selection()).toMatchObject({ model: "two", mode: "default", permission: "auto" })
+  })
+
+  test("keeps the saved mode when an older server ignores a mode update", async () => {
+    setState({ id: "old", sessions: { old: { engine: { type: "codex", model: "one" } } } })
+    const native = mount()
+    await vi.waitFor(() => expect(native.ready()).toBe(true))
+    mocks.ignored = true
+    await native.setMode("plan")
+    expect(native.mode()).toBe("default")
+    expect(native.permissionError()).toContain("did not confirm")
+  })
+
   test("new drafts use automatic approval while legacy sessions retain user approval across model changes", async () => {
     const native = mount()
     native.select("codex")

@@ -43,7 +43,27 @@ export namespace NativeSync {
       ],
       receipts: ledger.flatMap((entry) => (entry.assistant ? [entry.assistant] : [])),
     })
-    const missing = ledger.filter((entry) => entry.turn_id && !snapshot.turns.some((turn) => turn.id === entry.turn_id))
+    const steered = inputs.filter((entry) =>
+      entry.data.parts.some((part) => part.type === "text" && part.metadata?.nativeSteer),
+    )
+    for (const row of steered) {
+      const entry = ledger.find((entry) => entry.id === row.id)
+      const links = projection.links.filter((link) => link.client === row.id)
+      if (
+        !entry ||
+        entry.state === "rejected" ||
+        links.length !== 1 ||
+        entry.thread_id !== snapshot.thread?.id ||
+        entry.turn_id !== links[0].turn
+      )
+        continue
+      if (entry.state !== "accepted") row.data = NativeStore.delivery(session.id, row.id, "accepted")
+      entry.state = "accepted"
+    }
+    const missing = ledger.filter(
+      (entry) =>
+        entry.state !== "rejected" && entry.turn_id && !snapshot.turns.some((turn) => turn.id === entry.turn_id),
+    )
     if (missing.length) {
       projection.complete = false
       projection.issues.push({
@@ -54,7 +74,9 @@ export namespace NativeSync {
     if (
       ledger.some(
         (entry) =>
-          entry.state !== "accepted" && projection.links.filter((link) => link.client === entry.id).length !== 1,
+          entry.state !== "rejected" &&
+          (entry.state !== "accepted" || steered.some((row) => row.id === entry.id)) &&
+          projection.links.filter((link) => link.client === entry.id).length !== 1,
       )
     ) {
       projection.complete = false
@@ -67,7 +89,7 @@ export namespace NativeSync {
     const used = new Set<MessageID>()
     const messages = projection.messages.flatMap((item) => {
       if (item.info.role === "assistant") {
-        const receipt = ledger.find((entry) => entry.assistant_id === item.info.id)
+        const receipt = ledger.find((entry) => entry.assistant_id === item.info.id && entry.assistant)
         return [
           {
             ...item,
@@ -90,10 +112,15 @@ export namespace NativeSync {
         },
       ]
     })
-    const uncertain = new Set(ledger.filter((entry) => entry.state !== "accepted").map((entry) => entry.id))
+    const uncertain = new Set(
+      ledger.filter((entry) => entry.state !== "accepted" && entry.state !== "rejected").map((entry) => entry.id),
+    )
     const local = inputs.filter(
       (entry) =>
-        !used.has(entry.id) && (entry.state !== "consumed" || (entry.dispatch_id && uncertain.has(entry.dispatch_id))),
+        !used.has(entry.id) &&
+        (entry.state !== "consumed" ||
+          steered.includes(entry) ||
+          (entry.dispatch_id && uncertain.has(entry.dispatch_id))),
     )
     messages.push(
       ...local.flatMap((entry) => [
@@ -131,7 +158,13 @@ export namespace NativeSync {
               ...part,
               id: PartID.make(`prt_zz${String(previous.parts.length + index).padStart(8, "0")}_${part.id}`),
             }))
-          return { info: previous.info, parts: [...previous.parts, ...additions] }
+          const parts = previous.parts.map((part) => {
+            if (part.type !== "text" || !part.metadata?.nativeSteer) return part
+            const next = entry.parts.find((item) => identity(item) === identity(part))
+            if (next?.type !== "text" || !next.metadata?.nativeSteer) return part
+            return { ...part, metadata: { ...part.metadata, nativeSteer: next.metadata.nativeSteer } }
+          })
+          return { info: previous.info, parts: [...parts, ...additions] }
         })
     const unique = new Map<MessageID, MessageV2.WithParts>()
     let time = 0
@@ -178,7 +211,7 @@ export namespace NativeSync {
         .filter((link) => link.client && projection.links.filter((item) => item.client === link.client).length === 1)
         .forEach((link) => {
           const entry = ledger.find((row) => row.id === link.client && row.thread_id === snapshot.thread?.id)
-          if (entry && (!entry.turn_id || entry.turn_id === link.turn))
+          if (entry && entry.state !== "rejected" && (!entry.turn_id || entry.turn_id === link.turn))
             NativeStore.accept(session.id, entry.id, link.turn)
         })
       if (projection.complete) NativeStore.synced(session.id)

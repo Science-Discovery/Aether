@@ -98,4 +98,58 @@ describe("getSessionContextMetrics", () => {
     expect(metrics.totalCost).toBe(0)
     expect(metrics.context).toBeUndefined()
   })
+
+  test("native context uses the last reported input and window instead of provider metadata or turn totals", () => {
+    const message = {
+      ...assistant("native", { input: 1000, output: 200, reasoning: 150, read: 500, write: 0 }, 0, "codex-native"),
+      nativeUsage: { input: 400, total: 450, contextWindow: 2000, updatedAt: 1 },
+    } as Message
+    const metrics = getSessionContextMetrics(
+      [message],
+      [{ id: "codex-native", models: { "gpt-4.1": { limit: { context: 10 } } } }],
+    )
+    expect(metrics.native).toBe(true)
+    expect(metrics.totalCost).toBeNull()
+    expect(metrics.context).toMatchObject({ total: 1700, limit: 2000, used: 400, usage: 20, reasoning: 150 })
+    expect(metrics.context?.provider).toBeUndefined()
+  })
+
+  test("native totals use the reported total without counting reasoning twice", () => {
+    const message = assistant(
+      "native",
+      { input: 100, output: 50, reasoning: 30, read: 20, write: 0 },
+      0,
+      "codex-native",
+    )
+    if (message.role !== "assistant") throw new Error("Expected assistant fixture")
+    message.tokens.total = 170
+    expect(getSessionContextMetrics([message]).context?.total).toBe(170)
+    delete message.tokens.total
+    expect(getSessionContextMetrics([message]).context?.total).toBe(170)
+  })
+
+  test("native history without context evidence remains unknown, including an empty native session", () => {
+    const message = assistant(
+      "native",
+      { input: 100, output: 50, reasoning: 30, read: 20, write: 0 },
+      0,
+      "codex-native",
+    )
+    const metrics = getSessionContextMetrics(
+      [message],
+      [{ id: "codex-native", models: { "gpt-4.1": { limit: { context: 1000 } } } }],
+    )
+    expect(metrics.context?.limit).toBeUndefined()
+    expect(metrics.context?.usage).toBeNull()
+    expect(metrics.totalCost).toBeNull()
+    expect(getSessionContextMetrics([], [], true)).toEqual({ native: true, totalCost: null, context: undefined })
+  })
+
+  test("a known zero last input is different from a missing context measurement", () => {
+    const message = {
+      ...assistant("native", { input: 100, output: 50, reasoning: 30, read: 20, write: 0 }, 0, "codex-native"),
+      nativeUsage: { input: 0, contextWindow: 2000, updatedAt: 1 },
+    } as Message
+    expect(getSessionContextMetrics([message]).context?.usage).toBe(0)
+  })
 })

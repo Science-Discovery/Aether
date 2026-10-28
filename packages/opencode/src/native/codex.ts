@@ -7,6 +7,7 @@ import { which } from "@/util/which"
 import { Protocol } from "./protocol"
 import { Native } from "./schema"
 import { NativePermissions } from "./permissions"
+import { NativeModes } from "./modes"
 
 export namespace Codex {
   export const Config = Native.Config
@@ -30,6 +31,7 @@ export namespace Codex {
       auth: z.enum(["chatgpt", "apiKey", "unknown", "missing"]),
       models: z.array(Model),
       permissions: NativePermissions.Capabilities.optional(),
+      capabilities: NativeModes.Capabilities.optional(),
       error: z.string().optional(),
     })
     .meta({ ref: "NativeCodexStatus" })
@@ -237,6 +239,16 @@ export namespace Codex {
         opened.client.request("account/read", { refreshToken: false }).then((value) => account.parse(value)),
         models(opened.client),
         NativePermissions.discover(resolved),
+        NativeModes.discover(resolved).then(async (capabilities) => {
+          if (!capabilities.plan) return capabilities
+          return NativeModes.list(opened.client).then(
+            (presets) => ({
+              ...capabilities,
+              plan: ["default", "plan"].every((mode) => presets.some((preset) => preset.mode === mode)),
+            }),
+            () => ({ ...capabilities, plan: false, error: "Codex collaboration mode presets could not be read." }),
+          )
+        }),
       ])
       const current = results[0].status === "fulfilled" ? results[0].value : undefined
       const type = current?.account?.type
@@ -254,6 +266,7 @@ export namespace Codex {
               : "unknown",
         models: results[1].status === "fulfilled" ? results[1].value : [],
         permissions: results[2].status === "fulfilled" ? results[2].value : { auto: false },
+        capabilities: results[3].status === "fulfilled" ? results[3].value : { steer: false, plan: false },
         ...(results.slice(0, 2).some((result) => result.status === "rejected")
           ? { error: "Codex connected, but account or model discovery failed" }
           : {}),

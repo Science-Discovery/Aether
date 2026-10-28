@@ -67,6 +67,7 @@ import { reviewCharLimits, createReviewCharCounter } from "../skill-evolution/li
 import { Config } from "@/config/config"
 import { Native } from "../native/schema"
 import { NativeSession } from "../native/session"
+import { NativeQueue } from "../native/queue"
 
 // @ts-ignore
 globalThis.AI_SDK_LOG_WARNINGS = false
@@ -188,12 +189,14 @@ export namespace SessionPrompt {
     return fn(session)
   }
 
-  async function runPrompt(input: PromptInput): Promise<MessageV2.WithParts> {
+  async function runPrompt(input: PromptInput, ready?: () => boolean): Promise<MessageV2.WithParts> {
     return home(input.sessionID, async (session) => {
+      if (ready && !ready()) throw new Error("The queued request was paused before execution.")
       // Claim the busy lock before anything is persisted so a losing concurrent
       // prompt fails with BusyError instead of writing a permanent orphan message.
       const claim = start(input.sessionID)
       if (!claim) throw new Session.BusyError(input.sessionID)
+      if (session.engine && !ready && !input.noReply) NativeQueue.started(input.sessionID)
       await using _ = defer(() => {
         const s = state()
         if (s[input.sessionID]?.abort.signal === claim) delete s[input.sessionID]
@@ -208,7 +211,13 @@ export namespace SessionPrompt {
           () => undefined,
           () => undefined,
         )
-        return await work
+        const result = await work.catch(async (error: unknown) => {
+          await NativeQueue.pause(input.sessionID).catch(() => undefined)
+          throw error
+        })
+        await finish(input.sessionID, claim)
+        if (!input.noReply) await NativeQueue.completed(input.sessionID, result)
+        return result
       }
 
       await SessionRevert.awaitPending(input.sessionID)
@@ -243,6 +252,12 @@ export namespace SessionPrompt {
   }
 
   export const prompt = fn(PromptInput, runPrompt)
+
+  // Internal queue dispatch checks cancellation after resolving the owning
+  // workspace, immediately before acquiring the same busy claim as normal input.
+  export function queued(input: PromptInput, ready: () => boolean) {
+    return runPrompt(PromptInput.parse(input), ready)
+  }
 
   export async function resolvePromptParts(template: string): Promise<PromptInput["parts"]> {
     const parts: PromptInput["parts"] = [
@@ -356,6 +371,8 @@ export namespace SessionPrompt {
       return Instance.provide({ directory: session.directory, fn: () => cancel(sessionID) })
     }
     log.info("cancel", { sessionID })
+    if (session?.engine)
+      await NativeQueue.pause(sessionID).catch((error) => log.warn("pause native queue", { sessionID, error }))
     const s = state()
     const match = s[sessionID]
     if (match) {

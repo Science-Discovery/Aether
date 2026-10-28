@@ -384,7 +384,7 @@ export const SessionRoutes = lazy(() =>
         "json",
         z.object({
           title: z.string().optional(),
-          engine: Native.Input.pick({ type: true, permission: true }).strict().optional(),
+          engine: Native.Input.pick({ type: true, permission: true, mode: true }).strict().optional(),
           time: z
             .object({
               archived: z.number().optional(),
@@ -398,6 +398,9 @@ export const SessionRoutes = lazy(() =>
 
         if (updates.engine?.permission !== undefined) {
           await Session.setNativePermission({ sessionID, permission: updates.engine.permission })
+        }
+        if (updates.engine?.mode !== undefined) {
+          await Session.setNativeMode({ sessionID, mode: updates.engine.mode })
         }
 
         if (updates.title !== undefined) {

@@ -470,6 +470,11 @@ export type PermissionRule = {
 export type PermissionRuleset = Array<PermissionRule>
 
 /**
+ * Last collaboration mode dispatched to the native thread
+ */
+export type NativeMode = "default" | "plan"
+
+/**
  * Session approval mode; omitted on legacy sessions means user
  */
 export type NativePermission = "user" | "auto" | "full"
@@ -478,7 +483,9 @@ export type NativeEngine = {
   type: "codex"
   model?: string
   effort?: string
+  mode?: NativeMode
   permission?: NativePermission
+  collaboration?: NativeMode
   thread?: string
   cursor?: string
 }
@@ -788,6 +795,12 @@ export type AssistantMessage = {
       read: number
       write: number
     }
+  }
+  nativeUsage?: {
+    contextWindow?: number
+    input?: number
+    total?: number
+    updatedAt: number
   }
   structured?: unknown
   variant?: string
@@ -2321,6 +2334,7 @@ export type NativeEngineInput = {
   type: "codex"
   model?: string
   effort?: string
+  mode?: NativeMode
   permission?: NativePermission
 }
 
@@ -2430,6 +2444,27 @@ export type ProviderAuthAuthorization = {
   instructions: string
 }
 
+export type NativeUsageStatus = {
+  enabled: boolean
+  state: "available" | "unavailable" | "disabled"
+  updatedAt?: number
+  limits: Array<{
+    id: string
+    name?: string
+    primary?: {
+      usedPercent: number
+      windowDurationMins?: number
+      resetsAt?: number
+    }
+    secondary?: {
+      usedPercent: number
+      windowDurationMins?: number
+      resetsAt?: number
+    }
+  }>
+  error?: string
+}
+
 export type NativeCodexModel = {
   id: string
   name: string
@@ -2444,6 +2479,12 @@ export type NativePermissionCapabilities = {
   error?: string
 }
 
+export type NativeModeCapabilities = {
+  steer: boolean
+  plan: boolean
+  error?: string
+}
+
 export type NativeCodexStatus = {
   enabled: boolean
   installed: boolean
@@ -2453,6 +2494,7 @@ export type NativeCodexStatus = {
   auth: "chatgpt" | "apiKey" | "unknown" | "missing"
   models: Array<NativeCodexModel>
   permissions?: NativePermissionCapabilities
+  capabilities?: NativeModeCapabilities
   error?: string
 }
 
@@ -2460,6 +2502,36 @@ export type NativeHistoryStatus = {
   state: "synced" | "partial" | "unavailable" | "busy" | "disabled" | "pending"
   messages: number
   updated?: number
+  error?: string
+}
+
+export type NativeActive = {
+  phase: "starting" | "running" | "waiting" | "stopping"
+  threadID?: string
+  turnID?: string
+  mode: NativeMode
+  steer: boolean
+  error?: string
+}
+
+export type NativeQueueStatus = {
+  paused: boolean
+  reason?: string
+  items: Array<{
+    id: string
+    text: string
+    model?: string
+    effort?: string
+    state: "pending" | "dispatching" | "uncertain" | "failed"
+    error?: string
+    created: number
+  }>
+}
+
+export type NativeSteered = {
+  status: "accepted" | "rejected" | "uncertain"
+  messageID: string
+  turnID: string
   error?: string
 }
 
@@ -4699,6 +4771,7 @@ export type SessionUpdateData = {
     engine?: {
       type: "codex"
       permission?: NativePermission
+      mode?: NativeMode
     }
     time?: {
       archived?: number
@@ -6299,6 +6372,26 @@ export type ProviderOauthCallbackResponses = {
 
 export type ProviderOauthCallbackResponse = ProviderOauthCallbackResponses[keyof ProviderOauthCallbackResponses]
 
+export type NativeUsageData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+    refresh?: boolean
+  }
+  url: "/native/codex/usage"
+}
+
+export type NativeUsageResponses = {
+  /**
+   * Account limits, without running inference
+   */
+  200: NativeUsageStatus
+}
+
+export type NativeUsageResponse = NativeUsageResponses[keyof NativeUsageResponses]
+
 export type NativeStatusData = {
   body?: never
   path?: never
@@ -6340,6 +6433,157 @@ export type NativeHistoryResponses = {
 }
 
 export type NativeHistoryResponse = NativeHistoryResponses[keyof NativeHistoryResponses]
+
+export type NativeRuntimeData = {
+  body?: never
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/native/codex/{sessionID}/runtime"
+}
+
+export type NativeRuntimeResponses = {
+  /**
+   * Local execution state; not Desktop ownership
+   */
+  200: {
+    active: NativeActive | null
+    queue: NativeQueueStatus
+  }
+}
+
+export type NativeRuntimeResponse = NativeRuntimeResponses[keyof NativeRuntimeResponses]
+
+export type NativeSteerData = {
+  body?: {
+    messageID: string
+    turnID: string
+    text: string
+  }
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/native/codex/{sessionID}/steer"
+}
+
+export type NativeSteerResponses = {
+  /**
+   * Delivery evidence; uncertain requests must not be replayed
+   */
+  200: NativeSteered
+}
+
+export type NativeSteerResponse = NativeSteerResponses[keyof NativeSteerResponses]
+
+export type NativeEnqueueData = {
+  body?: {
+    messageID: string
+    text: string
+    model?: string
+    effort?: string
+  }
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/native/codex/{sessionID}/queue"
+}
+
+export type NativeEnqueueErrors = {
+  /**
+   * Queue cannot accept this input
+   */
+  409: {
+    error: string
+  }
+}
+
+export type NativeEnqueueError = NativeEnqueueErrors[keyof NativeEnqueueErrors]
+
+export type NativeEnqueueResponses = {
+  /**
+   * Durable pending input
+   */
+  200: NativeQueueStatus
+}
+
+export type NativeEnqueueResponse = NativeEnqueueResponses[keyof NativeEnqueueResponses]
+
+export type NativeDequeueData = {
+  body?: never
+  path: {
+    sessionID: string
+    messageID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/native/codex/{sessionID}/queue/{messageID}"
+}
+
+export type NativeDequeueErrors = {
+  /**
+   * Message is already dispatching
+   */
+  409: {
+    error: string
+  }
+}
+
+export type NativeDequeueError = NativeDequeueErrors[keyof NativeDequeueErrors]
+
+export type NativeDequeueResponses = {
+  /**
+   * Updated queue
+   */
+  200: NativeQueueStatus
+}
+
+export type NativeDequeueResponse = NativeDequeueResponses[keyof NativeDequeueResponses]
+
+export type NativeResumeQueueData = {
+  body?: never
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/native/codex/{sessionID}/queue/resume"
+}
+
+export type NativeResumeQueueErrors = {
+  /**
+   * Unresolved messages require review
+   */
+  409: {
+    error: string
+  }
+}
+
+export type NativeResumeQueueError = NativeResumeQueueErrors[keyof NativeResumeQueueErrors]
+
+export type NativeResumeQueueResponses = {
+  /**
+   * Queue state
+   */
+  200: NativeQueueStatus
+}
+
+export type NativeResumeQueueResponse = NativeResumeQueueResponses[keyof NativeResumeQueueResponses]
 
 export type DatabaseLegacyStatusData = {
   body?: never

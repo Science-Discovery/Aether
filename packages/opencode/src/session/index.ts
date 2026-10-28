@@ -58,6 +58,7 @@ import { PROJECT } from "@/persist/naming"
 import { Native } from "../native/schema"
 import { NativeInput } from "../native/input"
 import { NativeRuntime } from "../native/runtime"
+import { NativeQueue } from "../native/queue"
 
 export namespace Session {
   const log = Log.create({ service: "session" })
@@ -1095,7 +1096,9 @@ export namespace Session {
         sessionID: input.sessionID,
         info: {
           projectID: session.projectID,
-          engine: input.preserve ? { ...input.engine, permission: current.engine.permission } : input.engine,
+          engine: input.preserve
+            ? { ...input.engine, permission: current.engine.permission, mode: current.engine.mode }
+            : input.engine,
           time: { updated: Date.now() },
         },
       })
@@ -1121,6 +1124,23 @@ export namespace Session {
       })
     },
   )
+
+  export const setNativeMode = fn(z.object({ sessionID: SessionID.zod, mode: Native.Mode }), async (input) => {
+    const session = await get(input.sessionID)
+    if (!session.engine) throw new Error("This session does not use the native Codex backend")
+    const current = Database.useProject(session.projectID, (db) =>
+      db.select({ engine: SessionTable.engine }).from(SessionTable).where(eq(SessionTable.id, input.sessionID)).get(),
+    )
+    if (!current?.engine) throw new Error("The native session no longer exists")
+    SyncEvent.run(Event.Updated, {
+      sessionID: input.sessionID,
+      info: {
+        projectID: session.projectID,
+        engine: { ...current.engine, mode: input.mode },
+        time: { updated: Date.now() },
+      },
+    })
+  })
 
   export const setRevert = fn(
     z.object({
@@ -1813,6 +1833,7 @@ export namespace Session {
       if (session.engine) {
         await SessionPrompt.cancel(sessionID)
         await NativeRuntime.remove(sessionID)
+        await NativeQueue.clear(sessionID)
         if (!session.engine.thread)
           await fs.rm(NativeInput.directory(sessionID), { recursive: true, force: true }).catch((error) => {
             log.error("failed to remove native session attachments", { sessionID, error })

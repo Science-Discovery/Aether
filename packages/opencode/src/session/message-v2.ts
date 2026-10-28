@@ -450,6 +450,14 @@ export namespace MessageV2 {
         write: z.number(),
       }),
     }),
+    nativeUsage: z
+      .object({
+        contextWindow: z.number().finite().positive().optional(),
+        input: z.number().finite().nonnegative().optional(),
+        total: z.number().finite().nonnegative().optional(),
+        updatedAt: z.number(),
+      })
+      .optional(),
     structured: z.any().optional(),
     variant: z.string().optional(),
     finish: z.string().optional(),

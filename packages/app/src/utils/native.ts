@@ -2,6 +2,7 @@ import type { NativeEngineInput, NativeCodexModel } from "@opencode-ai/sdk/v2"
 
 export type NativeEngine = NativeEngineInput
 export type NativePermission = NonNullable<NativeEngine["permission"]>
+export type NativeMode = "default" | "plan"
 export type NativeModel = NativeCodexModel
 
 export function nativeModel(models: NativeModel[], id?: string) {

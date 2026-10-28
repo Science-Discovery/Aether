@@ -176,3 +176,44 @@ test("ending the turn persists unresolved reviews as errors and rejects late app
     expect(NativeStore.dispatches(session.id)[0].reviews).toEqual(parts)
   })
 })
+
+test("native usage persists last input context independently of cumulative turn token accounting", async () => {
+  await scenario(async ({ assistant, events }) => {
+    const usage = (input: number, output: number) => ({
+      inputTokens: input,
+      outputTokens: output,
+      reasoningOutputTokens: 20,
+      cachedInputTokens: 10,
+      cacheWriteInputTokens: 0,
+      totalTokens: input + output,
+    })
+    await events.notification("thread/tokenUsage/updated", {
+      threadId: "thread",
+      turnId: "turn",
+      tokenUsage: { last: usage(100, 30), total: usage(1000, 300), modelContextWindow: 4000 },
+    })
+    await events.notification("thread/tokenUsage/updated", {
+      threadId: "thread",
+      turnId: "turn",
+      tokenUsage: { last: usage(150, 40), total: usage(1150, 340), modelContextWindow: 4000 },
+    })
+    expect(assistant.nativeUsage).toMatchObject({ input: 150, total: 190, contextWindow: 4000 })
+    expect(assistant.tokens.total).toBe(320)
+    expect((await MessageV2.get({ sessionID: assistant.sessionID, messageID: assistant.id })).info).toMatchObject({
+      nativeUsage: { input: 150, total: 190, contextWindow: 4000 },
+    })
+    await events.notification("thread/tokenUsage/updated", {
+      threadId: "other",
+      turnId: "turn",
+      tokenUsage: { last: usage(999, 20), total: usage(999, 20), modelContextWindow: 1000 },
+    })
+    expect(assistant.nativeUsage?.input).toBe(150)
+    await events.notification("thread/tokenUsage/updated", {
+      threadId: "thread",
+      turnId: "turn",
+      tokenUsage: { last: usage(25, 20), total: usage(1175, 360), modelContextWindow: null },
+    })
+    expect(assistant.nativeUsage?.input).toBe(25)
+    expect(assistant.nativeUsage?.contextWindow).toBeUndefined()
+  })
+})

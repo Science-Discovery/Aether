@@ -267,6 +267,21 @@ export namespace NativeEvents {
           reasoning: counts.reasoningOutputTokens,
           cache: { read: counts.cachedInputTokens, write: counts.cacheWriteInputTokens },
         }
+        // Last input is observed context evidence; cumulative turn usage is not
+        // the amount currently occupying the model's context window.
+        const input = z.number().finite().nonnegative().safeParse(last.data.inputTokens)
+        const capacity = z
+          .number()
+          .finite()
+          .positive()
+          .safeParse(usage.success ? usage.data.modelContextWindow : undefined)
+        const recent = z.number().finite().nonnegative().safeParse(last.data.totalTokens)
+        assistant.nativeUsage = {
+          input: input.success ? input.data : undefined,
+          contextWindow: capacity.success ? capacity.data : undefined,
+          total: recent.success ? recent.data : undefined,
+          updatedAt: Date.now(),
+        }
         await Session.updateMessage(assistant)
         return
       }

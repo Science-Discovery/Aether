@@ -36,6 +36,8 @@ let engine: NativeEngine | undefined
 let ready = true
 const commands: Array<{ name: string }> = []
 let invoked = 0
+let resets = 0
+let aborted = 0
 
 const promptValue: Prompt = [{ type: "text", content: "ls", start: 0, end: 2 }]
 
@@ -70,7 +72,10 @@ const clientFor = (directory: string) => {
         invoked++
         return { data: undefined }
       },
-      abort: async () => ({ data: undefined }),
+      abort: async () => {
+        aborted++
+        return { data: undefined }
+      },
     },
     worktree: {
       create: async () => ({ data: { directory: `${directory}/new` } }),
@@ -152,7 +157,9 @@ beforeAll(async () => {
     DEFAULT_PROMPT: [{ type: "text", content: "", start: 0, end: 0 }],
     usePrompt: () => ({
       current: () => promptValue,
-      reset: () => undefined,
+      reset: () => {
+        resets++
+      },
       set: () => undefined,
       context: {
         add: () => undefined,
@@ -206,6 +213,7 @@ beforeAll(async () => {
 
   mock.module("@/context/global-sync", () => ({
     useGlobalSync: () => ({
+      todo: { set: () => undefined },
       child: (directory: string) => {
         syncedDirectories.push(directory)
         storedSessions[directory] ??= []
@@ -290,6 +298,8 @@ beforeEach(() => {
   ready = true
   commands.length = 0
   invoked = 0
+  resets = 0
+  aborted = 0
   promptValue.splice(0, promptValue.length, { type: "text", content: "ls", start: 0, end: 2 })
   for (const key of Object.keys(storedSessions)) delete storedSessions[key]
 })
@@ -314,6 +324,83 @@ function nativeSubmit(overrides: Partial<Parameters<typeof createPromptSubmit>[0
 }
 
 describe("native prompt submission", () => {
+  test("submits text during native execution without stopping or starting a second prompt", async () => {
+    engine = { type: "codex", model: "native-model" }
+    params.id = "existing"
+    const sent: string[] = []
+    const submit = nativeSubmit({
+      working: () => true,
+      nativeSubmit: async (text) => {
+        sent.push(text)
+        return true
+      },
+    })
+    await submit.handleSubmit({ preventDefault: () => undefined } as Event)
+    expect(sent).toEqual(["ls"])
+    expect(aborted).toBe(0)
+    expect(prompted).toHaveLength(0)
+    expect(resets).toBe(1)
+  })
+
+  test("retains attachments and references instead of silently dropping them from an active-turn input", async () => {
+    engine = { type: "codex", model: "native-model" }
+    params.id = "existing"
+    promptValue.push({ type: "file", path: "/paper.pdf", content: "@paper", start: 2, end: 8 })
+    let sent = false
+    const submit = nativeSubmit({
+      working: () => true,
+      nativeSubmit: async () => {
+        sent = true
+        return true
+      },
+    })
+    await submit.handleSubmit({ preventDefault: () => undefined } as Event)
+    expect(sent).toBe(false)
+    expect(resets).toBe(0)
+    expect(promptValue).toHaveLength(2)
+    expect(toasts.at(-1)?.title).toBe("native.run.textOnly")
+  })
+
+  test("preserves typing entered while an active-turn request is awaiting acknowledgement", async () => {
+    engine = { type: "codex", model: "native-model" }
+    params.id = "existing"
+    const pending = Promise.withResolvers<boolean>()
+    const submit = nativeSubmit({ working: () => true, nativeSubmit: () => pending.promise })
+    const sending = submit.handleSubmit({ preventDefault: () => undefined } as Event)
+    promptValue.splice(0, 1, { type: "text", content: "New instructions", start: 0, end: 16 })
+    pending.resolve(true)
+    await sending
+    expect(resets).toBe(0)
+    expect(promptValue[0]).toMatchObject({ content: "New instructions" })
+  })
+
+  test("keeps stop available while a supplementary message awaits acknowledgement", async () => {
+    engine = { type: "codex", model: "native-model" }
+    params.id = "existing"
+    const pending = Promise.withResolvers<boolean>()
+    const submit = nativeSubmit({ working: () => true, nativeSubmit: () => pending.promise })
+    const sending = submit.handleSubmit({ preventDefault: () => undefined } as Event)
+    await submit.abort()
+    expect(aborted).toBe(1)
+    expect(resets).toBe(0)
+    pending.resolve(false)
+    await sending
+    expect(resets).toBe(0)
+  })
+
+  test("keeps a rejected supplementary message and still stops the original Aether backend", async () => {
+    engine = { type: "codex", model: "native-model" }
+    params.id = "existing"
+    const submit = nativeSubmit({ working: () => true, nativeSubmit: async () => false })
+    await submit.handleSubmit({ preventDefault: () => undefined } as Event)
+    expect(resets).toBe(0)
+    expect(aborted).toBe(0)
+    engine = undefined
+    await submit.handleSubmit({ preventDefault: () => undefined } as Event)
+    await flush()
+    expect(aborted).toBe(1)
+  })
+
   test("pins the engine at creation and sends native model settings without Aether auto approvals", async () => {
     engine = { type: "codex", model: "native-model", effort: "high" }
     const submit = nativeSubmit()

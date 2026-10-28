@@ -17,8 +17,12 @@ import { NativeRuntime } from "./runtime"
 import { NativeStore } from "./store"
 import { NativeLock } from "./lock"
 import { NativePermissions } from "./permissions"
+import { NativeModes } from "./modes"
+import { NativeInteraction } from "./interaction"
 
 export namespace NativeSession {
+  export const active = NativeInteraction.active
+  export const steer = NativeInteraction.steer
   const object = z.record(z.string(), z.unknown())
   const response = z.object({
     thread: z.object({ id: z.string().min(1), status: z.object({ type: z.string() }).optional() }).passthrough(),
@@ -299,6 +303,13 @@ export namespace NativeSession {
     }
     await Session.updateMessage(assistant)
     const events = NativeEvents.create(assistant)
+    const control = NativeInteraction.open({
+      session,
+      assistant,
+      signal,
+      ended: () => events.state.settled,
+      mode: session.engine.mode ?? "default",
+    })
     const controller = new AbortController()
     const state = {
       client: undefined as Protocol.Client | undefined,
@@ -341,17 +352,19 @@ export namespace NativeSession {
           // request. Drain accepted notifications before inspecting that item.
           await state.client?.drain()
           signal.throwIfAborted()
-          return tree.request(method, value, async (method, value) => {
-            const data = object.parse(value)
-            return request(
-              method,
-              value,
-              assistant,
-              AbortSignal.any([signal, cancelled]),
-              typeof data.itemId === "string" ? events.changes(data.itemId) : undefined,
-              typeof data.itemId === "string" ? events.command(data.itemId) : undefined,
-            )
-          })
+          return control.wait(() =>
+            tree.request(method, value, async (method, value) => {
+              const data = object.parse(value)
+              return request(
+                method,
+                value,
+                assistant,
+                AbortSignal.any([signal, cancelled]),
+                typeof data.itemId === "string" ? events.changes(data.itemId) : undefined,
+                typeof data.itemId === "string" ? events.command(data.itemId) : undefined,
+              )
+            }),
+          )
         },
       })
       state.lease = connection
@@ -387,11 +400,22 @@ export namespace NativeSession {
           text_elements: [],
         })
       if (!native.length) throw new Error("The message has no supported content to send to Codex.")
-      const file = session.engine.permission === "auto" ? await Codex.discover(cfg.native?.codex?.path) : undefined
+      const file = await Codex.discover(cfg.native?.codex?.path)
+      const capabilities = file ? await NativeModes.discover(file) : { steer: false, plan: false }
+      const collaboration = await NativeModes.resolve(
+        connection.client,
+        {
+          mode: session.engine.mode ?? "default",
+          model: model.id,
+          effort,
+          previous: session.engine.collaboration,
+        },
+        capabilities,
+      )
       const permissions = NativePermissions.resolve(
         session.engine.permission,
         session.directory,
-        file ? await NativePermissions.discover(file) : undefined,
+        file && session.engine.permission === "auto" ? await NativePermissions.discover(file) : undefined,
       )
       const params = {
         model: model.id,
@@ -440,15 +464,24 @@ export namespace NativeSession {
         effort,
         clientUserMessageId: user.id,
         ...permissions.turn,
+        ...(collaboration ? { collaborationMode: collaboration } : {}),
         ...(input.format?.type === "json_schema" ? { outputSchema: input.format.schema } : {}),
       }
       Protocol.check("turn/start", payload)
+      const engine = {
+        type: "codex" as const,
+        thread: thread.thread.id,
+        model: model.id,
+        effort,
+        cursor: user.id,
+        collaboration: session.engine.collaboration,
+      }
       // Once dispatch begins, an ambiguous transport failure must not replay
       // potentially executed input. Before this point, queued context stays pending.
       await Session.setEngine({
         sessionID: session.id,
         preserve: true,
-        engine: { type: "codex", thread: thread.thread.id, model: model.id, effort, cursor: user.id },
+        engine,
       })
       if (signal.aborted) {
         await Session.setEngine({ sessionID: session.id, engine: session.engine, preserve: true })
@@ -464,11 +497,40 @@ export namespace NativeSession {
         pending.map((entry) => entry.id),
       )
       NativeStore.receipt(assistant)
-      const turn = started.parse(await connection.client.request("turn/start", payload, { signal }))
-      NativeStore.accept(session.id, user.id, turn.turn.id)
+      if (collaboration)
+        await Session.setEngine({
+          sessionID: session.id,
+          preserve: true,
+          // A failed default switch can leave a native plan active. Until the
+          // response confirms the switch, retain either possible plan state.
+          // Persist this before dispatch so a crash cannot lose that evidence.
+          engine: { ...engine, collaboration: engine.collaboration === "plan" ? "plan" : collaboration.mode },
+        })
+      const sent = await connection.client.request("turn/start", payload, { signal }).then(
+        (value) => ({ value, error: undefined }),
+        (error: unknown) => ({ value: undefined, error }),
+      )
+      if (sent.error) {
+        if (collaboration && sent.error instanceof Protocol.RpcError)
+          await Session.setEngine({
+            sessionID: session.id,
+            preserve: true,
+            engine,
+          })
+        throw sent.error
+      }
+      const turn = started.parse(sent.value)
       if (events.state.turn && events.state.turn !== turn.turn.id) throw new Error("Codex started an unexpected turn.")
+      if (collaboration?.mode === "default" && engine.collaboration === "plan")
+        await Session.setEngine({
+          sessionID: session.id,
+          preserve: true,
+          engine: { ...engine, collaboration: collaboration.mode },
+        })
+      NativeStore.accept(session.id, user.id, turn.turn.id)
       events.state.turn = turn.turn.id
       tree.bindTurn(turn.turn.id)
+      control.ready(connection.client, thread.thread.id, turn.turn.id, capabilities.steer)
       const exited = Promise.withResolvers<NativeEvents.Outcome>()
       state.off = connection.client.onExit(() => {
         void (async () => {
@@ -496,6 +558,7 @@ export namespace NativeSession {
       signal.removeEventListener("abort", abort)
       state.off?.()
       await state.interrupt
+      await control.close()
       tree.close()
       const revision = NativeRuntime.revision()
       await Config.getGlobal()

@@ -170,9 +170,11 @@ export function project(snapshot: NativeHistory.Snapshot, opts: Options) {
             text: texts.join("\n\n"),
             metadata: { native: identity, content: "text" },
           })
-        state.user = { info, parts }
-        state.assistant = undefined
-        messages.push(state.user)
+        const user = { info, parts }
+        // A steer is another user item in the same native turn. Keep that
+        // turn's original assistant and parent instead of inventing a reply.
+        state.user ??= user
+        messages.push(user)
         links.push({ turn: turn.id, item: item.id, message: id, ...(client ? { client } : {}) })
         continue
       }
@@ -224,6 +226,7 @@ export function project(snapshot: NativeHistory.Snapshot, opts: Options) {
             path: { cwd: opts.cwd, root: opts.cwd },
             cost: prior?.cost ?? 0,
             tokens: prior?.tokens ?? { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+            ...(prior?.nativeUsage ? { nativeUsage: prior.nativeUsage } : {}),
             ...(prior?.variant ? { variant: prior.variant } : {}),
             finish: "stop",
           },

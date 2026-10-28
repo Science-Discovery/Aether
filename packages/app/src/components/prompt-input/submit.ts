@@ -308,6 +308,7 @@ type PromptSubmitInput = {
   autoAccept: Accessor<boolean>
   mode: Accessor<"normal" | "shell">
   working: Accessor<boolean>
+  nativeSubmit?: (text: string) => Promise<boolean>
   editor: () => HTMLDivElement | undefined
   queueScroll: () => void
   promptLength: (prompt: Prompt) => number
@@ -551,6 +552,47 @@ export function createPromptSubmit(input: PromptSubmitInput) {
     event.preventDefault()
 
     if (input.working()) {
+      if (local.native.engine()) {
+        const id = params.id
+        if (!id) return
+        const key = `${sdk.url}\n${sdk.directory}\n${id}`
+        const draft = prompt.current().map((part) => ({ ...part }))
+        const text = draft.map((part) => (part.type === "text" ? part.content : "")).join("")
+        const referenced =
+          draft.some((part) => part.type !== "text") ||
+          input.imageAttachments().length > 0 ||
+          prompt.context.items().length > 0 ||
+          !!fileCtx.selectedText() ||
+          input.conversationQuoteQuestions?.().some((item) => item.sessionID === id) ||
+          input.fileQuoteQuestion?.()?.sessionID === id ||
+          input.quickReadingQuestion?.()?.sessionID === id ||
+          !!input.readingQuestion?.()
+        if (referenced) {
+          showToast({
+            title: language.t("native.run.textOnly"),
+            description: language.t("native.run.textOnly.description"),
+          })
+          return
+        }
+        if (!text.trim() || !input.nativeSubmit) return
+        if (server.healthy() === false) {
+          showToast({
+            title: language.t("prompt.toast.serverUnavailable.title"),
+            description: language.t("prompt.toast.serverUnavailable.description"),
+          })
+          return
+        }
+        if (!(await input.nativeSubmit(text))) return
+        if (key !== `${sdk.url}\n${sdk.directory}\n${params.id}`) return
+        input.addToHistory(draft, "normal")
+        input.resetHistoryNavigation()
+        if (JSON.stringify(prompt.current()) === JSON.stringify(draft)) {
+          prompt.reset()
+          input.setPopover(null)
+        }
+        input.queueScroll()
+        return
+      }
       abort()
       return
     }

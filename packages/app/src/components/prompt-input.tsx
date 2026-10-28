@@ -74,6 +74,8 @@ import { SteerButton } from "@/components/steer-button"
 import { VoiceInputButton, type VoiceInputAPI } from "@/components/voice-input-button"
 import { VariantSelect } from "./prompt-input/variant-select"
 import { EngineSelect, NativeModels } from "./native-controls"
+import { createNativeRun, type NativeAction } from "@/context/native-run"
+import { NativeRunPanel } from "./native-run"
 
 interface PromptInputProps {
   class?: string
@@ -314,7 +316,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     children: () => children(),
   })
   const tip = () => {
-    if (working()) {
+    if (working() && !local.native.engine()) {
       return (
         <div class="flex items-center gap-2">
           <span>{language.t("prompt.action.stop")}</span>
@@ -1190,13 +1192,39 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     if (next === "safe" && prev !== "safe") openSafeZoneOnboarding()
   }
 
+  const run = createNativeRun({
+    key: () => `${sdk.url}\n${sdk.directory}\n${params.id ?? ""}`,
+    id: () => params.id,
+    enabled: () => !!local.native.engine() && local.native.enabled(),
+    working,
+    selection: () => ({ model: local.native.model()?.id, effort: local.native.effort() }),
+    read: (sessionID) => sdk.client.native.runtime({ sessionID }).then((response) => response.data),
+    steer: (input) => sdk.client.native.steer(input).then((response) => response.data),
+    enqueue: (input) => sdk.client.native.enqueue(input).then((response) => response.data),
+    dequeue: (input) => sdk.client.native.dequeue(input).then((response) => response.data),
+    resume: (sessionID) => sdk.client.native.resumeQueue({ sessionID }).then((response) => response.data),
+  })
+  const running = () => working() || (!!local.native.engine() && !!run.data()?.active)
+  const [choice, setChoice] = createSignal<NativeAction>("steer")
+  const action = () => run.retry() ?? (choice() === "steer" && !run.data()?.active?.steer ? "queue" : choice())
+  createEffect(() => {
+    const stop = sdk.event.listen((event) => {
+      if (!local.native.engine()) return
+      const data = event.details
+      if (data.type === "session.status" && data.properties.sessionID === params.id) void run.refresh()
+      if (data.type === "session.updated" && data.properties.info.id === params.id) void run.refresh()
+    })
+    onCleanup(stop)
+  })
+
   const { abort, handleSubmit } = createPromptSubmit({
     info,
     imageAttachments,
     commentCount,
     autoAccept: () => mode() === "full",
     mode: () => store.mode,
-    working,
+    working: () => running() || !!run.retry() || run.busy(),
+    nativeSubmit: (text) => run.submit(action(), text),
     editor: () => editorRef,
     queueScroll,
     promptLength,
@@ -1277,7 +1305,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
         return
       }
 
-      if (working()) {
+      if (running()) {
         abort()
         event.preventDefault()
         event.stopPropagation()
@@ -1343,7 +1371,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
         event.preventDefault()
         return
       }
-      if (working()) {
+      if (running()) {
         abort()
         event.preventDefault()
       }
@@ -1372,13 +1400,16 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault()
       if (event.repeat) return
-      if (working()) return
+      if (working() && !local.native.engine()) return
       handleSubmit(event)
     }
   }
 
   return (
     <div class="relative size-full _max-h-[320px] flex flex-col gap-0">
+      <Show when={local.native.engine() && params.id}>
+        <NativeRunPanel run={run} working={running()} action={action()} select={setChoice} />
+      </Show>
       <PromptPopover
         popover={store.popover}
         setSlashPopoverRef={(el) => (slashPopoverRef = el)}
@@ -1456,7 +1487,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
             if (!(target instanceof HTMLElement)) return
             if (
               target.closest(
-                '[data-action="prompt-attach"], [data-action="prompt-submit"], [data-action="prompt-permissions"], [data-action="prompt-voice-input"]',
+                '[data-action="prompt-attach"], [data-action="prompt-submit"], [data-action="prompt-native-stop"], [data-action="prompt-permissions"], [data-action="prompt-voice-input"]',
               )
             ) {
               return
@@ -1533,21 +1564,39 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
             />
 
             <div class="flex items-center gap-1 pointer-events-auto">
+              <Show when={running() && local.native.engine()}>
+                <Tooltip placement="top" value={language.t("prompt.action.stop")}>
+                  <IconButton
+                    data-action="prompt-native-stop"
+                    type="button"
+                    icon="stop"
+                    variant="ghost"
+                    class="size-8"
+                    aria-label={language.t("prompt.action.stop")}
+                    onClick={() => void abort()}
+                  />
+                </Tooltip>
+              </Show>
               <Tooltip placement="top" inactive={!prompt.dirty() && !working()} value={tip()}>
                 <IconButton
                   data-action="prompt-submit"
                   type="submit"
                   disabled={
                     store.mode !== "normal" ||
-                    (!working() && !!local.native.engine() && !local.native.enabled()) ||
+                    (!!local.native.engine() &&
+                      (run.busy() || !local.native.enabled() || (running() && !prompt.dirty()))) ||
                     (!prompt.dirty() && !working() && commentCount() === 0)
                   }
                   tabIndex={store.mode === "normal" ? undefined : -1}
-                  icon={working() ? "stop" : "arrow-up"}
+                  icon={working() && !local.native.engine() ? "stop" : "arrow-up"}
                   variant="primary"
                   class="size-8"
                   style={buttons()}
-                  aria-label={working() ? language.t("prompt.action.stop") : language.t("prompt.action.send")}
+                  aria-label={
+                    working() && !local.native.engine()
+                      ? language.t("prompt.action.stop")
+                      : language.t("prompt.action.send")
+                  }
                 />
               </Tooltip>
             </div>
