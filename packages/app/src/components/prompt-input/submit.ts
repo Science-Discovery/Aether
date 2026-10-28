@@ -321,6 +321,7 @@ type PromptSubmitInput = {
   autoAccept: Accessor<boolean>
   mode: Accessor<"normal" | "shell">
   working: Accessor<boolean>
+  blocked?: Accessor<boolean>
   nativeSubmit?: (draft: NativeDraft) => Promise<boolean>
   editor: () => HTMLDivElement | undefined
   queueScroll: () => void
@@ -1347,6 +1348,10 @@ export function createPromptSubmit(input: PromptSubmitInput) {
   }
 
   const handleSubmit = async (event: Event) => {
+    if (input.blocked?.()) {
+      event.preventDefault()
+      return
+    }
     if (!input.working() || !local.native.engine()) return submit(event)
     const key = `${sdk.url}\n${sdk.directory}\n${params.id ?? ""}`
     if (preparing.has(key)) {

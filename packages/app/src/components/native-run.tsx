@@ -4,7 +4,11 @@ import { IconButton } from "@opencode-ai/ui/icon-button"
 import { useLanguage } from "@/context/language"
 import type { createNativeRun } from "@/context/native-run"
 
-export function NativeRunPanel(props: { run: ReturnType<typeof createNativeRun>; working: boolean }) {
+export function NativeRunPanel(props: {
+  run: ReturnType<typeof createNativeRun>
+  working: boolean
+  disabled?: boolean
+}) {
   const language = useLanguage()
   const queue = () => props.run.data()?.queue
   const notice = () => {
@@ -19,7 +23,7 @@ export function NativeRunPanel(props: { run: ReturnType<typeof createNativeRun>;
             <span role="status">{language.t(`native.run.${props.run.data()?.active?.phase ?? "checking"}`)}</span>
           </Show>
           <Show when={props.run.retry()}>
-            <Button size="small" variant="ghost" onClick={() => void props.run.recover()}>
+            <Button size="small" variant="ghost" disabled={props.disabled} onClick={() => void props.run.recover()}>
               {language.t("native.run.recover")}
             </Button>
             <Button size="small" variant="ghost" onClick={() => props.run.discard()}>
@@ -32,7 +36,12 @@ export function NativeRunPanel(props: { run: ReturnType<typeof createNativeRun>;
         {(id) => (
           <div class="flex flex-wrap items-center gap-2" role="status">
             <span>{language.t("native.queue.unconfirmed")}</span>
-            <Button size="small" variant="ghost" disabled={props.run.busy()} onClick={() => void props.run.send(id())}>
+            <Button
+              size="small"
+              variant="ghost"
+              disabled={props.disabled || props.run.busy()}
+              onClick={() => void props.run.send(id())}
+            >
               {language.t("native.queue.check")}
             </Button>
           </div>
@@ -56,7 +65,12 @@ export function NativeRunPanel(props: { run: ReturnType<typeof createNativeRun>;
           <div class="flex items-center justify-between gap-2">
             <span>{language.t("native.queue.title", { count: queue()!.items.length })}</span>
             <Show when={queue()?.paused && queue()?.items.some((item) => item.state === "pending")}>
-              <Button size="small" variant="ghost" disabled={props.run.busy()} onClick={() => void props.run.resume()}>
+              <Button
+                size="small"
+                variant="ghost"
+                disabled={props.disabled || props.run.busy()}
+                onClick={() => void props.run.resume()}
+              >
                 {language.t("native.queue.resume")}
               </Button>
             </Show>
@@ -93,7 +107,7 @@ export function NativeRunPanel(props: { run: ReturnType<typeof createNativeRun>;
                     <Button
                       size="small"
                       variant="ghost"
-                      disabled={props.run.busy() || !!props.run.unconfirmed()}
+                      disabled={props.disabled || props.run.busy() || !!props.run.unconfirmed()}
                       data-action="native-queue-send"
                       onClick={() => void props.run.send(item.id)}
                     >

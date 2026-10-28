@@ -78,6 +78,7 @@ import { createNativeRun } from "@/context/native-run"
 import { NativeRunPanel } from "./native-run"
 
 interface PromptInputProps {
+  blocked?: boolean
   class?: string
   ref?: (el: HTMLDivElement) => void
   newSessionWorktree?: string
@@ -1222,6 +1223,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     autoAccept: () => mode() === "full",
     mode: () => store.mode,
     working: () => running() || !!run.retry() || run.busy(),
+    blocked: () => !!props.blocked,
     nativeSubmit: run.submit,
     editor: () => editorRef,
     queueScroll,
@@ -1406,7 +1408,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
   return (
     <div class="relative size-full _max-h-[320px] flex flex-col gap-0">
       <Show when={local.native.engine() && params.id}>
-        <NativeRunPanel run={run} working={running()} />
+        <NativeRunPanel run={run} working={running()} disabled={props.blocked} />
       </Show>
       <PromptPopover
         popover={store.popover}
@@ -1580,6 +1582,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                   data-action="prompt-submit"
                   type="submit"
                   disabled={
+                    props.blocked ||
                     store.mode !== "normal" ||
                     (!!local.native.engine() &&
                       (run.busy() || !local.native.enabled() || (running() && !prompt.dirty()))) ||

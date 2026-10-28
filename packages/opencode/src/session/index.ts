@@ -1881,6 +1881,8 @@ export namespace Session {
         await NativeRuntime.remove(sessionID)
         await NativeQueue.clear(sessionID)
         await NativeAnswers.clear(sessionID)
+        const { NativeRevert } = await import("../native/revert")
+        await NativeRevert.clear(sessionID)
         if (!session.engine.thread)
           await fs.rm(NativeInput.directory(sessionID), { recursive: true, force: true }).catch((error) => {
             log.error("failed to remove native session attachments", { sessionID, error })

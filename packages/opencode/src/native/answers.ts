@@ -52,6 +52,18 @@ export namespace NativeAnswers {
   )
   const identity = (id: SessionID, thread: string, item: string) => `${id}\n${thread}\n${item}`
 
+  export function active(id: SessionID) {
+    return [...state().jobs.keys()].some((key) => key.startsWith(`${id}\n`))
+  }
+
+  /** Rebuild answer evidence from retained native user messages after a verified revert. */
+  export async function reset(id: SessionID) {
+    using lock = await Lock.write(file(id))
+    if (active(id)) throw new Error("Wait for the submitted answer before editing this conversation.")
+    cancel(id)
+    await write(id, [])
+  }
+
   function file(id: SessionID) {
     return path.join(Global.Path.data, "native-answers", Instance.project.id, `${SessionID.zod.parse(id)}.json`)
   }
@@ -93,10 +105,15 @@ export namespace NativeAnswers {
     }
   }
 
-  export async function decorate(id: SessionID, question: NativeQuestion.Info): Promise<NativeQuestion.Info> {
+  export async function decorate(
+    id: SessionID,
+    question: NativeQuestion.Info,
+    opts: { persist?: boolean; ready?: () => boolean } = {},
+  ): Promise<NativeQuestion.Info> {
     using lock = await Lock.write(file(id))
-    if (state().removed.has(id)) return question
+    if (state().removed.has(id) || opts.ready?.() === false) return question
     const records = await read(id)
+    if (opts.ready?.() === false) return question
     const record = records.find(
       (entry) => entry.question.thread === question.thread && entry.question.item === question.item,
     )
@@ -105,14 +122,14 @@ export namespace NativeAnswers {
     if (question.state === "answered" && record?.question.state !== "answered") {
       if (record) record.question = question
       if (!record) records.push({ question })
-      await write(id, records)
+      if (opts.persist !== false) await write(id, records)
       return question
     }
     if (!record) return question
     const result = status(id, record)
     if (JSON.stringify(record.question) !== JSON.stringify(result)) {
       record.question = result
-      await write(id, records)
+      if (opts.persist !== false) await write(id, records)
     }
     return { ...question, state: result.state, answers: result.answers, skipped: result.skipped, error: result.error }
   }
@@ -122,13 +139,14 @@ export namespace NativeAnswers {
     if (Filesystem.resolve(session.directory) !== Instance.directory)
       return Instance.provide({ directory: session.directory, fn: () => pending(id) })
     if (session.engine?.type !== "codex" || state().removed.has(id)) return []
+    const epoch = state().epochs.get(id) ?? 0
     const items = new Map<string, z.infer<typeof Pending>[number]>()
     for (const message of await NativeStore.history(id)) {
       if (message.info.role !== "assistant" || message.info.providerID !== "codex-native") continue
       for (const part of message.parts) {
         if (part.type !== "text" || !part.nativeQuestion || part.nativeQuestion.thread !== session.engine.thread)
           continue
-        const question = await decorate(id, part.nativeQuestion)
+        const question = await decorate(id, part.nativeQuestion, { persist: false })
         if (question.state !== "pending" || question.answers) {
           items.delete(question.item)
           continue
@@ -141,11 +159,12 @@ export namespace NativeAnswers {
         })
       }
     }
-    return state().removed.has(id) ? [] : [...items.values()]
+    return state().removed.has(id) || (state().epochs.get(id) ?? 0) !== epoch ? [] : [...items.values()]
   }
 
-  async function publish(id: SessionID, question: NativeQuestion.Info) {
-    const current = await decorate(id, question)
+  async function publish(id: SessionID, question: NativeQuestion.Info, ready?: () => boolean) {
+    const current = await decorate(id, question, { ready })
+    if (ready?.() === false) return
     for (const message of await NativeStore.history(id)) {
       if (message.info.role !== "assistant" || message.info.providerID !== "codex-native") continue
       for (const part of message.parts) {
@@ -155,6 +174,7 @@ export namespace NativeAnswers {
           part.nativeQuestion.item !== question.item
         )
           continue
+        if (ready?.() === false) return
         await Session.updatePart({ ...part, nativeQuestion: current })
       }
     }
@@ -202,6 +222,8 @@ export namespace NativeAnswers {
     const key = identity(input.sessionID, input.threadID, input.itemID)
     const saved = await (async () => {
       using lock = await Lock.write(file(input.sessionID))
+      const { NativeRevert } = await import("./revert")
+      await NativeRevert.guard(input.sessionID)
       if (!ready()) throw new Error("This answer was cancelled before submission.")
       const history = await NativeStore.history(input.sessionID)
       const question = history
@@ -295,7 +317,7 @@ export namespace NativeAnswers {
       return { question: record.question, start: () => gate.resolve() }
     })()
     // Do not keep the file mutex while dispatch or message events run.
-    await publish(input.sessionID, saved.question).finally(() => saved.start?.())
+    await publish(input.sessionID, saved.question, ready).finally(() => saved.start?.())
     return saved.question
   }
 

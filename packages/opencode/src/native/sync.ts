@@ -9,6 +9,7 @@ import { MessageID, PartID, SessionID } from "@/session/schema"
 import { MessageTable, PartTable, SessionTable } from "@/session/session.sql"
 import { SessionStatus } from "@/session/status"
 import { Database } from "@/storage/db"
+import { Storage } from "@/storage/storage"
 import { Codex } from "./codex"
 import { NativeHistory } from "./history"
 import { NativeLock } from "./lock"
@@ -34,11 +35,39 @@ export namespace NativeSync {
     snapshot: NativeHistory.Snapshot,
     opts: { terminal?: boolean } = {},
   ) {
+    return materialize(session, snapshot, opts)
+  }
+
+  /** Import only a prefix already verified after a native thread/revert. */
+  export async function revert(session: Session.Info, snapshot: NativeHistory.Snapshot): Promise<Status> {
+    if (
+      !snapshot.complete ||
+      !snapshot.thread ||
+      snapshot.thread.id !== session.engine?.thread ||
+      snapshot.turns.some((turn) => !NativeHistory.terminal(turn))
+    )
+      throw new Error("The reverted Codex history could not be read completely.")
+    const result = await materialize(session, snapshot, { revert: true })
+    cache().set(session.id, { at: Date.now(), value: result })
+    return result
+  }
+
+  async function materialize(
+    session: Session.Info,
+    snapshot: NativeHistory.Snapshot,
+    opts: { terminal?: boolean; revert?: boolean },
+  ) {
     if (snapshot.thread && session.engine?.thread && snapshot.thread.id !== session.engine.thread)
       throw new Error("Native history belongs to another thread")
     const existing = await NativeStore.history(session.id)
-    const inputs = NativeStore.inputs(session.id)
-    const ledger = NativeStore.dispatches(session.id)
+    const retained = opts.revert
+      ? NativeStore.prefix(
+          session,
+          snapshot.turns.map((turn) => turn.id),
+        )
+      : undefined
+    const inputs = retained?.inputs ?? NativeStore.inputs(session.id)
+    const ledger = retained?.ledger ?? NativeStore.dispatches(session.id)
     if (opts.terminal && (existing.length || inputs.length || ledger.length))
       throw new Error("A historical fork snapshot can only be imported into an empty conversation.")
     const projection = NativeHistory.project(snapshot, {
@@ -50,7 +79,7 @@ export namespace NativeSync {
         ...inputs.filter((entry) => !existing.some((item) => item.info.id === entry.id)).map((entry) => entry.data),
       ],
       receipts: ledger.flatMap((entry) => (entry.assistant ? [entry.assistant] : [])),
-      terminal: opts.terminal,
+      terminal: opts.terminal || opts.revert,
     })
     const steered = inputs.filter((entry) =>
       entry.data.parts.some((part) => part.type === "text" && part.metadata?.nativeSteer),
@@ -190,6 +219,8 @@ export namespace NativeSync {
         })
       }
     }
+    if (opts.revert && projection.issues.some((issue) => issue.code !== "observed"))
+      throw new Error("The reverted Codex history contains unsupported or unconfirmed records.")
     const merge = (part: MessageV2.Part, previous: MessageV2.Part | undefined): MessageV2.Part => {
       if (!previous) return part
       if (part.type === "text" && previous.type === "text" && part.metadata?.nativeSteer)
@@ -219,6 +250,10 @@ export namespace NativeSync {
           // A formerly aggregated reply may now span several display messages.
           // Move each known native item to its projected owner exactly once.
           const retained = previous.parts.filter((part) => {
+            const metadata = "metadata" in part ? part.metadata : undefined
+            const native = z.object({ turn: z.string() }).safeParse(metadata?.native)
+            if (opts.revert && native.success && !snapshot.turns.some((turn) => turn.id === native.data.turn))
+              return false
             const owner = represented.get(identity(part))?.message
             return !owner || owner === entry.info.id
           })
@@ -241,7 +276,9 @@ export namespace NativeSync {
     const unique = new Map<MessageID, MessageV2.WithParts>()
     const answers = NativeQuestion.texts(
       snapshot.turns
-        .filter((turn) => turn.status === "completed" || (opts.terminal && NativeHistory.terminal(turn)))
+        .filter(
+          (turn) => turn.status === "completed" || ((opts.terminal || opts.revert) && NativeHistory.terminal(turn)),
+        )
         .flatMap((turn) => turn.items),
     )
     const view: MessageV2.WithParts[] = []
@@ -262,11 +299,19 @@ export namespace NativeSync {
           (next?.type === "text" ? next.nativeQuestion : undefined) ??
           part.nativeQuestion ??
           (previous?.type === "text" ? previous.nativeQuestion : undefined)
+        const resolved = question
+          ? NativeQuestion.answered(
+              opts.revert
+                ? { ...question, state: "pending", answers: undefined, skipped: undefined, error: undefined }
+                : question,
+              answers,
+            )
+          : undefined
         parts.push(
-          question
+          resolved
             ? {
                 ...part,
-                nativeQuestion: await NativeAnswers.decorate(session.id, NativeQuestion.answered(question, answers)),
+                nativeQuestion: opts.revert ? resolved : await NativeAnswers.decorate(session.id, resolved),
               }
             : part,
         )
@@ -284,13 +329,37 @@ export namespace NativeSync {
         item.info.time.completed = Math.max(time, item.info.time.completed)
       unique.set(item.info.id, item)
     })
-    const removed = projection.complete ? existing.filter((entry) => !unique.has(entry.info.id)) : []
+    const removed = projection.complete || opts.revert ? existing.filter((entry) => !unique.has(entry.info.id)) : []
     const changed = [...unique.values()].filter(
       (entry) => JSON.stringify(entry) !== JSON.stringify(known.get(entry.info.id)),
     )
     Database.transactionProject(Instance.project.id, (db) => {
-      if (!db.select({ id: SessionTable.id }).from(SessionTable).where(eq(SessionTable.id, session.id)).get())
-        throw new Error("The session was removed while native history was being read")
+      const current = db.select().from(SessionTable).where(eq(SessionTable.id, session.id)).get()
+      if (!current) throw new Error("The session was removed while native history was being read")
+      if (opts.revert) {
+        if (!current.engine || current.engine.thread !== snapshot.thread?.id)
+          throw new Error("The native session changed while its history was being reverted")
+        NativeStore.prune(
+          session,
+          snapshot.turns.map((turn) => turn.id),
+          db,
+        )
+        db.update(SessionTable)
+          .set({
+            engine: {
+              ...current.engine,
+              cursor: [...unique.values()].findLast((entry) => entry.info.role === "user")?.info.id,
+            },
+            summary_additions: null,
+            summary_deletions: null,
+            summary_files: null,
+            summary_diffs: null,
+            revert: null,
+            time_updated: Date.now(),
+          })
+          .where(eq(SessionTable.id, session.id))
+          .run()
+      }
       removed.forEach((entry) =>
         db
           .delete(MessageTable)
@@ -327,8 +396,13 @@ export namespace NativeSync {
           if (entry && entry.state !== "rejected" && (!entry.turn_id || entry.turn_id === link.turn))
             NativeStore.accept(session.id, entry.id, link.turn)
         })
-      if (projection.complete) NativeStore.synced(session.id)
+      if (projection.complete || opts.revert) NativeStore.synced(session.id)
     })
+    if (opts.revert) {
+      await Storage.write(["session_diff", session.id], [])
+      await Bus.publish(Session.Event.Updated, { sessionID: session.id, info: await Session.get(session.id) })
+      await Bus.publish(Session.Event.Diff, { sessionID: session.id, diff: [] })
+    }
     await Promise.all(
       removed.map((entry) => Bus.publish(MessageV2.Event.Removed, { sessionID: session.id, messageID: entry.info.id })),
     )
@@ -347,10 +421,10 @@ export namespace NativeSync {
         await Bus.publish(MessageV2.Event.PartUpdated, { sessionID: session.id, part, time: Date.now() })
     }
     return {
-      state: projection.complete ? "synced" : snapshot.thread ? "partial" : "unavailable",
+      state: projection.complete || opts.revert ? "synced" : snapshot.thread ? "partial" : "unavailable",
       messages: projection.messages.length,
       updated: NativeStore.state(session.id)?.time_synced ?? undefined,
-      ...(!projection.complete
+      ...(!projection.complete && !opts.revert
         ? {
             error:
               projection.issues
@@ -375,6 +449,8 @@ export namespace NativeSync {
     if (NativeLock.busy(id)) return { state: "busy", messages: 0 }
     return NativeLock.run(id, async () => {
       const value = await (async () => {
+        const { NativeRevert } = await import("./revert")
+        await NativeRevert.guard(id)
         await NativeStore.migrate(session)
         const connection = await Codex.connect({
           executable: cfg.native?.codex?.path,

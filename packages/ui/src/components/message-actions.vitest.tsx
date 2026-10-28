@@ -48,11 +48,11 @@ function mount(text: string) {
   return { host, fork, edit }
 }
 
-test("keeps native draft editing under the question without offering fork or in-place revert", async () => {
+test("offers native revert and edit under the question without duplicating the fork action", async () => {
   const fixture = mount("Original question")
   expect(fixture.host.querySelector('[aria-label="Fork to new session"]')).toBeNull()
   expect(fixture.fork).not.toHaveBeenCalled()
-  fixture.host.querySelector<HTMLButtonElement>('[aria-label="Edit in a new session"]')?.click()
+  fixture.host.querySelector<HTMLButtonElement>('[aria-label="Revert here and edit"]')?.click()
   await vi.waitFor(() => expect(fixture.edit).toHaveBeenCalledWith({ sessionID: "session", messageID: "user" }))
   expect(fixture.host.querySelector('[aria-label="Revert to this message"]')).toBeNull()
 })
@@ -129,7 +129,7 @@ test("offers native fork below the complete AI response and submits the assistan
 test("does not offer draft editing for internal async answer payloads", () => {
   const text = `<send_user_message_question_reply>${JSON.stringify([{ questionItemId: JSON.stringify(["request_user_input_async", "item", 0]), question: "Which method?", answer: "A" }])}</send_user_message_question_reply>`
   const fixture = mount(text)
-  expect(fixture.host.querySelector('[aria-label="Edit in a new session"]')).toBeNull()
+  expect(fixture.host.querySelector('[aria-label="Revert here and edit"]')).toBeNull()
   expect(fixture.host.textContent).toContain("Which method?: A")
   expect(fixture.host.textContent).not.toContain("send_user_message_question_reply")
 })

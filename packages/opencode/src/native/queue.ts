@@ -128,6 +128,10 @@ export namespace NativeQueue {
     })
   }
 
+  export function active(id: SessionID) {
+    return state().jobs.has(id) || !!state().sends.get(id)?.size
+  }
+
   export async function enqueue(value: z.infer<typeof Input>) {
     const input = Input.parse(value)
     return home(input.sessionID, async () => {
@@ -135,6 +139,8 @@ export namespace NativeQueue {
       const parts = NativeInput.parts(input)
       NativeInput.check(parts)
       using lock = await Lock.write(file(input.sessionID))
+      const { NativeRevert } = await import("./revert")
+      await NativeRevert.guard(input.sessionID)
       const saved = await read(input.sessionID)
       const existing = saved.items.find((item) => item.id === input.messageID)
       if (existing) {
@@ -235,6 +241,8 @@ export namespace NativeQueue {
     })
     const reserved = await (async (): Promise<{ text: string; parts?: Native.Part[] } | Sent> => {
       using lock = await Lock.write(file(input.sessionID))
+      const { NativeRevert } = await import("./revert")
+      await NativeRevert.guard(input.sessionID)
       const saved = await read(input.sessionID)
       const item = saved.items.find((item) => item.id === input.messageID)
       const stored = NativeStore.inputs(input.sessionID).find((item) => item.id === input.messageID)
@@ -354,6 +362,8 @@ export namespace NativeQueue {
       if ((await Config.getGlobal()).native?.codex?.enabled === false) throw new Error("Codex is disabled.")
       {
         using lock = await Lock.write(file(id))
+        const { NativeRevert } = await import("./revert")
+        await NativeRevert.guard(id)
         const saved = await read(id)
         if (saved.items.some((item) => item.state === "uncertain" || item.state === "failed"))
           throw new Error(

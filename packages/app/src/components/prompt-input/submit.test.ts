@@ -344,6 +344,25 @@ function nativeSubmit(overrides: Partial<Parameters<typeof createPromptSubmit>[0
 }
 
 describe("native prompt submission", () => {
+  test("preserves the draft without sending, enqueuing or aborting while a native revert is unresolved", async () => {
+    engine = { type: "codex", model: "native-model" }
+    params.id = "existing"
+    const sent: NativeDraft[] = []
+    const submit = nativeSubmit({
+      working: () => true,
+      blocked: () => true,
+      nativeSubmit: async (draft) => {
+        sent.push(draft)
+        return true
+      },
+    })
+    await submit.handleSubmit({ preventDefault: () => undefined } as Event)
+    expect(sent).toHaveLength(0)
+    expect(prompted).toHaveLength(0)
+    expect(aborted).toBe(0)
+    expect(resets).toBe(0)
+    expect(promptValue).toEqual([{ type: "text", content: "ls", start: 0, end: 2 }])
+  })
   test("submits text during native execution without stopping or starting a second prompt", async () => {
     engine = { type: "codex", model: "native-model" }
     params.id = "existing"

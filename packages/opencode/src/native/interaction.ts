@@ -79,6 +79,8 @@ export namespace NativeInteraction {
 
   export async function steer(value: Native.Steer): Promise<Native.Steered> {
     const input = Native.Steer.parse(value)
+    const { NativeRevert } = await import("./revert")
+    await NativeRevert.guard(input.sessionID)
     const parts = NativeInput.parts(input)
     NativeInput.check(parts)
     const result = (status: Native.Steered["status"], error?: string): Native.Steered => ({
@@ -120,6 +122,7 @@ export namespace NativeInteraction {
     if (run.pending >= 16) return result("rejected", "Too many steering requests are pending; the input was not sent.")
     run.pending++
     const work = run.queue.then(async () => {
+      await NativeRevert.guard(input.sessionID)
       const known = previous()
       if (known) return known
       if ((await Config.getGlobal()).native?.codex?.enabled === false)

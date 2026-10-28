@@ -452,6 +452,15 @@ export const dict = {
   "native.fork.loading": "会话信息仍在加载，请加载完成后再分叉。",
   "native.fork.source": "分叉自：{{title}}",
   "native.fork.original": "原会话",
+  "native.revert.title": "回退到此处并编辑？",
+  "native.revert.description":
+    "将从当前 Codex 会话移除这条问题及之后的全部回复（共 {{count}} 轮），并把问题和可恢复的附件放回输入框。已经修改的文件不会还原。如果要保留这段历史，请先分叉。",
+  "native.revert.confirm": "回退并编辑",
+  "native.revert.draft": "请先保存或清空当前草稿和选区内容，再编辑之前的问题。",
+  "native.revert.unsupported": "这条消息无法完整恢复到编辑框，请改从 AI 回复处分叉。",
+  "native.revert.changed": "会话或草稿已发生变化，请检查后重新操作。",
+  "native.revert.unconfirmed": "回退结果尚待核对，确认后才能继续发送。草稿已保留。",
+  "native.revert.check": "核对回退结果",
   "native.fork.unsupportedDraft": "该消息包含暂时无法恢复到编辑框的附件或上下文，请从此处分叉后补充问题。",
 
   "dialog.revert.confirm.title": "确认重置到此位置？",

@@ -152,6 +152,26 @@ test("idle answers start one turn in the original thread with the Desktop reply 
   })
 })
 
+test("pending-card reads cannot restore old answer receipts after a history reset", async () => {
+  await scenario(async (session) => {
+    const card = await ask(session)
+    const history = await NativeStore.history(session.id)
+    const part = history.flatMap((entry) => entry.parts).find((part) => part.type === "text" && part.nativeQuestion)
+    if (part?.type !== "text") throw new Error("Missing question fixture")
+    const answered = { ...card, state: "answered" as const, answers: ["Brief", "Old removed answer"] }
+    await Session.updatePart({ ...part, nativeQuestion: answered })
+    await NativeAnswers.decorate(session.id, answered)
+    await NativeAnswers.reset(session.id)
+    // A pending poll may still hold the old projection while the verified prefix is being installed.
+    expect(await NativeAnswers.pending(session.id)).toEqual([])
+    expect((await NativeAnswers.decorate(session.id, card)).state).toBe("pending")
+    await NativeAnswers.decorate(session.id, answered, { ready: () => false })
+    expect((await NativeAnswers.decorate(session.id, card)).state).toBe("pending")
+    await Session.updatePart(part)
+    expect(await NativeAnswers.pending(session.id)).toHaveLength(1)
+  })
+})
+
 test("concurrent identical answers and later retries preserve one delivery identity", async () => {
   await scenario(async (session, dir) => {
     const card = await ask(session)

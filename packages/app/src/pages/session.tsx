@@ -74,6 +74,7 @@ import { bounds, panes } from "@/pages/session/row-panes"
 import { useSessionCommands } from "@/pages/session/use-session-commands"
 import { useSessionHashScroll } from "@/pages/session/use-session-hash-scroll"
 import { useSessionFork } from "@/pages/session/use-session-fork"
+import { useNativeRevert } from "@/pages/session/use-native-revert"
 import { NativeForkSource } from "@/components/native-fork-source"
 import { createNativeQuestions, type PendingQuestion } from "@/components/native-question-hint"
 import { nativeQuestionAnchor } from "@/components/native-question-events"
@@ -2087,8 +2088,9 @@ function SessionPageContent(props: SessionPageProps = {}) {
   const restoring = createMemo(() => (restoreMutation.isPending ? restoreMutation.variables : undefined))
 
   const branch = useSessionFork()
+  const rollback = useNativeRevert()
   const fork = (input: { sessionID: string; messageID: string }) => branch(input, "fork")
-  const edit = (input: { sessionID: string; messageID: string }) => branch(input, "edit")
+  const edit = (input: { sessionID: string; messageID: string }) => rollback.edit(input)
 
   const showBusy = (input?: { sessionID: string; messageID: string }) => {
     dialog.show(() => <DialogRevertConfirm reason="session-busy" onFork={input ? () => fork(input) : undefined} />)
@@ -2449,6 +2451,7 @@ function SessionPageContent(props: SessionPageProps = {}) {
               </div>
 
               <SessionComposerRegion
+                rollback={rollback}
                 questions={{ session: params.id ?? "", items: questions(), busy: !!question.target, onOpen: reveal }}
                 state={composer}
                 ready={!store.deferRender && messagesReady()}
@@ -2634,6 +2637,7 @@ function SessionPageContent(props: SessionPageProps = {}) {
             </div>
 
             <SessionComposerRegion
+              rollback={rollback}
               questions={{ session: params.id ?? "", items: questions(), busy: !!question.target, onOpen: reveal }}
               state={composer}
               ready={!store.deferRender && messagesReady()}

@@ -150,6 +150,7 @@ export const dict: Record<string, string> = {
   "ui.message.forkMessage": "Fork to new session",
   "ui.message.forkResponse": "Fork after this response",
   "ui.message.editMessage": "Edit in a new session",
+  "ui.message.revertEdit": "Revert here and edit",
   "ui.message.revertMessage": "Revert message",
   "ui.message.copyResponse": "Copy response",
   "ui.message.copied": "Copied",

@@ -134,9 +134,12 @@ export namespace NativeFork {
     if (Filesystem.resolve(source.directory) !== Instance.directory)
       return Instance.provide({ directory: source.directory, fn: () => run(input, create) })
     if (source.engine?.type !== "codex") throw new Error("This session does not use Codex.")
+    const { NativeRevert } = await import("./revert")
+    await NativeRevert.guard(source.id)
     await available(source.id, source.engine.thread)
     if (NativeLock.busy(source.id)) throw new Error("Codex history is being updated. Please try again shortly.")
     return NativeLock.run(source.id, async () => {
+      await NativeRevert.guard(source.id)
       await available(source.id, source.engine!.thread)
       const cfg = await Config.getGlobal()
       if (cfg.native?.codex?.enabled === false) throw new Error("Enable Codex before forking this conversation.")

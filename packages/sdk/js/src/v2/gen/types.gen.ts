@@ -2460,6 +2460,32 @@ export type ProviderAuthAuthorization = {
   instructions: string
 }
 
+export type NativeRevertPrepared = {
+  sessionID: string
+  messageID: string
+  id: string
+  threadID: string
+  turnID: string
+  turns: number
+}
+
+export type NativeRevertResult = {
+  state: "applied" | "uncertain"
+  session: Session
+  error?: string
+}
+
+export type NativeRevertStatus = {
+  sessionID: string
+  messageID: string
+  id: string
+  threadID: string
+  turnID: string
+  turns: number
+  state: "pending" | "applied" | "uncertain"
+  error?: string
+}
+
 export type NativePendingQuestions = Array<{
   messageID: string
   parentID: string
@@ -6429,6 +6455,96 @@ export type ProviderOauthCallbackResponses = {
 }
 
 export type ProviderOauthCallbackResponse = ProviderOauthCallbackResponses[keyof ProviderOauthCallbackResponses]
+
+export type NativePrepareRevertData = {
+  body?: {
+    messageID: string
+  }
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/native/codex/{sessionID}/revert/prepare"
+}
+
+export type NativePrepareRevertErrors = {
+  /**
+   * History cannot be edited
+   */
+  409: {
+    error: string
+  }
+}
+
+export type NativePrepareRevertError = NativePrepareRevertErrors[keyof NativePrepareRevertErrors]
+
+export type NativePrepareRevertResponses = {
+  /**
+   * Prepared operation identity
+   */
+  200: NativeRevertPrepared
+}
+
+export type NativePrepareRevertResponse = NativePrepareRevertResponses[keyof NativePrepareRevertResponses]
+
+export type NativeRevertStatusData = {
+  body?: never
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+    operationId?: string
+  }
+  url: "/native/codex/{sessionID}/revert"
+}
+
+export type NativeRevertStatusResponses = {
+  /**
+   * Current edit status, or null before a mutation
+   */
+  200: NativeRevertStatus | null
+}
+
+export type NativeRevertStatusResponse = NativeRevertStatusResponses[keyof NativeRevertStatusResponses]
+
+export type NativeRevertData = {
+  body?: {
+    id: string
+  }
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/native/codex/{sessionID}/revert"
+}
+
+export type NativeRevertErrors = {
+  /**
+   * Edit was not dispatched
+   */
+  409: {
+    error: string
+  }
+}
+
+export type NativeRevertError = NativeRevertErrors[keyof NativeRevertErrors]
+
+export type NativeRevertResponses = {
+  /**
+   * Native edit result
+   */
+  200: NativeRevertResult
+}
+
+export type NativeRevertResponse = NativeRevertResponses[keyof NativeRevertResponses]
 
 export type NativeQuestionsData = {
   body?: never

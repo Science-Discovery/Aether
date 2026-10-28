@@ -1214,7 +1214,15 @@ export function UserMessageDisplay(props: {
                 !(props.message.model?.providerID === "codex-native" && nativeAnswer(textPart()?.text ?? ""))
               }
             >
-              <Tooltip value={i18n.t("ui.message.editMessage")} placement="top" gutter={4}>
+              <Tooltip
+                value={i18n.t(
+                  props.message.model?.providerID === "codex-native"
+                    ? "ui.message.revertEdit"
+                    : "ui.message.editMessage",
+                )}
+                placement="top"
+                gutter={4}
+              >
                 <IconButton
                   icon="edit"
                   size="normal"
@@ -1225,7 +1233,11 @@ export function UserMessageDisplay(props: {
                     event.stopPropagation()
                     run("edit")
                   }}
-                  aria-label={i18n.t("ui.message.editMessage")}
+                  aria-label={i18n.t(
+                    props.message.model?.providerID === "codex-native"
+                      ? "ui.message.revertEdit"
+                      : "ui.message.editMessage",
+                  )}
                 />
               </Tooltip>
             </Show>

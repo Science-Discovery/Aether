@@ -445,6 +445,16 @@ export const dict = {
   "native.fork.loading": "The conversation is still loading. Try forking again when it is ready.",
   "native.fork.source": "Forked from: {{title}}",
   "native.fork.original": "Original conversation",
+  "native.revert.title": "Revert here and edit?",
+  "native.revert.description":
+    "This removes the selected question and all later replies ({{count}} turns) from this Codex conversation. The question and recoverable attachments will return to the input box. Existing file changes are not reverted. Fork first if you want to keep this history.",
+  "native.revert.confirm": "Revert and edit",
+  "native.revert.draft": "Save or clear your current draft and selected context before editing an earlier question.",
+  "native.revert.unsupported": "This message cannot be fully restored for editing. Fork from an AI reply instead.",
+  "native.revert.changed": "The conversation or draft changed. Review it before trying again.",
+  "native.revert.unconfirmed":
+    "The revert result needs to be checked before sending another message. Your draft is preserved.",
+  "native.revert.check": "Check revert result",
   "native.fork.unsupportedDraft":
     "This message contains attachments or context that cannot yet be restored to the editor. Fork from here, then add your question.",
 

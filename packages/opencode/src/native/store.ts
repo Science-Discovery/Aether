@@ -1,4 +1,4 @@
-import { and, eq, inArray } from "drizzle-orm"
+import { and, eq, inArray, notInArray } from "drizzle-orm"
 import { Database } from "@/storage/db"
 import { Instance } from "@/project/instance"
 import { MessageV2 } from "@/session/message-v2"
@@ -38,6 +38,55 @@ export namespace NativeStore {
     return Database.useProject(Instance.project.id, (db) =>
       db.select().from(NativeDispatchTable).where(eq(NativeDispatchTable.session_id, session)).all(),
     )
+  }
+
+  /** A confirmed revert must not discard inputs whose native delivery is unknown. */
+  export function prefix(session: Session.Info, turns: string[]) {
+    const ledger = dispatches(session.id)
+    const rows = inputs(session.id)
+    if (
+      ledger.some((row) => row.state !== "accepted" || !row.turn_id || row.thread_id !== session.engine?.thread) ||
+      rows.some(
+        (row) => row.state !== "consumed" || !row.dispatch_id || !ledger.some((entry) => entry.id === row.dispatch_id),
+      )
+    )
+      throw new Error("Resolve pending or unconfirmed Codex inputs before reverting this conversation.")
+    const retained = ledger.filter((row) => turns.includes(row.turn_id!))
+    return {
+      ledger: retained,
+      inputs: rows.filter((row) => retained.some((entry) => entry.id === row.dispatch_id)),
+    }
+  }
+
+  /** Called inside the same transaction that replaces the display projection. */
+  export function prune(session: Session.Info, turns: string[], db: Database.TxOrDb) {
+    const kept = prefix(session, turns)
+    db.delete(NativeInputTable)
+      .where(
+        and(
+          eq(NativeInputTable.session_id, session.id),
+          kept.inputs.length
+            ? notInArray(
+                NativeInputTable.id,
+                kept.inputs.map((row) => row.id),
+              )
+            : undefined,
+        ),
+      )
+      .run()
+    db.delete(NativeDispatchTable)
+      .where(
+        and(
+          eq(NativeDispatchTable.session_id, session.id),
+          kept.ledger.length
+            ? notInArray(
+                NativeDispatchTable.id,
+                kept.ledger.map((row) => row.id),
+              )
+            : undefined,
+        ),
+      )
+      .run()
   }
 
   // Run before replacing any legacy display cache. Preserve all original inputs,

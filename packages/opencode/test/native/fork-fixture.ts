@@ -8,9 +8,23 @@ if (process.argv.includes("generate-json-schema")) {
   await Bun.write(
     path.join(out, "ClientRequest.json"),
     JSON.stringify({
-      oneOf: ["turn/start", "turn/steer", "thread/fork", "thread/goal/get"].map((method) => ({
+      oneOf: [
+        "turn/start",
+        "turn/steer",
+        "thread/fork",
+        "thread/goal/get",
+        "thread/resume",
+        ...(process.argv.includes("--legacy") ? [] : ["thread/revert"]),
+      ].map((method) => ({
         properties: { method: { const: method } },
       })),
+    }),
+  )
+  await Bun.write(
+    path.join(out, "v2", "ThreadRevertParams.json"),
+    JSON.stringify({
+      required: ["threadId", "beforeTurnId"],
+      properties: { threadId: { type: "string" }, beforeTurnId: { type: "string" } },
     }),
   )
   for (const name of ["ThreadStartParams", "ThreadResumeParams", "TurnStartParams"])
@@ -65,6 +79,7 @@ const read = async () =>
     .json()
     .catch(() => ({}))) as Record<string, Thread>
 const notify = (method: string, params: unknown) => write({ method, params })
+let resumed = false
 async function save(thread: Thread) {
   await Bun.write(file, JSON.stringify({ ...(await read()), [thread.id]: thread }))
 }
@@ -125,13 +140,22 @@ for await (const line of readline.createInterface({ input: process.stdin })) {
   if (request.method === "thread/goal/get") {
     reply({
       goal:
-        behavior === "goal" || (behavior === "goal-fork" && thread.forkedFromId)
+        behavior === "goal" ||
+        (behavior === "goal-fork" && thread.forkedFromId) ||
+        (behavior === "goal-resume" && resumed)
           ? { status: "active", threadId: thread.id }
           : null,
     })
     continue
   }
   if (["thread/read", "thread/resume"].includes(request.method)) {
+    if (request.method === "thread/resume") {
+      resumed = true
+      if (behavior === "resume-fail") {
+        error("Fixture resume refused")
+        continue
+      }
+    }
     reply({ thread: behavior === "busy" ? { ...thread, status: { type: "active" } } : thread, model: "fixture" })
     continue
   }
@@ -172,6 +196,29 @@ for await (const line of readline.createInterface({ input: process.stdin })) {
     }
     await save(child)
     reply({ thread: child, model: "fixture" })
+    continue
+  }
+  if (request.method === "thread/revert") {
+    if (behavior === "drop-before") process.exit(0)
+    if (behavior === "revert-reject") {
+      error("Fixture rejected the revert")
+      continue
+    }
+    const index = thread.turns.findIndex((turn) => turn.id === params.beforeTurnId)
+    if (index < 0) {
+      error("Unknown revert boundary")
+      continue
+    }
+    thread.turns = thread.turns.slice(0, index)
+    if (behavior === "revert-changed" && thread.turns.length)
+      thread.turns[0].items[1].text = "Unexpected retained content"
+    await save(thread)
+    if (behavior === "drop-after") process.exit(0)
+    if (behavior === "error-after") {
+      write({ id: request.id, error: { code: -32603, message: "Failure after native revert was applied" } })
+      continue
+    }
+    reply({ thread: { ...thread, turns: [] } })
     continue
   }
   if (request.method === "turn/start") {

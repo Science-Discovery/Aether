@@ -203,11 +203,16 @@ import type {
   NativeHistoryResponses,
   NativeMode,
   NativePermission,
+  NativePrepareRevertErrors,
+  NativePrepareRevertResponses,
   NativeQuestionsResponses,
   NativeReplyQuestionErrors,
   NativeReplyQuestionResponses,
   NativeResumeQueueErrors,
   NativeResumeQueueResponses,
+  NativeRevertErrors,
+  NativeRevertResponses,
+  NativeRevertStatusResponses,
   NativeRuntimeResponses,
   NativeSendQueuedErrors,
   NativeSendQueuedResponses,
@@ -4364,6 +4369,114 @@ export class Provider extends HeyApiClient {
 }
 
 export class Native extends HeyApiClient {
+  /**
+   * Prepare an edit at a native Codex turn boundary without changing history
+   */
+  public prepareRevert<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+      messageID?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "messageID" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<NativePrepareRevertResponses, NativePrepareRevertErrors, ThrowOnError>(
+      {
+        url: "/native/codex/{sessionID}/revert/prepare",
+        ...options,
+        ...params,
+        headers: {
+          "Content-Type": "application/json",
+          ...options?.headers,
+          ...params.headers,
+        },
+      },
+    )
+  }
+
+  /**
+   * Read the durable status of a Codex history edit
+   */
+  public revertStatus<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+      operationId?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "operationId" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<NativeRevertStatusResponses, unknown, ThrowOnError>({
+      url: "/native/codex/{sessionID}/revert",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Apply or verify the same prepared Codex history edit without repeating a revert
+   */
+  public revert<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+      id?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "id" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<NativeRevertResponses, NativeRevertErrors, ThrowOnError>({
+      url: "/native/codex/{sessionID}/revert",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
   /**
    * List unanswered Codex questions across the saved conversation
    */

@@ -10,11 +10,76 @@ import { NativeQueue } from "../../native/queue"
 import { NativeUsage } from "../../native/usage"
 import { NativeAnswers } from "../../native/answers"
 import { NativeQuestion } from "../../native/questions"
+import { NativeRevert } from "../../native/revert"
 import { MessageID, SessionID } from "../../session/schema"
 import { lazy } from "../../util/lazy"
 
 export const NativeRoutes = lazy(() =>
   new Hono()
+    .post(
+      "/codex/:sessionID/revert/prepare",
+      describeRoute({
+        summary: "Prepare an edit at a native Codex turn boundary without changing history",
+        operationId: "native.prepareRevert",
+        responses: {
+          200: {
+            description: "Prepared operation identity",
+            content: { "application/json": { schema: resolver(NativeRevert.Prepared) } },
+          },
+          409: {
+            description: "History cannot be edited",
+            content: { "application/json": { schema: resolver(z.object({ error: z.string() })) } },
+          },
+        },
+      }),
+      validator("param", NativeRevert.Prepare.pick({ sessionID: true })),
+      validator("json", NativeRevert.Prepare.pick({ messageID: true }).strict()),
+      async (c) =>
+        NativeRevert.prepare({ ...c.req.valid("param"), ...c.req.valid("json") }).then(
+          (result) => c.json(result),
+          (error: unknown) => c.json({ error: error instanceof Error ? error.message : String(error) }, 409),
+        ),
+    )
+    .post(
+      "/codex/:sessionID/revert",
+      describeRoute({
+        summary: "Apply or verify the same prepared Codex history edit without repeating a revert",
+        operationId: "native.revert",
+        responses: {
+          200: {
+            description: "Native edit result",
+            content: { "application/json": { schema: resolver(NativeRevert.Result) } },
+          },
+          409: {
+            description: "Edit was not dispatched",
+            content: { "application/json": { schema: resolver(z.object({ error: z.string() })) } },
+          },
+        },
+      }),
+      validator("param", NativeRevert.Commit.pick({ sessionID: true })),
+      validator("json", NativeRevert.Commit.pick({ id: true }).strict()),
+      async (c) =>
+        NativeRevert.commit({ ...c.req.valid("param"), ...c.req.valid("json") }).then(
+          (result) => c.json(result),
+          (error: unknown) => c.json({ error: error instanceof Error ? error.message : String(error) }, 409),
+        ),
+    )
+    .get(
+      "/codex/:sessionID/revert",
+      describeRoute({
+        summary: "Read the durable status of a Codex history edit",
+        operationId: "native.revertStatus",
+        responses: {
+          200: {
+            description: "Current edit status, or null before a mutation",
+            content: { "application/json": { schema: resolver(NativeRevert.Status.nullable()) } },
+          },
+        },
+      }),
+      validator("param", z.object({ sessionID: SessionID.zod })),
+      validator("query", z.object({ operationId: z.string().uuid().optional() })),
+      async (c) => c.json(await NativeRevert.status(c.req.valid("param").sessionID, c.req.valid("query").operationId)),
+    )
     .get(
       "/codex/:sessionID/questions",
       describeRoute({

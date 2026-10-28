@@ -20,6 +20,7 @@ import { getSessionHandoff, setSessionHandoff } from "@/pages/session/handoff"
 import { useSessionKey } from "@/pages/session/session-layout"
 import { formatReadingPageRange } from "@/utils/comment-note"
 import { NativeQuestionHint, type PendingQuestion } from "@/components/native-question-hint"
+import { NativeRevertNotice, type useNativeRevert } from "@/pages/session/use-native-revert"
 
 export function SessionComposerRegion(props: {
   state: SessionComposerState
@@ -30,6 +31,7 @@ export function SessionComposerRegion(props: {
   onNewSessionWorktreeReset: () => void
   onSubmit: () => void
   onResponseSubmit: () => void
+  rollback?: ReturnType<typeof useNativeRevert>
   questions?: { session: string; items: PendingQuestion[]; busy: boolean; onOpen: (item: PendingQuestion) => void }
   followup?: {
     queue: () => boolean
@@ -162,6 +164,7 @@ export function SessionComposerRegion(props: {
         }}
       >
         <Show when={props.questions}>{(questions) => <NativeQuestionHint {...questions()} />}</Show>
+        <Show when={props.rollback}>{(revert) => <NativeRevertNotice revert={revert()} />}</Show>
         <Show when={props.state.questionRequest()} keyed>
           {(request) => (
             <div>
@@ -361,6 +364,7 @@ export function SessionComposerRegion(props: {
                 )}
               </Show>
               <PromptInput
+                blocked={props.rollback?.blocked()}
                 ref={props.inputRef}
                 newSessionWorktree={props.newSessionWorktree}
                 onNewSessionWorktreeReset={props.onNewSessionWorktreeReset}

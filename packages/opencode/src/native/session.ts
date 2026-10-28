@@ -210,7 +210,16 @@ export namespace NativeSession {
     session: Session.Info,
     signal: AbortSignal,
   ): Promise<MessageV2.WithParts> {
-    return NativeLock.run(session.id, async () => execute(input, await Session.get(session.id), signal), signal)
+    const { NativeRevert } = await import("./revert")
+    await NativeRevert.guard(session.id)
+    return NativeLock.run(
+      session.id,
+      async () => {
+        await NativeRevert.guard(session.id)
+        return execute(input, await Session.get(session.id), signal)
+      },
+      signal,
+    )
   }
 
   async function execute(
