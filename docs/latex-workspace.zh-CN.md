@@ -12,6 +12,10 @@ Aether 的 LaTeX 工作区在文件面板中连接源码编辑、主文档选择
 
 latexmk 仍使用已有 TeX 环境，设置页提供 [TeX Live 安装说明](https://tug.org/texlive/acquire-netinstall.html)和 [MiKTeX 安装说明](https://miktex.org/download)。它需要相应的 TeX 引擎，Aether 不自动安装或修改整套系统 TeX 发行版。也可以手动安装 [Tectonic](https://tectonic-typesetting.github.io/book/latest/installation/)；自动发现失败时，在设置里填写可执行文件的完整路径。
 
+编译器路径保存在服务端全局配置目录的 `aether.integrations.jsonc`（默认 `~/.config/aether/`），避免旧版桌面端因不认识 `latex` 字段而启动失败。本分支仍能读取主配置中已有的 `latex`，独立文件中的设置优先；保存设置时仅将正在使用的主配置里的 `latex` 迁出。共享文件中已有的 `native` 会原样保留，但本分支不读取其设置、不解析其中的环境变量或文件占位符，也不提供 Codex 原生接入。Tectonic 程序及宏包缓存仍保留在各自的数据目录，不随配置文件迁移。此机制需要更新后端程序，只有前端热更新不会改变旧后端的保存方式。
+
+若旧混合版本尚未完成迁移，主配置文件中仍含 `native` 等本分支不支持的字段，配置校验会拒绝加载，本分支不会自动删除这些字段。切换前应先在混合版本中保存设置完成迁移，或备份后将对应字段移入共享配置文件。
+
 首版支持 Tectonic 与 latexmk 的 pdfLaTeX、XeLaTeX 工作流。Tectonic 使用 XeTeX，不能保证兼容要求其他引擎的论文模板。LuaLaTeX 暂不支持；不能通过填写任意程序名来执行其他命令。
 
 Tectonic 首次编译可能缺少宏包缓存。默认不下载缺失资源，需要联网准备资源时，在编译选项中允许下载。中文文档还需要正确的宏包和字体；出现缺字警告时，即使生成了 PDF，也应检查实际页面。
