@@ -81,7 +81,18 @@ describe("native fork actions", () => {
     )
     expect(mocks.prompt).not.toHaveBeenCalled()
     expect(sessions.find((item) => item.id === "child")?.engine).toEqual(session("child").engine)
-    expect(mocks.navigate).toHaveBeenCalledWith(`/${base64Encode("/project")}/session/child`)
+    expect(mocks.navigate).toHaveBeenCalledWith(`/${base64Encode("/project")}/session/child`, {
+      state: { nativeFork: "child" },
+    })
+  })
+
+  test("waits for source metadata instead of silently using an edit boundary", async () => {
+    sessions = []
+    await mount().fork({ sessionID: "source", messageID: "user" }, "fork")
+    expect(mocks.fork).not.toHaveBeenCalled()
+    expect(mocks.prompt).not.toHaveBeenCalled()
+    expect(mocks.navigate).not.toHaveBeenCalled()
+    expect(mocks.toast.mock.calls[0][0].title).toBe("native.fork.loading")
   })
 
   test("edits before the selected turn into a scoped draft in the new session", async () => {

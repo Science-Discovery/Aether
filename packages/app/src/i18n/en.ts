@@ -442,6 +442,9 @@ export const dict = {
   "dialog.fork.native":
     "Keep the selected completed turn in a new Codex session. The original session stays unchanged.",
   "native.fork.questionReply": "A saved question reply cannot be edited here. Start a new message instead.",
+  "native.fork.loading": "The conversation is still loading. Try forking again when it is ready.",
+  "native.fork.source": "Forked from: {{title}}",
+  "native.fork.original": "Original conversation",
   "native.fork.unsupportedDraft":
     "This message contains attachments or context that cannot yet be restored to the editor. Fork from here, then add your question.",
 

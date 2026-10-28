@@ -25,6 +25,7 @@ import {
   inArray,
   lt,
   asc,
+  sql,
 } from "../storage/db"
 import { SyncEvent } from "../sync"
 import type { SQL } from "../storage/db"
@@ -107,7 +108,8 @@ export namespace Session {
       projectID: row.project_id,
       workspaceID: row.workspace_id ?? undefined,
       directory: row.directory,
-      parentID: row.parent_id ?? undefined,
+      parentID:
+        row.engine?.type === "codex" && row.fork_parent_session_id !== null ? undefined : (row.parent_id ?? undefined),
       treeID: row.tree_id ?? undefined,
       forkIndex: row.fork_index ?? undefined,
       forkParentSessionID: row.fork_parent_session_id ?? undefined,
@@ -366,7 +368,7 @@ export namespace Session {
     }
 
     for (const session of sessions) {
-      if (!session.forkParentSessionID) continue
+      if (session.engine?.type === "codex" || !session.forkParentSessionID) continue
 
       const normalized = await normalizeForkParentLink({
         session,
@@ -727,25 +729,18 @@ export namespace Session {
       if (!original) throw new Error("session not found")
       if (original.engine) {
         const { NativeFork } = await import("../native/fork")
-        const { NativeStore } = await import("../native/store")
         return NativeFork.run(input, async ({ source, engine, anchor }) => {
           const tree = source.treeID ?? TreeID.descending()
           const index = await getNextForkIndex({ projectID: source.projectID, treeID: tree })
-          const parent = await resolveForkParent({
-            session: source,
-            messages: await NativeStore.history(source.id),
-            anchorUserMessageID: anchor,
-          })
           const session = await createNext({
             directory: source.directory,
             workspaceID: source.workspaceID,
             permission: source.permission,
             engine,
-            parentID: parent.parentSessionID,
             treeID: tree,
             forkIndex: index,
-            forkParentSessionID: parent.parentSessionID,
-            forkAfterUserMessageID: parent.forkAfterUserMessageID,
+            forkParentSessionID: source.id,
+            forkAfterUserMessageID: anchor,
             title: getForkedTitle(source.title, index),
           })
           const pref = SessionPreference.get(source.id)
@@ -1316,6 +1311,18 @@ export namespace Session {
     }
   }
 
+  // Earlier native forks stored their source as parent_id. Treat them as
+  // independent chats before pagination without rewriting existing records.
+  function roots() {
+    return or(
+      isNull(SessionTable.parent_id),
+      and(
+        isNotNull(SessionTable.fork_parent_session_id),
+        sql`json_extract(${SessionTable.engine}, '$.type') = 'codex'`,
+      ),
+    )!
+  }
+
   export function* list(input?: {
     directory?: string
     workspaceID?: WorkspaceID
@@ -1345,7 +1352,7 @@ export namespace Session {
       conditions.push(eq(SessionTable.directory, Filesystem.resolve(input.directory)))
     }
     if (input?.roots) {
-      conditions.push(isNull(SessionTable.parent_id))
+      conditions.push(roots())
     }
     if (input?.start) {
       conditions.push(gte(SessionTable.time_updated, input.start))
@@ -1394,7 +1401,7 @@ export namespace Session {
       conditions.push(eq(SessionTable.directory, Filesystem.resolve(input.directory)))
     }
     if (input?.roots) {
-      conditions.push(isNull(SessionTable.parent_id))
+      conditions.push(roots())
     }
     if (input?.start) {
       conditions.push(gte(SessionTable.time_updated, input.start))
@@ -1480,7 +1487,7 @@ export namespace Session {
         .where(and(eq(SessionTable.project_id, project.id), eq(SessionTable.parent_id, parentID)))
         .all(),
     )
-    return rows.map((row) => fromRow(row)).filter((s) => !isSubagentSession(s))
+    return rows.map((row) => fromRow(row)).filter((s) => s.parentID === parentID && !isSubagentSession(s))
   })
 
   export const tree = fn(SessionID.zod, async (sessionID): Promise<TreeResult> => {

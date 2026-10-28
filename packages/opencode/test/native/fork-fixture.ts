@@ -165,6 +165,11 @@ for await (const line of readline.createInterface({ input: process.stdin })) {
           : thread.turns.findIndex((turn) => turn.id === params.lastTurnId) + 1,
       ),
     }
+    if (behavior === "missing") child.turns = child.turns.slice(1)
+    if (behavior === "changed") {
+      child.turns = structuredClone(child.turns)
+      child.turns[0].items[1].text = "Changed native output with the same item identity"
+    }
     await save(child)
     reply({ thread: child, model: "fixture" })
     continue

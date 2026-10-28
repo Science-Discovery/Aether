@@ -143,6 +143,7 @@ export type SessionAction = (input: { sessionID: string; messageID: string }) =>
 
 export type UserActions = {
   fork?: SessionAction
+  response?: SessionAction
   edit?: SessionAction
   revert?: SessionAction
 }
@@ -156,6 +157,7 @@ export interface MessagePartProps {
   turnDurationMs?: number
   onAssistantCollapse?: () => void
   canCollapseAssistant?: boolean
+  onFork?: SessionAction
 }
 
 export type PartComponent = Component<MessagePartProps>
@@ -593,6 +595,7 @@ export function AssistantParts(props: {
   editToolDefaultOpen?: boolean
   onAssistantCollapse?: () => void
   canCollapseAssistant?: boolean
+  onFork?: SessionAction
 }) {
   const data = useData()
   const emptyParts: PartType[] = []
@@ -677,6 +680,7 @@ export function AssistantParts(props: {
                         turnDurationMs={props.turnDurationMs}
                         onAssistantCollapse={props.onAssistantCollapse}
                         canCollapseAssistant={props.canCollapseAssistant}
+                        onFork={props.onFork}
                         defaultOpen={partDefaultOpen(item()!, props.shellToolDefaultOpen, props.editToolDefaultOpen)}
                       />
                     </Show>
@@ -1188,7 +1192,7 @@ export function UserMessageDisplay(props: {
                 </Show>
               </span>
             </Show>
-            <Show when={props.actions?.fork}>
+            <Show when={props.actions?.fork && props.message.model?.providerID !== "codex-native"}>
               <Tooltip value={i18n.t("ui.message.forkMessage")} placement="top" gutter={4}>
                 <IconButton
                   icon="fork"
@@ -1318,6 +1322,7 @@ export function Part(props: MessagePartProps) {
         turnDurationMs={props.turnDurationMs}
         onAssistantCollapse={props.onAssistantCollapse}
         canCollapseAssistant={props.canCollapseAssistant}
+        onFork={props.onFork}
       />
     </Show>
   )
@@ -1582,6 +1587,7 @@ PART_MAPPING["text"] = function TextPartDisplay(props) {
     () => props.message.role === "assistant" && !!props.onAssistantCollapse && !!props.canCollapseAssistant,
   )
   const [copied, setCopied] = createSignal(false)
+  const [action, setAction] = createStore({ forking: false })
 
   const handleCopy = async () => {
     const content = displayText()
@@ -1610,6 +1616,26 @@ PART_MAPPING["text"] = function TextPartDisplay(props) {
               </span>
             </Show>
             <div data-slot="text-part-actions">
+              <Show when={props.onFork}>
+                <Tooltip value={i18n.t("ui.message.forkResponse")} placement="top" gutter={4}>
+                  <IconButton
+                    icon="fork"
+                    size="normal"
+                    variant="ghost"
+                    disabled={action.forking}
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      if (action.forking || !props.onFork) return
+                      setAction("forking", true)
+                      void Promise.resolve()
+                        .then(() => props.onFork?.({ sessionID: props.message.sessionID, messageID: props.message.id }))
+                        .finally(() => setAction("forking", false))
+                    }}
+                    aria-label={i18n.t("ui.message.forkResponse")}
+                  />
+                </Tooltip>
+              </Show>
               <Tooltip
                 value={copied() ? i18n.t("ui.message.copied") : i18n.t("ui.message.copyResponse")}
                 placement="top"

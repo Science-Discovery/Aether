@@ -228,6 +228,29 @@ describe("layout workspace helpers", () => {
 })
 
 describe("sidebar backend groups", () => {
+  test("promotes explicit native forks but keeps native subagents and Aether forks under their parent", () => {
+    const rows = [
+      session({ id: "source", directory: "/workspace", engine: { type: "codex" } }),
+      session({
+        id: "fork",
+        directory: "/workspace",
+        engine: { type: "codex" },
+        parentID: "source",
+        forkParentSessionID: "source",
+      }),
+      session({ id: "agent", directory: "/workspace", engine: { type: "codex" }, parentID: "source" }),
+      session({ id: "legacy", directory: "/workspace", parentID: "source", forkParentSessionID: "source" }),
+    ]
+    const roots = sortedRootSessions({ path: { directory: "/workspace" }, session: rows }, 120_000)
+    expect(roots.map((item) => item.id).sort()).toEqual(["fork", "source"])
+    expect(
+      grouped(rows)
+        .find((group) => group.type === "codex")
+        ?.sessions.map((item) => item.id),
+    ).toEqual(["source", "fork"])
+    expect(rows[1].parentID).toBe("source")
+  })
+
   test("groups existing root order by engine without promoting children or mutating sessions", () => {
     const rows = [
       session({ id: "codex-new", directory: "/workspace", engine: { type: "codex" } }),

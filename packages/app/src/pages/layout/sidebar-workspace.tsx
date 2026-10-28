@@ -43,7 +43,15 @@ import { useSettings } from "@/context/settings"
 import { enqueueRun, runKey } from "@/context/terminal"
 import { isWorking } from "@/utils/working-state"
 import { NewSessionItem, SessionItem, SessionSkeleton, StatusDot } from "./sidebar-items"
-import { canCollapseAll, childMapByParent, grouped, hasProjectPermissions, sortedRootSessions, workspaceKey } from "./helpers"
+import {
+  canCollapseAll,
+  childMapByParent,
+  grouped,
+  hasProjectPermissions,
+  independent,
+  sortedRootSessions,
+  workspaceKey,
+} from "./helpers"
 import { formatServerError } from "@/utils/server-errors"
 import { SessionImportInput } from "@/components/session-import-input"
 import { MathConfirm } from "@/components/math-confirm"
@@ -840,12 +848,12 @@ const SessionTreeNodes = (props: {
   const childrenFor = (sessionID: string) =>
     (props.children().get(sessionID) ?? [])
       .map((childID) => sessionByID().get(childID))
-      .filter((session): session is Session => !!session)
+      .filter((session): session is Session => !!session && !independent(session))
 
   const rootSessionIDFor = (sessionID: string) => {
     let cursor = sessionByID().get(sessionID)
     if (!cursor) return
-    while (cursor.parentID) {
+    while (cursor.parentID && !independent(cursor)) {
       const parent = sessionByID().get(cursor.parentID)
       if (!parent) break
       cursor = parent
@@ -860,8 +868,8 @@ const SessionTreeNodes = (props: {
         if (!currentSessionID) return
         const current = sessions.get(currentSessionID)
         if (!current) return
-
-        if (treeEnabled) return
+        if (independent(current)) return
+        if (treeEnabled && current.engine?.type !== "codex") return
 
         const visited = new Set<string>()
         let cursor = current.parentID
@@ -869,7 +877,8 @@ const SessionTreeNodes = (props: {
           visited.add(cursor)
           const expanded = untrack(() => props.ctx.sessionExpanded(cursor!))
           if (!expanded) props.ctx.setSessionExpanded(cursor, true)
-          cursor = sessions.get(cursor)?.parentID
+          const parent = sessions.get(cursor)
+          cursor = parent && !independent(parent) ? parent.parentID : undefined
         }
       },
     ),
@@ -880,6 +889,7 @@ const SessionTreeNodes = (props: {
       () => [props.currentSessionID(), conversationTreeEnabled(), sessionByID()] as const,
       ([currentSessionID, treeEnabled]) => {
         if (!treeEnabled || !currentSessionID) return
+        if (sessionByID().get(currentSessionID)?.engine?.type === "codex") return
         const rootID = rootSessionIDFor(currentSessionID)
         if (!rootID) return
         props.ctx.setConversationTreeLastFocus(rootID, currentSessionID)
@@ -888,6 +898,8 @@ const SessionTreeNodes = (props: {
   )
 
   function SessionNode(nodeProps: { session: Session; depth: number; chain: Set<string> }): JSX.Element {
+    const native = () => nodeProps.session.engine?.type === "codex"
+    const tree = () => !native() && conversationTreeEnabled()
     const nextChain = new Set(nodeProps.chain)
     nextChain.add(nodeProps.session.id)
     const childSessions = createMemo(() =>
@@ -895,14 +907,14 @@ const SessionTreeNodes = (props: {
     )
     const hasChildren = createMemo(() => childSessions().length > 0)
     const hasBranchView = createMemo(() => {
-      if (!conversationTreeEnabled()) return hasChildren()
+      if (!tree()) return hasChildren()
       if (hasChildren()) return true
       if (nodeProps.session.id === props.currentSessionID()) return true
       return (nodeProps.session.time.updated ?? 0) > (nodeProps.session.time.created ?? 0)
     })
     const expanded = createMemo(() => {
-      if (!(conversationTreeEnabled() ? hasBranchView() : hasChildren())) return true
-      if (!conversationTreeEnabled()) return props.ctx.sessionExpanded(nodeProps.session.id)
+      if (!(tree() ? hasBranchView() : hasChildren())) return true
+      if (!tree()) return props.ctx.sessionExpanded(nodeProps.session.id)
       return props.ctx.conversationTreeOpen(nodeProps.session.id)
     })
     const graphSessionID = createMemo(() => {
@@ -942,9 +954,7 @@ const SessionTreeNodes = (props: {
           </Show>
           <SessionItem
             session={nodeProps.session}
-            targetSession={
-              conversationTreeEnabled() ? (sessionByID().get(graphSessionID()) ?? nodeProps.session) : nodeProps.session
-            }
+            targetSession={tree() ? (sessionByID().get(graphSessionID()) ?? nodeProps.session) : nodeProps.session}
             list={props.allSessions()}
             navList={props.ctx.navList}
             slug={props.slug()}
@@ -957,16 +967,14 @@ const SessionTreeNodes = (props: {
             unarchiveSession={nodeProps.depth === 0 ? props.unarchiveSession : undefined}
             deleteSession={props.deleteSession ?? props.ctx.deleteSession}
             renameSession={props.ctx.renameSession}
-            hasChildren={conversationTreeEnabled() ? hasBranchView() : hasChildren()}
+            hasChildren={tree() ? hasBranchView() : hasChildren()}
             expanded={expanded()}
             onToggleChildren={
-              conversationTreeEnabled()
-                ? toggleBranchView
-                : () => props.ctx.setSessionExpanded(nodeProps.session.id, !expanded())
+              tree() ? toggleBranchView : () => props.ctx.setSessionExpanded(nodeProps.session.id, !expanded())
             }
           />
         </div>
-        <Show when={expanded() && conversationTreeEnabled() && hasBranchView()}>
+        <Show when={expanded() && tree() && hasBranchView()}>
           <div class="pl-2 pr-2 pb-2">
             <SidebarBranchView
               sessionID={graphSessionID()}
@@ -976,7 +984,7 @@ const SessionTreeNodes = (props: {
             />
           </div>
         </Show>
-        <Show when={expanded() && !conversationTreeEnabled()}>
+        <Show when={expanded() && !tree()}>
           <For each={childSessions()}>
             {(child) => <SessionNode session={child} depth={nodeProps.depth + 1} chain={nextChain} />}
           </For>

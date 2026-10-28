@@ -15,6 +15,8 @@ export type Options = {
   cwd: string
   existing?: MessageV2.WithParts[]
   receipts?: MessageV2.Assistant[]
+  /** Import a verified fork snapshot without inferring the source thread's execution state. */
+  terminal?: boolean
 }
 
 const object = z.record(z.string(), z.unknown())
@@ -68,7 +70,9 @@ export function project(snapshot: NativeHistory.Snapshot, opts: Options) {
   if (!thread) return { messages, links, complete: false, issues }
   const existing = (opts.existing ?? []).filter((row) => row.info.sessionID === opts.sessionID)
   const answers = NativeQuestion.texts(
-    snapshot.turns.filter((turn) => turn.status === "completed").flatMap((turn) => turn.items),
+    snapshot.turns
+      .filter((turn) => turn.status === "completed" || (opts.terminal && NativeHistory.terminal(turn)))
+      .flatMap((turn) => turn.items),
   )
   const users = new Map(existing.filter((row) => row.info.role === "user").map((row) => [String(row.info.id), row]))
   const replies = new Map(
@@ -83,7 +87,7 @@ export function project(snapshot: NativeHistory.Snapshot, opts: Options) {
   const unknown = ModelID.make("unknown")
 
   for (const turn of snapshot.turns) {
-    if (turn.status !== "completed") {
+    if (turn.status !== "completed" && !(opts.terminal && NativeHistory.terminal(turn))) {
       issues.push({ code: "unsettled", turn: turn.id, message: "Only completed native turns can be projected" })
       continue
     }
@@ -112,7 +116,7 @@ export function project(snapshot: NativeHistory.Snapshot, opts: Options) {
           tokens: primary && prior ? prior.tokens : { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
           ...(primary && prior?.nativeUsage ? { nativeUsage: prior.nativeUsage } : {}),
           ...((prior?.variant ?? original?.variant) ? { variant: prior?.variant ?? original?.variant } : {}),
-          finish: "stop",
+          finish: turn.status === "completed" ? "stop" : "unknown",
         },
         parts: [],
       }
@@ -137,6 +141,7 @@ export function project(snapshot: NativeHistory.Snapshot, opts: Options) {
         item: item.id,
         type: item.type,
         raw: item,
+        ...(opts.terminal ? { status: turn.status } : {}),
       }
       const issue = (message: string) => issues.push({ code: "unrepresented", turn: turn.id, item: item.id, message })
       // Parts are sorted by ID in both storage and the UI. The fixed-width
@@ -282,6 +287,19 @@ export function project(snapshot: NativeHistory.Snapshot, opts: Options) {
       if (!tools.has(item.type)) issue(`Unsupported native item: ${item.type}`)
       const failed =
         ["failed", "declined", "cancelled", "interrupted"].includes(string(item.status)) || item.success === false
+      if (
+        turn.status !== "completed" &&
+        ((!failed && item.status !== "completed" && item.success !== true) ||
+          (item.type === "commandExecution" && typeof item.aggregatedOutput !== "string"))
+      ) {
+        assistant.parts.push({
+          ...part,
+          type: "text",
+          text: `[Incomplete tool result]\n${string(item.command) || string(item.tool) || item.type}\n${render(item.aggregatedOutput ?? item.result ?? item.contentItems ?? item.output ?? item)}`,
+          metadata: { native },
+        })
+        continue
+      }
       if (["inProgress", "running", "pending"].includes(string(item.status)))
         issue("A completed turn contains an unfinished item")
       if (item.type === "commandExecution" && typeof item.aggregatedOutput !== "string")

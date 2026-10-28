@@ -7,6 +7,7 @@ import { List } from "@opencode-ai/ui/list"
 import type { TextPart as SDKTextPart } from "@opencode-ai/sdk/v2/client"
 import { useLanguage } from "@/context/language"
 import { useSessionFork } from "@/pages/session/use-session-fork"
+import { forkable } from "@opencode-ai/ui/session-turn"
 
 interface ForkableMessage {
   id: string
@@ -32,6 +33,26 @@ export const DialogFork: Component = () => {
     if (!sessionID) return []
 
     const msgs = sync.data.message[sessionID] ?? []
+    if (native()) {
+      if (sync.data.session_status[sessionID]?.type && sync.data.session_status[sessionID].type !== "idle") return []
+      const candidates = msgs.flatMap((message) => {
+        if (message.role !== "assistant" || !forkable(message, msgs, sync.data.part)) return []
+        const text = sync.data.part[message.id]?.findLast(
+          (part): part is SDKTextPart => part.type === "text" && !!part.text.trim(),
+        )
+        return text ? [{ message, text: text.text }] : []
+      })
+      return candidates
+        .filter(
+          (item, index) => !candidates.slice(index + 1).some((next) => next.message.parentID === item.message.parentID),
+        )
+        .map((item) => ({
+          id: item.message.id,
+          text: item.text.replace(/\n/g, " ").slice(0, 200),
+          time: formatTime(new Date(item.message.time.completed ?? item.message.time.created)),
+        }))
+        .reverse()
+    }
     const result: ForkableMessage[] = []
 
     for (const message of msgs) {

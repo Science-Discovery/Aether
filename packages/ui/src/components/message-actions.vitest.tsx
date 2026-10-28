@@ -2,6 +2,10 @@ import { afterEach, expect, test, vi } from "vitest"
 import { render } from "solid-js/web"
 import { DataProvider, DialogProvider } from "../context"
 import { UserMessageDisplay } from "./message-part"
+import { SessionTurn } from "./session-turn"
+import { MarkedProvider } from "../context/marked"
+import { FileComponentProvider } from "../context/file"
+import type { AssistantMessage, UserMessage, Part } from "@opencode-ai/sdk/v2"
 
 vi.mock("@solidjs/router", () => ({ useLocation: () => ({ pathname: "/project/session/session" }) }))
 
@@ -44,13 +48,82 @@ function mount(text: string) {
   return { host, fork, edit }
 }
 
-test("offers separate native fork and draft editing actions without an in-place revert", async () => {
+test("keeps native draft editing under the question without offering fork or in-place revert", async () => {
   const fixture = mount("Original question")
-  fixture.host.querySelector<HTMLButtonElement>('[aria-label="Fork to new session"]')?.click()
-  await vi.waitFor(() => expect(fixture.fork).toHaveBeenCalledWith({ sessionID: "session", messageID: "user" }))
+  expect(fixture.host.querySelector('[aria-label="Fork to new session"]')).toBeNull()
+  expect(fixture.fork).not.toHaveBeenCalled()
   fixture.host.querySelector<HTMLButtonElement>('[aria-label="Edit in a new session"]')?.click()
   await vi.waitFor(() => expect(fixture.edit).toHaveBeenCalledWith({ sessionID: "session", messageID: "user" }))
   expect(fixture.host.querySelector('[aria-label="Revert to this message"]')).toBeNull()
+})
+
+test("offers native fork below the complete AI response and submits the assistant boundary", async () => {
+  const fork = vi.fn()
+  const user: UserMessage = {
+    id: "user",
+    sessionID: "session",
+    role: "user",
+    time: { created: 1 },
+    agent: "codex",
+    model: { providerID: "codex-native", modelID: "model" },
+  }
+  const assistant: AssistantMessage = {
+    id: "assistant",
+    sessionID: "session",
+    role: "assistant",
+    parentID: user.id,
+    time: { created: 2, completed: 3 },
+    providerID: "codex-native",
+    modelID: "model",
+    mode: "default",
+    agent: "codex",
+    path: { cwd: "/project", root: "/project" },
+    cost: 0,
+    tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+  }
+  const part = (id: string, text: string): Part => ({
+    id: `${id}-text`,
+    messageID: id,
+    sessionID: "session",
+    type: "text",
+    text,
+    metadata: { native: { turn: "turn" } },
+  })
+  const host = document.createElement("div")
+  document.body.append(host)
+  const off = render(
+    () => (
+      <DataProvider
+        data={{
+          session: [],
+          session_status: {},
+          session_diff: {},
+          message: { session: [user, assistant] },
+          part: { user: [part("user", "Question")], assistant: [part("assistant", "Complete answer")] },
+        }}
+        directory="/project"
+      >
+        <MarkedProvider>
+          <DialogProvider>
+            <FileComponentProvider component={() => null}>
+              <SessionTurn sessionID="session" messageID="user" actions={{ response: fork }} />
+            </FileComponentProvider>
+          </DialogProvider>
+        </MarkedProvider>
+      </DataProvider>
+    ),
+    host,
+  )
+  cleanups.push(() => {
+    off()
+    host.remove()
+  })
+  await vi.waitFor(() => expect(host.querySelector('[aria-label="Fork after this response"]')).not.toBeNull())
+  const button = host.querySelector<HTMLButtonElement>('[aria-label="Fork after this response"]')!
+  expect(button.closest('[data-slot="text-part-actions"]')).not.toBeNull()
+  button.click()
+  await vi.waitFor(() => expect(fork).toHaveBeenCalledExactlyOnceWith({ sessionID: "session", messageID: "assistant" }))
+  expect(host.querySelector('[aria-label="Fork to new session"]')).toBeNull()
 })
 
 test("does not offer draft editing for internal async answer payloads", () => {

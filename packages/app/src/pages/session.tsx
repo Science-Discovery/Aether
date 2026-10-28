@@ -74,6 +74,7 @@ import { bounds, panes } from "@/pages/session/row-panes"
 import { useSessionCommands } from "@/pages/session/use-session-commands"
 import { useSessionHashScroll } from "@/pages/session/use-session-hash-scroll"
 import { useSessionFork } from "@/pages/session/use-session-fork"
+import { NativeForkSource } from "@/components/native-fork-source"
 import { createNativeQuestions, type PendingQuestion } from "@/components/native-question-hint"
 import { nativeQuestionAnchor } from "@/components/native-question-events"
 import { Identifier } from "@/utils/id"
@@ -2142,7 +2143,7 @@ function SessionPageContent(props: SessionPageProps = {}) {
   })
 
   const actions = { fork, revert }
-  const nativeActions = { fork, edit }
+  const nativeActions = { response: fork, edit }
 
   createEffect(() => {
     const sessionID = params.id
@@ -2206,6 +2207,19 @@ function SessionPageContent(props: SessionPageProps = {}) {
     () => (info()?.engine?.type === "codex" ? params.id : undefined),
     () => !!params.id && busy(params.id),
   )
+  const [landing, setLanding] = createStore<{ session?: string; message?: string }>({})
+  createEffect(() => {
+    const state = location.state
+    if (!state || typeof state !== "object" || !("nativeFork" in state) || state.nativeFork !== params.id) return
+    if (landing.session === params.id || info()?.engine?.type !== "codex" || !messagesReady()) return
+    const last = visibleUserMessages().at(-1)
+    if (!last) return
+    setLanding({ session: params.id, message: last.id })
+    untrack(() => scrollToMessage(last, "auto"))
+  })
+  const revealed = (id: string) => {
+    if (landing.session === params.id && landing.message === id) setLanding("message", undefined)
+  }
   const [question, setQuestion] = createStore<{ target?: PendingQuestion; session?: string }>({})
   const destination = createMemo(() => {
     const target = question.target
@@ -2313,6 +2327,7 @@ function SessionPageContent(props: SessionPageProps = {}) {
   return (
     <div class="relative bg-background-base size-full overflow-hidden flex flex-col">
       <SessionHeader />
+      <NativeForkSource session={info()} />
       <Show when={params.id && quickReadingController.pdfPath() && quickReadingController.pdfFileName()}>
         <QuickReadingFirstReadGate
           open={quickReadingController.firstReadOpen()}
@@ -2393,7 +2408,10 @@ function SessionPageContent(props: SessionPageProps = {}) {
                           emptyClass: "h-full pb-64 -mt-4 flex flex-col items-center justify-center text-center gap-6",
                         })}
                         actions={info()?.engine ? nativeActions : actions}
-                        reveal={destination()?.parentID}
+                        reveal={
+                          destination()?.parentID ?? (landing.session === params.id ? landing.message : undefined)
+                        }
+                        onReveal={revealed}
                         scroll={ui.scroll}
                         onResumeScroll={resumeScroll}
                         setScrollRef={setScrollRef}
@@ -2577,7 +2595,8 @@ function SessionPageContent(props: SessionPageProps = {}) {
                         emptyClass: "h-full pb-64 -mt-4 flex flex-col items-center justify-center text-center gap-6",
                       })}
                       actions={info()?.engine ? nativeActions : actions}
-                      reveal={destination()?.parentID}
+                      reveal={destination()?.parentID ?? (landing.session === params.id ? landing.message : undefined)}
+                      onReveal={revealed}
                       scroll={ui.scroll}
                       onResumeScroll={resumeScroll}
                       setScrollRef={setScrollRef}

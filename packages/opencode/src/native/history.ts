@@ -34,7 +34,14 @@ export namespace NativeHistory {
     complete: boolean
     issues: Issue[]
   }
-  export type Options = { signal?: AbortSignal; pages?: number; items?: number; bytes?: number }
+  export type Options = {
+    signal?: AbortSignal
+    pages?: number
+    items?: number
+    bytes?: number
+    /** Fork inspection retains all turn boundaries; it does not establish live execution ownership. */
+    terminal?: boolean
+  }
 
   const page = z.object({ data: z.array(z.unknown()), nextCursor: z.string().min(1).nullable() })
   const entry = z.object({ turnId: z.string(), item: Item })
@@ -42,6 +49,10 @@ export namespace NativeHistory {
 
   export function key(...parts: string[]) {
     return createHash("sha256").update(JSON.stringify(parts)).digest("hex").slice(0, 32)
+  }
+
+  export function terminal(turn: Pick<Turn, "status">) {
+    return ["completed", "interrupted", "failed"].includes(turn.status)
   }
 
   export async function read(client: Pick<Protocol.Client, "request">, thread: string, opts: Options = {}) {
@@ -93,15 +104,15 @@ export namespace NativeHistory {
         const turn = Turn.parse(value)
         if (turns.has(turn.id)) throw new Error("Codex repeated a history turn")
         turns.add(turn.id)
-        // A different app-server can label an externally running turn interrupted.
-        // Only completed turns are eligible; do not synthesize failed/stopped UI.
-        if (turn.status !== "completed") {
+        // Ordinary sync cannot treat another process's interrupted turn as a stop.
+        // Fork inspection keeps the original records and validates its own prefix.
+        if (turn.status !== "completed" && !(opts.terminal && terminal(turn))) {
           snapshot.issues.push({
             code: "unsettled",
             turn: turn.id,
             message: `Turn history reports ${turn.status}; its global execution state is unknown`,
           })
-          return
+          if (!opts.terminal) return
         }
         const items: Item[] = []
         if (turn.itemsView !== undefined && turn.itemsView !== "full") {

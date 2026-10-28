@@ -29,12 +29,18 @@ export namespace NativeSync {
   const cache = Instance.state(() => new Map<SessionID, { at: number; value: Status }>())
 
   /** Materialize a replaceable view; pending input and research metadata live elsewhere. */
-  export async function apply(session: Session.Info, snapshot: NativeHistory.Snapshot) {
+  export async function apply(
+    session: Session.Info,
+    snapshot: NativeHistory.Snapshot,
+    opts: { terminal?: boolean } = {},
+  ) {
     if (snapshot.thread && session.engine?.thread && snapshot.thread.id !== session.engine.thread)
       throw new Error("Native history belongs to another thread")
     const existing = await NativeStore.history(session.id)
     const inputs = NativeStore.inputs(session.id)
     const ledger = NativeStore.dispatches(session.id)
+    if (opts.terminal && (existing.length || inputs.length || ledger.length))
+      throw new Error("A historical fork snapshot can only be imported into an empty conversation.")
     const projection = NativeHistory.project(snapshot, {
       sessionID: session.id,
       scope: session.id,
@@ -44,6 +50,7 @@ export namespace NativeSync {
         ...inputs.filter((entry) => !existing.some((item) => item.info.id === entry.id)).map((entry) => entry.data),
       ],
       receipts: ledger.flatMap((entry) => (entry.assistant ? [entry.assistant] : [])),
+      terminal: opts.terminal,
     })
     const steered = inputs.filter((entry) =>
       entry.data.parts.some((part) => part.type === "text" && part.metadata?.nativeSteer),
@@ -233,7 +240,9 @@ export namespace NativeSync {
         })
     const unique = new Map<MessageID, MessageV2.WithParts>()
     const answers = NativeQuestion.texts(
-      snapshot.turns.filter((turn) => turn.status === "completed").flatMap((turn) => turn.items),
+      snapshot.turns
+        .filter((turn) => turn.status === "completed" || (opts.terminal && NativeHistory.terminal(turn)))
+        .flatMap((turn) => turn.items),
     )
     const view: MessageV2.WithParts[] = []
     for (const entry of selected) {

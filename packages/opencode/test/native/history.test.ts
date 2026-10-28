@@ -144,6 +144,55 @@ describe("native history reading", () => {
     expect(NativeHistory.project(result, opts).complete).toBe(false)
   })
 
+  test("fork inspection retains terminal history and the positions of unsettled suffixes", async () => {
+    const values = [
+      turn("done"),
+      { ...turn("stopped"), status: "interrupted" },
+      { ...turn("failed"), status: "failed" },
+    ]
+    const result = await read([metadata(), page(values), metadata()], { terminal: true })
+    expect(result.complete).toBe(true)
+    expect(result.turns).toEqual(values)
+    const active = await read(
+      [metadata(), page([...values, { ...turn("active"), status: "inProgress" }]), metadata()],
+      { terminal: true },
+    )
+    expect(active.complete).toBe(false)
+    expect(active.turns.map((turn) => turn.id)).toEqual(["done", "stopped", "failed", "active"])
+    expect(active.issues).toEqual([expect.objectContaining({ code: "unsettled", turn: "active" })])
+  })
+
+  test("fork projection shows terminal fragments without inventing a successful tool result", () => {
+    const value = {
+      ...turn("stopped"),
+      status: "interrupted",
+      items: [
+        ...turn().items,
+        {
+          id: "command",
+          type: "commandExecution",
+          status: "inProgress",
+          command: "long-running work",
+          aggregatedOutput: "partial output",
+        },
+      ],
+    }
+    expect(NativeHistory.project(snapshot([value]), opts).messages).toEqual([])
+    const result = NativeHistory.project(snapshot([value]), { ...opts, terminal: true })
+    expect(result.complete).toBe(true)
+    expect(result.messages[1].info).toMatchObject({ role: "assistant", finish: "unknown" })
+    const parts = result.messages[1].parts.toSorted((a, b) => a.id.localeCompare(b.id))
+    expect(parts.some((part) => part.type === "tool")).toBe(false)
+    expect(parts[1]).toMatchObject({
+      type: "text",
+      text: expect.stringContaining("partial output"),
+      metadata: { native: { status: "interrupted", raw: value.items[2] } },
+    })
+    expect(parts).toHaveLength(2)
+    expect(value.status).toBe("interrupted")
+    expect(value.items[2].status).toBe("inProgress")
+  })
+
   test("refuses complete snapshots when metadata changes or the local connection is active", async () => {
     const changed = await read([metadata(), page([turn()]), metadata({ ...thread, updatedAt: 111 })])
     expect(changed.complete).toBe(false)

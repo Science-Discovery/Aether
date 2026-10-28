@@ -32,6 +32,10 @@ export function useSessionFork() {
     const scope = `${sdk.url}\n${sdk.directory}\n${params.id}`
     const stamp = revision
     const source = sync.data.session.find((item) => item.id === input.sessionID)
+    if (!source) {
+      showToast({ title: language.t("native.fork.loading") })
+      return
+    }
     const native = source?.engine?.type === "codex"
     const parts = sync.data.part[input.messageID] ?? []
     if (
@@ -78,6 +82,10 @@ export function useSessionFork() {
           )
         if (value) prompt.set(value, undefined, { dir, id: next.id })
         done?.()
+        if (native && !restore) {
+          navigate(`/${dir}/session/${next.id}`, { state: { nativeFork: next.id } })
+          return
+        }
         navigate(`/${dir}/session/${next.id}`)
       })
       .catch((err: unknown) => {

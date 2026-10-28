@@ -1,6 +1,7 @@
 import fs from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
+import { isDeepStrictEqual } from "node:util"
 import launch from "cross-spawn"
 import z from "zod"
 import { Config } from "@/config/config"
@@ -164,8 +165,8 @@ export namespace NativeFork {
         const home = NativeStore.state(source.id)?.home
         if (home && connection.home !== home)
           throw new Error("Restore this conversation's original Codex home before forking it.")
-        const snapshot = await NativeHistory.read(connection.client, source.engine!.thread!)
-        if (!snapshot.complete || !snapshot.thread)
+        const snapshot = await NativeHistory.read(connection.client, source.engine!.thread!, { terminal: true })
+        if (!snapshot.thread || snapshot.issues.some((issue) => !issue.turn))
           throw new Error(
             "Codex history is incomplete or still changing. Refresh it after the task finishes before forking.",
           )
@@ -175,9 +176,8 @@ export namespace NativeFork {
           cwd: source.directory,
           existing: messages,
           receipts: NativeStore.dispatches(source.id).flatMap((entry) => (entry.assistant ? [entry.assistant] : [])),
+          terminal: true,
         })
-        if (!projection.complete)
-          throw new Error("This Codex history contains unsupported items; an exact fork cannot be displayed yet.")
         const selected = input.messageID
           ? projection.messages.find((entry) => entry.info.id === input.messageID)
           : undefined
@@ -201,6 +201,14 @@ export namespace NativeFork {
             )
         }
         const turns = snapshot.turns.slice(0, selected ? at + (input.after ? 1 : 0) : snapshot.turns.length)
+        const retained = new Set(turns.map((turn) => turn.id))
+        const issues = projection.issues.filter((issue) => !issue.turn || retained.has(issue.turn))
+        if (issues.some((issue) => issue.code === "unsettled"))
+          throw new Error("The selected Codex history is incomplete or still changing. Wait for that turn to finish.")
+        if (issues.length)
+          throw new Error(
+            "This Codex history prefix contains unsupported items; an exact fork cannot be displayed yet.",
+          )
         const last = turns.at(-1)
         const anchor =
           last &&
@@ -241,11 +249,13 @@ export namespace NativeFork {
         )
           throw new Error("Codex did not return a separate fork of the original thread.")
         await goal(connection.client, fork.thread.id)
-        const child = await NativeHistory.read(connection.client, fork.thread.id)
+        const child = await NativeHistory.read(connection.client, fork.thread.id, { terminal: true })
         if (
           !child.complete ||
-          child.turns.length !== turns.length ||
-          child.turns.some((turn, index) => turn.id !== turns[index].id)
+          !isDeepStrictEqual(
+            child.turns.map((turn) => ({ id: turn.id, status: turn.status, items: turn.items })),
+            turns.map((turn) => ({ id: turn.id, status: turn.status, items: turn.items })),
+          )
         )
           throw new Error(
             `The new native thread ${fork.thread.id} could not be verified at the requested boundary. The original conversation was preserved; no retry was sent.`,
@@ -264,7 +274,7 @@ export namespace NativeFork {
         try {
           await NativeStore.migrate(session)
           NativeStore.bind(session.id, connection.home)
-          const result = await NativeSync.apply(session, child)
+          const result = await NativeSync.apply(session, child, { terminal: true })
           if (result.state !== "synced") throw new Error(result.error ?? "The forked history could not be displayed.")
           return session
         } catch (error) {

@@ -17,6 +17,8 @@ vi.mock("./sidebar-items", () => ({
   SessionItem: (props: SessionItemProps) => (
     <button
       data-session-id={props.session.id}
+      data-target-id={props.targetSession?.id}
+      data-has-children={props.hasChildren}
       data-selected={props.selected?.()}
       onClick={() => props.onToggleSelect?.(props.session)}
     >
@@ -27,9 +29,8 @@ vi.mock("./sidebar-items", () => ({
   StatusDot: () => null,
 }))
 
-vi.mock("@/context/settings", () => ({
-  useSettings: () => ({ general: { branchesTab: () => false } }),
-}))
+const settings = vi.hoisted(() => ({ tree: false }))
+vi.mock("@/context/settings", () => ({ useSettings: () => ({ general: { branchesTab: () => settings.tree } }) }))
 
 vi.mock("@opencode-ai/ui/icon-button", () => ({
   IconButton: (props: { icon?: string; onClick?: (event: MouseEvent) => void; "aria-label"?: string }) => (
@@ -205,6 +206,7 @@ function mount(props: {
 }
 
 beforeEach(() => {
+  settings.tree = false
   document.body.innerHTML = ""
   vi.clearAllMocks()
 })
@@ -296,12 +298,34 @@ const session = (id: string, engine?: Session["engine"], parent?: string): Sessi
 })
 
 describe("WorkspaceSessionList backend groups", () => {
+  test.each([false, true])(
+    "lists old Codex forks independently with tree enabled=%s while retaining native subagents",
+    (tree) => {
+      settings.tree = tree
+      const source = session("source", { type: "codex" })
+      const fork = { ...session("fork", { type: "codex" }, "source"), forkParentSessionID: "source" }
+      const child = session("agent", { type: "codex" }, "source")
+      const { host, off } = mount({
+        sessions: () => [source, fork],
+        all: () => [source, fork, child],
+        ctx: { ...ctx, sessionExpanded: () => true, conversationTreeLastFocus: () => "fork" },
+        hasMore: false,
+        canCollapse: false,
+        loadMore: () => Promise.resolve(),
+        collapseAll: () => Promise.resolve(),
+      })
+      expect([...host.querySelectorAll("[data-session-id]")].map((row) => row.getAttribute("data-session-id"))).toEqual(
+        ["source", "agent", "fork"],
+      )
+      expect(host.querySelector('[data-session-id="source"]')?.getAttribute("data-target-id")).toBe("source")
+      expect(host.querySelector('[data-session-id="fork"]')?.getAttribute("data-has-children")).toBe("false")
+      expect(host.querySelectorAll('[data-session-id="fork"]')).toHaveLength(1)
+      off()
+    },
+  )
+
   test("groups roots in existing order and keeps children under their own parent", () => {
-    const roots = [
-      session("codex-new", { type: "codex" }),
-      session("legacy"),
-      session("codex-old", { type: "codex" }),
-    ]
+    const roots = [session("codex-new", { type: "codex" }), session("legacy"), session("codex-old", { type: "codex" })]
     const child = session("child", { type: "codex" }, "legacy")
     const { host, off } = mount({
       sessions: () => roots,
@@ -319,7 +343,10 @@ describe("WorkspaceSessionList backend groups", () => {
       groups.map((group) =>
         [...group.querySelectorAll("[data-session-id]")].map((row) => row.getAttribute("data-session-id")),
       ),
-    ).toEqual([["legacy", "child"], ["codex-new", "codex-old"]])
+    ).toEqual([
+      ["legacy", "child"],
+      ["codex-new", "codex-old"],
+    ])
     expect(host.querySelectorAll('[data-session-id="child"]')).toHaveLength(1)
     expect(host.querySelector('[data-component="session-backends-partial"]')).toBeNull()
     off()
@@ -351,7 +378,9 @@ describe("WorkspaceSessionList backend groups", () => {
     host.querySelector<HTMLButtonElement>('[aria-label="common.loadMore"]')!.click()
     expect(load).toHaveBeenCalledTimes(1)
     expect(
-      [...host.querySelectorAll('[data-component="session-backend-group"]')].map((group) => group.getAttribute("data-backend")),
+      [...host.querySelectorAll('[data-component="session-backend-group"]')].map((group) =>
+        group.getAttribute("data-backend"),
+      ),
     ).toEqual(["aether", "codex"])
     expect(host.querySelector('[data-session-id="codex"]')).toBe(row)
     expect(host.querySelector('[data-component="session-backends-partial"]')).toBeNull()

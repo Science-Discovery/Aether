@@ -449,6 +449,9 @@ export const dict = {
   "dialog.fork.empty": "没有可用于分叉的消息",
   "dialog.fork.native": "在新 Codex 会话中保留所选的完整轮次，原会话保持不变。",
   "native.fork.questionReply": "已提交的提问回答不能在这里编辑，请发送一条新消息。",
+  "native.fork.loading": "会话信息仍在加载，请加载完成后再分叉。",
+  "native.fork.source": "分叉自：{{title}}",
+  "native.fork.original": "原会话",
   "native.fork.unsupportedDraft": "该消息包含暂时无法恢复到编辑框的附件或上下文，请从此处分叉后补充问题。",
 
   "dialog.revert.confirm.title": "确认重置到此位置？",
