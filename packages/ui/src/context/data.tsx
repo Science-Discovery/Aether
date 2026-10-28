@@ -1,4 +1,13 @@
-import type { Message, Session, Part, FileDiff, SessionStatus, ProviderListResponse } from "@opencode-ai/sdk/v2"
+import type {
+  Message,
+  Session,
+  Part,
+  TextPart,
+  FileDiff,
+  SessionStatus,
+  ProviderListResponse,
+} from "@opencode-ai/sdk/v2"
+import type { Component } from "solid-js"
 import type { PermissionRequest, QuestionRequest } from "@opencode-ai/sdk/v2/client"
 import { createSimpleContext } from "./helper"
 import { PreloadMultiFileDiffResult } from "@pierre/diffs/ssr"
@@ -26,6 +35,7 @@ type Data = {
 export type NavigateToSessionFn = (sessionID: string) => void
 
 export type SessionHrefFn = (sessionID: string) => string
+export type TextExtension = Component<{ part: TextPart; message: Message }>
 
 export const { use: useData, provider: DataProvider } = createSimpleContext({
   name: "Data",
@@ -37,6 +47,7 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
     directory: string
     onNavigateToSession?: NavigateToSessionFn
     onSessionHref?: SessionHrefFn
+    textExtension?: TextExtension
   }) => {
     return {
       get store() {
@@ -49,6 +60,9 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
       question: (sid: string) => props.data.question?.[sid],
       navigateToSession: props.onNavigateToSession,
       sessionHref: props.onSessionHref,
+      get textExtension() {
+        return props.textExtension
+      },
     }
   },
 })

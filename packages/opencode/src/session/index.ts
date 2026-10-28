@@ -59,6 +59,7 @@ import { Native } from "../native/schema"
 import { NativeInput } from "../native/input"
 import { NativeRuntime } from "../native/runtime"
 import { NativeQueue } from "../native/queue"
+import { NativeAnswers } from "../native/answers"
 
 export namespace Session {
   const log = Log.create({ service: "session" })
@@ -1827,13 +1828,17 @@ export namespace Session {
     }
   })
 
-  export const remove = fn(SessionID.zod, async (sessionID) => {
+  export const remove = fn(SessionID.zod, async (sessionID): Promise<void> => {
     try {
       const session = await get(sessionID)
       if (session.engine) {
+        if (Filesystem.resolve(session.directory) !== Instance.directory)
+          return Instance.provide({ directory: session.directory, fn: () => remove(sessionID) })
+        NativeAnswers.close(sessionID)
         await SessionPrompt.cancel(sessionID)
         await NativeRuntime.remove(sessionID)
         await NativeQueue.clear(sessionID)
+        await NativeAnswers.clear(sessionID)
         if (!session.engine.thread)
           await fs.rm(NativeInput.directory(sessionID), { recursive: true, force: true }).catch((error) => {
             log.error("failed to remove native session attachments", { sessionID, error })

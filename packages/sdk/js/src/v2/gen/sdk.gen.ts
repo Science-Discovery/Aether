@@ -202,6 +202,8 @@ import type {
   NativeHistoryResponses,
   NativeMode,
   NativePermission,
+  NativeReplyQuestionErrors,
+  NativeReplyQuestionResponses,
   NativeResumeQueueErrors,
   NativeResumeQueueResponses,
   NativeRuntimeResponses,
@@ -4355,6 +4357,49 @@ export class Provider extends HeyApiClient {
 }
 
 export class Native extends HeyApiClient {
+  /**
+   * Submit or inspect a durable answer to a Codex asynchronous question
+   */
+  public replyQuestion<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      itemID: string
+      directory?: string
+      workspace?: string
+      threadID?: string
+      answers?: Array<string>
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "path", key: "itemID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "threadID" },
+            { in: "body", key: "answers" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<NativeReplyQuestionResponses, NativeReplyQuestionErrors, ThrowOnError>(
+      {
+        url: "/native/codex/{sessionID}/questions/{itemID}/reply",
+        ...options,
+        ...params,
+        headers: {
+          "Content-Type": "application/json",
+          ...options?.headers,
+          ...params.headers,
+        },
+      },
+    )
+  }
+
   /**
    * Read Codex account limits
    */

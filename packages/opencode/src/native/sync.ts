@@ -13,6 +13,8 @@ import { Codex } from "./codex"
 import { NativeHistory } from "./history"
 import { NativeLock } from "./lock"
 import { NativeStore } from "./store"
+import { NativeAnswers } from "./answers"
+import { NativeQuestion } from "./questions"
 
 export namespace NativeSync {
   export const Status = z
@@ -159,7 +161,12 @@ export namespace NativeSync {
         const native = z.object({ turn: z.string(), item: z.string() }).safeParse(metadata?.native)
         if (!native.success || metadata?.nativeAgent) continue
         if (!snapshot.turns.some((turn) => turn.id === native.data.turn)) continue
-        if ((part.type === "text" || part.type === "reasoning") && !part.text) continue
+        if (
+          (part.type === "text" || part.type === "reasoning") &&
+          !part.text &&
+          !(part.type === "text" && part.nativeQuestion)
+        )
+          continue
         const next = represented.get(identity(part))?.part
         if (
           next &&
@@ -225,8 +232,40 @@ export namespace NativeSync {
           return { info: previous.info, parts: [...parts, ...additions] }
         })
     const unique = new Map<MessageID, MessageV2.WithParts>()
+    const answers = NativeQuestion.texts(
+      snapshot.turns.filter((turn) => turn.status === "completed").flatMap((turn) => turn.items),
+    )
+    const view: MessageV2.WithParts[] = []
+    for (const entry of selected) {
+      if (entry.info.role !== "assistant" || entry.info.providerID !== "codex-native") {
+        view.push(entry)
+        continue
+      }
+      const parts: MessageV2.Part[] = []
+      for (const part of entry.parts) {
+        if (part.type !== "text") {
+          parts.push(part)
+          continue
+        }
+        const next = represented.get(identity(part))?.part
+        const previous = observed.get(identity(part))
+        const question =
+          (next?.type === "text" ? next.nativeQuestion : undefined) ??
+          part.nativeQuestion ??
+          (previous?.type === "text" ? previous.nativeQuestion : undefined)
+        parts.push(
+          question
+            ? {
+                ...part,
+                nativeQuestion: await NativeAnswers.decorate(session.id, NativeQuestion.answered(question, answers)),
+              }
+            : part,
+        )
+      }
+      view.push({ ...entry, parts })
+    }
     let time = 0
-    selected.forEach((entry) => {
+    view.forEach((entry) => {
       const item = MessageV2.WithParts.parse(entry)
       if (unique.has(item.info.id))
         throw new Error("Native history maps multiple messages to the same display identity")

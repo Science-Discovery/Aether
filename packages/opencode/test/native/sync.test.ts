@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import { NativeHistory } from "../../src/native/history"
 import { NativeDisplay } from "../../src/native/display"
+import { NativeQuestion } from "../../src/native/questions"
 import { NativeStore } from "../../src/native/store"
 import { NativeSync } from "../../src/native/sync"
 import { Instance } from "../../src/project/instance"
@@ -83,6 +84,123 @@ async function cache(message: MessageV2.WithParts) {
 }
 
 describe("native history cache synchronization", () => {
+  test("preserves an observed question-only card when native history omits its empty text item", async () => {
+    await scenario(async (session) => {
+      const item = {
+        id: "call_question",
+        type: "agentMessage",
+        text: "",
+        delivery: "async",
+        questions: [{ title: "Which method?", options: ["First", "Second"] }],
+      }
+      await NativeSync.apply(session, snapshot([{ ...turn(), items: [turn().items[0], item] }]))
+      const before = (await NativeStore.history(session.id))
+        .flatMap((entry) => entry.parts)
+        .filter((part) => part.type === "text")
+        .find((part) => part.nativeQuestion)
+      expect(before?.nativeQuestion?.state).toBe("pending")
+      if (!before) throw new Error("Expected an asynchronous question card")
+      expect(await NativeSync.apply(session, snapshot())).toMatchObject({ state: "partial" })
+      const after = await NativeStore.history(session.id)
+      expect(after.flatMap((entry) => entry.parts)).toContainEqual(before)
+      expect(
+        after
+          .flatMap((entry) => entry.parts)
+          .filter((part) => part.type === "text" && part.text === "Native answer turn"),
+      ).toHaveLength(1)
+      await NativeSync.apply(session, snapshot())
+      expect(await NativeStore.history(session.id)).toEqual(after)
+    })
+  })
+
+  test("an unsubmitted local answer is not evidence of a native question reply", async () => {
+    await scenario(async (session) => {
+      const item = {
+        id: "call_question",
+        type: "agentMessage",
+        text: "Choose a style",
+        delivery: "async",
+        questions: [{ title: "Style?" }],
+      }
+      const question = NativeQuestion.parse(item, { thread: "thread", turn: "turn" })!
+      const request = input(session, NativeQuestion.reply(question, ["Short"]))
+      if (request.parts[0].type === "text")
+        request.parts[0].nativeQuestion = { ...question, state: "answered", answers: ["Short"] }
+      NativeStore.add(request, false)
+      const value = snapshot([{ ...turn(), items: [turn().items[0], item] }])
+      await NativeSync.apply(session, value)
+      await NativeSync.apply(session, value)
+      const parts = (await NativeStore.history(session.id))
+        .flatMap((entry) => entry.parts)
+        .filter((part) => part.type === "text")
+      expect(parts.find((part) => part.metadata?.native?.item === item.id)?.nativeQuestion?.state).toBe("pending")
+      expect(NativeStore.pending(session.id)).toHaveLength(1)
+    })
+  })
+
+  test.each(["complete", "partial", "shorter"])(
+    "question answers survive a %s refresh and cache reconstruction without losing old text",
+    async (mode) => {
+      await scenario(async (session) => {
+        const item = {
+          id: "call_question",
+          type: "agentMessage",
+          text: "Select the style for this research summary.",
+          delivery: "async",
+          questions: [{ title: "Style?", options: ["Short", "Detailed"] }],
+        }
+        const first = { ...turn(), items: [turn().items[0], item] }
+        await NativeSync.apply(
+          session,
+          snapshot([{ ...first, items: [first.items[0], { id: item.id, type: item.type, text: item.text }] }]),
+        )
+        const card = async () =>
+          (await NativeStore.history(session.id))
+            .flatMap((entry) => entry.parts)
+            .filter((part) => part.type === "text")
+            .find((part) => part.metadata?.native?.item === item.id)
+        expect((await card())?.nativeQuestion).toBeUndefined()
+        const question = NativeQuestion.parse(item, { thread: "thread", turn: first.id })!
+        const response = {
+          ...turn("response"),
+          items: [
+            {
+              id: "desktop-reply",
+              type: "userMessage",
+              content: [{ type: "text", text: NativeQuestion.reply(question, ["Short"]) }],
+            },
+            { id: "answer", type: "agentMessage", text: "Received" },
+          ],
+        }
+        const value = snapshot([
+          { ...first, items: [first.items[0], { ...item, text: mode === "shorter" ? "Select" : item.text }] },
+          response,
+        ])
+        if (mode === "partial") {
+          value.complete = false
+          value.issues.push({ code: "unavailable", message: "Synthetic partial history" })
+        }
+        expect(await NativeSync.apply(session, value)).toMatchObject({
+          state: mode === "complete" ? "synced" : "partial",
+        })
+        expect(await card()).toMatchObject({
+          text: item.text,
+          nativeQuestion: { state: "answered", answers: ["Short"] },
+        })
+        const before = await NativeStore.history(session.id)
+        await NativeSync.apply(session, value)
+        expect(await NativeStore.history(session.id)).toEqual(before)
+        await NativeSync.apply(session, { ...snapshot([first]), complete: false })
+        expect((await card())?.nativeQuestion).toMatchObject({ state: "answered", answers: ["Short"] })
+        for (const message of await NativeStore.history(session.id))
+          await Session.removeMessage({ sessionID: session.id, messageID: message.info.id })
+        Database.detach(Instance.project.id)
+        await NativeSync.apply(session, snapshot([first]))
+        expect((await card())?.nativeQuestion).toMatchObject({ state: "answered", answers: ["Short"] })
+      })
+    },
+  )
+
   test.each(["complete", "omitted", "shorter", "rewritten"])(
     "splits a legacy aggregate reply without losing observed text when native history is %s",
     async (mode) => {

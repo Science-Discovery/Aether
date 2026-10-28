@@ -14,6 +14,7 @@ import { decode64 } from "@/utils/base64"
 import { OpenIntent } from "@/utils/open-intent"
 import { formatServerError } from "@/utils/server-errors"
 import { forget, fresh, known, remember } from "./directory-guard"
+import { NativeQuestionCard } from "@/components/native-question"
 
 function DirectoryDataProvider(props: ParentProps<{ directory: string }>) {
   const location = useLocation()
@@ -41,6 +42,7 @@ function DirectoryDataProvider(props: ParentProps<{ directory: string }>) {
       directory={props.directory}
       onNavigateToSession={(sessionID: string) => navigate(`/${slug()}/session/${sessionID}`)}
       onSessionHref={(sessionID: string) => `/${slug()}/session/${sessionID}`}
+      textExtension={NativeQuestionCard}
     >
       <LocalProvider>{props.children}</LocalProvider>
     </DataProvider>

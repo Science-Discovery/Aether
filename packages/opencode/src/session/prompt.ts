@@ -68,6 +68,7 @@ import { Config } from "@/config/config"
 import { Native } from "../native/schema"
 import { NativeSession } from "../native/session"
 import { NativeQueue } from "../native/queue"
+import { NativeAnswers } from "../native/answers"
 
 // @ts-ignore
 globalThis.AI_SDK_LOG_WARNINGS = false
@@ -371,8 +372,10 @@ export namespace SessionPrompt {
       return Instance.provide({ directory: session.directory, fn: () => cancel(sessionID) })
     }
     log.info("cancel", { sessionID })
-    if (session?.engine)
+    if (session?.engine) {
+      NativeAnswers.cancel(sessionID)
       await NativeQueue.pause(sessionID).catch((error) => log.warn("pause native queue", { sessionID, error }))
+    }
     const s = state()
     const match = s[sessionID]
     if (match) {

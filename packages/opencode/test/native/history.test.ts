@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test"
 import path from "node:path"
 import { NativeHistory } from "../../src/native/history"
 import { NativeDisplay } from "../../src/native/display"
+import { NativeQuestion } from "../../src/native/questions"
 import { Protocol } from "../../src/native/protocol"
 import { MessageV2 } from "../../src/session/message-v2"
 import { MessageID, PartID, SessionID } from "../../src/session/schema"
@@ -39,6 +40,37 @@ const page = (data: unknown[], nextCursor: string | null = null, cursor?: string
   method: "thread/turns/list",
   params: { threadId: "thread", itemsView: "full", sortDirection: "asc", ...(cursor ? { cursor } : {}) },
   result: { data, nextCursor },
+})
+
+test("history projects async questions and exact Desktop answers from a later completed turn", () => {
+  const item = {
+    id: "call_question",
+    type: "agentMessage",
+    text: "Style?",
+    delivery: "async",
+    questions: [{ title: "Style?", options: null }],
+  }
+  const first = { ...turn(), items: [turn().items[0], item] }
+  const question = NativeQuestion.parse(item, { thread: thread.id, turn: first.id })!
+  const second = {
+    ...turn("reply"),
+    items: [
+      {
+        id: "desktop-reply",
+        type: "userMessage",
+        content: [{ type: "text", text: NativeQuestion.reply(question, ["Short"]) }],
+      },
+      { id: "answer", type: "agentMessage", text: "Received" },
+    ],
+  }
+  const card = (value: NativeHistory.Snapshot) =>
+    NativeHistory.project(value, opts)
+      .messages.flatMap((entry) => entry.parts)
+      .filter((part) => part.type === "text")
+      .find((part) => part.nativeQuestion)
+  expect(card(snapshot([first]))?.nativeQuestion).toMatchObject({ state: "pending", questions: [{ title: "Style?" }] })
+  expect(card(snapshot([first, second]))?.nativeQuestion).toMatchObject({ state: "answered", answers: ["Short"] })
+  expect(card(snapshot([first, { ...second, status: "interrupted" }]))?.nativeQuestion?.state).toBe("pending")
 })
 
 async function read(steps: unknown[], options?: NativeHistory.Options) {

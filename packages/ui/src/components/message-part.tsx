@@ -56,6 +56,7 @@ import { ToolStatusTitle } from "./tool-status-title"
 import { animate } from "motion"
 import { useLocation } from "@solidjs/router"
 import { attached, inline, kind } from "./message-file"
+import { nativeAnswer } from "./native-answer"
 
 function ShellSubmessage(props: { text: string; animate?: boolean }) {
   let widthRef: HTMLSpanElement | undefined
@@ -566,7 +567,7 @@ function renderable(part: PartType, showReasoningSummaries = true) {
     if (part.tool === "question") return part.state.status !== "pending" && part.state.status !== "running"
     return true
   }
-  if (part.type === "text") return !!part.text?.trim()
+  if (part.type === "text") return !!part.text?.trim() || !!part.nativeQuestion
   if (part.type === "reasoning") return showReasoningSummaries && !!part.text?.trim()
   return !!PART_MAPPING[part.type]
 }
@@ -1044,7 +1045,10 @@ export function UserMessageDisplay(props: {
       ) as TextPart[]) ?? [],
   )
 
-  const text = createMemo(() => textPart()?.text || "")
+  const text = createMemo(() => {
+    const raw = textPart()?.text || ""
+    return props.message.model?.providerID === "codex-native" ? (nativeAnswer(raw) ?? raw) : raw
+  })
 
   const files = createMemo(() => (props.parts?.filter((p) => p.type === "file") as FilePart[]) ?? [])
 
@@ -1529,6 +1533,17 @@ PART_MAPPING["text"] = function TextPartDisplay(props) {
 
   const displayText = () => (part().text ?? "").trim()
   const throttledText = createThrottledValue(displayText)
+  const duplicate = createMemo(() => {
+    const question = part().nativeQuestion
+    if (!question || !data.textExtension) return false
+    const text = throttledText().replace(/\r\n?/g, "\n").trim()
+    return [
+      question.questions.map((item) => item.title).join("\n\n"),
+      question.questions
+        .map((item) => [item.title, ...(item.options ?? []).map((option) => `- ${option}`)].join("\n"))
+        .join("\n\n"),
+    ].includes(text)
+  })
   const isLastTextPart = createMemo(() => {
     const last = (data.store.part?.[props.message.id] ?? [])
       .filter((item): item is TextPart => item?.type === "text" && !!item.text?.trim())
@@ -1555,11 +1570,16 @@ PART_MAPPING["text"] = function TextPartDisplay(props) {
   }
 
   return (
-    <Show when={throttledText()}>
+    <Show when={throttledText() || part().nativeQuestion}>
       <div data-component="text-part">
-        <div data-slot="text-part-body">
-          <Markdown text={throttledText()} cacheKey={part().id} />
-        </div>
+        <Show when={throttledText() && !duplicate()}>
+          <div data-slot="text-part-body">
+            <Markdown text={throttledText()} cacheKey={part().id} />
+          </div>
+        </Show>
+        <Show when={data.textExtension}>
+          {(extension) => <Dynamic component={extension()} part={part()} message={props.message} />}
+        </Show>
         <Show when={showCopy()}>
           <div data-slot="text-part-copy-wrapper" data-interrupted={interrupted() ? "" : undefined}>
             <Show when={meta()}>

@@ -7,6 +7,7 @@ import { Session } from "../../src/session"
 import { MessageV2 } from "../../src/session/message-v2"
 import { MessageID, PartID } from "../../src/session/schema"
 import { NativeDisplay } from "../../src/native/display"
+import { NativeQuestion } from "../../src/native/questions"
 import { tmpdir } from "../fixture/fixture"
 
 async function scenario(
@@ -73,6 +74,56 @@ function review(id: string, status = "inProgress") {
     action: { type: "command", source: "shell", command: "echo fixture", cwd: "/fixture" },
   }
 }
+
+test("async question events preserve structure across repeated items and recognize explicit Desktop replies", async () => {
+  await scenario(async ({ assistant, events }) => {
+    const item = {
+      id: "call_question",
+      type: "agentMessage",
+      text: "Choose a style",
+      delivery: "async",
+      questions: [{ title: "Style?", options: ["Short", "Detailed"] }],
+    }
+    const emit = (value: unknown) =>
+      events.notification("item/completed", { threadId: "thread", turnId: "turn", item: value })
+    const card = async () => (await MessageV2.parts(assistant.id)).find((part) => part.type === "text")
+    await emit(item)
+    expect((await card())?.nativeQuestion).toMatchObject({ item: item.id, state: "pending", questions: item.questions })
+    await emit({ id: item.id, type: "agentMessage", text: item.text })
+    expect((await card())?.nativeQuestion?.questions).toEqual(item.questions)
+    const question = NativeQuestion.parse(item, { thread: "thread", turn: "turn" })!
+    const text = NativeQuestion.reply(question, ["Short"])
+    await emit({ id: "user-wrong", type: "userMessage", content: [{ type: "text", text: `Example: ${text}` }] })
+    expect((await card())?.nativeQuestion?.state).toBe("pending")
+    await emit({ id: "user-reply", type: "userMessage", content: [{ type: "text", text }] })
+    expect((await card())?.nativeQuestion).toMatchObject({ state: "answered", answers: ["Short"] })
+    await emit(item)
+    await events.finish({ status: "completed" })
+    expect((await card())?.nativeQuestion).toMatchObject({ state: "answered", answers: ["Short"] })
+    expect((await MessageV2.parts(assistant.id)).filter((part) => part.type === "text")).toHaveLength(1)
+  })
+})
+
+test("forwarded child-agent questions remain text rather than targeting the root thread", async () => {
+  await scenario(async ({ assistant, events }) => {
+    await events.notification("item/completed", {
+      threadId: "thread",
+      turnId: "turn",
+      nativeAgent: { threadId: "child", name: "Research helper" },
+      item: {
+        id: "child-question",
+        type: "agentMessage",
+        text: "Choose a method",
+        delivery: "async",
+        questions: [{ title: "Method?", options: ["First", "Second"] }],
+      },
+    })
+    const parts = await MessageV2.parts(assistant.id)
+    expect(parts).toHaveLength(1)
+    expect(parts[0]).toMatchObject({ type: "text", text: expect.stringContaining("Choose a method") })
+    expect(parts[0].type === "text" && parts[0].nativeQuestion).toBeUndefined()
+  })
+})
 
 test("automatic approval has its own stable identity, persists transitions, and never completes the reviewed tool", async () => {
   await scenario(async ({ session, assistant, events }) => {

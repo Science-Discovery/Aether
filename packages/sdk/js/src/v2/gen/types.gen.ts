@@ -825,12 +825,26 @@ export type EventMessageRemoved = {
   }
 }
 
+export type NativeQuestion = {
+  thread: string
+  turn: string
+  item: string
+  questions: Array<{
+    title: string
+    options?: Array<string>
+  }>
+  state: "pending" | "sending" | "answered" | "uncertain" | "failed"
+  answers?: Array<string>
+  error?: string
+}
+
 export type TextPart = {
   id: string
   sessionID: string
   messageID: string
   type: "text"
   text: string
+  nativeQuestion?: NativeQuestion
   synthetic?: boolean
   ignored?: boolean
   time?: {
@@ -2342,6 +2356,7 @@ export type TextPartInput = {
   id?: string
   type: "text"
   text: string
+  nativeQuestion?: NativeQuestion
   synthetic?: boolean
   ignored?: boolean
   time?: {
@@ -6378,6 +6393,42 @@ export type ProviderOauthCallbackResponses = {
 }
 
 export type ProviderOauthCallbackResponse = ProviderOauthCallbackResponses[keyof ProviderOauthCallbackResponses]
+
+export type NativeReplyQuestionData = {
+  body?: {
+    threadID: string
+    answers: Array<string>
+  }
+  path: {
+    sessionID: string
+    itemID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/native/codex/{sessionID}/questions/{itemID}/reply"
+}
+
+export type NativeReplyQuestionErrors = {
+  /**
+   * Answer cannot be submitted
+   */
+  409: {
+    error: string
+  }
+}
+
+export type NativeReplyQuestionError = NativeReplyQuestionErrors[keyof NativeReplyQuestionErrors]
+
+export type NativeReplyQuestionResponses = {
+  /**
+   * Saved question and answer delivery status
+   */
+  200: NativeQuestion
+}
+
+export type NativeReplyQuestionResponse = NativeReplyQuestionResponses[keyof NativeReplyQuestionResponses]
 
 export type NativeUsageData = {
   body?: never

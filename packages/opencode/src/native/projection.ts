@@ -6,6 +6,7 @@ import { MessageID, PartID, SessionID } from "@/session/schema"
 import { ModelID, ProviderID } from "@/provider/schema"
 import { NativeHistory } from "./history"
 import { NativeDisplay } from "./display"
+import { NativeQuestion } from "./questions"
 
 export type Link = { turn: string; item: string; message: MessageID; client?: string }
 export type Options = {
@@ -66,6 +67,9 @@ export function project(snapshot: NativeHistory.Snapshot, opts: Options) {
   const thread = snapshot.thread
   if (!thread) return { messages, links, complete: false, issues }
   const existing = (opts.existing ?? []).filter((row) => row.info.sessionID === opts.sessionID)
+  const answers = NativeQuestion.texts(
+    snapshot.turns.filter((turn) => turn.status === "completed").flatMap((turn) => turn.items),
+  )
   const users = new Map(existing.filter((row) => row.info.role === "user").map((row) => [String(row.info.id), row]))
   const replies = new Map(
     [
@@ -248,12 +252,14 @@ export function project(snapshot: NativeHistory.Snapshot, opts: Options) {
       links.push({ turn: turn.id, item: item.id, message: assistant.info.id })
       if (item.type === "agentMessage" || item.type === "plan") {
         if (typeof item.text !== "string") issue("Native text item has no text")
+        const question = NativeQuestion.parse(item, { thread: thread.id, turn: turn.id })
         assistant.parts.push({
           ...part,
           type: "text",
           text: typeof item.text === "string" ? item.text : render(item),
           time: { start: created, end: completed },
           metadata: { native, phase: item.phase },
+          ...(question ? { nativeQuestion: NativeQuestion.answered(question, answers) } : {}),
         })
         continue
       }

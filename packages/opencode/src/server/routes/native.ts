@@ -8,11 +8,37 @@ import { Native } from "../../native/schema"
 import { NativeSession } from "../../native/session"
 import { NativeQueue } from "../../native/queue"
 import { NativeUsage } from "../../native/usage"
+import { NativeAnswers } from "../../native/answers"
+import { NativeQuestion } from "../../native/questions"
 import { MessageID, SessionID } from "../../session/schema"
 import { lazy } from "../../util/lazy"
 
 export const NativeRoutes = lazy(() =>
   new Hono()
+    .post(
+      "/codex/:sessionID/questions/:itemID/reply",
+      describeRoute({
+        summary: "Submit or inspect a durable answer to a Codex asynchronous question",
+        operationId: "native.replyQuestion",
+        responses: {
+          200: {
+            description: "Saved question and answer delivery status",
+            content: { "application/json": { schema: resolver(NativeQuestion.Info) } },
+          },
+          409: {
+            description: "Answer cannot be submitted",
+            content: { "application/json": { schema: resolver(z.object({ error: z.string() })) } },
+          },
+        },
+      }),
+      validator("param", NativeAnswers.Input.pick({ sessionID: true, itemID: true })),
+      validator("json", NativeAnswers.Input.pick({ threadID: true, answers: true })),
+      async (c) =>
+        NativeAnswers.reply({ ...c.req.valid("param"), ...c.req.valid("json") }).then(
+          (result) => c.json(result),
+          (error: unknown) => c.json({ error: error instanceof Error ? error.message : String(error) }, 409),
+        ),
+    )
     .get(
       "/codex/usage",
       describeRoute({

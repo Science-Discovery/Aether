@@ -5,6 +5,8 @@ import { MessageV2 } from "@/session/message-v2"
 import { PartID } from "@/session/schema"
 import { NativeStore } from "./store"
 import { NativeDisplay } from "./display"
+import { NativeQuestion } from "./questions"
+import { NativeAnswers } from "./answers"
 
 export namespace NativeEvents {
   export type Outcome = { status: "completed" | "failed" | "interrupted"; error?: string }
@@ -27,6 +29,7 @@ export namespace NativeEvents {
   export function create(assistant: MessageV2.Assistant) {
     const parts = new Map<string, MessageV2.TextPart | MessageV2.ReasoningPart | MessageV2.ToolPart>()
     const replies = new Map([[assistant.id, assistant]])
+    const answers: string[] = []
     const done = Promise.withResolvers<Outcome>()
     const state = {
       thread: "",
@@ -83,6 +86,18 @@ export namespace NativeEvents {
       const id = string(current.id)
       const type = string(current.type)
       if (type === "userMessage" && !agent) {
+        const text = NativeQuestion.texts([current])[0] ?? ""
+        if (NativeQuestion.responses(text).length) {
+          answers.push(text)
+          for (const part of parts.values()) {
+            if (part.type !== "text" || !part.nativeQuestion) continue
+            part.nativeQuestion = await NativeAnswers.decorate(
+              assistant.sessionID,
+              NativeQuestion.answered(part.nativeQuestion, answers),
+            )
+            await Session.updatePart(part)
+          }
+        }
         const client = string(current.clientId)
         const row = client && NativeStore.inputs(assistant.sessionID).find((entry) => entry.id === client)
         const tag = row && row.data.parts.find((part) => part.type === "text")?.metadata?.nativeSteer
@@ -110,6 +125,10 @@ export namespace NativeEvents {
         const text = reasoning
           ? (summary.success && summary.data.length ? summary.data : content.success ? content.data : []).join("\n\n")
           : string(current.text)
+        const question = agent
+          ? undefined
+          : (NativeQuestion.parse(current, { thread: state.thread, turn: state.turn }) ??
+            (previous?.type === "text" ? previous.nativeQuestion : undefined))
         const part = {
           ...(previous?.type === "text" || previous?.type === "reasoning" ? previous : base(owner)),
           type: reasoning ? ("reasoning" as const) : ("text" as const),
@@ -126,6 +145,9 @@ export namespace NativeEvents {
             ...(completed ? { end: Date.now() } : {}),
           },
           metadata: { ...metadata, phase: current.phase },
+          nativeQuestion: question
+            ? await NativeAnswers.decorate(assistant.sessionID, NativeQuestion.answered(question, answers))
+            : undefined,
         }
         parts.set(id, part)
         await Session.updatePart(part)

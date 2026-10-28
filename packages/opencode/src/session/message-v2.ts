@@ -15,6 +15,7 @@ import { iife } from "@/util/iife"
 import type { SystemError } from "bun"
 import type { Provider } from "@/provider/provider"
 import { ModelID, ProviderID } from "@/provider/schema"
+import { NativeQuestion } from "@/native/questions"
 
 /** Error shape thrown by Bun's fetch() when gzip/br decompression fails mid-stream */
 interface FetchDecompressionError extends Error {
@@ -119,6 +120,7 @@ export namespace MessageV2 {
   export const TextPart = PartBase.extend({
     type: z.literal("text"),
     text: z.string(),
+    nativeQuestion: NativeQuestion.Info.optional(),
     synthetic: z.boolean().optional(),
     ignored: z.boolean().optional(),
     time: z
