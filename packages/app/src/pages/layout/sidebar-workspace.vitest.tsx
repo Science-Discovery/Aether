@@ -19,14 +19,21 @@ vi.mock("./sidebar-items", () => ({
       data-session-id={props.session.id}
       data-target-id={props.targetSession?.id}
       data-has-children={props.hasChildren}
+      data-expanded={props.expanded}
       data-selected={props.selected?.()}
-      onClick={() => props.onToggleSelect?.(props.session)}
+      onClick={() => (props.onToggleSelect ? props.onToggleSelect(props.session) : props.onToggleChildren?.())}
     >
       {props.session.title}
     </button>
   ),
   SessionSkeleton: () => null,
   StatusDot: () => null,
+}))
+
+vi.mock("@/pages/session/branch/sidebar-branch-view", () => ({
+  SidebarBranchView: (props: { sessionID: string; linear?: boolean }) => (
+    <div data-history-id={props.sessionID} data-linear={props.linear} />
+  ),
 }))
 
 const settings = vi.hoisted(() => ({ tree: false }))
@@ -165,6 +172,7 @@ function mount(props: {
   collapseAll: () => Promise<void>
   sessions?: Accessor<Session[]>
   all?: Accessor<Session[]>
+  current?: Accessor<string | undefined>
   select?: Accessor<boolean>
   selected?: Accessor<Set<string>>
   toggle?: (session: Session) => void
@@ -178,7 +186,7 @@ function mount(props: {
     () => (
       <WorkspaceSessionList
         slug={() => "slug"}
-        currentSessionID={() => undefined}
+        currentSessionID={props.current ?? (() => undefined)}
         ctx={props.ctx ?? ctx}
         loading={() => false}
         rootSessions={sessions}
@@ -308,7 +316,12 @@ describe("WorkspaceSessionList backend groups", () => {
       const { host, off } = mount({
         sessions: () => [source, fork],
         all: () => [source, fork, child],
-        ctx: { ...ctx, sessionExpanded: () => true, conversationTreeLastFocus: () => "fork" },
+        ctx: {
+          ...ctx,
+          sessionExpanded: () => true,
+          conversationTreeOpen: () => true,
+          conversationTreeLastFocus: () => "fork",
+        },
         hasMore: false,
         canCollapse: false,
         loadMore: () => Promise.resolve(),
@@ -318,11 +331,96 @@ describe("WorkspaceSessionList backend groups", () => {
         ["source", "agent", "fork"],
       )
       expect(host.querySelector('[data-session-id="source"]')?.getAttribute("data-target-id")).toBe("source")
-      expect(host.querySelector('[data-session-id="fork"]')?.getAttribute("data-has-children")).toBe("false")
+      expect(host.querySelector('[data-session-id="fork"]')?.getAttribute("data-has-children")).toBe(String(tree))
+      expect([...host.querySelectorAll("[data-history-id]")].map((row) => row.getAttribute("data-history-id"))).toEqual(
+        tree ? ["source", "agent", "fork"] : [],
+      )
       expect(host.querySelectorAll('[data-session-id="fork"]')).toHaveLength(1)
       off()
     },
   )
+
+  test("keeps Codex histories closed by default and expands them without following an old branch focus", () => {
+    settings.tree = true
+    const source = session("source", { type: "codex" })
+    const fork = { ...session("fork", { type: "codex" }, "source"), forkParentSessionID: "source" }
+    const [open, expand] = createSignal<Record<string, boolean>>({})
+    const { host, off } = mount({
+      sessions: () => [source, fork],
+      current: () => "fork",
+      ctx: {
+        ...ctx,
+        sessionExpanded: () => true,
+        conversationTreeOpen: (id) => open()[id] ?? false,
+        setConversationTreeOpen: (id, value) => expand((prev) => ({ ...prev, [id]: value })),
+        conversationTreeLastFocus: () => "fork",
+      },
+      hasMore: false,
+      canCollapse: false,
+      loadMore: () => Promise.resolve(),
+      collapseAll: () => Promise.resolve(),
+    })
+    expect(host.querySelector("[data-history-id]")).toBeNull()
+    const row = host.querySelector<HTMLButtonElement>('[data-session-id="source"]')!
+    row.click()
+    expect(row.dataset.expanded).toBe("true")
+    expect(row.dataset.targetId).toBe("source")
+    expect(host.querySelector('[data-history-id="source"]')?.getAttribute("data-linear")).toBe("true")
+    expect(host.querySelector('[data-history-id="fork"]')).toBeNull()
+    host.querySelector<HTMLButtonElement>('[data-session-id="fork"]')!.click()
+    expect(host.querySelector('[data-history-id="fork"]')?.getAttribute("data-linear")).toBe("true")
+    row.click()
+    expect(host.querySelector('[data-history-id="source"]')).toBeNull()
+    expect(host.querySelector('[data-history-id="fork"]')).not.toBeNull()
+    off()
+  })
+
+  test("opens a Codex parent history when navigating directly to a real subagent", () => {
+    settings.tree = true
+    const source = session("source", { type: "codex" })
+    const child = session("agent", { type: "codex" }, "source")
+    const [open, expand] = createSignal<Record<string, boolean>>({})
+    const { host, off } = mount({
+      sessions: () => [source],
+      all: () => [source, child],
+      current: () => "agent",
+      ctx: {
+        ...ctx,
+        sessionExpanded: () => true,
+        conversationTreeOpen: (id) => open()[id] ?? false,
+        setConversationTreeOpen: (id, value) => expand((prev) => ({ ...prev, [id]: value })),
+      },
+      hasMore: false,
+      canCollapse: false,
+      loadMore: () => Promise.resolve(),
+      collapseAll: () => Promise.resolve(),
+    })
+    expect(host.querySelector('[data-history-id="source"]')).not.toBeNull()
+    expect(host.querySelector('[data-session-id="agent"]')).not.toBeNull()
+    expect(host.querySelector('[data-history-id="agent"]')).toBeNull()
+    expect(host.querySelector('[data-session-id="source"]')?.getAttribute("data-target-id")).toBe("source")
+    off()
+  })
+
+  test("keeps Aether branch focus and combined conversation graph", () => {
+    settings.tree = true
+    const source = session("source")
+    const fork = { ...session("fork", undefined, "source"), forkParentSessionID: "source" }
+    const { host, off } = mount({
+      sessions: () => [source],
+      all: () => [source, fork],
+      current: () => "fork",
+      ctx: { ...ctx, conversationTreeOpen: () => true, conversationTreeLastFocus: () => "fork" },
+      hasMore: false,
+      canCollapse: false,
+      loadMore: () => Promise.resolve(),
+      collapseAll: () => Promise.resolve(),
+    })
+    expect(host.querySelector('[data-session-id="source"]')?.getAttribute("data-target-id")).toBe("fork")
+    expect(host.querySelector('[data-history-id="fork"]')?.getAttribute("data-linear")).toBe("false")
+    expect(host.querySelectorAll("[data-session-id]")).toHaveLength(1)
+    off()
+  })
 
   test("groups roots in existing order and keeps children under their own parent", () => {
     const roots = [session("codex-new", { type: "codex" }), session("legacy"), session("codex-old", { type: "codex" })]

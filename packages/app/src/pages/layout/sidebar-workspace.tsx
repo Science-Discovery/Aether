@@ -875,9 +875,15 @@ const SessionTreeNodes = (props: {
         let cursor = current.parentID
         while (cursor && !visited.has(cursor)) {
           visited.add(cursor)
-          const expanded = untrack(() => props.ctx.sessionExpanded(cursor!))
-          if (!expanded) props.ctx.setSessionExpanded(cursor, true)
           const parent = sessions.get(cursor)
+          const graph = treeEnabled && parent?.engine?.type === "codex"
+          const expanded = untrack(() =>
+            graph ? props.ctx.conversationTreeOpen(cursor!) : props.ctx.sessionExpanded(cursor!),
+          )
+          if (!expanded) {
+            const expand = graph ? props.ctx.setConversationTreeOpen : props.ctx.setSessionExpanded
+            expand(cursor, true)
+          }
           cursor = parent && !independent(parent) ? parent.parentID : undefined
         }
       },
@@ -899,7 +905,7 @@ const SessionTreeNodes = (props: {
 
   function SessionNode(nodeProps: { session: Session; depth: number; chain: Set<string> }): JSX.Element {
     const native = () => nodeProps.session.engine?.type === "codex"
-    const tree = () => !native() && conversationTreeEnabled()
+    const tree = () => conversationTreeEnabled()
     const nextChain = new Set(nodeProps.chain)
     nextChain.add(nodeProps.session.id)
     const childSessions = createMemo(() =>
@@ -908,6 +914,7 @@ const SessionTreeNodes = (props: {
     const hasChildren = createMemo(() => childSessions().length > 0)
     const hasBranchView = createMemo(() => {
       if (!tree()) return hasChildren()
+      if (native()) return true
       if (hasChildren()) return true
       if (nodeProps.session.id === props.currentSessionID()) return true
       return (nodeProps.session.time.updated ?? 0) > (nodeProps.session.time.created ?? 0)
@@ -918,6 +925,7 @@ const SessionTreeNodes = (props: {
       return props.ctx.conversationTreeOpen(nodeProps.session.id)
     })
     const graphSessionID = createMemo(() => {
+      if (native()) return nodeProps.session.id
       const currentSessionID = props.currentSessionID()
       const lastFocus = props.ctx.conversationTreeLastFocus(nodeProps.session.id)
       if (currentSessionID && rootSessionIDFor(currentSessionID) === nodeProps.session.id) {
@@ -929,6 +937,7 @@ const SessionTreeNodes = (props: {
       return nodeProps.session.id
     })
     const graphRefreshKey = createMemo(() => {
+      if (native()) return `${nodeProps.session.id}:${nodeProps.session.time.updated ?? 0}`
       const rootID = nodeProps.session.id
       const rows = props
         .allSessions()
@@ -981,10 +990,11 @@ const SessionTreeNodes = (props: {
               currentSessionID={props.currentSessionID() ?? nodeProps.session.id}
               directory={nodeProps.session.directory}
               refreshKey={graphRefreshKey()}
+              linear={native()}
             />
           </div>
         </Show>
-        <Show when={expanded() && !tree()}>
+        <Show when={expanded() && (native() || !tree())}>
           <For each={childSessions()}>
             {(child) => <SessionNode session={child} depth={nodeProps.depth + 1} chain={nextChain} />}
           </For>

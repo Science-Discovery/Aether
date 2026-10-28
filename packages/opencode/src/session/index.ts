@@ -1581,6 +1581,52 @@ export namespace Session {
 
   export const graph = fn(SessionID.zod, async (sessionID): Promise<GraphResult> => {
     const currentSession = await get(sessionID)
+    if (currentSession.engine?.type === "codex") {
+      const history = await messages({ sessionID })
+      const replies = new Map(
+        history.flatMap((message) =>
+          message.info.role === "assistant" ? [[message.info.parentID, message.info] as const] : [],
+        ),
+      )
+      const nodes: GraphNode[] = history
+        .flatMap((message) => (message.info.role === "user" ? [{ info: message.info, parts: message.parts }] : []))
+        .map((message, row) => {
+          const reply = replies.get(message.info.id)
+          return {
+            id: turnNodeID(sessionID, message.info.id),
+            kind: "turn",
+            sessionID,
+            userMessageID: message.info.id,
+            lane: 0,
+            row,
+            time: message.info.time.created,
+            label: extractUserLabel(message),
+            providerID: reply?.providerID ?? message.info.model.providerID,
+            modelID: reply?.modelID ?? message.info.model.modelID,
+            mode: reply?.mode,
+            origin: "tree",
+          }
+        })
+      return {
+        kind: "graph",
+        // Display identity only: older native forks may still share a stored treeID.
+        treeID: TreeID.make(`tre_${sessionID.slice(4)}`),
+        nodes,
+        edges: nodes.slice(1).map((node, index) => ({
+          id: `${nodes[index].id}->${node.id}`,
+          from: nodes[index].id,
+          to: node.id,
+          kind: "continuation",
+          style: "solid",
+        })),
+        current: {
+          sessionID,
+          pathNodeIDs: nodes.map((node) => node.id),
+          latestNodeID: nodes.at(-1)?.id,
+          targetNodeID: nodes.at(-1)?.id,
+        },
+      }
+    }
     if (!currentSession.treeID) {
       return {
         kind: "legacy",

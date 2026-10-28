@@ -19,6 +19,7 @@ async function addTurn(input: {
   providerID?: string
   modelID?: string
   mode?: string
+  state?: "pending" | "interrupted"
 }) {
   const userMessageID = MessageID.ascending()
   await Session.updateMessage({
@@ -38,6 +39,7 @@ async function addTurn(input: {
     type: "text",
     text: input.text,
   })
+  if (input.state === "pending") return userMessageID
 
   await Session.updateMessage({
     id: MessageID.ascending(),
@@ -45,6 +47,7 @@ async function addTurn(input: {
     role: "assistant",
     parentID: userMessageID,
     time: { created: input.time + 1, completed: input.time + 2 },
+    ...(input.state === "interrupted" ? { error: new MessageV2.AbortedError({ message: "Stopped" }).toObject() } : {}),
     providerID: input.providerID ?? "provider",
     modelID: input.modelID ?? "model-a",
     mode: input.mode ?? "build",
@@ -58,6 +61,110 @@ async function addTurn(input: {
 }
 
 describe("session.graph endpoint", () => {
+  test("returns a stable empty graph for a native session without a stored tree", async () => {
+    await Instance.provide({
+      directory: projectRoot,
+      fn: async () => {
+        const session = await Session.create({ engine: { type: "codex" } })
+        Database.useProject(session.projectID, (db) =>
+          db.update(SessionTable).set({ tree_id: null }).where(eq(SessionTable.id, session.id)).run(),
+        )
+        const app = Server.Default()
+        const response = await app.request(`/session/${session.id}/graph`)
+        expect(response.status).toBe(200)
+        const graph = Session.GraphResult.parse(await response.json())
+        expect(graph.kind).toBe("graph")
+        if (graph.kind !== "graph") throw new Error("Expected native graph")
+        expect(graph.nodes).toEqual([])
+        expect(graph.edges).toEqual([])
+        expect(graph.current.pathNodeIDs).toEqual([])
+        expect(await Session.graph(session.id)).toEqual(graph)
+        expect((await Session.get(session.id)).treeID).toBeUndefined()
+      },
+    })
+  })
+
+  test("keeps native fork history local even when old records share a tree and parent", async () => {
+    await Instance.provide({
+      directory: projectRoot,
+      fn: async () => {
+        const source = await Session.create({ engine: { type: "codex" } })
+        const anchor = await addTurn({ sessionID: source.id, text: "Inherited", time: 10 })
+        await addTurn({ sessionID: source.id, text: "Source only", time: 20 })
+        const fork = await Session.createNext({
+          directory: source.directory,
+          engine: { type: "codex" },
+          parentID: source.id,
+          treeID: source.treeID,
+          forkParentSessionID: source.id,
+          forkAfterUserMessageID: anchor,
+        })
+        const inherited = await addTurn({ sessionID: fork.id, text: "Inherited", time: 10 })
+        const own = await addTurn({ sessionID: fork.id, text: "Fork only", time: 30 })
+        const sibling = await Session.createNext({
+          directory: source.directory,
+          engine: { type: "codex" },
+          treeID: source.treeID,
+          forkParentSessionID: source.id,
+          forkAfterUserMessageID: anchor,
+        })
+        await addTurn({ sessionID: sibling.id, text: "Sibling only", time: 40 })
+        const row = () =>
+          Database.useProject(source.projectID, (db) =>
+            db.select().from(SessionTable).where(eq(SessionTable.id, fork.id)).get(),
+          )
+        const before = row()
+        const graph = await Session.graph(fork.id)
+        expect(graph.kind).toBe("graph")
+        if (graph.kind !== "graph") throw new Error("Expected native graph")
+        expect(graph.nodes.map((node) => [node.sessionID, node.userMessageID, node.label, node.lane])).toEqual([
+          [fork.id, inherited, "Inherited", 0],
+          [fork.id, own, "Fork only", 0],
+        ])
+        expect(graph.edges.map((edge) => edge.kind)).toEqual(["continuation"])
+        expect(graph.current.pathNodeIDs).toEqual(graph.nodes.map((node) => node.id))
+        expect(graph.current.targetNodeID).toBe(graph.nodes[1].id)
+        expect(row()).toEqual(before)
+        const origin = await Session.graph(source.id)
+        expect(origin.kind).toBe("graph")
+        if (origin.kind !== "graph") throw new Error("Expected source graph")
+        expect(origin.treeID).not.toBe(graph.treeID)
+        expect(origin.nodes.map((node) => node.label)).toEqual(["Inherited", "Source only"])
+      },
+    })
+  })
+
+  test("native navigation follows message chronology and includes stopped and unanswered messages", async () => {
+    await Instance.provide({
+      directory: projectRoot,
+      fn: async () => {
+        const session = await Session.create({ engine: { type: "codex" } })
+        const stopped = await addTurn({ sessionID: session.id, text: "Stopped", time: 20.5, state: "interrupted" })
+        const first = await addTurn({ sessionID: session.id, text: "First", time: 10.5 })
+        const pending = await addTurn({ sessionID: session.id, text: "Unanswered", time: 30.5, state: "pending" })
+        const graph = await Session.graph(session.id)
+        expect(graph.kind).toBe("graph")
+        if (graph.kind !== "graph") throw new Error("Expected native graph")
+        expect(graph.nodes.map((node) => [node.userMessageID, node.row])).toEqual([
+          [first, 0],
+          [stopped, 1],
+          [pending, 2],
+        ])
+        expect(graph.edges.map((edge) => [edge.from, edge.to])).toEqual([
+          [graph.nodes[0].id, graph.nodes[1].id],
+          [graph.nodes[1].id, graph.nodes[2].id],
+        ])
+        await Session.removeMessage({ sessionID: session.id, messageID: pending })
+        const updated = await Session.graph(session.id)
+        expect(updated.kind).toBe("graph")
+        if (updated.kind !== "graph") throw new Error("Expected native graph")
+        expect(updated.nodes.map((node) => node.userMessageID)).toEqual([first, stopped])
+        expect(updated.current.latestNodeID).toBe(graph.nodes[1].id)
+        expect(updated.edges).toHaveLength(1)
+      },
+    })
+  })
+
   test("returns an empty graph until the first completed turn exists", async () => {
     await Instance.provide({
       directory: projectRoot,
