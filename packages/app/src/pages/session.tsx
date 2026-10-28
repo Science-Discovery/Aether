@@ -75,7 +75,6 @@ import { useSessionCommands } from "@/pages/session/use-session-commands"
 import { useSessionHashScroll } from "@/pages/session/use-session-hash-scroll"
 import { useSessionFork } from "@/pages/session/use-session-fork"
 import { useNativeRevert } from "@/pages/session/use-native-revert"
-import { NativeForkSource } from "@/components/native-fork-source"
 import { createNativeQuestions, type PendingQuestion } from "@/components/native-question-hint"
 import { nativeQuestionAnchor } from "@/components/native-question-events"
 import { Identifier } from "@/utils/id"
@@ -2329,7 +2328,6 @@ function SessionPageContent(props: SessionPageProps = {}) {
   return (
     <div class="relative bg-background-base size-full overflow-hidden flex flex-col">
       <SessionHeader />
-      <NativeForkSource session={info()} />
       <Show when={params.id && quickReadingController.pdfPath() && quickReadingController.pdfFileName()}>
         <QuickReadingFirstReadGate
           open={quickReadingController.firstReadOpen()}

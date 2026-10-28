@@ -102,7 +102,9 @@ export function SessionContextUsage(props: SessionContextUsageProps) {
         {(ctx) => (
           <>
             <div class="flex items-center gap-2">
-              <span class="text-text-invert-strong">{ctx().total.toLocaleString(language.intl())}</span>
+              <span class="text-text-invert-strong">
+                {ctx().total?.toLocaleString(language.intl()) ?? language.t("native.usage.unknown")}
+              </span>
               <span class="text-text-invert-base">{language.t("context.usage.tokens")}</span>
             </div>
             <div class="flex items-center gap-2">

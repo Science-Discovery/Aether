@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test"
 import path from "node:path"
 import { NativeHistory } from "../../src/native/history"
 import { NativeDisplay } from "../../src/native/display"
+import { NativeInheritance } from "../../src/native/inheritance"
 import { NativeQuestion } from "../../src/native/questions"
 import { Protocol } from "../../src/native/protocol"
 import { MessageV2 } from "../../src/session/message-v2"
@@ -246,6 +247,23 @@ describe("native history reading", () => {
 })
 
 describe("native history projection", () => {
+  test("imported deterministic identities retain observed metadata with or without a native client id", () => {
+    for (const client of [true, false]) {
+      const value = turn()
+      if (!client) delete value.items[0].clientId
+      const existing = NativeHistory.project(snapshot([value]), opts).messages
+      const user = existing[0].info
+      const assistant = existing[1].info
+      if (user.role !== "user" || assistant.role !== "assistant") throw new Error("Unexpected projection")
+      user.model.modelID = ModelID.make("observed-model")
+      assistant.modelID = ModelID.make("observed-model")
+      assistant.tokens = { total: 150, input: 100, output: 50, reasoning: 0, cache: { read: 0, write: 0 } }
+      assistant.nativeUsage = { input: 100, contextWindow: 1000, updatedAt: 1 }
+      const result = NativeHistory.project(snapshot([value]), { ...opts, existing })
+      expect(result.messages.map((row) => row.info)).toEqual(existing.map((row) => row.info))
+    }
+  })
+
   test("segments successive user items within one native turn and counts root usage only once", () => {
     const existing = NativeHistory.project(snapshot(), opts).messages
     const original = existing[0].info
@@ -256,6 +274,7 @@ describe("native history projection", () => {
     receipt.id = MessageID.make("msg_root_assistant")
     receipt.tokens = { total: 150, input: 100, output: 50, reasoning: 20, cache: { read: 0, write: 0 } }
     receipt.nativeUsage = { input: 100, contextWindow: 1000, updatedAt: 1 }
+    receipt.modelID = ModelID.make("observed-model")
     const value = turn()
     value.items.splice(
       1,
@@ -274,6 +293,7 @@ describe("native history projection", () => {
     expect(before.parts).toContainEqual(expect.objectContaining({ text: "Before the supplement" }))
     expect(after.parts).toContainEqual(expect.objectContaining({ text: "Research answer" }))
     expect(new Set(result.links.map((link) => link.turn))).toEqual(new Set(["turn"]))
+    expect(NativeInheritance.missing(result)).toBe(false)
     expect(
       NativeHistory.project(snapshot([value]), { ...opts, existing: result.messages, receipts: [receipt] }),
     ).toEqual(result)

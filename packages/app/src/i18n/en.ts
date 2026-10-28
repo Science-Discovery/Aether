@@ -443,8 +443,6 @@ export const dict = {
     "Keep the selected completed turn in a new Codex session. The original session stays unchanged.",
   "native.fork.questionReply": "A saved question reply cannot be edited here. Start a new message instead.",
   "native.fork.loading": "The conversation is still loading. Try forking again when it is ready.",
-  "native.fork.source": "Forked from: {{title}}",
-  "native.fork.original": "Original conversation",
   "native.revert.title": "Revert here and edit?",
   "native.revert.description":
     "This removes the selected question and all later replies ({{count}} turns) from this Codex conversation. The question and recoverable attachments will return to the input box. Existing file changes are not reverted. Fork first if you want to keep this history.",

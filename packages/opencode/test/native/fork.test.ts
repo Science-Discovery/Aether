@@ -9,6 +9,7 @@ import { NativeHistory } from "../../src/native/history"
 import { NativeStore } from "../../src/native/store"
 import { NativeSync } from "../../src/native/sync"
 import { Instance } from "../../src/project/instance"
+import { ModelID } from "../../src/provider/schema"
 import { Session } from "../../src/session"
 import { SessionPrompt } from "../../src/session/prompt"
 import { MessageID } from "../../src/session/schema"
@@ -63,6 +64,190 @@ async function calls(dir: string) {
     .split("\n")
     .map((line) => JSON.parse(line) as { method: string; params: Record<string, unknown> })
 }
+
+async function telemetry(session: Session.Info, id: MessageID, input: number) {
+  const rows = await NativeStore.history(session.id)
+  const row = rows.find((entry) => entry.info.role === "assistant" && entry.info.parentID === id)!
+  if (row.info.role !== "assistant") throw new Error("Expected an assistant")
+  row.info.modelID = ModelID.make(`observed-${input}`)
+  row.info.tokens = { input, output: 10, reasoning: 2, total: input + 10, cache: { read: 0, write: 0 } }
+  row.info.nativeUsage = { input, total: input + 10, contextWindow: 1000, updatedAt: 123 }
+  await Session.updateMessage(row.info)
+  NativeStore.receipt(row.info)
+}
+
+async function erase(session: Session.Info) {
+  for (const row of await NativeStore.history(session.id)) {
+    if (row.info.role !== "assistant") continue
+    row.info.modelID = ModelID.make("unknown")
+    row.info.tokens = { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } }
+    row.info.nativeUsage = undefined
+    await Session.updateMessage(row.info)
+  }
+}
+
+async function metrics(session: Session.Info) {
+  return (await NativeStore.history(session.id)).flatMap((row) => (row.info.role === "assistant" ? [row.info] : []))
+}
+
+test("forks inherit only observed telemetry at the retained boundary and keep it across refreshes", async () => {
+  await scenario(async (session, dir) => {
+    const first = await send(session.id, "first")
+    await telemetry(session, first, 100)
+    const second = await send(session.id, "second")
+    await telemetry(session, second, 800)
+    const child = await Session.fork({ sessionID: session.id, messageID: first, after: true })
+    expect(await metrics(child)).toMatchObject([
+      { modelID: "observed-100", nativeUsage: { input: 100, contextWindow: 1000 }, tokens: { input: 100, total: 110 } },
+    ])
+    const count = (await calls(dir)).filter((entry) => entry.method === "thread/read").length
+    expect((await NativeSync.refresh(child.id, true)).state).toBe("synced")
+    expect((await metrics(child))[0].nativeUsage?.input).toBe(100)
+    const reads = (await calls(dir)).filter((entry) => entry.method === "thread/read").slice(count)
+    expect(reads.every((entry) => entry.params.threadId === child.engine!.thread)).toBe(true)
+    const last = await send(child.id, "child only")
+    await telemetry(child, last, 300)
+    await NativeSync.refresh(child.id, true)
+    expect((await metrics(child)).map((row) => row.nativeUsage?.input)).toEqual([100, 300])
+  })
+})
+
+test("old nested forks recover matching source telemetry without opening or rewriting their parent", async () => {
+  await scenario(async (session) => {
+    const first = await send(session.id, "first")
+    await telemetry(session, first, 100)
+    const second = await send(session.id, "second")
+    await telemetry(session, second, 800)
+    const parent = await Session.fork({ sessionID: session.id })
+    const user = (await NativeStore.history(parent.id)).find((row) => row.info.role === "user")!
+    const child = await Session.fork({ sessionID: parent.id, messageID: user.info.id, after: true })
+    await erase(parent)
+    await erase(child)
+    const before = await NativeStore.history(parent.id)
+    expect((await NativeSync.refresh(child.id, true)).state).toBe("synced")
+    expect((await metrics(child)).map((row) => row.nativeUsage?.input)).toEqual([100])
+    expect(await NativeStore.history(parent.id)).toEqual(before)
+    expect((await metrics(session)).map((row) => row.nativeUsage?.input)).toEqual([100, 800])
+  })
+})
+
+test("fork telemetry does not use a changed source turn or a guessed Aether parent", async () => {
+  await scenario(async (session, dir) => {
+    const first = await send(session.id, "first")
+    await telemetry(session, first, 100)
+    const child = await Session.fork({ sessionID: session.id })
+    await erase(child)
+    await alter(session, dir, (thread) => {
+      thread.turns[0].items[1].text = "Changed original output"
+    })
+    await NativeSync.refresh(child.id, true)
+    expect((await metrics(child))[0].nativeUsage).toBeUndefined()
+    await alter(child, dir, (thread) => {
+      thread.forkedFromId = "another-native-thread"
+    })
+    await NativeSync.refresh(child.id, true)
+    expect((await metrics(child))[0].modelID).toBe(ModelID.make("unknown"))
+  })
+})
+
+test("unavailable fork telemetry remains unknown and source lookups are bounded between refreshes", async () => {
+  await scenario(async (session, dir) => {
+    await send(session.id, "no usage reported")
+    const child = await Session.fork({ sessionID: session.id })
+    expect((await metrics(child))[0].nativeUsage).toBeUndefined()
+    const count = (await calls(dir)).filter((entry) => entry.method === "thread/read").length
+    await NativeSync.refresh(child.id)
+    const reads = (await calls(dir)).filter((entry) => entry.method === "thread/read").slice(count)
+    expect(reads.every((entry) => entry.params.threadId === child.engine!.thread)).toBe(true)
+    expect((await metrics(child))[0].tokens.input).toBe(0)
+  })
+})
+
+test("observed fork statistics survive deletion of the source without copying later source usage", async () => {
+  await scenario(async (session) => {
+    const first = await send(session.id, "first")
+    await telemetry(session, first, 100)
+    const child = await Session.fork({ sessionID: session.id })
+    await Session.remove(session.id)
+    await NativeSync.refresh(child.id, true)
+    expect((await metrics(child))[0].nativeUsage?.input).toBe(100)
+    expect((await metrics(child))[0].modelID).toBe(ModelID.make("observed-100"))
+  })
+})
+
+test("an explicitly reported zero usage is preserved instead of replaced by source usage", async () => {
+  await scenario(async (session) => {
+    const first = await send(session.id, "first")
+    await telemetry(session, first, 100)
+    const child = await Session.fork({ sessionID: session.id })
+    await erase(child)
+    const [message] = await metrics(child)
+    message.tokens.total = 0
+    await Session.updateMessage(message)
+    await NativeSync.refresh(child.id, true)
+    expect((await metrics(child))[0]).toMatchObject({ modelID: "observed-100", tokens: { total: 0, input: 0 } })
+    expect((await metrics(child))[0].nativeUsage).toBeUndefined()
+  })
+})
+
+test("unavailable source history cannot prevent an old fork from refreshing or being forked again", async () => {
+  await scenario(async (session, dir) => {
+    const first = await send(session.id, "first")
+    await telemetry(session, first, 100)
+    const child = await Session.fork({ sessionID: session.id })
+    await erase(child)
+    await Bun.write(path.join(dir, "behavior"), "unavailable-source")
+    expect((await NativeSync.refresh(child.id, true)).state).toBe("synced")
+    expect((await metrics(child))[0].nativeUsage).toBeUndefined()
+    const nested = await Session.fork({ sessionID: child.id })
+    expect((await NativeStore.history(nested.id)).filter((row) => row.info.role === "user")).toHaveLength(1)
+    expect((await metrics(nested))[0].nativeUsage).toBeUndefined()
+  })
+})
+
+test("a fork retains one usage record when native persistence omitted the pre-steer reply", async () => {
+  await scenario(async (session, dir) => {
+    const first = await send(session.id, "first")
+    await telemetry(session, first, 100)
+    await alter(session, dir, (thread) => {
+      thread.turns[0].items = [
+        thread.turns[0].items[0],
+        { id: "supplement", type: "userMessage", content: [{ type: "text", text: "new direction" }] },
+        { id: "continued", type: "agentMessage", text: "Continued output", phase: "final_answer" },
+      ]
+    })
+    await NativeSync.refresh(session.id, true)
+    const child = await Session.fork({ sessionID: session.id })
+    expect(await metrics(child)).toMatchObject([
+      { modelID: "observed-100", tokens: { total: 110 }, nativeUsage: { input: 100, contextWindow: 1000 } },
+    ])
+    const count = (await calls(dir)).filter((entry) => entry.method === "thread/read").length
+    await NativeSync.refresh(child.id, true)
+    expect((await metrics(child)).map((row) => row.nativeUsage?.input)).toEqual([100])
+    const reads = (await calls(dir)).filter((entry) => entry.method === "thread/read").slice(count)
+    expect(reads.every((entry) => entry.params.threadId === child.engine!.thread)).toBe(true)
+  })
+})
+
+test("partial old-fork refresh fills completed-turn telemetry while preserving interrupted history", async () => {
+  await scenario(async (session, dir) => {
+    const first = await send(session.id, "interrupted first")
+    await telemetry(session, first, 100)
+    const second = await send(session.id, "completed later")
+    await telemetry(session, second, 200)
+    await alter(session, dir, (thread) => {
+      thread.turns[0].status = "interrupted"
+    })
+    const child = await Session.fork({ sessionID: session.id })
+    await erase(child)
+    const before = await NativeStore.history(child.id)
+    expect((await NativeSync.refresh(child.id, true)).state).toBe("partial")
+    const after = await NativeStore.history(child.id)
+    expect(after.map((row) => row.parts)).toEqual(before.map((row) => row.parts))
+    expect((await metrics(child)).map((row) => row.nativeUsage?.input)).toEqual([undefined, 200])
+    expect((await metrics(child))[0].finish).toBe("unknown")
+  })
+})
 
 async function alter(
   session: Session.Info,

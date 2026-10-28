@@ -142,7 +142,12 @@ describe("getSessionContextMetrics", () => {
     expect(metrics.context?.limit).toBeUndefined()
     expect(metrics.context?.usage).toBeNull()
     expect(metrics.totalCost).toBeNull()
-    expect(getSessionContextMetrics([], [], true)).toEqual({ native: true, totalCost: null, context: undefined })
+    expect(getSessionContextMetrics([], [], true)).toMatchObject({
+      native: true,
+      totalCost: null,
+      providerLabel: "Codex",
+      context: undefined,
+    })
   })
 
   test("a known zero last input is different from a missing context measurement", () => {
@@ -151,5 +156,59 @@ describe("getSessionContextMetrics", () => {
       nativeUsage: { input: 0, contextWindow: 2000, updatedAt: 1 },
     } as Message
     expect(getSessionContextMetrics([message]).context?.usage).toBe(0)
+  })
+
+  test("native identity and activity do not disappear when imported history has no token counts", () => {
+    const message = assistant("native", { input: 0, output: 0, reasoning: 0, read: 0, write: 0 }, 0, "codex-native")
+    if (message.role !== "assistant") throw new Error("Expected assistant fixture")
+    message.time = { created: 10, completed: 20 }
+    const metrics = getSessionContextMetrics([message])
+    expect(metrics.providerLabel).toBe("Codex")
+    expect(metrics.modelLabel).toBe("gpt-4.1")
+    expect(metrics.updated).toBe(20)
+    expect(metrics.context).toBeUndefined()
+  })
+
+  test("unknown imported models are not replaced by an earlier model or provider catalogue", () => {
+    const messages = [
+      assistant("earlier", { input: 10, output: 5, reasoning: 0, read: 0, write: 0 }, 0, "codex-native", "earlier"),
+      assistant("latest", { input: 0, output: 0, reasoning: 0, read: 0, write: 0 }, 0, "codex-native", "unknown"),
+    ]
+    const metrics = getSessionContextMetrics(messages, [
+      { id: "codex-native", models: { unknown: { name: "Do not infer", limit: { context: 1000 } } } },
+    ])
+    expect(metrics.providerLabel).toBe("Codex")
+    expect(metrics.modelLabel).toBeUndefined()
+  })
+
+  test("a native context measurement is usable without fabricated token counts", () => {
+    const message = {
+      ...assistant("native", { input: 0, output: 0, reasoning: 0, read: 0, write: 0 }, 0, "codex-native"),
+      nativeUsage: { input: 100, contextWindow: 1000, updatedAt: 1 },
+    } as Message
+    const metrics = getSessionContextMetrics([message])
+    expect(metrics.context).toMatchObject({ used: 100, limit: 1000, usage: 10 })
+    expect(metrics.context?.total).toBeUndefined()
+    expect(metrics.context?.input).toBeUndefined()
+    expect(metrics.context?.output).toBeUndefined()
+    expect(metrics.context?.cacheRead).toBeUndefined()
+  })
+
+  test("a reported zero context and zero token total remain known zero values", () => {
+    const message = assistant("native", { input: 0, output: 0, reasoning: 0, read: 0, write: 0 }, 0, "codex-native")
+    if (message.role !== "assistant") throw new Error("Expected assistant fixture")
+    message.tokens.total = 0
+    message.nativeUsage = { input: 0, contextWindow: 1000, updatedAt: 1 }
+    expect(getSessionContextMetrics([message]).context).toMatchObject({ total: 0, used: 0, usage: 0 })
+  })
+
+  test("an explicit zero token total does not imply a known context measurement", () => {
+    const message = assistant("native", { input: 0, output: 0, reasoning: 0, read: 0, write: 0 }, 0, "codex-native")
+    if (message.role !== "assistant") throw new Error("Expected assistant fixture")
+    message.tokens.total = 0
+    const metrics = getSessionContextMetrics([message])
+    expect(metrics.context?.total).toBe(0)
+    expect(metrics.context?.used).toBeUndefined()
+    expect(metrics.context?.usage).toBeNull()
   })
 })

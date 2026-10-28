@@ -16,6 +16,7 @@ import { NativeLock } from "./lock"
 import { NativeStore } from "./store"
 import { NativeAnswers } from "./answers"
 import { NativeQuestion } from "./questions"
+import { NativeInheritance } from "./inheritance"
 
 export namespace NativeSync {
   export const Status = z
@@ -33,7 +34,7 @@ export namespace NativeSync {
   export async function apply(
     session: Session.Info,
     snapshot: NativeHistory.Snapshot,
-    opts: { terminal?: boolean } = {},
+    opts: { terminal?: boolean; sources?: NativeInheritance.Source[] } = {},
   ) {
     return materialize(session, snapshot, opts)
   }
@@ -55,7 +56,7 @@ export namespace NativeSync {
   async function materialize(
     session: Session.Info,
     snapshot: NativeHistory.Snapshot,
-    opts: { terminal?: boolean; revert?: boolean },
+    opts: { terminal?: boolean; revert?: boolean; sources?: NativeInheritance.Source[] },
   ) {
     if (snapshot.thread && session.engine?.thread && snapshot.thread.id !== session.engine.thread)
       throw new Error("Native history belongs to another thread")
@@ -81,6 +82,7 @@ export namespace NativeSync {
       receipts: ledger.flatMap((entry) => (entry.assistant ? [entry.assistant] : [])),
       terminal: opts.terminal || opts.revert,
     })
+    if (opts.sources?.length) await NativeInheritance.apply(snapshot, projection, opts.sources)
     const steered = inputs.filter((entry) =>
       entry.data.parts.some((part) => part.type === "text" && part.metadata?.nativeSteer),
     )
@@ -271,7 +273,10 @@ export namespace NativeSync {
             const next = entry.parts.find((item) => identity(item) === identity(part))
             return next ? merge(next, part) : part
           })
-          return { info: previous.info, parts: [...parts, ...additions] }
+          return {
+            info: opts.sources?.length ? NativeInheritance.patch(previous.info, entry.info) : previous.info,
+            parts: [...parts, ...additions],
+          }
         })
     const unique = new Map<MessageID, MessageV2.WithParts>()
     const answers = NativeQuestion.texts(
@@ -461,7 +466,16 @@ export namespace NativeSync {
           NativeStore.bind(id, connection.home, false)
           const snapshot = await NativeHistory.read(connection.client, session.engine!.thread!)
           if (snapshot.thread) NativeStore.bind(id, connection.home)
-          return await apply(session, snapshot)
+          const projection = NativeHistory.project(snapshot, {
+            sessionID: session.id,
+            scope: session.id,
+            cwd: session.directory,
+            existing: await NativeStore.history(session.id),
+          })
+          const sources = NativeInheritance.missing(projection)
+            ? await NativeInheritance.collect(session, snapshot, connection.client, { force })
+            : []
+          return await apply(session, snapshot, { sources })
         } finally {
           await connection.client.close()
         }

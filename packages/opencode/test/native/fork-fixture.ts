@@ -149,6 +149,10 @@ for await (const line of readline.createInterface({ input: process.stdin })) {
     continue
   }
   if (["thread/read", "thread/resume"].includes(request.method)) {
+    if (behavior === "unavailable-source" && !thread.forkedFromId) {
+      error("Source history is unavailable")
+      continue
+    }
     if (request.method === "thread/resume") {
       resumed = true
       if (behavior === "resume-fail") {

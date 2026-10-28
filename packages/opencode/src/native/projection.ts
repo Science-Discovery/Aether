@@ -93,13 +93,29 @@ export function project(snapshot: NativeHistory.Snapshot, opts: Options) {
     }
     const created = Math.max(0, (turn.startedAt ?? thread.createdAt) * 1_000)
     const completed = Math.max(created, (turn.completedAt ?? turn.startedAt ?? thread.createdAt) * 1_000)
-    const state: { user?: MessageV2.WithParts; assistant?: MessageV2.WithParts; root?: MessageID } = {}
+    const state: {
+      user?: MessageV2.WithParts
+      assistant?: MessageV2.WithParts
+      root?: MessageID
+      accounted?: boolean
+    } = {}
     const reply = () => {
       if (state.assistant) return state.assistant
       const parent = state.user!.info.id
       const primary = parent === state.root
       const prior = replies.get(parent)
       const original = state.root ? replies.get(state.root) : undefined
+      const usage =
+        prior &&
+        !state.accounted &&
+        (prior.nativeUsage !== undefined ||
+          prior.tokens.total !== undefined ||
+          prior.tokens.input > 0 ||
+          prior.tokens.output > 0 ||
+          prior.tokens.reasoning > 0 ||
+          prior.tokens.cache.read > 0 ||
+          prior.tokens.cache.write > 0)
+      if (usage) state.accounted = true
       state.assistant = {
         info: {
           id: primary && prior ? prior.id : NativeDisplay.id(parent),
@@ -113,8 +129,8 @@ export function project(snapshot: NativeHistory.Snapshot, opts: Options) {
           agent: "codex",
           path: { cwd: opts.cwd, root: opts.cwd },
           cost: primary ? (prior?.cost ?? 0) : 0,
-          tokens: primary && prior ? prior.tokens : { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
-          ...(primary && prior?.nativeUsage ? { nativeUsage: prior.nativeUsage } : {}),
+          tokens: usage ? prior.tokens : { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+          ...(usage && prior.nativeUsage ? { nativeUsage: prior.nativeUsage } : {}),
           ...((prior?.variant ?? original?.variant) ? { variant: prior?.variant ?? original?.variant } : {}),
           finish: turn.status === "completed" ? "stop" : "unknown",
         },
@@ -158,7 +174,7 @@ export function project(snapshot: NativeHistory.Snapshot, opts: Options) {
 
       if (item.type === "userMessage") {
         const client = string(item.clientId)
-        const previous = client && !claimed.has(client) ? users.get(client) : undefined
+        const previous = !client || !claimed.has(client) ? (users.get(client) ?? users.get(`msg_${key}`)) : undefined
         if (client && claimed.has(client)) issue("The same client message ID occurs more than once")
         if (client) claimed.add(client)
         const id = previous?.info.id ?? MessageID.make(`msg_${key}`)

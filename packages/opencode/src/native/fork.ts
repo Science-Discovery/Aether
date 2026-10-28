@@ -20,6 +20,7 @@ import type { Protocol } from "./protocol"
 import { Native } from "./schema"
 import { NativeStore } from "./store"
 import { NativeSync } from "./sync"
+import { NativeInheritance } from "./inheritance"
 
 export namespace NativeFork {
   export type Input = { sessionID: SessionID; messageID?: MessageID; after?: boolean }
@@ -277,7 +278,10 @@ export namespace NativeFork {
         try {
           await NativeStore.migrate(session)
           NativeStore.bind(session.id, connection.home)
-          const result = await NativeSync.apply(session, child, { terminal: true })
+          const sources = await NativeInheritance.collect(session, child, connection.client, {
+            source: { session: source, snapshot },
+          })
+          const result = await NativeSync.apply(session, child, { terminal: true, sources })
           if (result.state !== "synced") throw new Error(result.error ?? "The forked history could not be displayed.")
           return session
         } catch (error) {

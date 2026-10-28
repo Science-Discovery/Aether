@@ -450,8 +450,6 @@ export const dict = {
   "dialog.fork.native": "在新 Codex 会话中保留所选的完整轮次，原会话保持不变。",
   "native.fork.questionReply": "已提交的提问回答不能在这里编辑，请发送一条新消息。",
   "native.fork.loading": "会话信息仍在加载，请加载完成后再分叉。",
-  "native.fork.source": "分叉自：{{title}}",
-  "native.fork.original": "原会话",
   "native.revert.title": "回退到此处并编辑？",
   "native.revert.description":
     "将从当前 Codex 会话移除这条问题及之后的全部回复（共 {{count}} 轮），并把问题和可恢复的附件放回输入框。已经修改的文件不会还原。如果要保留这段历史，请先分叉。",
