@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { NativeHistory } from "../../src/native/history"
+import { NativeDisplay } from "../../src/native/display"
 import { NativeStore } from "../../src/native/store"
 import { NativeSync } from "../../src/native/sync"
 import { Instance } from "../../src/project/instance"
@@ -82,6 +83,105 @@ async function cache(message: MessageV2.WithParts) {
 }
 
 describe("native history cache synchronization", () => {
+  test.each(["complete", "omitted", "shorter", "rewritten"])(
+    "splits a legacy aggregate reply without losing observed text when native history is %s",
+    async (mode) => {
+      await scenario(async (session) => {
+        const request = input(session, "Original question", 101000)
+        const supplement = input(session, "Additional instruction", 101002)
+        const assistant: MessageV2.Assistant = {
+          id: MessageID.ascending(),
+          sessionID: session.id,
+          role: "assistant",
+          parentID: request.info.id,
+          time: { created: 101001, completed: 102000 },
+          providerID: ProviderID.make("codex-native"),
+          modelID: ModelID.make("research"),
+          agent: "codex",
+          mode: "codex",
+          path: { cwd: session.directory, root: session.directory },
+          cost: 0,
+          tokens: { total: 150, input: 100, output: 50, reasoning: 20, cache: { read: 0, write: 0 } },
+          nativeUsage: { input: 100, contextWindow: 1000, updatedAt: 102000 },
+          finish: "stop",
+        }
+        const parts: MessageV2.TextPart[] = ["before", "answer"].map((item) => ({
+          id: PartID.ascending(),
+          messageID: assistant.id,
+          sessionID: session.id,
+          type: "text",
+          text: item === "before" ? "Before steering: the full observed paragraph" : "After steering: the final answer",
+          time: { start: item === "before" ? 101001 : 101003, end: 102000 },
+          metadata: { native: { engine: "codex", turn: "turn", item, type: "agentMessage" } },
+        }))
+        NativeStore.add(request, false)
+        NativeStore.begin(session.id, request.info.id, assistant.id, "thread", [request.info.id])
+        NativeStore.accept(session.id, request.info.id, "turn")
+        NativeStore.receipt(assistant)
+        const text = supplement.parts[0]
+        if (text.type !== "text") throw new Error("Expected supplemental text")
+        text.metadata = { nativeSteer: { thread: "thread", turn: "turn", parent: request.info.id, status: "accepted" } }
+        NativeStore.steer(supplement, assistant.id, "thread", "turn")
+        NativeStore.delivery(session.id, supplement.info.id, "accepted")
+        await cache(request)
+        await cache({ info: assistant, parts })
+        await cache(supplement)
+        const value = turn("turn", request.info.id)
+        value.items = [
+          value.items[0],
+          ...(mode === "omitted"
+            ? []
+            : [
+                {
+                  id: "before",
+                  type: "agentMessage",
+                  text: mode === "shorter" ? "Before" : mode === "rewritten" ? "Different text" : parts[0].text,
+                },
+              ]),
+          {
+            id: "supplement",
+            type: "userMessage",
+            clientId: supplement.info.id,
+            content: [{ type: "text", text: text.text }],
+          },
+          { id: "answer", type: "agentMessage", text: parts[1].text, phase: "final_answer" },
+        ]
+        const result = await NativeSync.apply(session, snapshot([value]))
+        expect(result.state).toBe(mode === "complete" ? "synced" : "partial")
+        const messages = await NativeStore.history(session.id)
+        expect(messages.map((entry) => entry.info.role)).toEqual(["user", "assistant", "user", "assistant"])
+        expect(messages[1].info).toMatchObject({
+          id: assistant.id,
+          parentID: request.info.id,
+          tokens: assistant.tokens,
+        })
+        expect(messages[1].parts.filter((part) => part.type === "text").map((part) => part.text)).toEqual([
+          parts[0].text,
+        ])
+        expect(messages[3].info).toMatchObject({
+          id: NativeDisplay.id(supplement.info.id),
+          parentID: supplement.info.id,
+        })
+        expect(messages[3].parts.filter((part) => part.type === "text").map((part) => part.text)).toEqual([
+          parts[1].text,
+        ])
+        const replies = messages.flatMap((entry) => (entry.info.role === "assistant" ? [entry.info] : []))
+        expect(replies.reduce((sum, entry) => sum + (entry.tokens.total ?? 0), 0)).toBe(150)
+        expect(replies.filter((entry) => entry.nativeUsage)).toHaveLength(1)
+        expect(
+          messages
+            .flatMap((entry) => entry.parts)
+            .filter((part) => "metadata" in part && part.metadata?.native?.item === "answer"),
+        ).toHaveLength(1)
+        await NativeSync.apply(session, snapshot([value]))
+        expect(await NativeStore.history(session.id)).toEqual(messages)
+        Database.detach(Instance.project.id)
+        await NativeSync.apply(session, snapshot([value]))
+        expect(await NativeStore.history(session.id)).toEqual(messages)
+      })
+    },
+  )
+
   test("imports completed turns with stable identities and does not duplicate repeated snapshots", async () => {
     await scenario(async (session) => {
       expect(await NativeSync.apply(session, snapshot())).toMatchObject({ state: "synced", messages: 2 })

@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import path from "node:path"
 import { NativeHistory } from "../../src/native/history"
+import { NativeDisplay } from "../../src/native/display"
 import { Protocol } from "../../src/native/protocol"
 import { MessageV2 } from "../../src/session/message-v2"
 import { MessageID, PartID, SessionID } from "../../src/session/schema"
@@ -164,6 +165,39 @@ describe("native history reading", () => {
 })
 
 describe("native history projection", () => {
+  test("segments successive user items within one native turn and counts root usage only once", () => {
+    const existing = NativeHistory.project(snapshot(), opts).messages
+    const original = existing[0].info
+    const receipt = existing[1].info
+    if (original.role !== "user" || receipt.role !== "assistant") throw new Error("Unexpected projection")
+    original.id = MessageID.make("msg_original")
+    receipt.parentID = original.id
+    receipt.id = MessageID.make("msg_root_assistant")
+    receipt.tokens = { total: 150, input: 100, output: 50, reasoning: 20, cache: { read: 0, write: 0 } }
+    receipt.nativeUsage = { input: 100, contextWindow: 1000, updatedAt: 1 }
+    const value = turn()
+    value.items.splice(
+      1,
+      0,
+      { id: "before", type: "agentMessage", text: "Before the supplement" },
+      { id: "supplement", type: "userMessage", content: [{ type: "text", text: "More context" }] },
+    )
+    const result = NativeHistory.project(snapshot([value]), { ...opts, existing, receipts: [receipt] })
+    expect(result.messages.map((entry) => entry.info.role)).toEqual(["user", "assistant", "user", "assistant"])
+    const [first, before, second, after] = result.messages
+    expect(before.info).toMatchObject({ id: receipt.id, parentID: first.info.id, tokens: receipt.tokens })
+    expect(after.info).toMatchObject({ id: NativeDisplay.id(second.info.id), parentID: second.info.id })
+    if (after.info.role !== "assistant") throw new Error("Expected a display segment")
+    expect(after.info.tokens).toEqual({ input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } })
+    expect(after.info.nativeUsage).toBeUndefined()
+    expect(before.parts).toContainEqual(expect.objectContaining({ text: "Before the supplement" }))
+    expect(after.parts).toContainEqual(expect.objectContaining({ text: "Research answer" }))
+    expect(new Set(result.links.map((link) => link.turn))).toEqual(new Set(["turn"]))
+    expect(
+      NativeHistory.project(snapshot([value]), { ...opts, existing: result.messages, receipts: [receipt] }),
+    ).toEqual(result)
+  })
+
   test("produces schema-valid stable IDs with source and turn isolation", () => {
     const first = NativeHistory.project(snapshot(), opts)
     expect(first.complete).toBe(true)

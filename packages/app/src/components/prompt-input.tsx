@@ -74,7 +74,7 @@ import { SteerButton } from "@/components/steer-button"
 import { VoiceInputButton, type VoiceInputAPI } from "@/components/voice-input-button"
 import { VariantSelect } from "./prompt-input/variant-select"
 import { EngineSelect, NativeModels } from "./native-controls"
-import { createNativeRun, type NativeAction } from "@/context/native-run"
+import { createNativeRun } from "@/context/native-run"
 import { NativeRunPanel } from "./native-run"
 
 interface PromptInputProps {
@@ -1199,14 +1199,12 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     working,
     selection: () => ({ model: local.native.model()?.id, effort: local.native.effort() }),
     read: (sessionID) => sdk.client.native.runtime({ sessionID }).then((response) => response.data),
-    steer: (input) => sdk.client.native.steer(input).then((response) => response.data),
+    send: (input) => sdk.client.native.sendQueued(input).then((response) => response.data),
     enqueue: (input) => sdk.client.native.enqueue(input).then((response) => response.data),
     dequeue: (input) => sdk.client.native.dequeue(input).then((response) => response.data),
     resume: (sessionID) => sdk.client.native.resumeQueue({ sessionID }).then((response) => response.data),
   })
   const running = () => working() || (!!local.native.engine() && !!run.data()?.active)
-  const [choice, setChoice] = createSignal<NativeAction>("steer")
-  const action = () => run.retry() ?? (choice() === "steer" && !run.data()?.active?.steer ? "queue" : choice())
   createEffect(() => {
     const stop = sdk.event.listen((event) => {
       if (!local.native.engine()) return
@@ -1224,7 +1222,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     autoAccept: () => mode() === "full",
     mode: () => store.mode,
     working: () => running() || !!run.retry() || run.busy(),
-    nativeSubmit: (text) => run.submit(action(), text),
+    nativeSubmit: run.submit,
     editor: () => editorRef,
     queueScroll,
     promptLength,
@@ -1408,7 +1406,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
   return (
     <div class="relative size-full _max-h-[320px] flex flex-col gap-0">
       <Show when={local.native.engine() && params.id}>
-        <NativeRunPanel run={run} working={running()} action={action()} select={setChoice} />
+        <NativeRunPanel run={run} working={running()} />
       </Show>
       <PromptPopover
         popover={store.popover}

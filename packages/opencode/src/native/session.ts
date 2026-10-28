@@ -308,6 +308,7 @@ export namespace NativeSession {
       assistant,
       signal,
       ended: () => events.state.settled,
+      steer: events.steer,
       mode: session.engine.mode ?? "default",
     })
     const controller = new AbortController()
@@ -358,7 +359,7 @@ export namespace NativeSession {
               return request(
                 method,
                 value,
-                assistant,
+                events.owner(typeof data.itemId === "string" ? data.itemId : undefined),
                 AbortSignal.any([signal, cancelled]),
                 typeof data.itemId === "string" ? events.changes(data.itemId) : undefined,
                 typeof data.itemId === "string" ? events.command(data.itemId) : undefined,

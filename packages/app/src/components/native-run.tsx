@@ -1,16 +1,10 @@
 import { For, Show } from "solid-js"
 import { Button } from "@opencode-ai/ui/button"
 import { IconButton } from "@opencode-ai/ui/icon-button"
-import { Select } from "@opencode-ai/ui/select"
 import { useLanguage } from "@/context/language"
-import type { createNativeRun, NativeAction } from "@/context/native-run"
+import type { createNativeRun } from "@/context/native-run"
 
-export function NativeRunPanel(props: {
-  run: ReturnType<typeof createNativeRun>
-  working: boolean
-  action: NativeAction
-  select: (value: NativeAction) => void
-}) {
+export function NativeRunPanel(props: { run: ReturnType<typeof createNativeRun>; working: boolean }) {
   const language = useLanguage()
   const queue = () => props.run.data()?.queue
   return (
@@ -20,16 +14,6 @@ export function NativeRunPanel(props: {
           <Show when={props.working || props.run.data()?.active}>
             <span role="status">{language.t(`native.run.${props.run.data()?.active?.phase ?? "checking"}`)}</span>
           </Show>
-          <Select<NativeAction>
-            options={props.run.data()?.active?.steer || props.run.retry() === "steer" ? ["steer", "queue"] : ["queue"]}
-            current={props.action}
-            label={(value) => language.t(`native.run.action.${value}`)}
-            onSelect={(value) => value && props.select(value)}
-            disabled={props.run.busy() || !!props.run.retry()}
-            variant="ghost"
-            size="small"
-            triggerProps={{ "data-action": "prompt-native-action", "aria-label": language.t("native.run.action") }}
-          />
           <Show when={props.run.retry()}>
             <Button size="small" variant="ghost" onClick={() => props.run.discard()}>
               {language.t("native.run.discard")}
@@ -37,6 +21,16 @@ export function NativeRunPanel(props: {
           </Show>
           <span>{language.t("native.run.textOnly.hint")}</span>
         </div>
+      </Show>
+      <Show when={props.run.unconfirmed()}>
+        {(id) => (
+          <div class="flex flex-wrap items-center gap-2" role="status">
+            <span>{language.t("native.queue.unconfirmed")}</span>
+            <Button size="small" variant="ghost" disabled={props.run.busy()} onClick={() => void props.run.send(id())}>
+              {language.t("native.queue.check")}
+            </Button>
+          </div>
+        )}
       </Show>
       <Show when={props.run.error() || props.run.data()?.active?.error}>
         {(error) => <div role="status">{language.t("native.run.unavailable", { error: error() })}</div>}
@@ -79,6 +73,17 @@ export function NativeRunPanel(props: {
                       <Show when={item.error}> · {item.error}</Show>
                     </div>
                   </div>
+                  <Show when={item.state === "pending" && props.run.data()?.active?.steer}>
+                    <Button
+                      size="small"
+                      variant="ghost"
+                      disabled={props.run.busy() || !!props.run.unconfirmed()}
+                      data-action="native-queue-send"
+                      onClick={() => void props.run.send(item.id)}
+                    >
+                      {language.t("native.queue.send")}
+                    </Button>
+                  </Show>
                   <Show when={item.state !== "dispatching"}>
                     <IconButton
                       icon="close"

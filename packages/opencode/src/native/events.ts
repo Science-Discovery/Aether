@@ -4,6 +4,7 @@ import { Session } from "@/session"
 import { MessageV2 } from "@/session/message-v2"
 import { PartID } from "@/session/schema"
 import { NativeStore } from "./store"
+import { NativeDisplay } from "./display"
 
 export namespace NativeEvents {
   export type Outcome = { status: "completed" | "failed" | "interrupted"; error?: string }
@@ -25,6 +26,7 @@ export namespace NativeEvents {
 
   export function create(assistant: MessageV2.Assistant) {
     const parts = new Map<string, MessageV2.TextPart | MessageV2.ReasoningPart | MessageV2.ToolPart>()
+    const replies = new Map([[assistant.id, assistant]])
     const done = Promise.withResolvers<Outcome>()
     const state = {
       thread: "",
@@ -32,8 +34,13 @@ export namespace NativeEvents {
       active: false,
       settled: false,
       baseline: undefined as Record<string, number> | undefined,
+      reply: assistant,
     }
-    const base = () => ({ id: PartID.ascending(), sessionID: assistant.sessionID, messageID: assistant.id })
+    const base = (owner = state.reply) => ({
+      id: PartID.ascending(),
+      sessionID: assistant.sessionID,
+      messageID: owner.id,
+    })
     const settle = (outcome: Outcome) => {
       if (state.settled) return
       state.settled = true
@@ -45,10 +52,51 @@ export namespace NativeEvents {
       return agent.success ? `Codex agent (${JSON.stringify(agent.data.name ?? agent.data.threadId)}):\n\n` : ""
     }
 
-    async function item(value: unknown, completed: boolean, agent?: unknown) {
+    async function steer(user: MessageV2.User) {
+      if (state.settled || user.id === assistant.parentID || user.sessionID !== assistant.sessionID) return
+      const id = NativeDisplay.id(user.id)
+      if (replies.has(id)) return
+      // Close this display segment without interrupting the underlying turn.
+      // Parts keep their original owner, including late tool/delta completions.
+      state.reply.time.completed = Date.now()
+      state.reply.finish = "stop"
+      await Session.updateMessage(state.reply)
+      const reply: MessageV2.Assistant = {
+        ...assistant,
+        id,
+        parentID: user.id,
+        time: { created: user.time.created },
+        cost: 0,
+        tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+        nativeUsage: undefined,
+        finish: undefined,
+        error: undefined,
+      }
+      replies.set(id, reply)
+      state.reply = reply
+      await Session.updateMessage(reply)
+      NativeStore.receipt(reply)
+    }
+
+    async function item(value: unknown, completed: boolean, agent?: unknown, owner?: MessageV2.Assistant) {
       const current = object.parse(value)
       const id = string(current.id)
       const type = string(current.type)
+      if (type === "userMessage" && !agent) {
+        const client = string(current.clientId)
+        const row = client && NativeStore.inputs(assistant.sessionID).find((entry) => entry.id === client)
+        const tag = row && row.data.parts.find((part) => part.type === "text")?.metadata?.nativeSteer
+        const parsed = z.object({ thread: z.string(), turn: z.string() }).safeParse(tag)
+        if (
+          row &&
+          row.data.info.role === "user" &&
+          parsed.success &&
+          parsed.data.thread === state.thread &&
+          parsed.data.turn === state.turn
+        )
+          await steer(row.data.info)
+        return
+      }
       if (!id || !type || ["userMessage", "hookPrompt"].includes(type)) return
       const previous = parts.get(id)
       const metadata = {
@@ -63,7 +111,7 @@ export namespace NativeEvents {
           ? (summary.success && summary.data.length ? summary.data : content.success ? content.data : []).join("\n\n")
           : string(current.text)
         const part = {
-          ...(previous?.type === "text" || previous?.type === "reasoning" ? previous : base()),
+          ...(previous?.type === "text" || previous?.type === "reasoning" ? previous : base(owner)),
           type: reasoning ? ("reasoning" as const) : ("text" as const),
           text: text
             ? identity(agent) + text
@@ -115,7 +163,7 @@ export namespace NativeEvents {
             ? render(current.changes)
             : render(current.result ?? current.contentItems ?? current)
       const part: MessageV2.ToolPart = {
-        ...(tool ?? base()),
+        ...(tool ?? base(owner)),
         type: "tool",
         callID: id,
         tool: name,
@@ -187,7 +235,7 @@ export namespace NativeEvents {
                 : { status: "error", input, error: `${title}\n${render(review.data)}`, metadata, time },
         }
         parts.set(key, part)
-        NativeStore.review(assistant.sessionID, assistant.parentID, part)
+        NativeStore.review(assistant.sessionID, replies.get(part.messageID)?.parentID ?? assistant.parentID, part)
         await Session.updatePart(part)
         return
       }
@@ -294,7 +342,14 @@ export namespace NativeEvents {
       const turn = object.parse(data.turn)
       if (state.turn && turn.id !== state.turn) return
       if (Array.isArray(turn.items)) {
-        for (const value of turn.items) await item(value, true)
+        let owner: MessageV2.Assistant | undefined
+        for (const value of turn.items) {
+          await item(value, true, undefined, owner)
+          const parsed = object.safeParse(value)
+          if (!parsed.success || parsed.data.type !== "userMessage") continue
+          const client = string(parsed.data.clientId)
+          owner = client === assistant.parentID ? assistant : replies.get(NativeDisplay.id(client))
+        }
       }
       const error = object.safeParse(turn.error)
       const status =
@@ -314,23 +369,25 @@ export namespace NativeEvents {
           }
           await Session.updatePart(part)
           if (part.tool === "codex.autoApprovalReview")
-            NativeStore.review(assistant.sessionID, assistant.parentID, part)
+            NativeStore.review(assistant.sessionID, replies.get(part.messageID)?.parentID ?? assistant.parentID, part)
         }
         if (part.type === "text" || part.type === "reasoning") {
           part.time = { start: part.time?.start ?? assistant.time.created, end: Date.now() }
           await Session.updatePart(part)
         }
       }
-      assistant.time.completed = Date.now()
-      assistant.finish = outcome.status === "completed" ? "stop" : "error"
+      const reply = state.reply
+      reply.time.completed = Date.now()
+      reply.finish = outcome.status === "completed" ? "stop" : "error"
       if (outcome.status === "interrupted") {
-        assistant.error = new MessageV2.AbortedError({ message: outcome.error || "Codex turn interrupted." }).toObject()
+        reply.error = new MessageV2.AbortedError({ message: outcome.error || "Codex turn interrupted." }).toObject()
       }
       if (outcome.status === "failed") {
-        assistant.error = new NamedError.Unknown({ message: outcome.error || "Codex turn failed." }).toObject()
+        reply.error = new NamedError.Unknown({ message: outcome.error || "Codex turn failed." }).toObject()
       }
-      await Session.updateMessage(assistant)
-      return { info: assistant, parts: [...parts.values()] }
+      await Session.updateMessage(reply)
+      for (const value of replies.values()) NativeStore.receipt(value)
+      return { info: reply, parts: [...parts.values()].filter((part) => part.messageID === reply.id) }
     }
 
     function changes(id: string) {
@@ -355,6 +412,11 @@ export namespace NativeEvents {
       return parsed.success ? parsed.data : undefined
     }
 
-    return { state, done: done.promise, notification, settle, finish, changes, command }
+    function owner(id?: string) {
+      const part = id ? parts.get(id) : undefined
+      return (part && replies.get(part.messageID)) || state.reply
+    }
+
+    return { state, done: done.promise, notification, settle, finish, changes, command, steer, owner }
   }
 }

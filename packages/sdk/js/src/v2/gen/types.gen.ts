@@ -2514,6 +2514,13 @@ export type NativeActive = {
   error?: string
 }
 
+export type NativeSteered = {
+  status: "accepted" | "rejected" | "uncertain"
+  messageID: string
+  turnID: string
+  error?: string
+}
+
 export type NativeQueueStatus = {
   paused: boolean
   reason?: string
@@ -2523,16 +2530,16 @@ export type NativeQueueStatus = {
     model?: string
     effort?: string
     state: "pending" | "dispatching" | "uncertain" | "failed"
+    turn?: string
+    delivery?: NativeSteered
     error?: string
     created: number
   }>
 }
 
-export type NativeSteered = {
-  status: "accepted" | "rejected" | "uncertain"
-  messageID: string
-  turnID: string
-  error?: string
+export type NativeQueueSent = {
+  queue: NativeQueueStatus
+  delivery: NativeSteered
 }
 
 export type Symbol = {
@@ -6552,6 +6559,41 @@ export type NativeDequeueResponses = {
 }
 
 export type NativeDequeueResponse = NativeDequeueResponses[keyof NativeDequeueResponses]
+
+export type NativeSendQueuedData = {
+  body?: {
+    turnID: string
+  }
+  path: {
+    sessionID: string
+    messageID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/native/codex/{sessionID}/queue/{messageID}/send"
+}
+
+export type NativeSendQueuedErrors = {
+  /**
+   * Queue delivery could not be resolved
+   */
+  409: {
+    error: string
+  }
+}
+
+export type NativeSendQueuedError = NativeSendQueuedErrors[keyof NativeSendQueuedErrors]
+
+export type NativeSendQueuedResponses = {
+  /**
+   * Updated queue and native delivery evidence; uncertain input is never replayed
+   */
+  200: NativeQueueSent
+}
+
+export type NativeSendQueuedResponse = NativeSendQueuedResponses[keyof NativeSendQueuedResponses]
 
 export type NativeResumeQueueData = {
   body?: never

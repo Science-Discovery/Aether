@@ -140,6 +140,7 @@ function snapshot(client: MessageID, steer: MessageID): NativeHistory.Snapshot {
             content: [{ type: "text", text: "Original question" }],
           },
           { id: "thinking", type: "reasoning", summary: ["Initial thought"], content: [] },
+          { id: "before", type: "agentMessage", text: "Partial answer before steering" },
           {
             id: "steer",
             type: "userMessage",
@@ -153,7 +154,7 @@ function snapshot(client: MessageID, steer: MessageID): NativeHistory.Snapshot {
   }
 }
 
-test("steering reuses its owning client and root assistant, then rebuilds without duplicates", async () => {
+test("steering reuses its owning client and rebuilds separate display segments without duplicates", async () => {
   await scenario("accept", async (session, dir) => {
     const run = await setup(session, dir)
     const input = {
@@ -186,9 +187,10 @@ test("steering reuses its owning client and root assistant, then rebuilds withou
         await Session.removeMessage({ sessionID: session.id, messageID: message.info.id })
       expect(await NativeSync.apply(session, snapshot(run.user.id, input.messageID))).toMatchObject({ state: "synced" })
       const messages = await NativeStore.history(session.id)
-      expect(messages).toHaveLength(3)
+      expect(messages).toHaveLength(4)
       expect(messages.filter((entry) => entry.info.role === "assistant").map((entry) => entry.info)).toEqual([
         expect.objectContaining({ id: run.assistant.id, parentID: run.user.id }),
+        expect.objectContaining({ id: `${input.messageID}_codex`, parentID: input.messageID }),
       ])
       expect(messages.find((entry) => entry.info.id === input.messageID)?.parts).toContainEqual(
         expect.objectContaining({
@@ -412,9 +414,12 @@ test("native session exposes its live turn and steers through the existing execu
         expect(records.filter((entry) => entry.method === "initialize")).toHaveLength(1)
         expect(records.filter((entry) => entry.method === "turn/start")).toHaveLength(1)
         expect(records.filter((entry) => entry.method === "turn/steer")).toHaveLength(1)
-        expect((await NativeStore.history(session.id)).filter((entry) => entry.info.role === "assistant")).toHaveLength(
-          1,
-        )
+        const messages = await NativeStore.history(session.id)
+        const replies = messages.filter((entry) => entry.info.role === "assistant")
+        expect(replies).toHaveLength(2)
+        expect(replies[0].parts).toContainEqual(expect.objectContaining({ text: "Partial answer before steering" }))
+        expect(replies[1].info).toMatchObject({ parentID: input.messageID })
+        expect(replies[1].parts).toContainEqual(expect.objectContaining({ text: "Native answer" }))
       } finally {
         controller.abort()
         await running

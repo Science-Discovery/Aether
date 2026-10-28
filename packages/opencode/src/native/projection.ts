@@ -5,6 +5,7 @@ import type { MessageV2 } from "@/session/message-v2"
 import { MessageID, PartID, SessionID } from "@/session/schema"
 import { ModelID, ProviderID } from "@/provider/schema"
 import { NativeHistory } from "./history"
+import { NativeDisplay } from "./display"
 
 export type Link = { turn: string; item: string; message: MessageID; client?: string }
 export type Options = {
@@ -84,7 +85,36 @@ export function project(snapshot: NativeHistory.Snapshot, opts: Options) {
     }
     const created = Math.max(0, (turn.startedAt ?? thread.createdAt) * 1_000)
     const completed = Math.max(created, (turn.completedAt ?? turn.startedAt ?? thread.createdAt) * 1_000)
-    const state: { user?: MessageV2.WithParts; assistant?: MessageV2.WithParts } = {}
+    const state: { user?: MessageV2.WithParts; assistant?: MessageV2.WithParts; root?: MessageID } = {}
+    const reply = () => {
+      if (state.assistant) return state.assistant
+      const parent = state.user!.info.id
+      const primary = parent === state.root
+      const prior = replies.get(parent)
+      const original = state.root ? replies.get(state.root) : undefined
+      state.assistant = {
+        info: {
+          id: primary && prior ? prior.id : NativeDisplay.id(parent),
+          sessionID: opts.sessionID,
+          role: "assistant",
+          parentID: parent,
+          time: { created, completed },
+          modelID: prior?.modelID ?? original?.modelID ?? unknown,
+          providerID: provider,
+          mode: "codex",
+          agent: "codex",
+          path: { cwd: opts.cwd, root: opts.cwd },
+          cost: primary ? (prior?.cost ?? 0) : 0,
+          tokens: primary && prior ? prior.tokens : { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+          ...(primary && prior?.nativeUsage ? { nativeUsage: prior.nativeUsage } : {}),
+          ...((prior?.variant ?? original?.variant) ? { variant: prior?.variant ?? original?.variant } : {}),
+          finish: "stop",
+        },
+        parts: [],
+      }
+      messages.push(state.assistant)
+      return state.assistant
+    }
     if (!turn.items.length)
       issues.push({ code: "empty", turn: turn.id, message: "The completed turn contains no items" })
 
@@ -171,9 +201,12 @@ export function project(snapshot: NativeHistory.Snapshot, opts: Options) {
             metadata: { native: identity, content: "text" },
           })
         const user = { info, parts }
-        // A steer is another user item in the same native turn. Keep that
-        // turn's original assistant and parent instead of inventing a reply.
-        state.user ??= user
+        // Keep an observed first segment even when the native snapshot omitted
+        // its output. Every later user starts a display segment in this same turn.
+        if (state.user && !state.assistant && replies.has(state.user.info.id)) reply()
+        state.root ??= id
+        state.user = user
+        state.assistant = undefined
         messages.push(user)
         links.push({ turn: turn.id, item: item.id, message: id, ...(client ? { client } : {}) })
         continue
@@ -207,38 +240,15 @@ export function project(snapshot: NativeHistory.Snapshot, opts: Options) {
             },
           ],
         }
+        state.root ??= id
         messages.push(state.user)
       }
-      if (!state.assistant) {
-        const prior = replies.get(state.user.info.id)
-        const id = prior?.id ?? MessageID.make(`msg_${NativeHistory.key(key, "assistant")}`)
-        state.assistant = {
-          info: {
-            id,
-            sessionID: opts.sessionID,
-            role: "assistant",
-            parentID: state.user.info.id,
-            time: { created, completed },
-            modelID: prior?.modelID ?? unknown,
-            providerID: provider,
-            mode: "codex",
-            agent: "codex",
-            path: { cwd: opts.cwd, root: opts.cwd },
-            cost: prior?.cost ?? 0,
-            tokens: prior?.tokens ?? { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
-            ...(prior?.nativeUsage ? { nativeUsage: prior.nativeUsage } : {}),
-            ...(prior?.variant ? { variant: prior.variant } : {}),
-            finish: "stop",
-          },
-          parts: [],
-        }
-        messages.push(state.assistant)
-      }
-      const part = base(state.assistant.info.id)
-      links.push({ turn: turn.id, item: item.id, message: state.assistant.info.id })
+      const assistant = reply()
+      const part = base(assistant.info.id)
+      links.push({ turn: turn.id, item: item.id, message: assistant.info.id })
       if (item.type === "agentMessage" || item.type === "plan") {
         if (typeof item.text !== "string") issue("Native text item has no text")
-        state.assistant.parts.push({
+        assistant.parts.push({
           ...part,
           type: "text",
           text: typeof item.text === "string" ? item.text : render(item),
@@ -252,7 +262,7 @@ export function project(snapshot: NativeHistory.Snapshot, opts: Options) {
         const content = strings.safeParse(item.content)
         if ((item.summary !== undefined && !summary.success) || (item.content !== undefined && !content.success))
           issue("Native reasoning has an unsupported format")
-        state.assistant.parts.push({
+        assistant.parts.push({
           ...part,
           type: "reasoning",
           text: (summary.success && summary.data.length ? summary.data : content.success ? content.data : []).join(
@@ -290,7 +300,7 @@ export function project(snapshot: NativeHistory.Snapshot, opts: Options) {
           : item.type === "fileChange"
             ? { changes: item.changes }
             : { ...item }
-      state.assistant.parts.push({
+      assistant.parts.push({
         ...part,
         type: "tool",
         callID: item.id,

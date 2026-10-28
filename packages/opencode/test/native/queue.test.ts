@@ -188,3 +188,170 @@ test("recovered dispatch becomes uncertain and is never replayed automatically",
     expect(await Bun.file(path.join(dir, "turn-1.json")).exists()).toBe(false)
   })
 })
+
+test("sending a queued message now uses its original ID once and removes it before automatic continuation", async () => {
+  await scenario(async (session, dir) => {
+    const work = SessionPrompt.prompt({ sessionID: session.id, parts: [{ type: "text", text: "wait" }] })
+    try {
+      await until(async () => !!NativeSession.active(session.id)?.turnID)
+      const input = { sessionID: session.id, messageID: MessageID.ascending(), text: "send now" }
+      await NativeQueue.enqueue(input)
+      const request = {
+        sessionID: session.id,
+        messageID: input.messageID,
+        turnID: NativeSession.active(session.id)!.turnID!,
+      }
+      const results = await Promise.all([NativeQueue.send(request), NativeQueue.send(request)])
+      expect(results.map((result) => result.delivery.status)).toEqual(["accepted", "accepted"])
+      expect(results[0].queue.items).toEqual([])
+      expect((await NativeQueue.send(request)).delivery.status).toBe("accepted")
+      expect(NativeStore.inputs(session.id).filter((item) => item.id === input.messageID)).toHaveLength(1)
+      expect(await Bun.file(path.join(dir, `steer-${input.messageID}.json`)).json()).toMatchObject({
+        clientUserMessageId: input.messageID,
+        expectedTurnId: request.turnID,
+      })
+      const calls = await Promise.all(
+        (await fs.readdir(dir))
+          .filter((file) => /^call-\d+\.json$/.test(file))
+          .map((file) => Bun.file(path.join(dir, file)).json()),
+      )
+      expect(calls.filter((call) => call.method === "turn/steer")).toHaveLength(1)
+      await Bun.write(path.join(dir, "release"), "yes")
+      await work
+      expect((await NativeQueue.list(session.id)).items).toEqual([])
+      expect(await Bun.file(path.join(dir, "turn-2.json")).exists()).toBe(false)
+    } finally {
+      await SessionPrompt.cancel(session.id)
+      await work
+    }
+  })
+})
+
+test("an explicitly rejected queued steer remains failed and cannot be automatically sent as a new turn", async () => {
+  await scenario(async (session, dir) => {
+    const work = SessionPrompt.prompt({ sessionID: session.id, parts: [{ type: "text", text: "wait" }] })
+    try {
+      await until(async () => !!NativeSession.active(session.id)?.turnID)
+      const input = { sessionID: session.id, messageID: MessageID.ascending(), text: "reject" }
+      await NativeQueue.enqueue(input)
+      const request = {
+        sessionID: session.id,
+        messageID: input.messageID,
+        turnID: NativeSession.active(session.id)!.turnID!,
+      }
+      const result = await NativeQueue.send(request)
+      expect(result.delivery).toMatchObject({ status: "rejected", error: "The expected turn ended" })
+      expect(result.queue).toMatchObject({ paused: true, items: [{ id: input.messageID, state: "failed" }] })
+      expect((await NativeQueue.send(request)).delivery).toEqual(result.delivery)
+      await expect(NativeQueue.resume(session.id)).rejects.toThrow("unresolved")
+      await Bun.write(path.join(dir, "release"), "yes")
+      await work
+      expect(await Bun.file(path.join(dir, "turn-2.json")).exists()).toBe(false)
+    } finally {
+      await SessionPrompt.cancel(session.id)
+      await work
+    }
+  })
+})
+
+test("a stale turn pauses unsubmitted queued input until explicitly reviewed and resumed", async () => {
+  await scenario(async (session, dir) => {
+    const work = SessionPrompt.prompt({ sessionID: session.id, parts: [{ type: "text", text: "wait" }] })
+    try {
+      await until(async () => !!NativeSession.active(session.id)?.turnID)
+      const input = { sessionID: session.id, messageID: MessageID.ascending(), text: "later" }
+      await NativeQueue.enqueue(input)
+      const result = await NativeQueue.send({
+        sessionID: session.id,
+        messageID: input.messageID,
+        turnID: "finished-turn",
+      })
+      expect(result.delivery.status).toBe("rejected")
+      expect(result.queue).toMatchObject({ paused: true, items: [{ id: input.messageID, state: "pending" }] })
+      expect(NativeStore.inputs(session.id).some((item) => item.id === input.messageID)).toBe(false)
+      await Bun.write(path.join(dir, "release"), "yes")
+      await work
+      expect(await Bun.file(path.join(dir, "turn-2.json")).exists()).toBe(false)
+      await NativeQueue.resume(session.id)
+      await empty(session.id)
+      expect((await Bun.file(path.join(dir, "turn-2.json")).json()).input).toBe("later")
+    } finally {
+      await SessionPrompt.cancel(session.id)
+      await work
+    }
+  })
+})
+
+test("a queued steer with an unknown delivery stays reviewable and is not replayed", async () => {
+  await scenario(async (session, dir) => {
+    const work = SessionPrompt.prompt({ sessionID: session.id, parts: [{ type: "text", text: "wait" }] })
+    try {
+      await until(async () => !!NativeSession.active(session.id)?.turnID)
+      const input = { sessionID: session.id, messageID: MessageID.ascending(), text: "disconnect" }
+      await NativeQueue.enqueue(input)
+      const request = {
+        sessionID: session.id,
+        messageID: input.messageID,
+        turnID: NativeSession.active(session.id)!.turnID!,
+      }
+      const result = await NativeQueue.send(request)
+      expect(result.delivery.status).toBe("uncertain")
+      expect(result.queue).toMatchObject({ paused: true, items: [{ id: input.messageID, state: "uncertain" }] })
+      await work
+      expect((await NativeQueue.send(request)).delivery.status).toBe("uncertain")
+      await expect(NativeQueue.resume(session.id)).rejects.toThrow("unresolved")
+      expect(await Bun.file(path.join(dir, "turn-2.json")).exists()).toBe(false)
+    } finally {
+      await SessionPrompt.cancel(session.id)
+      await work
+    }
+  })
+})
+
+test("queued steering reserves delivery without blocking cancellation or allowing removal", async () => {
+  await scenario(async (session, dir) => {
+    const work = SessionPrompt.prompt({ sessionID: session.id, parts: [{ type: "text", text: "wait" }] })
+    try {
+      await until(async () => !!NativeSession.active(session.id)?.turnID)
+      const input = { sessionID: session.id, messageID: MessageID.ascending(), text: "hold-steer" }
+      await NativeQueue.enqueue(input)
+      const sending = NativeQueue.send({
+        sessionID: session.id,
+        messageID: input.messageID,
+        turnID: NativeSession.active(session.id)!.turnID!,
+      })
+      await until(() => Bun.file(path.join(dir, `steer-${input.messageID}.json`)).exists())
+      expect((await NativeQueue.list(session.id)).items[0].state).toBe("dispatching")
+      await expect(NativeQueue.remove(session.id, input.messageID)).rejects.toThrow("already being sent")
+      await SessionPrompt.cancel(session.id)
+      await work
+      expect((await sending).delivery.status).toBe("uncertain")
+      expect((await NativeQueue.list(session.id)).paused).toBe(true)
+      expect(await Bun.file(path.join(dir, "turn-2.json")).exists()).toBe(false)
+    } finally {
+      await SessionPrompt.cancel(session.id)
+      await work
+    }
+  })
+})
+
+test("a queue entry already claimed for a normal turn cannot also be steered", async () => {
+  await scenario(async (session, dir) => {
+    const input = { sessionID: session.id, messageID: MessageID.ascending(), text: "wait" }
+    await NativeQueue.enqueue(input)
+    await NativeQueue.resume(session.id)
+    try {
+      await until(async () => !!NativeSession.active(session.id)?.turnID)
+      const result = await NativeQueue.send({
+        sessionID: session.id,
+        messageID: input.messageID,
+        turnID: NativeSession.active(session.id)!.turnID!,
+      })
+      expect(result.delivery.status).toBe("rejected")
+      expect(await Bun.file(path.join(dir, `steer-${input.messageID}.json`)).exists()).toBe(false)
+      expect(NativeStore.inputs(session.id).filter((item) => item.id === input.messageID)).toHaveLength(1)
+    } finally {
+      await SessionPrompt.cancel(session.id)
+    }
+  })
+})

@@ -205,6 +205,8 @@ import type {
   NativeResumeQueueErrors,
   NativeResumeQueueResponses,
   NativeRuntimeResponses,
+  NativeSendQueuedErrors,
+  NativeSendQueuedResponses,
   NativeStatusResponses,
   NativeSteerResponses,
   NativeUsageResponses,
@@ -4592,6 +4594,45 @@ export class Native extends HeyApiClient {
       url: "/native/codex/{sessionID}/queue/{messageID}",
       ...options,
       ...params,
+    })
+  }
+
+  /**
+   * Send a queued message into the current Codex turn
+   */
+  public sendQueued<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      messageID: string
+      directory?: string
+      workspace?: string
+      turnID?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "path", key: "messageID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "turnID" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<NativeSendQueuedResponses, NativeSendQueuedErrors, ThrowOnError>({
+      url: "/native/codex/{sessionID}/queue/{messageID}/send",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
     })
   }
 

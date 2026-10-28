@@ -186,6 +186,30 @@ export const NativeRoutes = lazy(() =>
         ),
     )
     .post(
+      "/codex/:sessionID/queue/:messageID/send",
+      describeRoute({
+        summary: "Send a queued message into the current Codex turn",
+        operationId: "native.sendQueued",
+        responses: {
+          200: {
+            description: "Updated queue and native delivery evidence; uncertain input is never replayed",
+            content: { "application/json": { schema: resolver(NativeQueue.Sent) } },
+          },
+          409: {
+            description: "Queue delivery could not be resolved",
+            content: { "application/json": { schema: resolver(z.object({ error: z.string() })) } },
+          },
+        },
+      }),
+      validator("param", NativeQueue.Send.pick({ sessionID: true, messageID: true })),
+      validator("json", NativeQueue.Send.pick({ turnID: true })),
+      async (c) =>
+        NativeQueue.send({ ...c.req.valid("param"), ...c.req.valid("json") }).then(
+          (result) => c.json(result),
+          (error: unknown) => c.json({ error: error instanceof Error ? error.message : String(error) }, 409),
+        ),
+    )
+    .post(
       "/codex/:sessionID/queue/resume",
       describeRoute({
         summary: "Resume pending Codex messages after reviewing a paused queue",

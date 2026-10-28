@@ -5,7 +5,8 @@ import { Instance } from "../../src/project/instance"
 import { ModelID, ProviderID } from "../../src/provider/schema"
 import { Session } from "../../src/session"
 import { MessageV2 } from "../../src/session/message-v2"
-import { MessageID } from "../../src/session/schema"
+import { MessageID, PartID } from "../../src/session/schema"
+import { NativeDisplay } from "../../src/native/display"
 import { tmpdir } from "../fixture/fixture"
 
 async function scenario(
@@ -215,5 +216,87 @@ test("native usage persists last input context independently of cumulative turn 
     })
     expect(assistant.nativeUsage?.input).toBe(25)
     expect(assistant.nativeUsage?.contextWindow).toBeUndefined()
+  })
+})
+
+test("steered display segments preserve earlier text, late item owners and one copy of token usage", async () => {
+  await scenario(async ({ session, assistant, events }) => {
+    const notify = (method: string, value: Record<string, unknown>) =>
+      events.notification(method, { threadId: "thread", turnId: "turn", ...value })
+    await notify("item/agentMessage/delta", { itemId: "before", delta: "Original partial answer" })
+    await notify("item/started", {
+      item: { id: "tool", type: "commandExecution", command: "echo fixture", status: "inProgress" },
+    })
+    await events.notification("item/autoApprovalReview/started", review("before-review"))
+    const user: MessageV2.User = {
+      id: MessageID.ascending(),
+      sessionID: session.id,
+      role: "user",
+      time: { created: Date.now() },
+      agent: "codex",
+      model: { providerID: assistant.providerID, modelID: assistant.modelID },
+    }
+    const part: MessageV2.TextPart = {
+      id: PartID.ascending(),
+      sessionID: session.id,
+      messageID: user.id,
+      type: "text",
+      text: "Change direction",
+      metadata: { nativeSteer: { thread: "thread", turn: "turn", parent: assistant.parentID, status: "sending" } },
+    }
+    NativeStore.steer({ info: user, parts: [part] }, NativeDisplay.id(user.id), "thread", "turn")
+    await Session.updateMessage(user)
+    await Session.updatePart(part)
+    await notify("item/completed", { item: { id: "steer", type: "userMessage", clientId: user.id } })
+    await events.steer(user)
+    await events.notification("item/autoApprovalReview/completed", review("before-review", "approved"))
+    await events.notification("item/autoApprovalReview/started", review("after-review"))
+    await notify("item/agentMessage/delta", { itemId: "after", delta: "New answer" })
+    expect(events.owner("tool").id).toBe(assistant.id)
+    expect(events.owner("after").id).toBe(NativeDisplay.id(user.id))
+    await notify("item/agentMessage/delta", { itemId: "before", delta: " (late tail)" })
+    await notify("item/completed", {
+      item: {
+        id: "tool",
+        type: "commandExecution",
+        command: "echo fixture",
+        status: "completed",
+        aggregatedOutput: "ok",
+      },
+    })
+    await notify("thread/tokenUsage/updated", {
+      tokenUsage: { last: { totalTokens: 100, inputTokens: 80, outputTokens: 20 }, modelContextWindow: 1000 },
+    })
+    await notify("turn/completed", {
+      turn: {
+        id: "turn",
+        status: "completed",
+        items: [
+          { id: "input", type: "userMessage", clientId: assistant.parentID },
+          { id: "delayed", type: "agentMessage", text: "Earlier item received only at completion" },
+          { id: "steer", type: "userMessage", clientId: user.id },
+          { id: "after", type: "agentMessage", text: "New answer" },
+        ],
+      },
+    })
+    const result = await events.finish({ status: "interrupted" })
+    const before = await MessageV2.get({ sessionID: session.id, messageID: assistant.id })
+    const after = await MessageV2.get({ sessionID: session.id, messageID: NativeDisplay.id(user.id) })
+    expect(before.info).toMatchObject({ parentID: assistant.parentID, finish: "stop", tokens: { total: 100 } })
+    expect(before.parts).toContainEqual(expect.objectContaining({ text: "Original partial answer (late tail)" }))
+    expect(before.parts).toContainEqual(expect.objectContaining({ text: "Earlier item received only at completion" }))
+    expect(before.parts).toContainEqual(
+      expect.objectContaining({ callID: "tool", state: expect.objectContaining({ status: "completed" }) }),
+    )
+    expect(after.info).toMatchObject({ parentID: user.id, finish: "error", tokens: { input: 0, output: 0 } })
+    expect(after.parts).toContainEqual(expect.objectContaining({ text: "New answer" }))
+    expect(result.info.id).toBe(after.info.id)
+    expect(NativeStore.dispatches(session.id).find((entry) => entry.id === assistant.parentID)?.reviews).toEqual([
+      expect.objectContaining({ messageID: assistant.id, callID: "review:before-review" }),
+    ])
+    expect(NativeStore.dispatches(session.id).find((entry) => entry.id === user.id)?.reviews).toEqual([
+      expect.objectContaining({ messageID: after.info.id, callID: "review:after-review" }),
+    ])
+    expect((await NativeStore.history(session.id)).filter((entry) => entry.info.role === "assistant")).toHaveLength(2)
   })
 })

@@ -14,6 +14,7 @@ import { Lock } from "@/util/lock"
 import { Log } from "@/util/log"
 import { NativeSession } from "./session"
 import { NativeStore } from "./store"
+import { Native } from "./schema"
 
 /** Pending user requests, separate from model-visible history and delivered input. */
 export namespace NativeQueue {
@@ -30,6 +31,8 @@ export namespace NativeQueue {
     model: Input.shape.model,
     effort: Input.shape.effort,
     state: z.enum(["pending", "dispatching", "uncertain", "failed"]),
+    turn: z.string().optional(),
+    delivery: Native.Steered.optional(),
     error: z.string().optional(),
     created: z.number(),
   })
@@ -40,6 +43,15 @@ export namespace NativeQueue {
       items: z.array(Item),
     })
     .meta({ ref: "NativeQueueStatus" })
+  export const Send = z
+    .object({
+      sessionID: SessionID.zod,
+      messageID: MessageID.zod,
+      turnID: z.string().min(1),
+    })
+    .strict()
+  export const Sent = z.object({ queue: Status, delivery: Native.Steered }).meta({ ref: "NativeQueueSent" })
+  type Sent = z.infer<typeof Sent>
   const Saved = Status.extend({ owner: z.string() })
   type Saved = z.infer<typeof Saved>
   const log = Log.create({ service: "native.queue" })
@@ -48,6 +60,7 @@ export namespace NativeQueue {
       owner: crypto.randomUUID(),
       closed: false,
       jobs: new Map<SessionID, Promise<void>>(),
+      sends: new Map<SessionID, Map<MessageID, { turn: string; result: Promise<Sent> }>>(),
       wakes: new Set<SessionID>(),
       halted: new Set<SessionID>(),
     }),
@@ -163,6 +176,141 @@ export namespace NativeQueue {
     })
   }
 
+  /** Reserve one queued identity before steering; never fall back to a new turn. */
+  export async function send(value: z.infer<typeof Send>): Promise<Sent> {
+    const input = Send.parse(value)
+    return home(input.sessionID, async () => {
+      const current = state()
+      const sends = current.sends.get(input.sessionID) ?? new Map<MessageID, { turn: string; result: Promise<Sent> }>()
+      const known = sends.get(input.messageID)
+      if (known?.turn === input.turnID) return known.result
+      if (known)
+        return {
+          queue: await list(input.sessionID),
+          delivery: {
+            status: "rejected",
+            messageID: input.messageID,
+            turnID: input.turnID,
+            error: "This queued message is already being sent to another turn.",
+          },
+        }
+      const result = deliver(input).finally(() => {
+        sends.delete(input.messageID)
+        if (!sends.size && current.sends.get(input.sessionID) === sends) current.sends.delete(input.sessionID)
+      })
+      sends.set(input.messageID, { turn: input.turnID, result })
+      current.sends.set(input.sessionID, sends)
+      return result
+    })
+  }
+
+  async function deliver(input: z.infer<typeof Send>): Promise<Sent> {
+    const current = state()
+    const rejected = (error: string): Native.Steered => ({
+      status: "rejected",
+      messageID: input.messageID,
+      turnID: input.turnID,
+      error,
+    })
+    const reserved = await (async (): Promise<{ text: string } | Sent> => {
+      using lock = await Lock.write(file(input.sessionID))
+      const saved = await read(input.sessionID)
+      const item = saved.items.find((item) => item.id === input.messageID)
+      const stored = NativeStore.inputs(input.sessionID).find((item) => item.id === input.messageID)
+      if (!item) {
+        // A lost HTTP response can be retried after the accepted entry was
+        // removed. Existing immutable input makes steer a receipt read only.
+        const part = stored?.data.parts.find((part) => part.type === "text" && part.metadata?.nativeSteer)
+        if (part?.type === "text") return { text: part.text }
+        return {
+          queue: Status.parse(saved),
+          delivery: rejected("This queued message is no longer pending. Check the conversation before sending again."),
+        }
+      }
+      if (item.state === "dispatching" && !item.turn)
+        return {
+          queue: Status.parse(saved),
+          delivery: rejected("This queued message is already being sent as a new turn."),
+        }
+      if (item.turn && item.turn !== input.turnID && item.state !== "pending")
+        return {
+          queue: Status.parse(saved),
+          delivery: rejected("This message already has a delivery attempt for another turn. Review its saved result."),
+        }
+      if (stored) return { text: item.text }
+      if (item.turn === input.turnID && item.delivery) return { queue: Status.parse(saved), delivery: item.delivery }
+      if (item.state !== "pending")
+        return {
+          queue: Status.parse(saved),
+          delivery: {
+            status: "uncertain" as const,
+            messageID: input.messageID,
+            turnID: input.turnID,
+            error: item.error ?? "Delivery could not be confirmed. This message will not be sent again automatically.",
+          },
+        }
+      const active = NativeSession.active(input.sessionID)
+      if (current.closed || current.halted.has(input.sessionID) || !active?.steer || active.turnID !== input.turnID) {
+        const delivery = rejected(
+          "The expected Codex turn is no longer available for steering. Review and resume the queue to send this as a new task.",
+        )
+        item.turn = input.turnID
+        item.delivery = delivery
+        item.error = delivery.error
+        saved.paused = true
+        saved.reason = delivery.error
+        await write(input.sessionID, saved)
+        return { queue: Status.parse(saved), delivery }
+      }
+      item.state = "dispatching"
+      item.turn = input.turnID
+      delete item.delivery
+      delete item.error
+      await write(input.sessionID, saved)
+      return { text: item.text }
+    })()
+    if ("delivery" in reserved) return reserved
+    const request = { ...input, text: reserved.text }
+    // Do not hold the queue mutex across RPC: cancelling a task pauses its
+    // queue before aborting the native turn. The persisted reservation excludes
+    // both removal and automatic drain while this await is pending.
+    const delivery = await NativeSession.steer(request).catch((error: unknown) => {
+      const message = error instanceof Error ? error.message : String(error)
+      if (!NativeStore.inputs(input.sessionID).some((item) => item.id === input.messageID)) return rejected(message)
+      return NativeSession.steer(request).catch(
+        (): Native.Steered => ({
+          status: "uncertain",
+          messageID: input.messageID,
+          turnID: input.turnID,
+          error: message,
+        }),
+      )
+    })
+    const queue = await (async () => {
+      using lock = await Lock.write(file(input.sessionID))
+      const saved = await read(input.sessionID)
+      const item = saved.items.find((item) => item.id === input.messageID)
+      if (!item) return Status.parse(saved)
+      if (delivery.status === "accepted") saved.items = saved.items.filter((item) => item.id !== input.messageID)
+      if (delivery.status !== "accepted") {
+        item.state =
+          delivery.status === "uncertain"
+            ? "uncertain"
+            : NativeStore.inputs(input.sessionID).some((item) => item.id === input.messageID)
+              ? "failed"
+              : "pending"
+        item.delivery = delivery
+        item.error = delivery.error
+        saved.paused = true
+        saved.reason = delivery.error ?? "Review the queued message before continuing."
+      }
+      await write(input.sessionID, saved)
+      return Status.parse(saved)
+    })()
+    if (delivery.status === "accepted") kick(input.sessionID)
+    return { queue, delivery }
+  }
+
   export async function pause(id: SessionID, reason = "The task stopped. Review the queue before continuing.") {
     state().halted.add(id)
     using lock = await Lock.write(file(id))
@@ -226,9 +374,13 @@ export namespace NativeQueue {
         using lock = await Lock.write(file(id))
         const saved = await read(id)
         if (saved.paused || !saved.items.length || (await SessionStatus.get(id)).type !== "idle") return
+        if (saved.items.some((item) => item.state === "dispatching" && item.turn)) return
         const item = saved.items[0]
         if (item.state !== "pending") return
         item.state = "dispatching"
+        delete item.turn
+        delete item.delivery
+        delete item.error
         await write(id, saved)
         return { ...item }
       })()
@@ -294,6 +446,7 @@ export namespace NativeQueue {
   export async function clear(id: SessionID) {
     state().halted.add(id)
     await state().jobs.get(id)
+    await Promise.allSettled([...(state().sends.get(id)?.values() ?? [])].map((item) => item.result))
     using lock = await Lock.write(file(id))
     await fs.rm(file(id), { force: true })
   }

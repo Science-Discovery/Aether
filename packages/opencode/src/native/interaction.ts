@@ -7,6 +7,7 @@ import { PartID, type SessionID } from "@/session/schema"
 import { Native } from "./schema"
 import { NativeStore } from "./store"
 import { Protocol } from "./protocol"
+import { NativeDisplay } from "./display"
 
 export namespace NativeInteraction {
   const receipt = z.object({ turn: z.string(), thread: z.string(), parent: z.string(), error: z.string().optional() })
@@ -15,6 +16,7 @@ export namespace NativeInteraction {
     assistant: MessageV2.Assistant
     signal: AbortSignal
     ended: () => boolean
+    steer?: (user: MessageV2.User) => Promise<void>
     mode: Native.Mode
     phase: Native.Active["phase"]
     waiting: number
@@ -43,7 +45,7 @@ export namespace NativeInteraction {
     }
   }
 
-  export function open(opts: Pick<Run, "session" | "assistant" | "signal" | "ended" | "mode">) {
+  export function open(opts: Pick<Run, "session" | "assistant" | "signal" | "ended" | "mode" | "steer">) {
     const entries = runs()
     if (entries.has(opts.session.id)) throw new Error("This Codex session already owns an active interaction")
     const run: Run = { ...opts, phase: "starting", waiting: 0, supported: false, queue: Promise.resolve(), pending: 0 }
@@ -92,7 +94,7 @@ export namespace NativeInteraction {
         dispatch?.state === "accepted" ? "accepted" : dispatch?.state === "rejected" ? "rejected" : "uncertain",
         dispatch?.state === "accepted"
           ? undefined
-          : tag.data.error ?? "This input was already submitted and will not be sent again.",
+          : (tag.data.error ?? "This input was already submitted and will not be sent again."),
       )
     }
     const known = previous()
@@ -143,7 +145,7 @@ export namespace NativeInteraction {
           nativeSteer: { thread: run.thread, turn: input.turnID, parent: run.assistant.parentID, status: "sending" },
         },
       }
-      NativeStore.steer({ info: user, parts: [part] }, run.assistant.id, run.thread, input.turnID)
+      NativeStore.steer({ info: user, parts: [part] }, NativeDisplay.id(user.id), run.thread, input.turnID)
       let dispatched = false
       let status: Native.Steered["status"] = "accepted"
       let error: string | undefined
@@ -156,6 +158,8 @@ export namespace NativeInteraction {
           .object({ turnId: z.string() })
           .parse(await run.client.request("turn/steer", payload, { timeout: 15_000, signal: run.signal }))
         if (accepted.turnId !== input.turnID) throw new Error("Codex accepted steering for an unexpected turn.")
+        await run.client.drain()
+        await run.steer?.(user)
       } catch (cause) {
         status = !dispatched || cause instanceof Protocol.RpcError ? "rejected" : "uncertain"
         error = cause instanceof Error ? cause.message : "Unable to determine whether Codex accepted the input."

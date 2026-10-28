@@ -1881,7 +1881,7 @@ export const dict = {
   "native.run.textOnly": "Only text can be sent while running",
   "native.run.textOnly.description":
     "Files, images, and references remain in your draft. Send them after this turn ends.",
-  "native.run.textOnly.hint": "This action sends text only",
+  "native.run.textOnly.hint": "New messages are queued for the next turn (text only)",
   "native.run.unavailable": "Codex task state is unavailable: {{error}}",
   "native.run.notice.queued": "Message queued. It will run in order.",
   "native.run.notice.accepted": "Codex received your additional instructions.",
@@ -1892,6 +1892,10 @@ export const dict = {
   "native.run.notice.retry":
     "Delivery of the previous message is still unconfirmed. Check the conversation, then retry the original input or discard its retry before sending edited input.",
   "native.queue.title": "Message queue ({{count}})",
+  "native.queue.send": "Send now",
+  "native.queue.check": "Check delivery",
+  "native.queue.unconfirmed":
+    "Immediate delivery is unconfirmed. Check this operation before sending another queued message.",
   "native.queue.resume": "Resume queue",
   "native.queue.paused": "Queue paused:",
   "native.queue.pending": "Pending",

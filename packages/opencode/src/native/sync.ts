@@ -144,25 +144,83 @@ export namespace NativeSync {
         ? JSON.stringify([native.data.turn, native.data.item, part.type, metadata?.content])
         : part.id.replace(/^prt_zz\d{8}_/, "")
     }
+    const observed = new Map(existing.flatMap((entry) => entry.parts.map((part) => [identity(part), part] as const)))
+    const represented = new Map(
+      messages.flatMap((entry) =>
+        entry.parts.map((part) => [identity(part), { message: entry.info.id, part }] as const),
+      ),
+    )
+    // A complete API page is not proof that Codex saved everything we displayed.
+    // In particular, steering can omit earlier output from the persisted turn.
+    for (const entry of existing) {
+      if (entry.info.role !== "assistant" || entry.info.providerID !== "codex-native") continue
+      for (const part of entry.parts) {
+        const metadata = "metadata" in part ? part.metadata : undefined
+        const native = z.object({ turn: z.string(), item: z.string() }).safeParse(metadata?.native)
+        if (!native.success || metadata?.nativeAgent) continue
+        if (!snapshot.turns.some((turn) => turn.id === native.data.turn)) continue
+        if ((part.type === "text" || part.type === "reasoning") && !part.text) continue
+        const next = represented.get(identity(part))?.part
+        if (
+          next &&
+          (!(part.type === "text" || part.type === "reasoning") ||
+            ((next.type === "text" || next.type === "reasoning") && next.text.startsWith(part.text)))
+        )
+          continue
+        projection.complete = false
+        projection.issues.push({
+          code: "observed",
+          turn: native.data.turn,
+          item: native.data.item,
+          message: "Native history omits or changes previously observed output; the displayed content was preserved.",
+        })
+      }
+    }
+    const merge = (part: MessageV2.Part, previous: MessageV2.Part | undefined): MessageV2.Part => {
+      if (!previous) return part
+      if (part.type === "text" && previous.type === "text" && part.metadata?.nativeSteer)
+        return { ...previous, metadata: { ...previous.metadata, nativeSteer: part.metadata.nativeSteer } }
+      if (
+        (part.type === "text" || part.type === "reasoning") &&
+        (previous.type === "text" || previous.type === "reasoning") &&
+        part.text !== previous.text &&
+        part.text.startsWith(previous.text)
+      )
+        return { ...part, id: previous.id }
+      return previous
+    }
     const selected = projection.complete
       ? messages
       : messages.map((entry) => {
           const previous = known.get(entry.info.id)
-          if (!previous) return entry
-          const ids = new Set(previous.parts.map(identity))
+          if (!previous)
+            return {
+              ...entry,
+              parts: entry.parts.map((part) => ({
+                ...merge(part, observed.get(identity(part))),
+                id: part.id,
+                messageID: entry.info.id,
+              })),
+            }
+          // A formerly aggregated reply may now span several display messages.
+          // Move each known native item to its projected owner exactly once.
+          const retained = previous.parts.filter((part) => {
+            const owner = represented.get(identity(part))?.message
+            return !owner || owner === entry.info.id
+          })
+          const ids = new Set(retained.map(identity))
           // A partial read cannot reorder old streaming parts safely. New evidence
           // is appended; a complete snapshot restores the authoritative item order.
           const additions = entry.parts
             .filter((part) => !ids.has(identity(part)))
             .map((part, index) => ({
-              ...part,
-              id: PartID.make(`prt_zz${String(previous.parts.length + index).padStart(8, "0")}_${part.id}`),
+              ...merge(part, observed.get(identity(part))),
+              id: PartID.make(`prt_zz${String(retained.length + index).padStart(8, "0")}_${part.id}`),
+              messageID: entry.info.id,
             }))
-          const parts = previous.parts.map((part) => {
-            if (part.type !== "text" || !part.metadata?.nativeSteer) return part
+          const parts = retained.map((part) => {
             const next = entry.parts.find((item) => identity(item) === identity(part))
-            if (next?.type !== "text" || !next.metadata?.nativeSteer) return part
-            return { ...part, metadata: { ...part.metadata, nativeSteer: next.metadata.nativeSteer } }
+            return next ? merge(next, part) : part
           })
           return { info: previous.info, parts: [...parts, ...additions] }
         })
@@ -197,9 +255,16 @@ export namespace NativeSync {
           .values({ id, session_id: sessionID, time_created: entry.info.time.created, data })
           .onConflictDoUpdate({ target: MessageTable.id, set: { data, time_created: entry.info.time.created } })
           .run()
-        db.delete(PartTable)
-          .where(and(eq(PartTable.session_id, session.id), eq(PartTable.message_id, id)))
-          .run()
+      })
+      // Remove every old owner before inserting parts under another message;
+      // part identities are unique across the session, not per display segment.
+      changed.forEach((entry) =>
+        db
+          .delete(PartTable)
+          .where(and(eq(PartTable.session_id, session.id), eq(PartTable.message_id, entry.info.id)))
+          .run(),
+      )
+      changed.forEach((entry) => {
         entry.parts.forEach((part) => {
           const { id, messageID, sessionID, ...data } = part
           db.insert(PartTable)

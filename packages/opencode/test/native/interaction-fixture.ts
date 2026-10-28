@@ -106,6 +106,12 @@ for await (const line of createInterface({ input: process.stdin })) {
     if (cfg.mode === "drop") process.exit(0)
     turn = `turn-${++count}`
     respond({ turn: { id: turn } })
+    write({ method: "turn/started", params: { threadId: "thread", turn: { id: turn } } })
+    if (cfg.start === "steer")
+      write({
+        method: "item/agentMessage/delta",
+        params: { threadId: "thread", turnId: turn, itemId: "before", delta: "Partial answer before steering" },
+      })
     if (cfg.start === "complete") complete()
     continue
   }
@@ -119,6 +125,15 @@ for await (const line of createInterface({ input: process.stdin })) {
       pending.push({ id: value.id, turn: params.expectedTurnId })
       continue
     }
+    if (cfg.start === "steer")
+      write({
+        method: "item/completed",
+        params: {
+          threadId: "thread",
+          turnId: turn,
+          item: { id: "steer", type: "userMessage", clientId: params.clientUserMessageId, content: params.input },
+        },
+      })
     respond({ turnId: cfg.mode === "wrong" ? "another-turn" : params.expectedTurnId })
     if (cfg.start === "steer") complete()
     continue
