@@ -245,7 +245,11 @@ export namespace NativeRevert {
           await goal(connection.client, snapshot.thread.id)
           const history = await NativeStore.history(session.id)
           const ledger = NativeStore.dispatches(session.id)
-          if (ledger.some((entry) => !snapshot.turns.some((turn) => turn.id === entry.turn_id)))
+          if (
+            ledger.some(
+              (entry) => entry.state !== "rejected" && !snapshot.turns.some((turn) => turn.id === entry.turn_id),
+            )
+          )
             throw new Error("Previously delivered Codex turns are absent from this history. Refresh it before editing.")
           const projection = NativeHistory.project(snapshot, {
             sessionID: session.id,

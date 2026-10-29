@@ -10,9 +10,10 @@ import { NativeRevert } from "../../src/native/revert"
 import { NativeStore } from "../../src/native/store"
 import { NativeSync } from "../../src/native/sync"
 import { Instance } from "../../src/project/instance"
+import { ModelID, ProviderID } from "../../src/provider/schema"
 import { Session } from "../../src/session"
 import { SessionPrompt } from "../../src/session/prompt"
-import { MessageID } from "../../src/session/schema"
+import { MessageID, PartID } from "../../src/session/schema"
 import { SessionStatus } from "../../src/session/status"
 import { tmpdir } from "../fixture/fixture"
 
@@ -140,6 +141,61 @@ test("the first question reverts to an empty existing thread", async () => {
     expect((await calls(dir)).filter((entry) => entry.method === "thread/start")).toHaveLength(1)
   })
 })
+
+test.each(["failed", "rejected"])(
+  "confirmed %s inputs do not permanently block later edits",
+  async (kind) => {
+    await scenario(async (session, dir) => {
+      const first = await send(session.id, "first")
+      const last = await send(session.id, "last")
+      const current = await Session.get(session.id)
+      const id = MessageID.ascending()
+      if (kind === "failed") {
+        const result = await SessionPrompt.prompt({
+          sessionID: session.id,
+          messageID: id,
+          model: { providerID: ProviderID.make("codex-native"), modelID: ModelID.make("missing-model") },
+          parts: [{ type: "text", text: "Never delivered" }],
+        })
+        expect(result.info.role === "assistant" && !!result.info.error).toBe(true)
+      }
+      if (kind === "rejected") {
+        const source = (await NativeStore.history(session.id)).find((entry) => entry.info.id === last)!
+        NativeStore.steer(
+          {
+            info: { ...source.info, id },
+            parts: [
+              { type: "text", id: PartID.ascending(), sessionID: session.id, messageID: id, text: "Never delivered" },
+            ],
+          },
+          MessageID.ascending(),
+          current.engine!.thread!,
+          NativeStore.dispatches(session.id).find((entry) => entry.id === last)!.turn_id!,
+        )
+        NativeStore.delivery(session.id, id, "rejected", "The expected turn ended")
+      }
+      expect(NativeStore.inputs(session.id).find((entry) => entry.id === id)?.state).toBe("failed")
+      await NativeSync.refresh(session.id, true)
+      for (const messageID of [last, first]) {
+        const prepared = await NativeRevert.prepare({ sessionID: session.id, messageID })
+        const result = await NativeRevert.commit({ sessionID: session.id, id: prepared.id })
+        expect(result.state).toBe("applied")
+        expect(result.session.engine?.cursor).toBe(messageID === last ? first : undefined)
+        expect(NativeStore.inputs(session.id).find((entry) => entry.id === id)?.state).toBe("failed")
+        expect(NativeStore.pending(session.id)).toEqual([])
+        expect((await NativeStore.history(session.id)).find((entry) => entry.info.id === id)?.parts).toEqual(
+          expect.arrayContaining([expect.objectContaining({ type: "text", text: "Never delivered" })]),
+        )
+      }
+      await send(session.id, "replacement")
+      const starts = (await calls(dir)).filter((entry) => entry.method === "turn/start")
+      expect(starts).toHaveLength(3)
+      expect(JSON.stringify(starts.at(-1)!.params.input)).not.toContain("Never delivered")
+      expect(starts.at(-1)!.params.threadId).toBe(current.engine!.thread)
+    })
+  },
+  15_000,
+)
 
 for (const behavior of ["drop-after", "error-after"])
   test(`a ${behavior} native result is reconciled without repeating the mutation`, async () => {

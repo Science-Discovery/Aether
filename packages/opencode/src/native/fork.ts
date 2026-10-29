@@ -7,7 +7,7 @@ import z from "zod"
 import { Config } from "@/config/config"
 import { Instance } from "@/project/instance"
 import { Session } from "@/session"
-import type { MessageID, SessionID } from "@/session/schema"
+import { SessionID, type MessageID } from "@/session/schema"
 import { SessionStatus } from "@/session/status"
 import { Shell } from "@/shell/shell"
 import { Filesystem } from "@/util/filesystem"
@@ -24,7 +24,7 @@ import { NativeInheritance } from "./inheritance"
 
 export namespace NativeFork {
   export type Input = { sessionID: SessionID; messageID?: MessageID; after?: boolean }
-  export type Prepared = { source: Session.Info; engine: Native.Engine; anchor?: MessageID }
+  export type Prepared = { id: SessionID; source: Session.Info; engine: Native.Engine; anchor?: MessageID }
   const object = z.record(z.string(), z.unknown())
   const response = z.object({ thread: NativeHistory.Thread, model: z.string().optional() })
   const cache = new Map<string, Promise<boolean>>()
@@ -156,7 +156,7 @@ export namespace NativeFork {
         if (messages.length || input.messageID)
           throw new Error("This conversation has no confirmed native history to fork.")
         await available(source.id)
-        return create({ source, engine })
+        return create({ id: SessionID.descending(), source, engine })
       }
       const file = await Codex.discover(cfg.native?.codex?.path)
       if (!file) throw new Error("Codex was not found. Check the native backend connection.")
@@ -224,7 +224,7 @@ export namespace NativeFork {
           throw new Error("Refresh the original conversation before forking its latest history.")
         if (!last) {
           await available(source.id, source.engine!.thread)
-          return create({ source, engine })
+          return create({ id: SessionID.descending(), source, engine })
         }
         if (!(await capability(file)))
           throw new Error(
@@ -265,29 +265,42 @@ export namespace NativeFork {
             `The new native thread ${fork.thread.id} could not be verified at the requested boundary. The original conversation was preserved; no retry was sent.`,
           )
         await available(source.id, source.engine!.thread)
-        const session = await create({
-          source,
-          engine: {
-            ...engine,
-            model: fork.model ?? engine.model,
-            collaboration: source.engine!.collaboration,
-            thread: fork.thread.id,
-          },
-          anchor,
-        })
-        try {
-          await NativeStore.migrate(session)
-          NativeStore.bind(session.id, connection.home)
-          const sources = await NativeInheritance.collect(session, child, connection.client, {
-            source: { session: source, snapshot },
-          })
-          const result = await NativeSync.apply(session, child, { terminal: true, sources })
-          if (result.state !== "synced") throw new Error(result.error ?? "The forked history could not be displayed.")
-          return session
-        } catch (error) {
-          await Session.remove(session.id)
+        const id = SessionID.descending()
+        let cleanup: Promise<void> | undefined
+        // Creation publishes the child before returning. Reserve it before that
+        // event so refreshes and input cannot race the initial history import.
+        return await NativeLock.run(id, async () => {
+          try {
+            const session = await create({
+              id,
+              source,
+              engine: {
+                ...engine,
+                model: fork.model ?? engine.model,
+                collaboration: source.engine!.collaboration,
+                thread: fork.thread.id,
+              },
+              anchor,
+            })
+            await NativeStore.migrate(session)
+            NativeStore.bind(session.id, connection.home)
+            const sources = await NativeInheritance.collect(session, child, connection.client, {
+              source: { session: source, snapshot },
+            })
+            const result = await NativeSync.apply(session, child, { terminal: true, sources })
+            if (result.state !== "synced") throw new Error(result.error ?? "The forked history could not be displayed.")
+            return session
+          } catch (error) {
+            // Close input before releasing the lock, but await deletion outside
+            // it: clear() and Session.remove() acquire this same child lock.
+            cleanup = NativeRevert.clear(id)
+            throw error
+          }
+        }).catch(async (error) => {
+          await cleanup?.catch(() => undefined)
+          await Session.remove(id)
           throw error
-        }
+        })
       } finally {
         await connection.client.close()
       }

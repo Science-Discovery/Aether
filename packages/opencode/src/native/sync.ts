@@ -353,7 +353,7 @@ export namespace NativeSync {
           .set({
             engine: {
               ...current.engine,
-              cursor: [...unique.values()].findLast((entry) => entry.info.role === "user")?.info.id,
+              cursor: projection.messages.findLast((entry) => entry.info.role === "user")?.info.id,
             },
             summary_additions: null,
             summary_deletions: null,

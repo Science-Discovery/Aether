@@ -44,17 +44,33 @@ export namespace NativeStore {
   export function prefix(session: Session.Info, turns: string[]) {
     const ledger = dispatches(session.id)
     const rows = inputs(session.id)
+    const rejected = new Set(ledger.filter((row) => row.state === "rejected").map((row) => row.id))
     if (
-      ledger.some((row) => row.state !== "accepted" || !row.turn_id || row.thread_id !== session.engine?.thread) ||
-      rows.some(
-        (row) => row.state !== "consumed" || !row.dispatch_id || !ledger.some((entry) => entry.id === row.dispatch_id),
-      )
+      ledger.some(
+        (row) =>
+          (row.state !== "accepted" && row.state !== "rejected") ||
+          (row.state === "accepted" && !row.turn_id) ||
+          (row.state === "rejected" &&
+            !rows.some((input) => input.state === "failed" && input.dispatch_id === row.id)) ||
+          row.thread_id !== session.engine?.thread,
+      ) ||
+      rows.some((row) => {
+        if (row.state === "failed")
+          return row.dispatch_id ? !rejected.has(row.dispatch_id) : ledger.some((entry) => entry.id === row.id)
+        return (
+          row.state !== "consumed" ||
+          !row.dispatch_id ||
+          !ledger.some((entry) => entry.id === row.dispatch_id && entry.state === "accepted")
+        )
+      })
     )
       throw new Error("Resolve pending or unconfirmed Codex inputs before reverting this conversation.")
-    const retained = ledger.filter((row) => turns.includes(row.turn_id!))
+    // Confirmed failures have no native history to revert. Preserve their text
+    // and rejection receipts without making them eligible for replay.
+    const retained = ledger.filter((row) => row.state === "rejected" || turns.includes(row.turn_id!))
     return {
       ledger: retained,
-      inputs: rows.filter((row) => retained.some((entry) => entry.id === row.dispatch_id)),
+      inputs: rows.filter((row) => row.state === "failed" || retained.some((entry) => entry.id === row.dispatch_id)),
     }
   }
 

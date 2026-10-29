@@ -259,4 +259,21 @@ describe("native revert projection", () => {
       expect(NativeStore.dispatches(session.id).map((row) => row.id)).toEqual([first.info.id])
     })
   })
+
+  test.each(["sending", "uncertain"])("still blocks %s dispatches even alongside confirmed failures", async (state) => {
+    await scenario(async (session) => {
+      const failed = input(session, "Confirmed local failure")
+      NativeStore.add(failed, false)
+      NativeStore.fail(session.id, failed.info.id)
+      const message = input(session, "Delivery is not confirmed")
+      NativeStore.add(message, false)
+      NativeStore.begin(session.id, message.info.id, MessageID.ascending(), "thread", [message.info.id])
+      if (state === "uncertain") NativeStore.uncertain(session.id, message.info.id)
+      const rows = NativeStore.inputs(session.id)
+      const ledger = NativeStore.dispatches(session.id)
+      await expect(NativeSync.revert(session, snapshot([]))).rejects.toThrow("unconfirmed")
+      expect(NativeStore.inputs(session.id)).toEqual(rows)
+      expect(NativeStore.dispatches(session.id)).toEqual(ledger)
+    })
+  })
 })

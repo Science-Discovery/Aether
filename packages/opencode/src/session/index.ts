@@ -729,10 +729,11 @@ export namespace Session {
       if (!original) throw new Error("session not found")
       if (original.engine) {
         const { NativeFork } = await import("../native/fork")
-        return NativeFork.run(input, async ({ source, engine, anchor }) => {
+        return NativeFork.run(input, async ({ id, source, engine, anchor }) => {
           const tree = source.treeID ?? TreeID.descending()
           const index = await getNextForkIndex({ projectID: source.projectID, treeID: tree })
           const session = await createNext({
+            id,
             directory: source.directory,
             workspaceID: source.workspaceID,
             permission: source.permission,

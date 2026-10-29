@@ -2,10 +2,12 @@ import { expect, test } from "bun:test"
 import fs from "node:fs/promises"
 import path from "node:path"
 import { pathToFileURL } from "node:url"
+import { Bus } from "../../src/bus"
 import { Config } from "../../src/config/config"
 import { Global } from "../../src/global"
 import { NativeFork } from "../../src/native/fork"
 import { NativeHistory } from "../../src/native/history"
+import { NativeLock } from "../../src/native/lock"
 import { NativeStore } from "../../src/native/store"
 import { NativeSync } from "../../src/native/sync"
 import { Instance } from "../../src/project/instance"
@@ -307,6 +309,106 @@ test("native forks cut before or after a complete turn and preserve the original
     expect(starts[2].params.threadId).toBe(child.engine!.thread)
     expect(JSON.stringify(starts[2].params.input)).toContain("new branch")
     expect(JSON.stringify(starts[2].params.input)).not.toContain("first")
+  })
+})
+
+test("a published fork cannot refresh before its initial history import", async () => {
+  await scenario(async (session) => {
+    const first = await send(session.id, "first")
+    const child = await NativeFork.run({ sessionID: session.id, messageID: first, after: true }, async (input) => {
+      const child = await Session.createNext({ id: input.id, directory: input.source.directory, engine: input.engine })
+      expect(await NativeSync.refresh(child.id, true)).toMatchObject({ state: "busy" })
+      expect(await NativeStore.history(child.id)).toHaveLength(0)
+      return child
+    })
+    expect((await NativeStore.history(child.id)).filter((entry) => entry.info.role === "user")).toHaveLength(1)
+    expect(NativeLock.busy(child.id)).toBe(false)
+    await send(child.id, "new branch")
+    expect((await NativeStore.history(child.id)).filter((entry) => entry.info.role === "user")).toHaveLength(2)
+  })
+})
+
+test("the public fork factory reserves its child before publishing the creation event", async () => {
+  await scenario(async (session) => {
+    const first = await send(session.id, "first")
+    const observed = Promise.withResolvers<{ id: string; busy: boolean }>()
+    const off = Bus.subscribe(Session.Event.Created, (event) => {
+      const child = event.properties.info
+      if (child.id !== session.id) observed.resolve({ id: child.id, busy: NativeLock.busy(child.id) })
+    })
+    try {
+      const child = await Session.fork({ sessionID: session.id, messageID: first, after: true })
+      expect(await observed.promise).toEqual({ id: child.id, busy: true })
+      expect(NativeLock.busy(child.id)).toBe(false)
+    } finally {
+      off()
+    }
+  })
+})
+
+test("input received during fork creation runs only after inherited history is imported", async () => {
+  await scenario(async (session) => {
+    const first = await send(session.id, "first")
+    const submitted = Promise.withResolvers<string>()
+    const child = await NativeFork.run({ sessionID: session.id, messageID: first, after: true }, async (input) => {
+      const child = await Session.createNext({ id: input.id, directory: input.source.directory, engine: input.engine })
+      const active = Promise.withResolvers<void>()
+      const off = Bus.subscribe(SessionStatus.Event.Status, (event) => {
+        if (event.properties.sessionID === child.id && event.properties.status.type === "busy") active.resolve()
+      })
+      try {
+        submitted.resolve(send(child.id, "during creation"))
+        await active.promise
+        expect(NativeStore.inputs(child.id)).toHaveLength(0)
+        return child
+      } finally {
+        off()
+      }
+    })
+    await submitted.promise
+    const messages = (await NativeStore.history(child.id)).filter((entry) => entry.info.role === "user")
+    expect(messages).toHaveLength(2)
+    expect(
+      messages.map((entry) =>
+        entry.parts
+          .flatMap((part) => (part.type === "text" && !part.ignored ? [part.text] : []))
+          .join(""),
+      ),
+    ).toEqual(["first", "during creation"])
+  })
+})
+
+test("a failed fork releases its reservation and removes the incomplete child", async () => {
+  await scenario(async (session, dir) => {
+    const first = await send(session.id, "first")
+    const created = Promise.withResolvers<{ child: Session.Info; pending: Promise<boolean> }>()
+    const result = NativeFork.run({ sessionID: session.id, messageID: first, after: true }, async (input) => {
+      const child = await Session.createNext({ id: input.id, directory: input.source.directory, engine: input.engine })
+      const active = Promise.withResolvers<void>()
+      const off = Bus.subscribe(SessionStatus.Event.Status, (event) => {
+        if (event.properties.sessionID === child.id && event.properties.status.type === "busy") active.resolve()
+      })
+      const pending = send(child.id, "must not execute").then(
+        () => true,
+        () => false,
+      )
+      created.resolve({ child, pending })
+      try {
+        await active.promise
+      } finally {
+        off()
+      }
+      await NativeStore.migrate(child)
+      NativeStore.bind(child.id, path.join(dir, "different-home"))
+      return child
+    })
+    await expect(result).rejects.toThrow("different Codex home")
+    const saved = await created.promise
+    expect(await saved.pending).toBe(false)
+    expect(NativeLock.busy(saved.child.id)).toBe(false)
+    await expect(Session.get(saved.child.id)).rejects.toMatchObject({ name: "NotFoundError" })
+    expect((await calls(dir)).filter((entry) => entry.method === "turn/start")).toHaveLength(1)
+    expect((await NativeStore.history(session.id)).filter((entry) => entry.info.role === "user")).toHaveLength(1)
   })
 })
 
