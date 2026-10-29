@@ -194,7 +194,14 @@ import type {
   MigrateSessionsErrors,
   MigrateSessionsResponses,
   MigrateSourcesResponses,
+  NativeAttachChatErrors,
+  NativeAttachChatResponses,
   NativeCancelLoginResponses,
+  NativeChatsErrors,
+  NativeChatsResponses,
+  NativeCompactErrors,
+  NativeCompactResponses,
+  NativeCompactStatusResponses,
   NativeDequeueErrors,
   NativeDequeueResponses,
   NativeEngineInput,
@@ -208,12 +215,16 @@ import type {
   NativeLoginStatusResponses,
   NativeMcpResponses,
   NativeMode,
+  NativeOpenTaskErrors,
+  NativeOpenTaskResponses,
   NativePermission,
   NativePrepareRevertErrors,
   NativePrepareRevertResponses,
   NativeQuestionsResponses,
   NativeReplyQuestionErrors,
   NativeReplyQuestionResponses,
+  NativeReplyTaskErrors,
+  NativeReplyTaskResponses,
   NativeResumeQueueErrors,
   NativeResumeQueueResponses,
   NativeRevertErrors,
@@ -227,6 +238,8 @@ import type {
   NativeSkipQuestionResponses,
   NativeStatusResponses,
   NativeSteerResponses,
+  NativeTasksErrors,
+  NativeTasksResponses,
   NativeTextInput,
   NativeUsageResponses,
   OutputFormat,
@@ -4376,6 +4389,256 @@ export class Provider extends HeyApiClient {
 }
 
 export class Native extends HeyApiClient {
+  /**
+   * Read compaction progress or verify uncertain completion without another compact request
+   */
+  public compactStatus<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+      operationId?: string
+      refresh?: boolean
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "operationId" },
+            { in: "query", key: "refresh" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<NativeCompactStatusResponses, unknown, ThrowOnError>({
+      url: "/native/codex/{sessionID}/compact",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Compact native Codex context once and await completion
+   */
+  public compact<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+      id?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "id" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<NativeCompactResponses, NativeCompactErrors, ThrowOnError>({
+      url: "/native/codex/{sessionID}/compact",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * List saved Codex chats in the current project without resuming them
+   */
+  public chats<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      search?: string
+      cursor?: string
+      scope?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "search" },
+            { in: "query", key: "cursor" },
+            { in: "query", key: "scope" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<NativeChatsResponses, NativeChatsErrors, ThrowOnError>({
+      url: "/native/codex/chats",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Link an existing Codex chat to this Aether project without copying its native history
+   */
+  public attachChat<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      threadID?: string
+      scope?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "threadID" },
+            { in: "body", key: "scope" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<NativeAttachChatResponses, NativeAttachChatErrors, ThrowOnError>({
+      url: "/native/codex/chats/attach",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Read verified Codex child tasks and their questions
+   */
+  public tasks<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<NativeTasksResponses, NativeTasksErrors, ThrowOnError>({
+      url: "/native/codex/{sessionID}/tasks",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Answer or skip a question in its verified child thread
+   */
+  public replyTask<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+      threadID?: string
+      itemID?: string
+      answers?: Array<string>
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "threadID" },
+            { in: "body", key: "itemID" },
+            { in: "body", key: "answers" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<NativeReplyTaskResponses, NativeReplyTaskErrors, ThrowOnError>({
+      url: "/native/codex/{sessionID}/tasks/answer",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Open an idle child task as its own linked Aether chat
+   */
+  public openTask<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+      threadID?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "threadID" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<NativeOpenTaskResponses, NativeOpenTaskErrors, ThrowOnError>({
+      url: "/native/codex/{sessionID}/tasks/open",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
   /**
    * Read native Codex MCP services and tools
    */

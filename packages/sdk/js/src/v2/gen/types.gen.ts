@@ -485,6 +485,10 @@ export type NativeEngine = {
   effort?: string
   mode?: NativeMode
   permission?: NativePermission
+  /**
+   * Aether research tools were registered when creating this native thread
+   */
+  research?: boolean
   collaboration?: NativeMode
   thread?: string
   cursor?: string
@@ -2460,6 +2464,43 @@ export type ProviderAuthAuthorization = {
   instructions: string
 }
 
+export type NativeCompactStatus = {
+  sessionID: string
+  id: string
+  threadID: string
+  state: "pending" | "complete" | "failed" | "uncertain"
+  updated: number
+  error?: string
+}
+
+export type NativeChat = {
+  id: string
+  title: string
+  updated: number
+  state: string
+  sessionID?: string
+}
+
+export type NativeChatPage = {
+  scope: string
+  chats: Array<NativeChat>
+  cursor?: string
+}
+
+export type NativeTasks = Array<{
+  thread: string
+  root: string
+  origin: string
+  parent: string
+  turn: string
+  name: string
+  state: "running" | "completed" | "failed" | "unknown"
+  output: string
+  updated: number
+  session?: string
+  questions: Array<NativeQuestion>
+}>
+
 export type NativeMcpStatus = {
   state: "ready" | "disabled" | "unavailable"
   servers: Array<{
@@ -2568,6 +2609,7 @@ export type NativePermissionCapabilities = {
 export type NativeModeCapabilities = {
   steer: boolean
   plan: boolean
+  research?: boolean
   error?: string
 }
 
@@ -6492,6 +6534,231 @@ export type ProviderOauthCallbackResponses = {
 }
 
 export type ProviderOauthCallbackResponse = ProviderOauthCallbackResponses[keyof ProviderOauthCallbackResponses]
+
+export type NativeCompactStatusData = {
+  body?: never
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+    operationId?: string
+    refresh?: boolean
+  }
+  url: "/native/codex/{sessionID}/compact"
+}
+
+export type NativeCompactStatusResponses = {
+  /**
+   * Compaction status
+   */
+  200: NativeCompactStatus | null
+}
+
+export type NativeCompactStatusResponse = NativeCompactStatusResponses[keyof NativeCompactStatusResponses]
+
+export type NativeCompactData = {
+  body?: {
+    id: string
+  }
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/native/codex/{sessionID}/compact"
+}
+
+export type NativeCompactErrors = {
+  /**
+   * Compaction cannot start
+   */
+  409: {
+    error: string
+  }
+}
+
+export type NativeCompactError = NativeCompactErrors[keyof NativeCompactErrors]
+
+export type NativeCompactResponses = {
+  /**
+   * Compaction result
+   */
+  200: NativeCompactStatus
+}
+
+export type NativeCompactResponse = NativeCompactResponses[keyof NativeCompactResponses]
+
+export type NativeChatsData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+    search?: string
+    cursor?: string
+    scope?: string
+  }
+  url: "/native/codex/chats"
+}
+
+export type NativeChatsErrors = {
+  /**
+   * Native chats unavailable
+   */
+  409: {
+    error: string
+  }
+}
+
+export type NativeChatsError = NativeChatsErrors[keyof NativeChatsErrors]
+
+export type NativeChatsResponses = {
+  /**
+   * Native chats
+   */
+  200: NativeChatPage
+}
+
+export type NativeChatsResponse = NativeChatsResponses[keyof NativeChatsResponses]
+
+export type NativeAttachChatData = {
+  body?: {
+    threadID: string
+    scope: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/native/codex/chats/attach"
+}
+
+export type NativeAttachChatErrors = {
+  /**
+   * Chat cannot be linked
+   */
+  409: {
+    error: string
+  }
+}
+
+export type NativeAttachChatError = NativeAttachChatErrors[keyof NativeAttachChatErrors]
+
+export type NativeAttachChatResponses = {
+  /**
+   * Linked Aether session
+   */
+  200: Session
+}
+
+export type NativeAttachChatResponse = NativeAttachChatResponses[keyof NativeAttachChatResponses]
+
+export type NativeTasksData = {
+  body?: never
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/native/codex/{sessionID}/tasks"
+}
+
+export type NativeTasksErrors = {
+  /**
+   * Task unavailable
+   */
+  409: {
+    error: string
+  }
+}
+
+export type NativeTasksError = NativeTasksErrors[keyof NativeTasksErrors]
+
+export type NativeTasksResponses = {
+  /**
+   * Child tasks
+   */
+  200: NativeTasks
+}
+
+export type NativeTasksResponse = NativeTasksResponses[keyof NativeTasksResponses]
+
+export type NativeReplyTaskData = {
+  body?: {
+    threadID: string
+    itemID: string
+    answers?: Array<string>
+  }
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/native/codex/{sessionID}/tasks/answer"
+}
+
+export type NativeReplyTaskErrors = {
+  /**
+   * Task unavailable
+   */
+  409: {
+    error: string
+  }
+}
+
+export type NativeReplyTaskError = NativeReplyTaskErrors[keyof NativeReplyTaskErrors]
+
+export type NativeReplyTaskResponses = {
+  /**
+   * Answer receipt
+   */
+  200: NativeQuestion
+}
+
+export type NativeReplyTaskResponse = NativeReplyTaskResponses[keyof NativeReplyTaskResponses]
+
+export type NativeOpenTaskData = {
+  body?: {
+    threadID: string
+  }
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/native/codex/{sessionID}/tasks/open"
+}
+
+export type NativeOpenTaskErrors = {
+  /**
+   * Task unavailable
+   */
+  409: {
+    error: string
+  }
+}
+
+export type NativeOpenTaskError = NativeOpenTaskErrors[keyof NativeOpenTaskErrors]
+
+export type NativeOpenTaskResponses = {
+  /**
+   * Linked child chat
+   */
+  200: Session
+}
+
+export type NativeOpenTaskResponse = NativeOpenTaskResponses[keyof NativeOpenTaskResponses]
 
 export type NativeMcpData = {
   body?: never

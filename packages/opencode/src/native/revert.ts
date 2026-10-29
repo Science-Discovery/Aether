@@ -92,7 +92,11 @@ export namespace NativeRevert {
     return run(session)
   }
 
-  export async function guard(id: SessionID) {
+  export async function guard(id: SessionID, opts: { child?: string } = {}) {
+    const { NativeCompact } = await import("./compact")
+    await NativeCompact.guard(id)
+    const { NativeTasks } = await import("./tasks")
+    await NativeTasks.guard(id, opts.child)
     if (state().closed.has(id)) throw new Error("This conversation is being removed.")
     if (state().busy.has(id)) throw new Error("This conversation is being reverted. Wait for it to finish.")
     const saved = await read(id)

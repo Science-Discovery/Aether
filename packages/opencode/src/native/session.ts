@@ -20,6 +20,9 @@ import { NativeLock } from "./lock"
 import { NativePermissions } from "./permissions"
 import { NativeModes } from "./modes"
 import { NativeInteraction } from "./interaction"
+import { NativeTasks } from "./tasks"
+import { NativeResearch } from "./research"
+import { setKnowledgeConfig } from "@/tool/knowledge"
 
 export namespace NativeSession {
   export const active = NativeInteraction.active
@@ -61,6 +64,7 @@ export namespace NativeSession {
     original?: { command: string; cwd: string; processId?: string | null },
   ) {
     const data = object.parse(value)
+    if (method === "item/tool/call") return NativeResearch.call(info.sessionID, value, signal)
     const agent = object.safeParse(data.nativeAgent)
     const source = agent.success ? `Codex agent (${JSON.stringify(agent.data.name ?? agent.data.threadId)}):\n\n` : ""
     if (method === "item/tool/requestUserInput") {
@@ -231,9 +235,10 @@ export namespace NativeSession {
     if (session.engine?.type !== "codex") throw new Error("This session does not use the Codex native engine.")
     if (input.model && input.model.providerID !== "codex-native")
       throw new Error("Choose a native Codex model for this session.")
-    if (Object.keys(input.tools ?? {}).length || input.knowledgeBase?.path || input.knowledgeBase?.paths?.length) {
-      throw new Error("Aether tool overrides and knowledge-base retrieval are not supported in a Codex native session.")
+    if (Object.keys(input.tools ?? {}).length) {
+      throw new Error("Aether tool overrides are not supported in a Codex native session.")
     }
+    if (input.knowledgeBase !== undefined) setKnowledgeConfig(input.knowledgeBase, session.id)
     signal.throwIfAborted()
     const cfg = await Config.getGlobal()
     if (cfg.native?.codex?.enabled === false)
@@ -336,10 +341,14 @@ export namespace NativeSession {
         if (!state.client) return Promise.reject(new Error("The native connection is unavailable."))
         return state.client.request(method, params, { timeout: method === "turn/interrupt" ? 2_000 : 15_000 })
       },
-      emit: events.notification,
+      emit: async (method, value) => {
+        await NativeTasks.observe(session.id, method, value)
+        await events.notification(method, value)
+      },
       fail: (err) => events.settle({ status: "failed", error: err.message }),
       drain: async () => state.client?.drain(),
     })
+    using tasks = NativeTasks.open(session.id, tree.reply)
     const abort = () => {
       state.interrupt ??= (async () => {
         await tree.interrupt()
@@ -442,7 +451,7 @@ export namespace NativeSession {
         ...permissions.thread,
         ...(session.engine.thread
           ? { threadId: session.engine.thread, excludeTurns: true }
-          : { serviceName: "aether" }),
+          : { serviceName: "aether", ...(capabilities.research ? { dynamicTools: NativeResearch.tools } : {}) }),
       }
       if (connection.thread && connection.thread !== session.engine.thread)
         throw new Error("The native connection does not match this session's saved thread.")
@@ -494,6 +503,7 @@ export namespace NativeSession {
         effort,
         cursor: user.id,
         collaboration: session.engine.collaboration,
+        research: session.engine.thread ? session.engine.research : capabilities.research === true,
       }
       // Once dispatch begins, an ambiguous transport failure must not replay
       // potentially executed input. Before this point, queued context stays pending.

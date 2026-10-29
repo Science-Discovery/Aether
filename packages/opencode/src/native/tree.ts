@@ -54,6 +54,7 @@ export namespace NativeTree {
     const branches = new Map<string, Branch>()
     const reads = new Map<string, Promise<Branch | undefined>>()
     const driven = new Set<string>()
+    const deliveries = new Set<string>()
     const state = {
       root: "",
       active: false,
@@ -170,7 +171,13 @@ export namespace NativeTree {
         turnId: root.turn,
         ...(typeof data.itemId === "string" ? { itemId: namespace(branch, data.itemId) } : {}),
         ...(item ? { item: { ...item, id: namespace(branch, text(item.id)) } } : {}),
-        nativeAgent: { threadId: branch.id, turnId: branch.turn, parentThreadId: branch.parent, name: branch.name },
+        nativeAgent: {
+          threadId: branch.id,
+          turnId: branch.turn,
+          parentThreadId: branch.parent,
+          name: branch.name,
+          itemId: typeof data.itemId === "string" ? data.itemId : text(item?.id),
+        },
       }
     }
 
@@ -489,6 +496,89 @@ export namespace NativeTree {
         .map((branch) => ({ threadId: branch.id, turnId: branch.turn }))
     }
 
+    /** Deliver an answer to a verified child while this connection still owns its tree. */
+    async function reply(input: { thread: string; text: string; id: string }) {
+      const ready = () => {
+        if (!state.active || state.stopped || state.failed || state.completed)
+          throw new Protocol.RpcError(-32602, "The parent task has finished; reopen the child task before answering.")
+      }
+      ready()
+      if (deliveries.has(input.thread))
+        throw new Protocol.RpcError(-32602, "Another answer is being delivered to this child task.")
+      deliveries.add(input.thread)
+      state.pending++
+      try {
+        const branch = await ensure(input.thread)
+        ready()
+        if (!branch || branch.id === state.root)
+          throw new Protocol.RpcError(-32602, "The question does not belong to a verified child task.")
+        const version = branch.version
+        const value = record(await opts.request("thread/read", { threadId: branch.id, includeTurns: false }))
+        ready()
+        if (branch.version !== version) throw new Protocol.RpcError(-32602, "The child task changed before submission.")
+        const info = thread.parse(value?.thread)
+        if (info.id !== branch.id || parent(info) !== branch.parent || !belongs(info, branch))
+          throw new Protocol.RpcError(-32602, "The child task ownership changed.")
+        if (!info.status || !["active", "idle", "notLoaded"].includes(info.status.type))
+          throw new Protocol.RpcError(-32602, "The child task's current state is unavailable.")
+        const content = [{ type: "text", text: input.text, text_elements: [] }]
+        if (info.status?.type === "active") {
+          if (!branch.live || !branch.turn || branch.done)
+            throw new Protocol.RpcError(-32602, "The child task's active turn is not owned by this connection.")
+          const result = z.object({ turnId: z.string() }).parse(
+            await opts.request("turn/steer", {
+              threadId: branch.id,
+              expectedTurnId: branch.turn,
+              clientUserMessageId: input.id,
+              input: content,
+            }),
+          )
+          if (result.turnId !== branch.turn) throw new Error("Codex accepted the child answer for an unexpected turn.")
+          return
+        }
+        if (info.status?.type === "notLoaded") {
+          const result = record(await opts.request("thread/resume", { threadId: branch.id, excludeTurns: true }))
+          ready()
+          if (branch.version !== version)
+            throw new Protocol.RpcError(-32602, "The child task changed before submission.")
+          const resumed = thread.parse(result?.thread)
+          if (resumed.id !== branch.id || parent(resumed) !== branch.parent || resumed.status?.type !== "idle")
+            throw new Protocol.RpcError(-32602, "The child task cannot be resumed safely.")
+        }
+        ready()
+        const previous = { live: branch.live, done: branch.done, turn: branch.turn }
+        branch.live = true
+        branch.done = false
+        branch.turn = ""
+        branch.version++
+        const result = z.object({ turn: z.object({ id: z.string().min(1) }) }).parse(
+          await opts
+            .request("turn/start", {
+              threadId: branch.id,
+              clientUserMessageId: input.id,
+              input: content,
+              parentTurnId: branches.get(state.root)!.turn,
+              rootTurnId: branches.get(state.root)!.turn,
+            })
+            .catch((error: unknown) => {
+              if (error instanceof Protocol.RpcError && !branch.turn) Object.assign(branch, previous)
+              throw error
+            }),
+        )
+        if (state.stopped || state.failed || state.completed) {
+          await opts.request("turn/interrupt", { threadId: branch.id, turnId: result.turn.id }).catch(() => undefined)
+          throw new Error("The task stopped while the child answer was being delivered.")
+        }
+        if (branch.turn && branch.turn !== result.turn.id) throw new Error("Codex started an unexpected child turn.")
+        branch.turn = result.turn.id
+        if (branch.live && !branch.done) await badge(branch, "inProgress")
+      } finally {
+        deliveries.delete(input.thread)
+        state.pending--
+        await settle()
+      }
+    }
+
     async function interrupt() {
       close()
       await Promise.allSettled(
@@ -509,6 +599,7 @@ export namespace NativeTree {
       request,
       interrupt,
       active,
+      reply,
       close,
     }
   }

@@ -59,14 +59,19 @@ export namespace PdfAnnotations {
     return abs
   }
 
-  async function fingerprint(input: string) {
+  async function fingerprint(input: string, signal?: AbortSignal) {
     const hash = createHash("sha256")
     const file = Bun.file(input)
     const reader = file.stream().getReader()
-    while (true) {
-      const part = await reader.read()
-      if (part.done) break
-      hash.update(part.value)
+    try {
+      while (true) {
+        signal?.throwIfAborted()
+        const part = await reader.read()
+        if (part.done) break
+        hash.update(part.value)
+      }
+    } finally {
+      await reader.cancel()
     }
     return hash.digest("hex")
   }
@@ -75,7 +80,7 @@ export namespace PdfAnnotations {
     return File.parse(await Bun.file(input).json())
   }
 
-  async function migrate(abs: string, hash: string) {
+  async function migrate(abs: string, hash: string, readonly = false) {
     const dir = root()
     const rows = await fs.readdir(dir).catch(() => [])
     const files = await Promise.all(
@@ -100,18 +105,20 @@ export namespace PdfAnnotations {
     })
     if (!found) return
     found.data.source.path = path.relative(Instance.directory, abs).replaceAll("\\", "/")
+    // Research reads may resolve a moved document, but must not rewrite its record.
+    if (readonly) return found.data
     await write(abs, found.data)
     await fs.rm(path.join(dir, found.row), { force: true })
     return found.data
   }
 
-  export async function read(input: string) {
+  export async function read(input: string, opts?: { readonly?: boolean; signal?: AbortSignal }) {
     const abs = resolve(input)
-    const hash = await fingerprint(abs)
+    const hash = await fingerprint(abs, opts?.signal)
     const file = target(abs)
     const data = await parse(file).catch(() => undefined)
     if (!data) {
-      const moved = await migrate(abs, hash)
+      const moved = await migrate(abs, hash, opts?.readonly)
       if (moved) return { status: "ready" as const, data: moved }
       return {
         status: "ready" as const,
@@ -172,8 +179,7 @@ export namespace PdfAnnotations {
         const color = item.type === "note" ? colors.yellow : colors[item.color]
         const annot = pdf.context.obj({
           Type: "Annot",
-          Subtype:
-            item.type === "underline" ? "Underline" : item.type === "strikeout" ? "StrikeOut" : "Highlight",
+          Subtype: item.type === "underline" ? "Underline" : item.type === "strikeout" ? "StrikeOut" : "Highlight",
           Rect: [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)],
           QuadPoints: points,
           C: [...color],

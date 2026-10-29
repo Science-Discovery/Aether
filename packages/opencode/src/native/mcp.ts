@@ -68,21 +68,25 @@ export namespace NativeMcp {
     if (cfg?.enabled === false) return { state: "disabled", servers: [] }
     const key = JSON.stringify([cfg?.path ?? "", process.env.CODEX_HOME ?? ""])
     const previous = cache().get(key)
-    if (!opts.refresh && previous && Date.now() - previous.at < 30_000) return previous.value
-    const value = (async () => {
-      const connection = await Codex.connect({
-        executable: cfg?.path,
-        cwd: Instance.directory,
-        signal: AbortSignal.timeout(30_000),
-      })
-      return list(connection.client).finally(() => connection.client.close())
-    })().catch((err: unknown) => ({
-      state: "unavailable" as const,
-      servers: [],
-      error: err instanceof Error ? err.message : String(err),
-    }))
-    cache().clear()
-    cache().set(key, { at: Date.now(), value })
+    const cached = !opts.refresh && previous && Date.now() - previous.at < 30_000
+    const value = cached
+      ? previous.value
+      : (async () => {
+          const connection = await Codex.connect({
+            executable: cfg?.path,
+            cwd: Instance.directory,
+            signal: AbortSignal.timeout(30_000),
+          })
+          return list(connection.client).finally(() => connection.client.close())
+        })().catch((err: unknown) => ({
+          state: "unavailable" as const,
+          servers: [],
+          error: err instanceof Error ? err.message : String(err),
+        }))
+    if (!cached) {
+      cache().clear()
+      cache().set(key, { at: Date.now(), value })
+    }
     const result = await value
     const current = (await Config.getGlobal()).native?.codex
     if (current?.enabled === false) return { state: "disabled", servers: [] }

@@ -76,6 +76,7 @@ export namespace Native {
     .meta({ ref: "NativeEngineInput" })
 
   export const Engine = Input.extend({
+    research: z.boolean().optional().describe("Aether research tools were registered when creating this native thread"),
     collaboration: Mode.optional().describe("Last collaboration mode dispatched to the native thread"),
     thread: z.string().min(1).max(200).optional(),
     cursor: z.string().min(1).max(200).optional(),

@@ -8,7 +8,7 @@ import type { Protocol } from "./protocol"
 
 export namespace NativeModes {
   export const Capabilities = z
-    .object({ steer: z.boolean(), plan: z.boolean(), error: z.string().optional() })
+    .object({ steer: z.boolean(), plan: z.boolean(), research: z.boolean().optional(), error: z.string().optional() })
     .meta({ ref: "NativeModeCapabilities" })
   export type Capabilities = z.infer<typeof Capabilities>
 
@@ -20,7 +20,14 @@ export namespace NativeModes {
     reasoning_effort: z.string().min(1).max(40).nullable().optional(),
   })
   const response = z.object({ data: z.array(preset).max(1000) })
-  type Documents = { steer: unknown; start: unknown; list: unknown; requests: unknown }
+  type Documents = {
+    steer: unknown
+    start: unknown
+    list: unknown
+    requests: unknown
+    thread?: unknown
+    callbacks?: unknown
+  }
 
   const object = (value: unknown) => record.safeParse(value).data ?? {}
   function variants(root: unknown, value: unknown, seen = new Set<unknown>()): Record<string, unknown>[] {
@@ -94,10 +101,38 @@ export namespace NativeModes {
     return {
       steer,
       plan,
+      ...(research(docs.thread, docs.callbacks) ? { research: true } : {}),
       ...(!steer || !plan
         ? { error: "This Codex version does not advertise all required steering and collaboration mode fields." }
         : {}),
     }
+  }
+
+  function research(thread: unknown, callbacks: unknown) {
+    const tools = property(thread, thread, "dynamicTools")
+    const registered = tools.some(
+      (item) =>
+        typed([item], "array") &&
+        variants(thread, item.items).some(
+          (item) =>
+            literal(property(thread, item, "type"), "function") &&
+            ["name", "description"].every((name) => typed(property(thread, item, name), "string")) &&
+            Object.hasOwn(object(item.properties), "inputSchema"),
+        ),
+    )
+    return (
+      registered &&
+      variants(callbacks, callbacks).some(
+        (item) =>
+          literal(property(callbacks, item, "method"), "item/tool/call") &&
+          property(callbacks, item, "params").some(
+            (item) =>
+              ["threadId", "turnId", "callId", "tool"].every((name) =>
+                typed(property(callbacks, item, name), "string"),
+              ) && Object.hasOwn(object(item.properties), "arguments"),
+          ),
+      )
+    )
   }
 
   const cache = new Map<string, { value: Promise<Capabilities>; expires: number }>()
@@ -173,13 +208,15 @@ export namespace NativeModes {
         Bun.file(path.join(out, file))
           .json()
           .catch(() => undefined)
-      const [steer, start, list, requests] = await Promise.all([
+      const [steer, start, list, requests, thread, callbacks] = await Promise.all([
         read("v2/TurnSteerParams.json"),
         read("v2/TurnStartParams.json"),
         read("v2/CollaborationModeListResponse.json"),
         read("ClientRequest.json"),
+        read("v2/ThreadStartParams.json"),
+        read("ServerRequest.json"),
       ])
-      return supports({ steer, start, list, requests })
+      return supports({ steer, start, list, requests, thread, callbacks })
     } finally {
       await fs.rm(root, { recursive: true, force: true }).catch(() => undefined)
     }
