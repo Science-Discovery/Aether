@@ -374,6 +374,8 @@ export namespace SessionPrompt {
     log.info("cancel", { sessionID })
     if (session?.engine) {
       NativeAnswers.cancel(sessionID)
+      const { NativeCompact } = await import("../native/compact")
+      await NativeCompact.cancel(sessionID)
       await NativeQueue.pause(sessionID).catch((error) => log.warn("pause native queue", { sessionID, error }))
     }
     const s = state()
