@@ -306,7 +306,7 @@ export async function sendFollowupDraft(input: FollowupSendInput) {
       messageID,
       parts: requestParts,
       variant: input.draft.variant,
-      knowledgeBase: input.draft.engine ? undefined : input.knowledgeBase,
+      knowledgeBase: input.draft.engine ? (input.knowledgeBase ?? { paths: [] }) : input.knowledgeBase,
     })
     return true
   } catch (err) {

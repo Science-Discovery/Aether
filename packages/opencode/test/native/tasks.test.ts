@@ -58,19 +58,19 @@ async function scenario(run: (session: Session.Info) => Promise<void>) {
   }
 }
 
-async function observe(id: Session.Info["id"], item = "original-question", origin = "root-turn") {
+async function observe(id: Session.Info["id"], item = "original-question", origin = "root-turn", turn = "child-turn") {
   await NativeTasks.observe(id, "item/completed", {
     threadId: "root",
     turnId: origin,
     nativeAgent: {
       threadId: "child",
-      turnId: "child-turn",
+      turnId: turn,
       parentThreadId: "root",
       name: "Research child",
       itemId: item,
     },
     item: {
-      id: `codex:child:child-turn:${item}`,
+      id: `codex:child:${turn}:${item}`,
       type: "agentMessage",
       delivery: "async",
       text: "Child result",
@@ -84,6 +84,7 @@ async function link(id: Session.Info["id"]) {
   await NativeStore.migrate(child)
   const history = snapshot()
   history.thread = { ...history.thread!, id: "child" }
+  history.turns[0].id = "child-turn"
   history.turns[0].items[1] = {
     id: "child-answer",
     type: "agentMessage",
@@ -180,6 +181,66 @@ test("reused child threads inherit their linked session before decorating state 
     await expect(NativeTasks.guard(session.id)).rejects.toThrow("linked child task")
     await NativeTasks.guard(session.id, "child")
     await SessionStatus.set(child.id, { type: "idle" })
+  })
+})
+
+test("a linked child snapshot cannot overwrite a newer observed native turn", async () => {
+  await scenario(async (session) => {
+    await observe(session.id)
+    const child = await link(session.id)
+    const connection = NativeTasks.open(session.id, async () => undefined)
+    await observe(session.id, "next-question", "root-turn", "child-next")
+    expect((await NativeTasks.list(session.id))[0]).toMatchObject({
+      turn: "child-next",
+      state: "running",
+      output: "Child result",
+    })
+    connection[Symbol.dispose]()
+    expect((await NativeTasks.list(session.id))[0]).toMatchObject({
+      turn: "child-next",
+      state: "unknown",
+      output: "Child result",
+    })
+    const history = snapshot()
+    history.thread = { ...history.thread!, id: "child" }
+    history.turns[0] = {
+      ...history.turns[0],
+      id: "child-turn",
+      items: [
+        { id: "root-user", type: "userMessage", content: [{ type: "text", text: "Root task" }] },
+        { id: "child-answer", type: "agentMessage", text: "Linked child result", phase: "final_answer" },
+      ],
+    }
+    history.turns.push({
+      ...history.turns[0],
+      id: "child-next",
+      startedAt: 103,
+      completedAt: 104,
+      items: [
+        { id: "next-user", type: "userMessage", content: [{ type: "text", text: "Continue child" }] },
+        { id: "next-answer", type: "agentMessage", text: "Current child result", phase: "final_answer" },
+      ],
+    })
+    await NativeSync.apply(child, history)
+    expect((await NativeTasks.list(session.id))[0]).toMatchObject({
+      state: "completed",
+      output: "Current child result",
+    })
+    history.turns.push({
+      ...history.turns[1],
+      id: "child-later",
+      startedAt: 105,
+      completedAt: 106,
+      items: [
+        { id: "later-user", type: "userMessage", content: [{ type: "text", text: "Continue independently" }] },
+        { id: "later-answer", type: "agentMessage", text: "Later child result", phase: "final_answer" },
+      ],
+    })
+    await NativeSync.apply(child, history)
+    expect((await NativeTasks.list(session.id))[0]).toMatchObject({
+      state: "completed",
+      output: "Later child result",
+    })
   })
 })
 

@@ -16,7 +16,11 @@ export function NativeQuestionCard(props: { part: TextPart; message: Message }) 
   )
 }
 
-function Question(props: { question: NativeQuestion; session: string }) {
+export function Question(props: {
+  question: NativeQuestion
+  session: string
+  send?: (answers?: string[]) => Promise<NativeQuestion>
+}) {
   const sdk = useSDK()
   const language = useLanguage()
   const key = createMemo(
@@ -33,11 +37,9 @@ function Question(props: { question: NativeQuestion; session: string }) {
   let revision = 0
   let version = 0
   let disposed = false
-  const source = createMemo(
-    () => ({ json: JSON.stringify(props.question), state: props.question.state }),
-    undefined,
-    { equals: (a, b) => a.json === b.json },
-  )
+  const source = createMemo(() => ({ json: JSON.stringify(props.question), state: props.question.state }), undefined, {
+    equals: (a, b) => a.json === b.json,
+  })
   const question = createMemo(() => {
     if (props.question.state === "answered") return props.question
     return store.saved ?? props.question
@@ -121,9 +123,11 @@ function Question(props: { question: NativeQuestion; session: string }) {
     })
     const target = { sessionID: props.session, itemID: question().item, threadID: question().thread }
     await (
-      skip
-        ? client.native.skipQuestion(target, { throwOnError: true })
-        : client.native.replyQuestion({ ...target, answers: input! }, { throwOnError: true })
+      props.send
+        ? props.send(input).then((data) => ({ data }))
+        : skip
+          ? client.native.skipQuestion(target, { throwOnError: true })
+          : client.native.replyQuestion({ ...target, answers: input! }, { throwOnError: true })
     )
       .then((response) => {
         if (disposed || run !== revision || scope !== key() || stamp !== version) return

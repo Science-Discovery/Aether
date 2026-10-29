@@ -211,23 +211,46 @@ export namespace NativeTasks {
           }
       }
       if (!runs().has(id) && task.state === "running") task.state = "unknown"
-      if (task.session) {
+      if (task.session && !runs().has(id)) {
         const child = await Session.get(task.session).catch(() => undefined)
         if (child?.engine?.thread === task.thread && child.directory === Instance.directory) {
+          const busy = (await SessionStatus.get(child.id)).type !== "idle"
+          if (busy) task.state = "running"
           const rows = await Session.messages({ sessionID: child.id, limit: 10 })
-          const latest = rows.findLast((entry) => entry.info.role === "assistant")
+          const turns = rows.map((entry) =>
+            entry.parts.flatMap((part) => {
+              const metadata = "metadata" in part ? part.metadata : undefined
+              if (metadata?.nativeAgent) return []
+              const native = object.safeParse(metadata?.native)
+              if (
+                !native.success ||
+                typeof native.data.turn !== "string" ||
+                (native.data.thread !== undefined && native.data.thread !== task.thread)
+              )
+                return []
+              return [native.data.turn]
+            }),
+          )
+          // Linked history can lag behind a reused child. Only a matching
+          // native turn proves that the following records are current or newer.
+          const start = turns.findIndex((turns) => turns.includes(task.turn))
+          if (start < 0) continue
+          const latest = rows.findLast(
+            (entry, index) => index >= start && turns[index].length && entry.info.role === "assistant",
+          )
           const text = latest?.parts
-            .flatMap((part) => (part.type === "text" && !part.nativeQuestion ? [part.text] : []))
+            .flatMap((part) =>
+              part.type === "text" && !part.nativeQuestion && !part.ignored && !part.synthetic ? [part.text] : [],
+            )
             .join("\n\n")
           if (text) task.output = text.slice(-32_000)
-          task.state =
-            (await SessionStatus.get(child.id)).type !== "idle"
-              ? "running"
-              : latest?.info.role === "assistant" && latest.info.error
-                ? "failed"
-                : latest?.info.role === "assistant" && latest.info.time.completed
-                  ? "completed"
-                  : task.state
+          task.state = busy
+            ? "running"
+            : latest?.info.role === "assistant" && latest.info.error
+              ? "failed"
+              : latest?.info.role === "assistant" && latest.info.time.completed
+                ? "completed"
+                : task.state
         }
       }
     }

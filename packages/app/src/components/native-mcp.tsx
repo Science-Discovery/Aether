@@ -42,7 +42,7 @@ export function NativeMcp() {
       <div class="p-4 flex flex-col gap-3 overflow-y-auto max-h-[70vh]">
         <p class="text-12-regular text-text-weak">{language.t("native.mcp.description")}</p>
         <Button size="small" variant="secondary" disabled={state.busy} onClick={() => void refresh(true)}>
-          {language.t(state.busy ? "common.loading" : "native.skills.refresh")}
+          {language.t(state.busy ? "common.loading" : "native.mcp.refresh")}
         </Button>
         <Show when={state.error}>
           {(error) => (

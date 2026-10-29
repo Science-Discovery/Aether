@@ -42,10 +42,13 @@ describe("Codex slash menu", () => {
       "permissions",
       "plan",
       "status",
+      "compact",
+      "tasks",
+      "resume",
       "skills",
       "mcp",
     ])
-    expect(list.some((item) => item.trigger === "agent" || item.trigger === "compact")).toBe(false)
+    expect(list.some((item) => item.trigger === "agent")).toBe(false)
     const entries = list.filter((item) => item.type === "skill")
     expect(entries[0].id).not.toBe(entries[1].id)
     expect(entries[0].description).toContain("/a/SKILL.md")

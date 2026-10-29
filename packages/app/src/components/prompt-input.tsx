@@ -79,6 +79,11 @@ import { createNativeRun } from "@/context/native-run"
 import { NativeRunPanel } from "./native-run"
 import { createNativeSkills } from "@/context/native-skills"
 import { NativeMcp } from "./native-mcp"
+import { NativeCompact } from "./native-compact"
+import { NativeChats } from "./native-chats"
+import { NativeTasks, NativeTaskButton } from "./native-tasks"
+import { useNavigate } from "@solidjs/router"
+import { base64Encode } from "@opencode-ai/util/encode"
 import { nativeSlash, NativeChoice, NativeSkills, type NativeSkill } from "./prompt-input/native-slash"
 
 interface PromptInputProps {
@@ -152,6 +157,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
   const platform = usePlatform()
   const settings = useSettings()
   const { params, tabs, view } = useSessionLayout()
+  const navigate = useNavigate()
   let editorRef!: HTMLDivElement
   let fileInputRef: HTMLInputElement | undefined
   let scrollRef!: HTMLDivElement
@@ -790,6 +796,32 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
         command.trigger("session.new", "slash")
       }
       if (cmd.trigger === "mcp") dialog.show(() => <NativeMcp />)
+      if (cmd.trigger === "compact" && params.id) {
+        const id = params.id
+        dialog.show(() => <NativeCompact sessionID={id} />)
+      }
+      if (cmd.trigger === "resume")
+        dialog.show(() => (
+          <NativeChats
+            onSelect={(session) => {
+              if (scope !== `${sdk.url}\n${sdk.directory}\n${params.id ?? ""}`) return
+              navigate(`/${base64Encode(session.directory)}/session/${session.id}`)
+            }}
+          />
+        ))
+      if (cmd.trigger === "tasks" && params.id) {
+        const id = params.id
+        dialog.show(() => (
+          <NativeTasks
+            sessionID={id}
+            onSelect={(session) => {
+              if (scope !== `${sdk.url}\n${sdk.directory}\n${params.id ?? ""}`) return
+              dialog.close()
+              navigate(`/${base64Encode(session.directory)}/session/${session.id}`)
+            }}
+          />
+        ))
+      }
       if (cmd.trigger === "model" || cmd.trigger === "permissions" || cmd.trigger === "plan") {
         const kind = cmd.trigger
         dialog.show(() => (
@@ -1497,6 +1529,23 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     <div class="relative size-full _max-h-[320px] flex flex-col gap-0">
       <Show when={local.native.engine() && params.id}>
         <NativeRunPanel run={run} working={running()} disabled={props.blocked} />
+        <NativeTaskButton
+          sessionID={params.id!}
+          onOpen={() => {
+            const id = params.id!
+            const scope = `${sdk.url}\n${sdk.directory}\n${id}`
+            dialog.show(() => (
+              <NativeTasks
+                sessionID={id}
+                onSelect={(session) => {
+                  if (scope !== `${sdk.url}\n${sdk.directory}\n${params.id ?? ""}`) return
+                  dialog.close()
+                  navigate(`/${base64Encode(session.directory)}/session/${session.id}`)
+                }}
+              />
+            ))
+          }}
+        />
       </Show>
       <PromptPopover
         popover={store.popover}
@@ -1872,6 +1921,15 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                   </Show>
                 </div>
                 {/* 右侧：图标按钮，始终可见；极窄时折叠进 ⋯ Popover */}
+                <Show
+                  when={
+                    local.native.engine() &&
+                    local.native.status()?.capabilities?.research &&
+                    (!info()?.engine?.thread || info()?.engine?.research)
+                  }
+                >
+                  <KnowledgeButton sessionID={params.id} disabled={running()} />
+                </Show>
                 <Show when={!local.native.engine()}>
                   <div class="flex items-center gap-0.5 shrink-0">
                     <TooltipKeybind
