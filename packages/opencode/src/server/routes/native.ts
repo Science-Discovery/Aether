@@ -13,11 +13,34 @@ import { NativeQuestion } from "../../native/questions"
 import { NativeRevert } from "../../native/revert"
 import { NativeAuth } from "../../native/auth"
 import { NativeSkills } from "../../native/skills"
+import { NativeMcp } from "../../native/mcp"
 import { MessageID, SessionID } from "../../session/schema"
 import { lazy } from "../../util/lazy"
 
 export const NativeRoutes = lazy(() =>
   new Hono()
+    .get(
+      "/codex/mcp",
+      describeRoute({
+        summary: "Read native Codex MCP services and tools",
+        operationId: "native.mcp",
+        responses: {
+          200: {
+            description: "MCP inventory",
+            content: { "application/json": { schema: resolver(NativeMcp.Status) } },
+          },
+        },
+      }),
+      validator(
+        "query",
+        z.object({
+          refresh: z
+            .preprocess((value) => (value === "true" ? true : value === "false" ? false : value), z.boolean())
+            .optional(),
+        }),
+      ),
+      async (c) => c.json(await NativeMcp.read(c.req.valid("query"))),
+    )
     .post(
       "/codex/login",
       describeRoute({

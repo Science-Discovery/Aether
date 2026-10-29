@@ -78,6 +78,7 @@ import { EngineSelect, NativeModels } from "./native-controls"
 import { createNativeRun } from "@/context/native-run"
 import { NativeRunPanel } from "./native-run"
 import { createNativeSkills } from "@/context/native-skills"
+import { NativeMcp } from "./native-mcp"
 import { nativeSlash, NativeChoice, NativeSkills, type NativeSkill } from "./prompt-input/native-slash"
 
 interface PromptInputProps {
@@ -788,6 +789,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
         local.native.start()
         command.trigger("session.new", "slash")
       }
+      if (cmd.trigger === "mcp") dialog.show(() => <NativeMcp />)
       if (cmd.trigger === "model" || cmd.trigger === "permissions" || cmd.trigger === "plan") {
         const kind = cmd.trigger
         dialog.show(() => (

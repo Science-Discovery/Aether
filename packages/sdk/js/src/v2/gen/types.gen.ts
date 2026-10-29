@@ -2460,6 +2460,21 @@ export type ProviderAuthAuthorization = {
   instructions: string
 }
 
+export type NativeMcpStatus = {
+  state: "ready" | "disabled" | "unavailable"
+  servers: Array<{
+    name: string
+    status: string
+    auth: string
+    error?: string
+    tools: Array<{
+      name: string
+      description?: string
+    }>
+  }>
+  error?: string
+}
+
 export type NativeAuthStatus = {
   id: string
   method: "browser" | "device"
@@ -6477,6 +6492,26 @@ export type ProviderOauthCallbackResponses = {
 }
 
 export type ProviderOauthCallbackResponse = ProviderOauthCallbackResponses[keyof ProviderOauthCallbackResponses]
+
+export type NativeMcpData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+    refresh?: boolean
+  }
+  url: "/native/codex/mcp"
+}
+
+export type NativeMcpResponses = {
+  /**
+   * MCP inventory
+   */
+  200: NativeMcpStatus
+}
+
+export type NativeMcpResponse = NativeMcpResponses[keyof NativeMcpResponses]
 
 export type NativeLoginData = {
   body?: {

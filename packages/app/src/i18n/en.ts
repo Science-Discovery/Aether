@@ -2002,6 +2002,13 @@ export const dict = {
   "native.slash.plan": "Switch between plan and execution",
   "native.slash.status": "View context and account usage",
   "native.slash.skills": "Browse Codex skills",
+  "native.slash.mcp": "Codex MCP tools",
+  "native.mcp.description":
+    "Services and tools reported by a separate Codex query connection. This does not inspect Desktop's live connections or change configuration.",
+  "native.mcp.empty": "No MCP services were reported.",
+  "native.mcp.connection": "Connection",
+  "native.mcp.auth": "Authentication",
+  "native.mcp.unknown": "No thread connection status",
   "native.skills.refresh": "Refresh skills",
   "native.skills.empty": "No enabled Codex skills found",
   "native.skills.onlyCodex": "These skills require Codex. Switch back to Codex or remove the skill before sending.",

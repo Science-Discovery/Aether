@@ -43,17 +43,16 @@ describe("Codex slash menu", () => {
       "plan",
       "status",
       "skills",
+      "mcp",
     ])
-    expect(list.some((item) => item.trigger === "mcp" || item.trigger === "agent" || item.trigger === "compact")).toBe(
-      false,
-    )
+    expect(list.some((item) => item.trigger === "agent" || item.trigger === "compact")).toBe(false)
     const entries = list.filter((item) => item.type === "skill")
     expect(entries[0].id).not.toBe(entries[1].id)
     expect(entries[0].description).toContain("/a/SKILL.md")
   })
   test("omits controls that require an enabled backend, supported plan mode or existing session", () => {
     const list = nativeSlash({ enabled: false, plan: false, skills: [], t: (key) => key })
-    expect(list.map((item) => item.trigger)).toEqual(["new", "skills"])
+    expect(list.map((item) => item.trigger)).toEqual(["new", "skills", "mcp"])
   })
   test.each(["model", "permissions", "plan"] as const)("%s uses the corresponding native setter", async (kind) => {
     vi.clearAllMocks()

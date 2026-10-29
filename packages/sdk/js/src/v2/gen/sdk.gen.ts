@@ -206,6 +206,7 @@ import type {
   NativeLoginResponses,
   NativeLoginStatusErrors,
   NativeLoginStatusResponses,
+  NativeMcpResponses,
   NativeMode,
   NativePermission,
   NativePrepareRevertErrors,
@@ -4375,6 +4376,36 @@ export class Provider extends HeyApiClient {
 }
 
 export class Native extends HeyApiClient {
+  /**
+   * Read native Codex MCP services and tools
+   */
+  public mcp<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      refresh?: boolean
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "refresh" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<NativeMcpResponses, unknown, ThrowOnError>({
+      url: "/native/codex/mcp",
+      ...options,
+      ...params,
+    })
+  }
+
   /**
    * Start Codex-managed ChatGPT sign-in without running inference
    */

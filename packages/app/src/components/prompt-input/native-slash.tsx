@@ -25,6 +25,7 @@ export function nativeSlash(input: {
     ...(input.enabled && input.plan ? ["plan"] : []),
     ...(input.session ? ["status"] : []),
     "skills",
+    "mcp",
   ]
   return [
     ...names.map((name) => ({
