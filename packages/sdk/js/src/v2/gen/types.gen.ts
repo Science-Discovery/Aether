@@ -2460,6 +2460,16 @@ export type ProviderAuthAuthorization = {
   instructions: string
 }
 
+export type NativeAuthStatus = {
+  id: string
+  method: "browser" | "device"
+  state: "starting" | "pending" | "complete" | "failed" | "cancelled" | "expired"
+  url?: string
+  code?: string
+  expiresAt?: number
+  error?: string
+}
+
 export type NativeRevertPrepared = {
   sessionID: string
   messageID: string
@@ -6455,6 +6465,92 @@ export type ProviderOauthCallbackResponses = {
 }
 
 export type ProviderOauthCallbackResponse = ProviderOauthCallbackResponses[keyof ProviderOauthCallbackResponses]
+
+export type NativeLoginData = {
+  body?: {
+    id: string
+    method: "browser" | "device"
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/native/codex/login"
+}
+
+export type NativeLoginErrors = {
+  /**
+   * Another sign-in is already in progress
+   */
+  409: {
+    error: string
+  }
+}
+
+export type NativeLoginError = NativeLoginErrors[keyof NativeLoginErrors]
+
+export type NativeLoginResponses = {
+  /**
+   * Sign-in progress and browser authorization or device-code instructions
+   */
+  200: NativeAuthStatus
+}
+
+export type NativeLoginResponse = NativeLoginResponses[keyof NativeLoginResponses]
+
+export type NativeCancelLoginData = {
+  body?: never
+  path: {
+    id: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/native/codex/login/{id}"
+}
+
+export type NativeCancelLoginResponses = {
+  /**
+   * Final sign-in status
+   */
+  200: NativeAuthStatus
+}
+
+export type NativeCancelLoginResponse = NativeCancelLoginResponses[keyof NativeCancelLoginResponses]
+
+export type NativeLoginStatusData = {
+  body?: never
+  path: {
+    id: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/native/codex/login/{id}"
+}
+
+export type NativeLoginStatusErrors = {
+  /**
+   * Sign-in attempt expired or the server restarted
+   */
+  404: {
+    error: string
+  }
+}
+
+export type NativeLoginStatusError = NativeLoginStatusErrors[keyof NativeLoginStatusErrors]
+
+export type NativeLoginStatusResponses = {
+  /**
+   * Current sign-in status
+   */
+  200: NativeAuthStatus
+}
+
+export type NativeLoginStatusResponse = NativeLoginStatusResponses[keyof NativeLoginStatusResponses]
 
 export type NativePrepareRevertData = {
   body?: {

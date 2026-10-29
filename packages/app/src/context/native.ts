@@ -32,6 +32,7 @@ export function createNative() {
   const active = createMemo(() => !!engine())
   const enabled = createMemo(() => global.ready && global.data.config.native?.codex?.enabled !== false)
   const result = createNativeStatus({
+    server: () => sdk.url,
     key: () => `${sdk.url}\n${sdk.directory}\n${global.data.config.native?.codex?.path ?? ""}`,
     enabled,
     active,

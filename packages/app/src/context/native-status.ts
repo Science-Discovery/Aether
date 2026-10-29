@@ -2,10 +2,18 @@ import type { NativeCodexStatus } from "@opencode-ai/sdk/v2"
 import { createEffect, on, onCleanup, type Accessor } from "solid-js"
 import { createStore } from "solid-js/store"
 
+const listeners = new Set<(server: string) => Promise<void>>()
+
+// Login changes the account for every project using this Aether server.
+export async function refreshNativeStatus(server: string) {
+  await Promise.all([...listeners].map((refresh) => refresh(server)))
+}
+
 // A connection probe must not suspend the surrounding conversation while the
 // executable starts. Keep the last catalog visible during background refreshes.
 export function createNativeStatus(opts: {
   key: Accessor<string>
+  server?: Accessor<string>
   enabled: Accessor<boolean>
   active: Accessor<boolean>
   read: (refresh: boolean) => Promise<NativeCodexStatus | undefined>
@@ -26,7 +34,7 @@ export function createNativeStatus(opts: {
   function load(refresh = false): Promise<void> {
     if (!opts.enabled()) return Promise.resolve()
     const key = opts.key()
-    if (pending && store.key === key) return pending
+    if (pending && store.key === key && !refresh) return pending
     const run = ++epoch
     clearTimeout(timer)
     setStore({
@@ -79,7 +87,10 @@ export function createNativeStatus(opts: {
     }),
   )
   createEffect(on(opts.active, (active) => active && void ensure()))
+  const refresh = (server: string) => (server === (opts.server?.() ?? opts.key()) ? load(true) : Promise.resolve())
+  listeners.add(refresh)
   onCleanup(() => {
+    listeners.delete(refresh)
     epoch++
     clearTimeout(timer)
   })

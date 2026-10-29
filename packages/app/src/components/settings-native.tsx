@@ -10,11 +10,16 @@ import { useLanguage } from "@/context/language"
 import { decode64 } from "@/utils/base64"
 import { formatServerError } from "@/utils/server-errors"
 import { createNativeStatus } from "@/context/native-status"
+import { usePlatform } from "@/context/platform"
+import { useServer } from "@/context/server"
+import { NativeLogin } from "./native-login"
 
 export function SettingsNative() {
   const sdk = useGlobalSDK()
   const sync = useGlobalSync()
   const language = useLanguage()
+  const platform = usePlatform()
+  const server = useServer()
   const params = useParams()
   const client = createMemo(() => sdk.createClient({ directory: decode64(params.dir), throwOnError: true }))
   const [store, setStore] = createStore<{ path?: string; limit?: string; saving: boolean; error?: string }>({
@@ -22,8 +27,10 @@ export function SettingsNative() {
   })
   const cfg = () => sync.data.config.native?.codex
   const enabled = () => cfg()?.enabled !== false
+  const scope = () => `${sdk.url}\n${decode64(params.dir) ?? ""}\n${cfg()?.path ?? ""}`
   const result = createNativeStatus({
-    key: () => `${sdk.url}\n${decode64(params.dir) ?? ""}\n${cfg()?.path ?? ""}`,
+    key: scope,
+    server: () => sdk.url,
     enabled: () => sync.ready && enabled(),
     active: () => true,
     read: (refresh) =>
@@ -34,6 +41,19 @@ export function SettingsNative() {
   const status = result.data
   const error = () =>
     store.error ?? (result.error() ? formatServerError(result.error(), language.t) : undefined) ?? status()?.error
+  const ready = () => {
+    const value = status()
+    return value?.installed && value.connected && value.auth !== "missing" && !value.error && value.models.length > 0
+  }
+  const automatic = async () => {
+    if (store.saving) return
+    setStore({ saving: true, error: undefined })
+    await sync
+      .updateConfig({ native: { codex: { path: "" } } })
+      .then(() => setStore("path", undefined))
+      .catch((error: unknown) => setStore("error", formatServerError(error, language.t)))
+      .finally(() => setStore("saving", false))
+  }
   const toggle = async (enabled: boolean) => {
     if (store.saving) return
     setStore({ saving: true, error: undefined })
@@ -84,6 +104,74 @@ export function SettingsNative() {
           <p class="text-13-regular text-text-weak" role="status">
             {language.t("native.disabled")}
           </p>
+        </Show>
+        <Show when={enabled() && status()?.enabled}>
+          <Show when={!status()?.installed}>
+            <div class="flex flex-col gap-3" data-component="native-install">
+              <p class="text-13-regular text-text-weak">
+                {language.t(
+                  cfg()?.path?.trim()
+                    ? "native.setup.pathInvalid"
+                    : server.isLocal()
+                      ? "native.setup.installHelp"
+                      : "native.setup.installRemote",
+                )}
+              </p>
+              <div class="flex flex-wrap gap-2">
+                <Show
+                  when={cfg()?.path?.trim()}
+                  fallback={
+                    <Button
+                      onClick={() => platform.openLink("https://learn.chatgpt.com/docs/cli")}
+                      data-action="native-install"
+                    >
+                      {language.t("native.setup.install")}
+                    </Button>
+                  }
+                >
+                  <Button onClick={() => void automatic()} disabled={store.saving} data-action="native-automatic">
+                    {language.t("native.setup.automatic")}
+                  </Button>
+                </Show>
+                <Button
+                  variant="secondary"
+                  disabled={result.loading()}
+                  onClick={() => void result.refresh()}
+                  data-action="native-installed"
+                >
+                  {language.t("native.setup.installed")}
+                </Button>
+              </div>
+            </div>
+          </Show>
+          <Show when={status()?.installed && !status()?.connected}>
+            <p class="text-13-regular text-text-weak">{language.t("native.setup.connectionHelp")}</p>
+            <Show when={cfg()?.path?.trim()}>
+              <Button
+                variant="secondary"
+                onClick={() => void automatic()}
+                disabled={store.saving}
+                data-action="native-automatic"
+              >
+                {language.t("native.setup.automatic")}
+              </Button>
+            </Show>
+          </Show>
+          <Show
+            when={
+              status()?.installed &&
+              status()?.connected &&
+              !ready() &&
+              (status()?.auth === "missing" || status()?.auth === "unknown")
+            }
+          >
+            <NativeLogin client={client()} scope={scope()} server={sdk.url} disabled={store.saving} />
+          </Show>
+          <Show when={ready()}>
+            <p class="text-13-regular text-text-weak" role="status" data-component="native-ready">
+              {language.t("native.setup.ready")}
+            </p>
+          </Show>
         </Show>
         <TextField
           label={language.t("native.path")}

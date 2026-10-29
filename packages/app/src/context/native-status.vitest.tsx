@@ -3,7 +3,7 @@ import type { NativeCodexStatus } from "@opencode-ai/sdk/v2"
 import { createRoot, Show, Suspense } from "solid-js"
 import { createStore } from "solid-js/store"
 import { render } from "solid-js/web"
-import { createNativeStatus } from "./native-status"
+import { createNativeStatus, refreshNativeStatus } from "./native-status"
 
 function status(path = "/codex"): NativeCodexStatus {
   return {
@@ -38,6 +38,38 @@ afterEach(() => {
 })
 
 describe("native connection status", () => {
+  test("login refreshes all projects on its server and discards an older signed-out probe", async () => {
+    const wait = deferred()
+    const calls = [0, 0, 0, 0]
+    const probes = createRoot((cleanup) => {
+      dispose = cleanup
+      return calls.map((_, index) =>
+        createNativeStatus({
+          server: () => (index === 2 ? "another" : "server"),
+          key: () => `project-${index}`,
+          enabled: () => index !== 3,
+          active: () => false,
+          read: () => {
+            calls[index]++
+            return index === 0 && calls[index] === 1 ? wait.promise : Promise.resolve(status())
+          },
+        }),
+      )
+    })
+    await refreshNativeStatus("server")
+    expect(calls).toEqual([2, 2, 1, 0])
+    expect(probes[0].data()?.auth).toBe("chatgpt")
+    wait.resolve({ ...status(), auth: "missing", models: [] })
+    await wait.promise
+    await Promise.resolve()
+    expect(probes[0].data()?.auth).toBe("chatgpt")
+    expect(probes[0].data()?.models).toHaveLength(1)
+    dispose?.()
+    dispose = undefined
+    await refreshNativeStatus("server")
+    expect(calls).toEqual([2, 2, 1, 0])
+  })
+
   test("a pending probe never suspends switching or the conversation content", async () => {
     const wait = deferred()
     const [state, setState] = createStore({ active: false })

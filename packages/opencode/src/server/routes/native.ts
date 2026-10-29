@@ -11,11 +11,81 @@ import { NativeUsage } from "../../native/usage"
 import { NativeAnswers } from "../../native/answers"
 import { NativeQuestion } from "../../native/questions"
 import { NativeRevert } from "../../native/revert"
+import { NativeAuth } from "../../native/auth"
 import { MessageID, SessionID } from "../../session/schema"
 import { lazy } from "../../util/lazy"
 
 export const NativeRoutes = lazy(() =>
   new Hono()
+    .post(
+      "/codex/login",
+      describeRoute({
+        summary: "Start Codex-managed ChatGPT sign-in without running inference",
+        operationId: "native.login",
+        responses: {
+          200: {
+            description: "Sign-in progress and browser authorization or device-code instructions",
+            content: { "application/json": { schema: resolver(NativeAuth.Status) } },
+          },
+          409: {
+            description: "Another sign-in is already in progress",
+            content: { "application/json": { schema: resolver(z.object({ error: z.string() })) } },
+          },
+        },
+      }),
+      validator("json", NativeAuth.Input),
+      async (c) => {
+        c.header("Cache-Control", "no-store")
+        return NativeAuth.start(c.req.valid("json")).then(
+          (result) => c.json(result),
+          (error: unknown) =>
+            c.json({ error: error instanceof Error ? error.message : "Codex sign-in is unavailable." }, 409),
+        )
+      },
+    )
+    .get(
+      "/codex/login/:id",
+      describeRoute({
+        summary: "Read the status of a Codex sign-in attempt",
+        operationId: "native.loginStatus",
+        responses: {
+          200: {
+            description: "Current sign-in status",
+            content: { "application/json": { schema: resolver(NativeAuth.Status) } },
+          },
+          404: {
+            description: "Sign-in attempt expired or the server restarted",
+            content: { "application/json": { schema: resolver(z.object({ error: z.string() })) } },
+          },
+        },
+      }),
+      validator("param", z.object({ id: z.string().uuid() })),
+      async (c) => {
+        c.header("Cache-Control", "no-store")
+        return NativeAuth.read(c.req.valid("param").id).then(
+          (result) => c.json(result),
+          () => c.json({ error: "This Codex sign-in is no longer available. Start again." }, 404),
+        )
+      },
+    )
+    .delete(
+      "/codex/login/:id",
+      describeRoute({
+        summary: "Cancel only the specified Codex sign-in attempt",
+        operationId: "native.cancelLogin",
+        responses: {
+          200: {
+            description: "Final sign-in status",
+            content: { "application/json": { schema: resolver(NativeAuth.Status) } },
+          },
+        },
+      }),
+      validator("param", z.object({ id: z.string().uuid() })),
+      async (c) => {
+        c.header("Cache-Control", "no-store")
+        return c.json(await NativeAuth.cancel(c.req.valid("param").id))
+      },
+    )
     .post(
       "/codex/:sessionID/revert/prepare",
       describeRoute({

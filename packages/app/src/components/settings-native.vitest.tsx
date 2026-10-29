@@ -8,6 +8,10 @@ const mocks = vi.hoisted(() => ({
   calls: 0,
   fail: false,
   enabled: true,
+  installed: true,
+  connected: true,
+  auth: "missing",
+  open: vi.fn(),
   queries: [] as boolean[],
   updates: [] as { path?: string; enabled?: boolean; limit?: number }[],
 }))
@@ -18,6 +22,8 @@ const [state, setState] = createStore<{
 
 vi.mock("@solidjs/router", () => ({ useParams: () => ({}) }))
 vi.mock("@/context/language", () => ({ useLanguage: () => ({ t: (key: string) => key }) }))
+vi.mock("@/context/platform", () => ({ usePlatform: () => ({ openLink: mocks.open }) }))
+vi.mock("@/context/server", () => ({ useServer: () => ({ isLocal: () => true }) }))
 vi.mock("@/context/global-sync", () => ({
   useGlobalSync: () => ({
     data: state,
@@ -42,12 +48,12 @@ vi.mock("@/context/global-sdk", () => ({
           return {
             data: {
               enabled: mocks.enabled,
-              installed: true,
-              connected: true,
-              auth: "missing",
+              installed: mocks.installed,
+              connected: mocks.connected,
+              auth: mocks.auth,
               path: state.config.native.codex.path || "/auto/codex",
               version: "test-version",
-              models: [],
+              models: mocks.auth === "chatgpt" ? [{ id: "model", name: "Model", efforts: [] }] : [],
             },
           }
         },
@@ -97,6 +103,10 @@ beforeEach(() => {
   mocks.calls = 0
   mocks.fail = false
   mocks.enabled = true
+  mocks.installed = true
+  mocks.connected = true
+  mocks.auth = "missing"
+  mocks.open.mockReset()
   mocks.updates = []
   mocks.queries = []
   host = document.createElement("div")
@@ -116,6 +126,38 @@ const input = (value: string, action = "native-path") => {
 const save = () => host.querySelector<HTMLButtonElement>('[data-action="native-save"]')!.click()
 
 describe("native settings", () => {
+  test("offers official installation help and a fresh check when Codex is missing", async () => {
+    mocks.installed = false
+    await vi.waitFor(() => expect(mocks.calls).toBe(1))
+    host.querySelector<HTMLButtonElement>('[data-action="native-refresh"]')!.click()
+    await vi.waitFor(() => expect(host.textContent).toContain("native.setup.installHelp"))
+    host.querySelector<HTMLButtonElement>('[data-action="native-install"]')!.click()
+    expect(mocks.open).toHaveBeenCalledWith("https://learn.chatgpt.com/docs/cli")
+    expect(host.querySelector('[data-action="native-login"]')).toBeNull()
+    host.querySelector<HTMLButtonElement>('[data-action="native-installed"]')!.click()
+    await vi.waitFor(() => expect(mocks.queries).toEqual([false, true, true]))
+  })
+
+  test("repairs an invalid custom path by restoring discovery instead of prompting another install", async () => {
+    mocks.installed = false
+    setState("config", "native", "codex", "path", "/missing/codex")
+    await vi.waitFor(() => expect(host.textContent).toContain("native.setup.pathInvalid"))
+    expect(host.querySelector('[data-action="native-install"]')).toBeNull()
+    mocks.installed = true
+    host.querySelector<HTMLButtonElement>('[data-action="native-automatic"]')!.click()
+    await vi.waitFor(() => expect(state.config.native.codex.path).toBe(""))
+    expect(mocks.updates).toEqual([{ path: "" }])
+    await vi.waitFor(() => expect(host.querySelector('[data-action="native-login"]')).not.toBeNull())
+  })
+
+  test("shows the next step only after Codex reports authentication and models", async () => {
+    await vi.waitFor(() => expect(host.querySelector('[data-action="native-login"]')).not.toBeNull())
+    mocks.auth = "chatgpt"
+    host.querySelector<HTMLButtonElement>('[data-action="native-refresh"]')!.click()
+    await vi.waitFor(() => expect(host.textContent).toContain("native.setup.ready"))
+    expect(host.querySelector('[data-action="native-login"]')).toBeNull()
+  })
+
   test("distinguishes installation and protocol connection from missing authentication", async () => {
     await vi.waitFor(() => expect(host.textContent).toContain("native.auth.missing"))
     expect(host.textContent).toContain("native.found")

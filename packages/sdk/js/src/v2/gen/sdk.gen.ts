@@ -194,6 +194,7 @@ import type {
   MigrateSessionsErrors,
   MigrateSessionsResponses,
   MigrateSourcesResponses,
+  NativeCancelLoginResponses,
   NativeDequeueErrors,
   NativeDequeueResponses,
   NativeEngineInput,
@@ -201,6 +202,10 @@ import type {
   NativeEnqueueResponses,
   NativeFileInput,
   NativeHistoryResponses,
+  NativeLoginErrors,
+  NativeLoginResponses,
+  NativeLoginStatusErrors,
+  NativeLoginStatusResponses,
   NativeMode,
   NativePermission,
   NativePrepareRevertErrors,
@@ -4369,6 +4374,103 @@ export class Provider extends HeyApiClient {
 }
 
 export class Native extends HeyApiClient {
+  /**
+   * Start Codex-managed ChatGPT sign-in without running inference
+   */
+  public login<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      id?: string
+      method?: "browser" | "device"
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "id" },
+            { in: "body", key: "method" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<NativeLoginResponses, NativeLoginErrors, ThrowOnError>({
+      url: "/native/codex/login",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Cancel only the specified Codex sign-in attempt
+   */
+  public cancelLogin<ThrowOnError extends boolean = false>(
+    parameters: {
+      id: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "id" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).delete<NativeCancelLoginResponses, unknown, ThrowOnError>({
+      url: "/native/codex/login/{id}",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Read the status of a Codex sign-in attempt
+   */
+  public loginStatus<ThrowOnError extends boolean = false>(
+    parameters: {
+      id: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "id" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<NativeLoginStatusResponses, NativeLoginStatusErrors, ThrowOnError>({
+      url: "/native/codex/login/{id}",
+      ...options,
+      ...params,
+    })
+  }
+
   /**
    * Prepare an edit at a native Codex turn boundary without changing history
    */

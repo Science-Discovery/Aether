@@ -14,7 +14,7 @@ export const dict = {
     "Run the installed Codex agent in Aether using its existing account and native tools. Choose a backend when starting a conversation; existing conversations keep their backend.",
   "native.path": "Codex executable path",
   "native.pathHelp":
-    "Path on the Aether server's computer. Leave empty for automatic discovery. Sign in with Codex on that computer before connecting.",
+    "Path to the Codex executable on the Aether server's computer. Leave empty for automatic discovery.",
   "native.automatic": "Find Codex automatically",
   "native.refresh": "Check connection",
   "native.checking": "Checking Codex…",
@@ -35,6 +35,42 @@ export const dict = {
   "native.auth.unknown": "Could not verify",
   "native.auth.missing": "Sign-in required",
   "native.models": "Available models",
+  "native.setup.install": "Open Codex installation guide",
+  "native.setup.installHelp":
+    "Install Codex on the computer running Aether, then check again here. If Codex Desktop or the CLI is already installed, you do not need to install it again.",
+  "native.setup.installRemote":
+    "Install Codex on the computer running the Aether server, then check again here. An existing Codex Desktop or CLI installation on that server can be reused.",
+  "native.setup.installed": "I've installed it — check again",
+  "native.setup.pathInvalid":
+    "The configured Codex path could not be used. Check the path below, or restore automatic discovery to find an existing installation.",
+  "native.setup.automatic": "Restore automatic discovery",
+  "native.setup.connectionHelp":
+    "Codex was found, but its connection could not be verified. Check the details below and try Check connection again.",
+  "native.setup.ready": "Codex is ready. Start a new conversation and choose Codex below the message box.",
+  "native.login.description":
+    "Sign in with your ChatGPT account in the browser. If browser sign-in does not work, use a device code.",
+  "native.login.remote": "Sign in with a device code to connect your ChatGPT account to Codex on the Aether server.",
+  "native.login.start": "Sign in with ChatGPT",
+  "native.login.device": "Use a device code",
+  "native.login.starting": "Starting sign-in…",
+  "native.login.pending": "Finish signing in on the official page. Aether will check the result automatically.",
+  "native.login.complete": "Signed in. Check connection if Codex is not ready yet.",
+  "native.login.failed": "Sign-in failed. You can try again.",
+  "native.login.cancelled": "Sign-in cancelled.",
+  "native.login.expired": "Sign-in expired. Start again to get a new link or code.",
+  "native.login.verifying": "Signed in. Checking Codex and its available models…",
+  "native.login.recovering":
+    "The sign-in status could not be confirmed. Check this attempt again or cancel it before starting another.",
+  "native.login.invalid": "The server returned an unexpected sign-in response. Check this attempt again.",
+  "native.login.open": "Open sign-in page",
+  "native.login.copy": "Copy code",
+  "native.login.copied": "Copied",
+  "native.login.expires": "Expires at {{time}}",
+  "native.login.check": "Check sign-in",
+  "native.login.cancel": "Cancel sign-in",
+  "native.login.cancelling": "Cancelling…",
+  "native.login.closeHelp": "Closing these settings cancels the pending sign-in attempt.",
+  "native.login.help": "Sign-in help",
   "native.permissions":
     "Codex uses a workspace sandbox and asks for approval when needed. Review each native permission request in the conversation.",
   "native.permission": "Codex permissions",
