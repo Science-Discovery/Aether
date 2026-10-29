@@ -134,6 +134,86 @@ describe("native pending question hint", () => {
     expect(fixture.items()).toHaveLength(0)
   })
 
+  test.each(["event", "index"])("restores an answered question reverted to pending through a newer %s", async (source) => {
+    vi.useFakeTimers()
+    const fixture = mount()
+    await vi.advanceTimersByTimeAsync(0)
+    submittedNativeQuestion({
+      url: "local",
+      directory: "/project",
+      session: "session",
+      thread: "thread",
+      item: "question",
+    })
+    listeners.forEach((fn) =>
+      fn({
+        details: {
+          type: "message.part.updated",
+          properties: {
+            sessionID: "session",
+            time: 1,
+            part: {
+              type: "text",
+              id: "old-part",
+              sessionID: "session",
+              messageID: "assistant",
+              text: "",
+              nativeQuestion: { ...item().question, state: "answered", answers: ["A"] },
+            },
+          },
+        },
+      }),
+    )
+    mocks.questions.mockResolvedValue({ data: [] })
+    await vi.advanceTimersByTimeAsync(400)
+    expect(fixture.items()).toHaveLength(0)
+    mocks.questions.mockResolvedValue({ data: [item()] })
+    if (source === "event")
+      listeners.forEach((fn) =>
+        fn({
+          details: {
+            type: "message.part.updated",
+            properties: {
+              sessionID: "session",
+              time: 2,
+              part: {
+                type: "text",
+                id: "old-part",
+                sessionID: "session",
+                messageID: "assistant",
+                text: "",
+                nativeQuestion: item().question,
+              },
+            },
+          },
+        }),
+      )
+    if (source === "index") window.dispatchEvent(new window.Event("focus"))
+    await vi.advanceTimersByTimeAsync(400)
+    expect(fixture.items()).toEqual([item()])
+  })
+
+  test("does not revive a newly submitted question from an index request started before submission", async () => {
+    vi.useFakeTimers()
+    const fixture = mount()
+    await vi.advanceTimersByTimeAsync(0)
+    const response = Promise.withResolvers<{ data: PendingQuestion[] }>()
+    mocks.questions.mockReturnValueOnce(response.promise).mockResolvedValue({ data: [] })
+    window.dispatchEvent(new window.Event("focus"))
+    submittedNativeQuestion({
+      url: "local",
+      directory: "/project",
+      session: "session",
+      thread: "thread",
+      item: "question",
+    })
+    response.resolve({ data: [item()] })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(fixture.items()).toHaveLength(0)
+    await vi.advanceTimersByTimeAsync(400)
+    expect(fixture.items()).toHaveLength(0)
+  })
+
   test("ignores another session's events and late index responses", async () => {
     const response = Promise.withResolvers<{ data: PendingQuestion[] }>()
     mocks.questions.mockReturnValueOnce(response.promise).mockResolvedValueOnce({ data: [] })
@@ -144,6 +224,66 @@ describe("native pending question hint", () => {
     await Promise.resolve()
     expect(fixture.items()).toHaveLength(0)
     expect(mocks.questions.mock.calls[1][0]).toEqual({ sessionID: "another" })
+  })
+
+  test.each(["message.removed", "message.part.removed"] as const)(
+    "clears pending hints on %s even when history becomes empty",
+    async (type) => {
+      vi.useFakeTimers()
+      const fixture = mount()
+      await vi.advanceTimersByTimeAsync(0)
+      expect(fixture.items()).toHaveLength(1)
+      mocks.questions.mockResolvedValue({ data: [] })
+      const properties = { sessionID: "session", messageID: "assistant", partID: "old-part" }
+      listeners.forEach((fn) => fn({ details: { type, properties } }))
+      expect(fixture.items()).toHaveLength(0)
+      await vi.advanceTimersByTimeAsync(400)
+      expect(mocks.questions).toHaveBeenCalledTimes(2)
+      expect(fixture.items()).toHaveLength(0)
+    },
+  )
+
+  test.each(["message.removed", "message.part.removed"] as const)(
+    "does not resurrect a removed question from an older index response after %s",
+    async (type) => {
+      vi.useFakeTimers()
+      const response = Promise.withResolvers<{ data: PendingQuestion[] }>()
+      mocks.questions.mockReturnValueOnce(response.promise).mockResolvedValue({ data: [] })
+      const fixture = mount()
+      const properties = { sessionID: "session", messageID: "assistant", partID: "old-part" }
+      listeners.forEach((fn) => fn({ details: { type, properties } }))
+      response.resolve({ data: [item()] })
+      await vi.advanceTimersByTimeAsync(0)
+      expect(fixture.items()).toHaveLength(0)
+      await vi.advanceTimersByTimeAsync(400)
+      expect(mocks.questions).toHaveBeenCalledTimes(2)
+      expect(fixture.items()).toHaveLength(0)
+    },
+  )
+
+  test("ignores foreign removals and accepts a question moved to a new display owner", async () => {
+    vi.useFakeTimers()
+    const fixture = mount()
+    await vi.advanceTimersByTimeAsync(0)
+    listeners.forEach((fn) =>
+      fn({
+        details: {
+          type: "message.removed",
+          properties: { sessionID: "another", messageID: "assistant" },
+        },
+      }),
+    )
+    expect(fixture.items()).toHaveLength(1)
+    const moved = { ...item(), messageID: "projected", parentID: "projected-user", partID: "projected-part" }
+    mocks.questions.mockResolvedValue({ data: [moved] })
+    listeners.forEach((fn) =>
+      fn({
+        details: { type: "message.removed", properties: { sessionID: "session", messageID: "assistant" } },
+      }),
+    )
+    expect(fixture.items()).toHaveLength(0)
+    await vi.advanceTimersByTimeAsync(400)
+    expect(fixture.items()).toEqual([moved])
   })
 
   test("does not keep scanning idle empty history and refreshes on focus", async () => {

@@ -1,4 +1,4 @@
-import { createEffect, on, Show } from "solid-js"
+import { createEffect, on, onCleanup, Show } from "solid-js"
 import { createStore } from "solid-js/store"
 import { useParams } from "@solidjs/router"
 import { IconButton } from "@opencode-ai/ui/icon-button"
@@ -16,12 +16,12 @@ export function NativeHistoryControl() {
   const [state, setState] = createStore({ loading: false, status: "pending", error: "" })
   let revision = 0
   const key = () => `${sdk.url}\n${sdk.directory}\n${params.id ?? ""}`
-  const running = () => !!params.id && sync.data.session_status[params.id]?.type === "busy"
+  const running = () => !!params.id && (sync.data.session_status[params.id]?.type ?? "idle") !== "idle"
   const thread = () => (params.id ? sync.session.get(params.id)?.engine?.thread : undefined)
 
   async function refresh(force = false) {
     const id = params.id
-    if (!id || !thread() || !native.enabled() || running()) return
+    if (!id || !thread() || !native.enabled() || running() || state.loading) return
     const current = key()
     const sequence = ++revision
     const client = sdk.client
@@ -51,6 +51,13 @@ export function NativeHistoryControl() {
       void refresh()
     }),
   )
+
+  const focus = () => void refresh()
+  window.addEventListener("focus", focus)
+  onCleanup(() => {
+    revision++
+    window.removeEventListener("focus", focus)
+  })
 
   const label = () => language.t(state.loading ? "native.history.syncing" : "native.history.refresh")
   const error = () => (state.status === "partial" ? "" : state.error)

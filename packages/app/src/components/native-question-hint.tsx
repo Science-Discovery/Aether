@@ -14,7 +14,7 @@ export function createNativeQuestions(session: () => string | undefined, active:
   const sdk = useSDK()
   const [store, setStore] = createStore({
     items: [] as PendingQuestion[],
-    submitted: {} as Record<string, true>,
+    submitted: {} as Record<string, number | undefined>,
     updates: {} as Record<string, { question: NativeQuestion; version: number }>,
   })
   const key = (question: Pick<NativeQuestion, "thread" | "item">) => `${question.thread}\n${question.item}`
@@ -31,6 +31,14 @@ export function createNativeQuestions(session: () => string | undefined, active:
     let dirty = false
     let version = 0
     let timer: ReturnType<typeof setTimeout> | undefined
+    // Preserve removals until any older index request has finished.
+    const removed = new Map<string, number>()
+    const clear = (question: NativeQuestion, stamp: number) => {
+      const id = key(question)
+      const submitted = store.submitted[id]
+      if (submitted === undefined || submitted > stamp || question.state !== "pending" || question.answers) return
+      setStore("submitted", id, undefined)
+    }
     const refresh = () => {
       if (disposed) return
       if (busy) {
@@ -43,7 +51,20 @@ export function createNativeQuestions(session: () => string | undefined, active:
         .questions({ sessionID: id }, { throwOnError: true })
         .then((result) => {
           if (disposed || !result.data) return
-          setStore("items", reconcile(result.data))
+          setStore(
+            "items",
+            reconcile(
+              result.data.filter(
+                (item) =>
+                  (removed.get(`message:${item.messageID}`) ?? 0) <= stamp &&
+                  (removed.get(`part:${item.partID}`) ?? 0) <= stamp,
+              ),
+            ),
+          )
+          removed.forEach((value, key) => {
+            if (value <= stamp) removed.delete(key)
+          })
+          store.items.forEach((item) => clear(item.question, stamp))
           setStore(
             "updates",
             reconcile(Object.fromEntries(Object.entries(store.updates).filter(([, value]) => value.version > stamp))),
@@ -67,15 +88,26 @@ export function createNativeQuestions(session: () => string | undefined, active:
     }
     const events = sdk.event.listen((event) => {
       const data = event.details
+      if (data.type === "message.removed" || data.type === "message.part.removed") {
+        if (data.properties.sessionID !== id) return
+        const part = data.type === "message.part.removed" ? data.properties.partID : undefined
+        removed.set(part ? `part:${part}` : `message:${data.properties.messageID}`, ++version)
+        setStore("items", (items) =>
+          items.filter((item) => (part ? item.partID !== part : item.messageID !== data.properties.messageID)),
+        )
+        schedule()
+        return
+      }
       if (data.type !== "message.part.updated") return
       const part = data.properties.part
       if (part.sessionID !== id || part.type !== "text" || !part.nativeQuestion) return
       setStore("updates", key(part.nativeQuestion), { question: part.nativeQuestion, version: ++version })
+      clear(part.nativeQuestion, version)
       schedule()
     })
     const submitted = observeNativeQuestion((value) => {
       if (value.url !== url || value.directory !== directory || value.session !== id) return
-      setStore("submitted", key(value), true)
+      setStore("submitted", key(value), ++version)
       schedule()
     })
     refresh()

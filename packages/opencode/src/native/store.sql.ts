@@ -45,7 +45,7 @@ export const NativeDispatchTable = sqliteTable(
     thread_id: text().notNull(),
     turn_id: text(),
     reviews: text({ mode: "json" }).$type<MessageV2.ToolPart[]>().notNull().default([]),
-    state: text({ enum: ["sending", "accepted", "uncertain", "rejected"] }).notNull(),
+    state: text({ enum: ["sending", "accepted", "uncertain", "rejected", "retired"] }).notNull(),
     time_created: integer().notNull(),
     time_updated: integer().notNull(),
   },

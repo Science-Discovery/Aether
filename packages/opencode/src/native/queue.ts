@@ -154,7 +154,7 @@ export namespace NativeQueue {
           throw new Error("This queued message ID has already been used for different input.")
         return Status.parse(saved)
       }
-      if (NativeStore.inputs(input.sessionID).some((item) => item.id === input.messageID))
+      if (NativeStore.inputs(input.sessionID, { retired: true }).some((item) => item.id === input.messageID))
         throw new Error("This message has already been submitted. Check the conversation before sending again.")
       if (saved.items.length >= 20)
         throw new Error("The queue is full. Remove a pending message before adding another.")

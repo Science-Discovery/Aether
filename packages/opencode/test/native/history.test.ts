@@ -511,6 +511,43 @@ describe("native history projection", () => {
     })
   })
 
+  test("standalone compaction preserves transcript and fork boundaries without a synthetic question", () => {
+    const before = NativeHistory.project(snapshot(), opts)
+    const maintenance = { ...turn("compact"), items: [{ id: "compact-item", type: "contextCompaction" }] }
+    const result = NativeHistory.project(snapshot([turn(), maintenance]), opts)
+    expect(result.complete).toBe(true)
+    expect(result.messages.map((entry) => entry.info)).toEqual(before.messages.map((entry) => entry.info))
+    expect(result.links).toEqual(before.links)
+    expect(result.messages[0].parts).toEqual(before.messages[0].parts)
+    expect(result.messages[1].parts.slice(0, -1)).toEqual(before.messages[1].parts)
+    expect(result.messages[1].parts.at(-1)).toMatchObject({
+      type: "tool",
+      tool: "codex.contextCompaction",
+      metadata: { native: { turn: "compact", item: "compact-item" } },
+    })
+    const ids = result.messages[1].parts.map((part) => part.id)
+    expect([...ids].sort()).toEqual(ids)
+    expect(NativeHistory.project(snapshot([turn(), maintenance]), { ...opts, existing: result.messages })).toEqual(
+      result,
+    )
+    expect(NativeHistory.project(snapshot([maintenance]), opts)).toMatchObject({
+      complete: true,
+      messages: [],
+      links: [],
+    })
+  })
+
+  test("standalone compaction never hides incomplete or unrelated orphan items", () => {
+    const maintenance = { ...turn("compact"), items: [{ id: "compact-item", type: "contextCompaction" }] }
+    for (const items of [
+      [{ ...maintenance.items[0], status: "inProgress" }],
+      [...maintenance.items, { id: "unknown", type: "futureTool" }],
+      [...maintenance.items, maintenance.items[0]],
+    ]) {
+      expect(NativeHistory.project(snapshot([turn(), { ...maintenance, items }]), opts).complete).toBe(false)
+    }
+  })
+
   test("does not claim empty, orphaned, duplicate or unfinished items are complete history", () => {
     expect(NativeHistory.project(snapshot([{ ...turn(), items: [] }]), opts).complete).toBe(false)
     const orphan = NativeHistory.project(snapshot([{ ...turn(), items: [turn().items[1]] }]), opts)

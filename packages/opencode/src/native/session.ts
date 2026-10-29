@@ -245,7 +245,7 @@ export namespace NativeSession {
           throw err
         },
       )
-      if (existing || NativeStore.inputs(session.id).some((entry) => entry.id === input.messageID))
+      if (existing || NativeStore.inputs(session.id, { retired: true }).some((entry) => entry.id === input.messageID))
         throw new Error("This message has already been submitted. Send a new message to continue.")
     }
     const user: MessageV2.User = {

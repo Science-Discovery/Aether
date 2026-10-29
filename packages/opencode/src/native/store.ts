@@ -1,4 +1,4 @@
-import { and, eq, inArray, notInArray } from "drizzle-orm"
+import { and, eq, inArray, ne, notInArray } from "drizzle-orm"
 import { Database } from "@/storage/db"
 import { Instance } from "@/project/instance"
 import { MessageV2 } from "@/session/message-v2"
@@ -19,8 +19,8 @@ export namespace NativeStore {
     )
   }
 
-  export function inputs(session: SessionID) {
-    return Database.useProject(Instance.project.id, (db) =>
+  export function inputs(session: SessionID, opts: { retired?: boolean } = {}) {
+    const rows = Database.useProject(Instance.project.id, (db) =>
       db
         .select()
         .from(NativeInputTable)
@@ -28,16 +28,56 @@ export namespace NativeStore {
         .orderBy(NativeInputTable.time_created, NativeInputTable.id)
         .all(),
     )
+    if (opts.retired) return rows
+    const retired = new Set(
+      dispatches(session, { retired: true })
+        .filter((row) => row.state === "retired")
+        .map((row) => row.id),
+    )
+    return rows.filter((row) => !row.dispatch_id || !retired.has(row.dispatch_id))
   }
 
   export function pending(session: SessionID) {
     return inputs(session).filter((entry) => entry.state === "pending")
   }
 
-  export function dispatches(session: SessionID) {
-    return Database.useProject(Instance.project.id, (db) =>
+  export function dispatches(session: SessionID, opts: { retired?: boolean } = {}) {
+    const rows = Database.useProject(Instance.project.id, (db) =>
       db.select().from(NativeDispatchTable).where(eq(NativeDispatchTable.session_id, session)).all(),
     )
+    return opts.retired ? rows : rows.filter((row) => row.state !== "retired")
+  }
+
+  /** Keep removed delivery evidence as tombstones so retries cannot resend it. */
+  export function reconcile(session: Session.Info, turns: string[]) {
+    const ledger = dispatches(session.id)
+    const rows = inputs(session.id)
+    if (
+      ledger.some(
+        (row) =>
+          row.thread_id !== session.engine?.thread ||
+          (row.state !== "accepted" && row.state !== "rejected") ||
+          (row.state === "accepted" && !row.turn_id),
+      )
+    )
+      throw new Error("Resolve unconfirmed Codex inputs before replacing its history.")
+    const retired = ledger.filter((row) => row.state === "accepted" && !turns.includes(row.turn_id!))
+    if (rows.some((row) => retired.some((entry) => entry.id === row.dispatch_id) && row.state !== "consumed"))
+      throw new Error("Removed Codex input has an inconsistent delivery state.")
+    return {
+      retired,
+      ledger: ledger.filter((row) => !retired.includes(row)),
+      inputs: rows.filter((row) => !retired.some((entry) => entry.id === row.dispatch_id)),
+    }
+  }
+
+  export function retire(session: Session.Info, turns: string[], db: Database.TxOrDb) {
+    const ids = reconcile(session, turns).retired.map((row) => row.id)
+    if (!ids.length) return
+    db.update(NativeDispatchTable)
+      .set({ state: "retired", time_updated: Date.now() })
+      .where(and(eq(NativeDispatchTable.session_id, session.id), inArray(NativeDispatchTable.id, ids)))
+      .run()
   }
 
   /** A confirmed revert must not discard inputs whose native delivery is unknown. */
@@ -77,6 +117,11 @@ export namespace NativeStore {
   /** Called inside the same transaction that replaces the display projection. */
   export function prune(session: Session.Info, turns: string[], db: Database.TxOrDb) {
     const kept = prefix(session, turns)
+    const retired = dispatches(session.id, { retired: true }).filter((row) => row.state === "retired")
+    kept.ledger.push(...retired)
+    kept.inputs.push(
+      ...inputs(session.id, { retired: true }).filter((row) => retired.some((entry) => entry.id === row.dispatch_id)),
+    )
     db.delete(NativeInputTable)
       .where(
         and(
@@ -157,6 +202,12 @@ export namespace NativeStore {
   }
 
   export function add(message: MessageV2.WithParts, context: boolean) {
+    if (
+      dispatches(message.info.sessionID, { retired: true }).some(
+        (row) => row.id === message.info.id && row.state === "retired",
+      )
+    )
+      throw new Error("This input belongs to removed Codex history and cannot be sent again with the same ID.")
     Database.useProject(Instance.project.id, (db) =>
       db
         .insert(NativeInputTable)
@@ -222,7 +273,7 @@ export namespace NativeStore {
         .from(NativeDispatchTable)
         .where(and(eq(NativeDispatchTable.session_id, session), eq(NativeDispatchTable.id, id)))
         .get()
-      if (!row) return
+      if (!row || row.state === "retired") return
       if (row.turn_id && row.turn_id !== turn) throw new Error("Native dispatch refers to a different turn")
       db.update(NativeDispatchTable)
         .set({ state: "accepted", turn_id: turn, time_updated: Date.now() })
@@ -233,6 +284,12 @@ export namespace NativeStore {
 
   /** Steering is consumed atomically: it must never enter the next-turn outbox. */
   export function steer(message: MessageV2.WithParts, assistant: MessageID, thread: string, turn: string) {
+    if (
+      dispatches(message.info.sessionID, { retired: true }).some(
+        (row) => row.id === message.info.id && row.state === "retired",
+      )
+    )
+      throw new Error("This input belongs to removed Codex history and cannot be sent again with the same ID.")
     Database.transactionProject(Instance.project.id, (db) => {
       db.insert(NativeInputTable)
         .values({
@@ -273,6 +330,14 @@ export namespace NativeStore {
         .where(and(eq(NativeInputTable.session_id, session), eq(NativeInputTable.id, id)))
         .get()
       if (!row) throw new Error("The native steering input is missing")
+      if (
+        db
+          .select()
+          .from(NativeDispatchTable)
+          .where(and(eq(NativeDispatchTable.session_id, session), eq(NativeDispatchTable.id, id)))
+          .get()?.state === "retired"
+      )
+        return row.data
       const data = {
         ...row.data,
         parts: row.data.parts.map((part) =>
@@ -312,7 +377,7 @@ export namespace NativeStore {
         .from(NativeDispatchTable)
         .where(and(eq(NativeDispatchTable.session_id, session), eq(NativeDispatchTable.id, id)))
         .get()
-      if (!row) return
+      if (!row || row.state === "retired") return
       db.update(NativeDispatchTable)
         .set({ reviews: [...row.reviews.filter((item) => item.id !== part.id), part] })
         .where(and(eq(NativeDispatchTable.session_id, session), eq(NativeDispatchTable.id, id)))
@@ -330,6 +395,7 @@ export namespace NativeStore {
             eq(NativeDispatchTable.session_id, assistant.sessionID),
             eq(NativeDispatchTable.id, assistant.parentID),
             eq(NativeDispatchTable.assistant_id, assistant.id),
+            ne(NativeDispatchTable.state, "retired"),
           ),
         )
         .run(),

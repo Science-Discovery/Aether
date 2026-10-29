@@ -1,4 +1,5 @@
 import z from "zod"
+import { isDeepStrictEqual } from "node:util"
 import { and, eq } from "drizzle-orm"
 import { Bus } from "@/bus"
 import { Config } from "@/config/config"
@@ -17,6 +18,8 @@ import { NativeStore } from "./store"
 import { NativeAnswers } from "./answers"
 import { NativeQuestion } from "./questions"
 import { NativeInheritance } from "./inheritance"
+import { NativeRuntime } from "./runtime"
+import type { Protocol } from "./protocol"
 
 export namespace NativeSync {
   export const Status = z
@@ -29,6 +32,7 @@ export namespace NativeSync {
     .meta({ ref: "NativeHistoryStatus" })
   export type Status = z.infer<typeof Status>
   const cache = Instance.state(() => new Map<SessionID, { at: number; value: Status }>())
+  const compactions = Instance.state(() => new Map<SessionID, string>())
 
   /** Materialize a replaceable view; pending input and research metadata live elsewhere. */
   export async function apply(
@@ -53,10 +57,106 @@ export namespace NativeSync {
     return result
   }
 
+  /** Confirm external rewrites on the read-only connection before replacing the view. */
+  export async function reconcile(
+    session: Session.Info,
+    snapshot: NativeHistory.Snapshot,
+    client: Pick<Protocol.Client, "request">,
+    opts: { sources?: NativeInheritance.Source[] } = {},
+  ): Promise<Status> {
+    const existing = await NativeStore.history(session.id)
+    const ledger = NativeStore.dispatches(session.id)
+    const native = existing.flatMap((entry) =>
+      entry.parts.flatMap((part) => {
+        const metadata = "metadata" in part ? part.metadata : undefined
+        if (metadata?.nativeAgent) return []
+        const parsed = z
+          .object({ turn: z.string(), item: z.string(), type: z.string().optional() })
+          .safeParse(metadata?.native)
+        return parsed.success ? [parsed.data] : []
+      }),
+    )
+    const turns = [
+      ...native.map((part) => part.turn),
+      ...ledger.flatMap((row) => (row.state === "accepted" && row.turn_id ? [row.turn_id] : [])),
+    ]
+    const missing = (value: NativeHistory.Snapshot) =>
+      turns.some((turn) => !value.turns.some((entry) => entry.id === turn))
+    const compaction = JSON.stringify(
+      snapshot.turns.flatMap((turn) =>
+        turn.items.filter((item) => item.type === "contextCompaction").map((item) => [turn.id, item]),
+      ),
+    )
+    const compacted =
+      compactions().get(session.id) !== compaction &&
+      snapshot.turns.some((turn) =>
+        turn.items.some(
+          (item) =>
+            item.type === "contextCompaction" && !native.some((part) => part.turn === turn.id && part.item === item.id),
+        ),
+      )
+    if (!missing(snapshot) && !compacted) return apply(session, snapshot, opts)
+    const partial = (error: string): Status => ({ state: "partial", messages: existing.length, error })
+    if (!snapshot.thread || snapshot.thread.id !== session.engine?.thread)
+      return partial("Native history changed but could not be read completely; previous records were preserved.")
+    const candidate =
+      !snapshot.complete &&
+      snapshot.issues.length &&
+      snapshot.issues.every((issue) => issue.code === "unsettled" && issue.turn)
+        ? await NativeHistory.read(client, snapshot.thread.id, { terminal: true })
+        : snapshot
+    if (!candidate.complete || (candidate.turns.length && candidate.turns.at(-1)?.status !== "completed"))
+      return partial("Native history has no stable completed boundary; previous records were preserved.")
+    const confirmed = await NativeHistory.read(client, snapshot.thread.id, { terminal: true })
+    const signature = (value: NativeHistory.Snapshot) => ({
+      id: value.thread?.id,
+      created: value.thread?.createdAt,
+      updated: value.thread?.updatedAt,
+      status: value.thread?.status.type,
+      turns: value.turns,
+    })
+    if (!confirmed.complete || !isDeepStrictEqual(signature(candidate), signature(confirmed)))
+      return partial("Native history changed while it was being confirmed; previous records were preserved.")
+    // Ordinary reads omit interrupted turns. Their presence in the verified
+    // history must not repeatedly reset answers or evict an unchanged runtime.
+    const removed = missing(confirmed)
+    if (!removed && !compacted) return apply(session, snapshot, opts)
+    if (NativeAnswers.active(session.id))
+      return partial("Wait for the submitted answer before refreshing changed history.")
+    const kept = NativeStore.reconcile(
+      session,
+      confirmed.turns.map((turn) => turn.id),
+    )
+    const projection = NativeHistory.project(confirmed, {
+      sessionID: session.id,
+      scope: session.id,
+      cwd: session.directory,
+      existing,
+      receipts: kept.ledger.flatMap((entry) => (entry.assistant ? [entry.assistant] : [])),
+      terminal: true,
+    })
+    if (!projection.complete)
+      return partial("Changed native history contains unsupported records; previous records were preserved.")
+    using gate = NativeAnswers.block(session.id)
+    // A resident process can still contain the history removed by Desktop.
+    // The next send must restore the confirmed disk state in a fresh process.
+    await NativeRuntime.remove(session.id)
+    if (removed) await NativeAnswers.reset(session.id)
+    const result = await materialize(session, confirmed, { ...opts, replace: true, reset: removed })
+    compactions().set(session.id, compaction)
+    return result
+  }
+
   async function materialize(
     session: Session.Info,
     snapshot: NativeHistory.Snapshot,
-    opts: { terminal?: boolean; revert?: boolean; sources?: NativeInheritance.Source[] },
+    opts: {
+      terminal?: boolean
+      revert?: boolean
+      replace?: boolean
+      reset?: boolean
+      sources?: NativeInheritance.Source[]
+    },
   ) {
     if (snapshot.thread && session.engine?.thread && snapshot.thread.id !== session.engine.thread)
       throw new Error("Native history belongs to another thread")
@@ -66,7 +166,12 @@ export namespace NativeSync {
           session,
           snapshot.turns.map((turn) => turn.id),
         )
-      : undefined
+      : opts.replace
+        ? NativeStore.reconcile(
+            session,
+            snapshot.turns.map((turn) => turn.id),
+          )
+        : undefined
     const inputs = retained?.inputs ?? NativeStore.inputs(session.id)
     const ledger = retained?.ledger ?? NativeStore.dispatches(session.id)
     if (opts.terminal && (existing.length || inputs.length || ledger.length))
@@ -80,7 +185,8 @@ export namespace NativeSync {
         ...inputs.filter((entry) => !existing.some((item) => item.info.id === entry.id)).map((entry) => entry.data),
       ],
       receipts: ledger.flatMap((entry) => (entry.assistant ? [entry.assistant] : [])),
-      terminal: opts.terminal || opts.revert,
+      terminal:
+        opts.terminal || opts.revert || (opts.replace && snapshot.turns.some((turn) => turn.status !== "completed")),
     })
     if (opts.sources?.length) await NativeInheritance.apply(snapshot, projection, opts.sources)
     const steered = inputs.filter((entry) =>
@@ -221,7 +327,7 @@ export namespace NativeSync {
         })
       }
     }
-    if (opts.revert && projection.issues.some((issue) => issue.code !== "observed"))
+    if ((opts.revert || opts.replace) && projection.issues.some((issue) => issue.code !== "observed"))
       throw new Error("The reverted Codex history contains unsupported or unconfirmed records.")
     const merge = (part: MessageV2.Part, previous: MessageV2.Part | undefined): MessageV2.Part => {
       if (!previous) return part
@@ -254,7 +360,11 @@ export namespace NativeSync {
           const retained = previous.parts.filter((part) => {
             const metadata = "metadata" in part ? part.metadata : undefined
             const native = z.object({ turn: z.string() }).safeParse(metadata?.native)
-            if (opts.revert && native.success && !snapshot.turns.some((turn) => turn.id === native.data.turn))
+            if (
+              (opts.revert || opts.replace) &&
+              native.success &&
+              !snapshot.turns.some((turn) => turn.id === native.data.turn)
+            )
               return false
             const owner = represented.get(identity(part))?.message
             return !owner || owner === entry.info.id
@@ -282,7 +392,9 @@ export namespace NativeSync {
     const answers = NativeQuestion.texts(
       snapshot.turns
         .filter(
-          (turn) => turn.status === "completed" || ((opts.terminal || opts.revert) && NativeHistory.terminal(turn)),
+          (turn) =>
+            turn.status === "completed" ||
+            ((opts.terminal || opts.revert || opts.replace) && NativeHistory.terminal(turn)),
         )
         .flatMap((turn) => turn.items),
     )
@@ -306,7 +418,7 @@ export namespace NativeSync {
           (previous?.type === "text" ? previous.nativeQuestion : undefined)
         const resolved = question
           ? NativeQuestion.answered(
-              opts.revert
+              opts.revert || opts.reset
                 ? { ...question, state: "pending", answers: undefined, skipped: undefined, error: undefined }
                 : question,
               answers,
@@ -316,7 +428,8 @@ export namespace NativeSync {
           resolved
             ? {
                 ...part,
-                nativeQuestion: opts.revert ? resolved : await NativeAnswers.decorate(session.id, resolved),
+                nativeQuestion:
+                  opts.revert || opts.reset ? resolved : await NativeAnswers.decorate(session.id, resolved),
               }
             : part,
         )
@@ -334,21 +447,20 @@ export namespace NativeSync {
         item.info.time.completed = Math.max(time, item.info.time.completed)
       unique.set(item.info.id, item)
     })
-    const removed = projection.complete || opts.revert ? existing.filter((entry) => !unique.has(entry.info.id)) : []
+    const removed =
+      projection.complete || opts.revert || opts.replace ? existing.filter((entry) => !unique.has(entry.info.id)) : []
     const changed = [...unique.values()].filter(
       (entry) => JSON.stringify(entry) !== JSON.stringify(known.get(entry.info.id)),
     )
     Database.transactionProject(Instance.project.id, (db) => {
       const current = db.select().from(SessionTable).where(eq(SessionTable.id, session.id)).get()
       if (!current) throw new Error("The session was removed while native history was being read")
-      if (opts.revert) {
+      if (opts.revert || opts.replace) {
         if (!current.engine || current.engine.thread !== snapshot.thread?.id)
           throw new Error("The native session changed while its history was being reverted")
-        NativeStore.prune(
-          session,
-          snapshot.turns.map((turn) => turn.id),
-          db,
-        )
+        const turns = snapshot.turns.map((turn) => turn.id)
+        if (opts.revert) NativeStore.prune(session, turns, db)
+        if (opts.replace) NativeStore.retire(session, turns, db)
         db.update(SessionTable)
           .set({
             engine: {
@@ -401,9 +513,9 @@ export namespace NativeSync {
           if (entry && entry.state !== "rejected" && (!entry.turn_id || entry.turn_id === link.turn))
             NativeStore.accept(session.id, entry.id, link.turn)
         })
-      if (projection.complete || opts.revert) NativeStore.synced(session.id)
+      if (projection.complete || opts.revert || opts.replace) NativeStore.synced(session.id)
     })
-    if (opts.revert) {
+    if (opts.revert || opts.replace) {
       await Storage.write(["session_diff", session.id], [])
       await Bus.publish(Session.Event.Updated, { sessionID: session.id, info: await Session.get(session.id) })
       await Bus.publish(Session.Event.Diff, { sessionID: session.id, diff: [] })
@@ -426,10 +538,11 @@ export namespace NativeSync {
         await Bus.publish(MessageV2.Event.PartUpdated, { sessionID: session.id, part, time: Date.now() })
     }
     return {
-      state: projection.complete || opts.revert ? "synced" : snapshot.thread ? "partial" : "unavailable",
+      state:
+        projection.complete || opts.revert || opts.replace ? "synced" : snapshot.thread ? "partial" : "unavailable",
       messages: projection.messages.length,
       updated: NativeStore.state(session.id)?.time_synced ?? undefined,
-      ...(!projection.complete && !opts.revert
+      ...(!projection.complete && !opts.revert && !opts.replace
         ? {
             error:
               projection.issues
@@ -475,7 +588,7 @@ export namespace NativeSync {
           const sources = NativeInheritance.missing(projection)
             ? await NativeInheritance.collect(session, snapshot, connection.client, { force })
             : []
-          return await apply(session, snapshot, { sources })
+          return await reconcile(session, snapshot, connection.client, { sources })
         } finally {
           await connection.client.close()
         }

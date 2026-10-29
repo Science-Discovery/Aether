@@ -33,7 +33,11 @@ function Question(props: { question: NativeQuestion; session: string }) {
   let revision = 0
   let version = 0
   let disposed = false
-  const source = createMemo(() => JSON.stringify(props.question))
+  const source = createMemo(
+    () => ({ json: JSON.stringify(props.question), state: props.question.state }),
+    undefined,
+    { equals: (a, b) => a.json === b.json },
+  )
   const question = createMemo(() => {
     if (props.question.state === "answered") return props.question
     return store.saved ?? props.question
@@ -53,6 +57,10 @@ function Question(props: { question: NativeQuestion; session: string }) {
   const complete = () =>
     answers().length === question().questions.length &&
     question().questions.every((_, index) => !!answers()[index]?.trim())
+  const reset = () => {
+    revision++
+    setStore({ busy: false, error: undefined, sent: undefined, skipped: undefined, saved: undefined })
+  }
 
   createEffect(
     on(key, () => {
@@ -61,17 +69,39 @@ function Question(props: { question: NativeQuestion; session: string }) {
     }),
   )
   createEffect(
-    on(source, () => {
+    on(source, (value, previous) => {
       version++
-      if (props.question.state === "pending") return
+      if (value.state === "pending") {
+        if (previous && previous.state !== "pending") reset()
+        return
+      }
       if (store.saved?.state === "answered") return
       setStore("error", undefined)
       setStore("saved", reconcile({ ...props.question }))
     }),
   )
+  const events = sdk.event.listen((event) => {
+    const data = event.details
+    if (data.type !== "message.part.updated" || store.saved?.state !== "answered") return
+    const part = data.properties.part
+    if (part.sessionID !== props.session || part.type !== "text") return
+    const value = part.nativeQuestion
+    if (
+      !value ||
+      value.thread !== props.question.thread ||
+      value.item !== props.question.item ||
+      value.state !== "pending" ||
+      value.answers
+    )
+      return
+    // An authoritative pending event can repeat unchanged props after an
+    // answered HTTP receipt; ordinary equal-prop renders must keep that receipt.
+    reset()
+  })
   onCleanup(() => {
     disposed = true
     revision++
+    events()
   })
 
   async function submit(skip = skipping()) {

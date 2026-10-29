@@ -237,6 +237,38 @@ export function project(snapshot: NativeHistory.Snapshot, opts: Options) {
         continue
       }
 
+      // Manual compaction may be its own turn without a user prompt. Attach its
+      // marker to the preceding reply, without inventing a question or moving
+      // that reply's selectable fork boundary into the maintenance turn.
+      if (
+        turn.status === "completed" &&
+        !state.user &&
+        turn.items.every((entry) => entry.type === "contextCompaction")
+      ) {
+        if (item.status !== undefined && item.status !== "completed") {
+          issue("A completed compaction turn contains an unfinished item")
+          continue
+        }
+        const owner = messages.findLast((entry) => entry.info.role === "assistant")
+        if (!owner) continue
+        owner.parts.push({
+          ...base(owner.info.id),
+          id: PartID.make(`prt_zz${String(owner.parts.length).padStart(8, "0")}_${key}`),
+          type: "tool",
+          callID: item.id,
+          tool: "codex.contextCompaction",
+          metadata: { native },
+          state: {
+            status: "completed",
+            input: { ...item },
+            output: render(item),
+            title: "contextCompaction",
+            metadata: { native: item },
+            time: { start: created, end: completed },
+          },
+        })
+        continue
+      }
       if (!state.user) {
         issue("The native turn has no preceding user item; a display-only placeholder was required")
         const id = MessageID.make(

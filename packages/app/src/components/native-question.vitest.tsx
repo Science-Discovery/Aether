@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest"
 import { createSignal } from "solid-js"
 import { render } from "solid-js/web"
-import type { AssistantMessage, NativeQuestion } from "@opencode-ai/sdk/v2"
+import type { AssistantMessage, Event, NativeQuestion } from "@opencode-ai/sdk/v2"
 import { NativeQuestionCard } from "./native-question"
 import { nativeQuestionAnchor } from "./native-question-events"
 
@@ -10,12 +10,19 @@ const mocks = vi.hoisted(() => ({
   reply: vi.fn<(input: Reply) => Promise<{ data: NativeQuestion }>>(),
   skip: vi.fn<(input: Omit<Reply, "answers">) => Promise<{ data: NativeQuestion }>>(),
 }))
+const listeners = new Set<(event: { details: Event }) => void>()
 vi.mock("@/context/language", () => ({ useLanguage: () => ({ t: (key: string) => key }) }))
 vi.mock("@/context/sdk", () => ({
   useSDK: () => ({
     url: "local",
     directory: "/project",
     client: { native: { replyQuestion: mocks.reply, skipQuestion: mocks.skip } },
+    event: {
+      listen: (fn: (event: { details: Event }) => void) => {
+        listeners.add(fn)
+        return () => listeners.delete(fn)
+      },
+    },
   }),
 }))
 
@@ -26,6 +33,26 @@ const question = (): NativeQuestion => ({
   state: "pending",
   questions: [{ title: "Which method?", options: ["A", "B"] }, { title: "What should change?" }],
 })
+const publish = (value: NativeQuestion, session = "session") =>
+  listeners.forEach((fn) =>
+    fn({
+      details: {
+        type: "message.part.updated",
+        properties: {
+          sessionID: session,
+          time: 1,
+          part: {
+            type: "text",
+            id: "part",
+            sessionID: session,
+            messageID: "assistant",
+            text: "",
+            nativeQuestion: value,
+          },
+        },
+      },
+    }),
+  )
 const message = (): AssistantMessage => ({
   id: "assistant",
   sessionID: "session",
@@ -72,7 +99,7 @@ function mount(value = question()) {
   const fill = (index: number, text: string) => {
     const input = host.querySelectorAll<HTMLTextAreaElement>("textarea")[index]!
     input.value = text
-    input.dispatchEvent(new Event("input", { bubbles: true }))
+    input.dispatchEvent(new window.Event("input", { bubbles: true }))
   }
   return { host, set, button, fill, setPart }
 }
@@ -163,6 +190,82 @@ describe("native async questions", () => {
     expect(fixture.host.textContent).toContain("Saved answer")
     expect(fixture.host.querySelector("button")).toBeNull()
     expect(mocks.reply).not.toHaveBeenCalled()
+  })
+
+  test.each([false, true])("reopens a reverted answer with skipped=%s while retaining the local draft", async (skipped) => {
+    const fixture = mount()
+    fixture.fill(0, "A custom approach")
+    fixture.fill(1, "Keep this draft")
+    fixture.button(skipped ? "native.question.skip" : "native.question.submit").click()
+    await vi.waitFor(() =>
+      expect(fixture.host.querySelector("section")?.dataset.state).toBe(skipped ? "skipped" : "answered"),
+    )
+    fixture.set({
+      ...question(),
+      state: "answered",
+      ...(skipped ? { skipped: true as const } : { answers: ["A custom approach", "Keep this draft"] }),
+    })
+    fixture.set(question())
+    expect(fixture.host.querySelector("section")?.dataset.state).toBe("pending")
+    expect([...fixture.host.querySelectorAll("textarea")].map((input) => input.value)).toEqual([
+      "A custom approach",
+      "Keep this draft",
+    ])
+    expect(fixture.button("native.question.submit").disabled).toBe(false)
+    expect(fixture.button("native.question.skip")).toBeDefined()
+    expect(fixture.host.querySelector('[role="alert"]')).toBeNull()
+  })
+
+  test("clears an HTTP-only answered receipt only on an authoritative pending event", async () => {
+    const fixture = mount()
+    fixture.button("A").click()
+    fixture.fill(1, "Saved")
+    fixture.button("native.question.submit").click()
+    await vi.waitFor(() => expect(fixture.host.querySelector("section")?.dataset.state).toBe("answered"))
+    fixture.set(question())
+    publish(question(), "another-session")
+    publish({ ...question(), thread: "another-thread" })
+    publish({ ...question(), item: "another-item" })
+    expect(fixture.host.querySelector("section")?.dataset.state).toBe("answered")
+    publish(question())
+    expect(fixture.host.querySelector("section")?.dataset.state).toBe("pending")
+    expect(fixture.host.querySelector<HTMLTextAreaElement>("textarea")?.value).toBe("A")
+    expect(fixture.button("native.question.submit").disabled).toBe(false)
+  })
+
+  test.each(["resolve", "reject"])("ignores a late %s after an answered-to-pending revert", async (result) => {
+    const response = Promise.withResolvers<{ data: NativeQuestion }>()
+    mocks.reply.mockReturnValue(response.promise)
+    const fixture = mount()
+    fixture.button("A").click()
+    fixture.fill(1, "Saved")
+    fixture.button("native.question.submit").click()
+    fixture.set({ ...question(), state: "answered", answers: ["A", "Saved"] })
+    fixture.set(question())
+    expect(fixture.host.querySelector("section")?.getAttribute("aria-busy")).toBe("false")
+    if (result === "resolve") response.resolve({ data: { ...question(), state: "answered", answers: ["A", "Saved"] } })
+    if (result === "reject") response.reject(new Error("Old submission failure"))
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(fixture.host.querySelector("section")?.dataset.state).toBe("pending")
+    expect(fixture.button("native.question.submit").disabled).toBe(false)
+    expect(fixture.host.querySelector('[role="alert"]')).toBeNull()
+  })
+
+  test("preserves a genuine submission across equal pending renders and events", async () => {
+    const response = Promise.withResolvers<{ data: NativeQuestion }>()
+    mocks.reply.mockReturnValue(response.promise)
+    const fixture = mount()
+    fixture.button("A").click()
+    fixture.fill(1, "Saved")
+    fixture.button("native.question.submit").click()
+    fixture.set(question())
+    publish(question())
+    expect(fixture.host.querySelector("section")?.getAttribute("aria-busy")).toBe("true")
+    expect(fixture.host.querySelector("textarea")).toBeNull()
+    response.resolve({ data: { ...question(), state: "answered", answers: ["A", "Saved"] } })
+    await vi.waitFor(() => expect(fixture.host.querySelector("section")?.dataset.state).toBe("answered"))
+    expect(mocks.reply).toHaveBeenCalledTimes(1)
   })
 
   test("preserves a draft across updates to the same question", () => {

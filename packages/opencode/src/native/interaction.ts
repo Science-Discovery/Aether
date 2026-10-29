@@ -90,8 +90,14 @@ export namespace NativeInteraction {
       ...(error ? { error } : {}),
     })
     const previous = () => {
-      const row = NativeStore.inputs(input.sessionID).find((entry) => entry.id === input.messageID)
+      const row = NativeStore.inputs(input.sessionID, { retired: true }).find((entry) => entry.id === input.messageID)
       if (!row) return
+      if (
+        NativeStore.dispatches(input.sessionID, { retired: true }).some(
+          (entry) => entry.id === input.messageID && entry.state === "retired",
+        )
+      )
+        return result("rejected", "This input belongs to removed Codex history and will not be sent again.")
       const part = row.data.parts.find(
         (part): part is MessageV2.TextPart => part.type === "text" && !!part.metadata?.nativeSteer,
       )

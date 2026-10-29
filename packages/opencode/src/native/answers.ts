@@ -45,6 +45,7 @@ export namespace NativeAnswers {
       jobs: new Map<string, Promise<void>>(),
       epochs: new Map<SessionID, number>(),
       removed: new Set<SessionID>(),
+      blocked: new Set<SessionID>(),
     }),
     async (value) => {
       value.closed = true
@@ -54,6 +55,15 @@ export namespace NativeAnswers {
 
   export function active(id: SessionID) {
     return [...state().jobs.keys()].some((key) => key.startsWith(`${id}\n`))
+  }
+
+  /** Prevent new answer jobs while an authoritative history view is replaced. */
+  export function block(id: SessionID) {
+    const current = state()
+    if (active(id) || current.blocked.has(id))
+      throw new Error("Wait for the submitted answer before refreshing changed history.")
+    current.blocked.add(id)
+    return { [Symbol.dispose]: () => current.blocked.delete(id) }
   }
 
   /** Rebuild answer evidence from retained native user messages after a verified revert. */
@@ -218,7 +228,10 @@ export namespace NativeAnswers {
     const current = state()
     const epoch = current.epochs.get(input.sessionID) ?? 0
     const ready = () =>
-      !current.closed && !current.removed.has(input.sessionID) && (current.epochs.get(input.sessionID) ?? 0) === epoch
+      !current.closed &&
+      !current.removed.has(input.sessionID) &&
+      !current.blocked.has(input.sessionID) &&
+      (current.epochs.get(input.sessionID) ?? 0) === epoch
     const key = identity(input.sessionID, input.threadID, input.itemID)
     const saved = await (async () => {
       using lock = await Lock.write(file(input.sessionID))
