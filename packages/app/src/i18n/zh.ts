@@ -4,7 +4,6 @@ type Keys = keyof typeof en
 
 export const dict = {
   "native.title": "智能体后端",
-  "sidebar.session.backends.partial": "按已加载会话分组，加载更多可查看更早会话",
   "native.enable": "启用 Codex",
   "native.enableHelp": "在 Aether 中使用已安装的 Codex。关闭后停止新请求，已有对话仍可阅读，正在运行的任务可正常结束。",
   "native.disabled": "Codex 已关闭。在此重新启用后，可以新建或继续 Codex 对话。",

@@ -1,6 +1,5 @@
 export const dict = {
   "native.title": "Agent backends",
-  "sidebar.session.backends.partial": "Grouped from loaded conversations. Load more to see older conversations.",
   "native.enable": "Enable Codex",
   "native.enableHelp":
     "Use the installed Codex agent in Aether. Turning this off stops new Codex requests; existing conversations stay readable and running tasks can finish.",

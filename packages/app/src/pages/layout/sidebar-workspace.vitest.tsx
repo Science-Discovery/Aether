@@ -446,11 +446,10 @@ describe("WorkspaceSessionList backend groups", () => {
       ["codex-new", "codex-old"],
     ])
     expect(host.querySelectorAll('[data-session-id="child"]')).toHaveLength(1)
-    expect(host.querySelector('[data-component="session-backends-partial"]')).toBeNull()
     off()
   })
 
-  test("labels partial results, adds newly loaded groups and retains existing rows", () => {
+  test("adds newly loaded groups and retains existing rows", () => {
     const codex = session("codex", { type: "codex" })
     const [rows, update] = createSignal([codex])
     const [more, paginate] = createSignal(true)
@@ -469,9 +468,6 @@ describe("WorkspaceSessionList backend groups", () => {
     })
 
     expect(host.querySelectorAll('[data-component="session-backend-group"]')).toHaveLength(1)
-    expect(host.querySelector('[data-component="session-backends-partial"]')?.textContent).toBe(
-      "sidebar.session.backends.partial",
-    )
     const row = host.querySelector('[data-session-id="codex"]')
     host.querySelector<HTMLButtonElement>('[aria-label="common.loadMore"]')!.click()
     expect(load).toHaveBeenCalledTimes(1)
@@ -481,7 +477,6 @@ describe("WorkspaceSessionList backend groups", () => {
       ),
     ).toEqual(["aether", "codex"])
     expect(host.querySelector('[data-session-id="codex"]')).toBe(row)
-    expect(host.querySelector('[data-component="session-backends-partial"]')).toBeNull()
     off()
   })
 

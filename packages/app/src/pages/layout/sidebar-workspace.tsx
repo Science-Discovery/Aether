@@ -1324,11 +1324,6 @@ export const WorkspaceSessionList = (props: {
             children={props.children}
           />
         </Show>
-        <Show when={props.hasMore() && props.rootSessions().length > 0}>
-          <p data-component="session-backends-partial" class="px-4 pt-1 text-12-regular text-text-weaker">
-            {props.language.t("sidebar.session.backends.partial")}
-          </p>
-        </Show>
         <Show when={(props.hasMore() || props.canCollapse()) && !props.selectMode()}>
           <div class="relative w-full py-1 flex items-center gap-0.5 pl-9">
             <Show when={props.hasMore()}>
