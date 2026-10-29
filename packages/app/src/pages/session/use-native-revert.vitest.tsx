@@ -201,6 +201,27 @@ test("rejects an existing draft or selected context before preparing a destructi
   expect(mocks.toast).toHaveBeenCalledTimes(2)
 })
 
+test("restores an explicit native skill path when editing a message", async () => {
+  parts.push({
+    id: "skill",
+    messageID: "user",
+    sessionID: "source",
+    type: "text",
+    ignored: true,
+    text: "$research",
+    metadata: { nativeSkill: { name: "research", path: "/skills/research/SKILL.md" } },
+  })
+  const { result } = mount()
+  await ready(result)
+  await result.edit(input)
+  expect(mocks.prepare).toHaveBeenCalledOnce()
+  confirm().click()
+  expect(drafts.source).toContainEqual(
+    expect.objectContaining({ type: "skill", name: "research", path: "/skills/research/SKILL.md" }),
+  )
+  await ready(result)
+})
+
 test("rejects nonrecoverable attachments and internal question answers before preparation", async () => {
   const { result } = mount()
   await ready(result)

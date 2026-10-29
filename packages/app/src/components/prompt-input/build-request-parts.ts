@@ -116,6 +116,28 @@ export function buildRequestParts(input: BuildRequestPartsInput) {
     )
   }
 
+  requestParts.push(
+    ...input.prompt.flatMap((part) =>
+      part.type === "skill"
+        ? [
+            {
+              id: Identifier.ascending("part"),
+              type: "text" as const,
+              text: part.content,
+              ignored: true,
+              metadata: {
+                nativeSkill: {
+                  name: part.name,
+                  path: part.path,
+                  source: { value: part.content, start: part.start, end: part.end },
+                },
+              },
+            },
+          ]
+        : [],
+    ),
+  )
+
   const files = input.prompt.filter(isFileAttachment).map((attachment) => {
     const path = absolute(input.sessionDirectory, attachment.path)
     return {

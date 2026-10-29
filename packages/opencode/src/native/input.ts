@@ -6,12 +6,14 @@ import { Global } from "@/global"
 import type { MessageV2 } from "@/session/message-v2"
 import { PartID, type MessageID, type SessionID } from "@/session/schema"
 import type { Native } from "./schema"
+import { NativeSkills } from "./skills"
 
 export namespace NativeInput {
   export type Item =
     | { type: "text"; text: string; text_elements: [] }
     | { type: "image"; url: string }
     | { type: "localImage"; path: string }
+    | { type: "skill"; name: string; path: string }
 
   const limit = 20 * 1024 * 1024
   const chars = 200_000
@@ -131,6 +133,11 @@ export namespace NativeInput {
     for (const part of parts) {
       signal.throwIfAborted()
       if (part.type === "text") {
+        if (part.metadata?.nativeSkill !== undefined) {
+          const skill = NativeSkills.Selection.parse(part.metadata.nativeSkill)
+          if (!result.some((item) => item.type === "skill" && item.name === skill.name && item.path === skill.path))
+            result.push({ type: "skill", ...skill })
+        }
         if (!part.ignored && part.text) result.push(text(part.text))
         continue
       }

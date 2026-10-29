@@ -14,7 +14,7 @@ import { useLanguage } from "@/context/language"
 import { usePrompt } from "@/context/prompt"
 import { useSDK } from "@/context/sdk"
 import { useSync } from "@/context/sync"
-import { extractPromptFromParts } from "@/utils/prompt"
+import { extractPromptFromParts, skill } from "@/utils/prompt"
 import { formatServerError } from "@/utils/server-errors"
 
 export function useNativeRevert() {
@@ -152,7 +152,14 @@ export function useNativeRevert() {
     if (
       value.some((part) => part.type === "image") ||
       parts.some((part) => part.type === "text" && /^\s*<send_user_message_question_reply>/.test(part.text)) ||
-      parts.some((part) => part.type === "text" && part.text.trim() && (part.ignored || part.synthetic)) ||
+      parts.some(
+        (part) => part.type === "text" && part.text.trim() && (part.ignored || part.synthetic) && !skill(part),
+      ) ||
+      parts
+        .flatMap((part) => (skill(part) ? [skill(part)!] : []))
+        .some(
+          (item) => !value.some((part) => part.type === "skill" && part.name === item.name && part.path === item.path),
+        ) ||
       parts.filter((part) => part.type === "text" && part.text.trim() && !part.ignored && !part.synthetic).length > 1 ||
       parts.filter((part) => part.type === "file").length !==
         value.filter((part) => part.type === "file" || part.type === "image").length

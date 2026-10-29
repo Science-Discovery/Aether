@@ -185,6 +185,8 @@ function resolveReadingContextRange(input: {
 }
 
 export async function sendFollowupDraft(input: FollowupSendInput) {
+  if (!input.draft.engine && input.draft.prompt.some((part) => part.type === "skill"))
+    throw new Error("Codex skills require the Codex backend. Switch back to Codex or remove the skill before sending.")
   const text = draftText(input.draft.prompt)
   const images = draftImages(input.draft.prompt)
   const [, setStore] = input.globalSync.child(input.draft.sessionDirectory)
@@ -608,6 +610,10 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       return
     }
     const engine = selection.engine
+    if (!engine && currentPrompt.some((part) => part.type === "skill")) {
+      showToast({ title: language.t("native.skills.onlyCodex"), variant: "error" })
+      return
+    }
     if (engine && mode === "shell") return
     const variant = selection.variant
 

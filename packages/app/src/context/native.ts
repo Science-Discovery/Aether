@@ -123,6 +123,9 @@ export function createNative() {
       if (value === "codex" && !enabled()) return
       setStore("draft", value === "codex" ? { type: "codex", permission: "auto" } : undefined)
     },
+    start() {
+      setStore("draft", { type: "codex", model: model()?.id, effort: effort(), permission: permission(), mode: mode() })
+    },
     setModel(value: string) {
       // Select can repeat its controlled value when an async catalog arrives.
       if (!engine() || value === model()?.id) return

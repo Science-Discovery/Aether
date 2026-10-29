@@ -113,6 +113,17 @@ for await (const line of readline.createInterface({ input: process.stdin })) {
     })
     continue
   }
+  if (request.method === "skills/list") {
+    const skills = await Bun.file(path.join(root, "skills.json"))
+      .json()
+      .catch(() => [])
+    if (skills === "unavailable") {
+      error("Skills catalog is unavailable")
+      continue
+    }
+    reply({ data: [{ cwd: root, skills, errors: [] }] })
+    continue
+  }
   const history = await read()
   if (request.method === "thread/start") {
     const id = `thread-${Object.keys(history).length + 1}`

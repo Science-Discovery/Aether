@@ -64,6 +64,80 @@ async function empty(id: Session.Info["id"]) {
   })
 }
 
+test.each(["next", "now"])(
+  "queued native skills retain explicit selection when sent %s",
+  async (mode) => {
+    await scenario(async (session, dir) => {
+      const skill = { name: "research", path: "skill://fixture/research", description: "Research", enabled: true }
+      await Bun.write(path.join(dir, "skills.json"), JSON.stringify([skill]))
+      const parts = [
+        { type: "text", text: "$research Analyze" },
+        {
+          type: "text",
+          text: "$research",
+          ignored: true,
+          metadata: { nativeSkill: { name: skill.name, path: skill.path } },
+        },
+      ] satisfies Native.Part[]
+      const input = { sessionID: session.id, messageID: MessageID.ascending(), text: "$research Analyze", parts }
+      const work =
+        mode === "now"
+          ? SessionPrompt.prompt({ sessionID: session.id, parts: [{ type: "text", text: "wait" }] })
+          : undefined
+      try {
+        if (work) await until(async () => !!NativeSession.active(session.id)?.turnID)
+        await NativeQueue.enqueue(input)
+        await expect(
+          NativeQueue.enqueue({
+            ...input,
+            parts: [
+              parts[0],
+              { ...parts[1], metadata: { nativeSkill: { name: skill.name, path: "skill://another" } } },
+            ],
+          }),
+        ).rejects.toThrow("different input")
+        if (mode === "now") {
+          expect(
+            (
+              await NativeQueue.send({
+                sessionID: session.id,
+                messageID: input.messageID,
+                turnID: NativeSession.active(session.id)!.turnID!,
+              })
+            ).delivery.status,
+          ).toBe("accepted")
+        }
+        if (mode === "next") {
+          await NativeQueue.resume(session.id)
+          await empty(session.id)
+        }
+        const result = await Bun.file(
+          path.join(dir, mode === "now" ? `steer-${input.messageID}.json` : "turn-1.json"),
+        ).json()
+        expect((mode === "now" ? result : result.params).input).toEqual([
+          { type: "text", text: "$research Analyze", text_elements: [] },
+          { type: "skill", name: skill.name, path: skill.path },
+        ])
+        expect(NativeStore.inputs(session.id).find((entry) => entry.id === input.messageID)?.data.parts).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({
+              type: "text",
+              ignored: true,
+              metadata: expect.objectContaining({ nativeSkill: { name: skill.name, path: skill.path } }),
+            }),
+          ]),
+        )
+      } finally {
+        if (work) {
+          await SessionPrompt.cancel(session.id)
+          await work
+        }
+      }
+    })
+  },
+  30_000,
+)
+
 test("queued attachments persist complete input while status exposes only bounded summaries", async () => {
   await scenario(async (session, dir) => {
     const input = {

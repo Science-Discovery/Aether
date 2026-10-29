@@ -1996,4 +1996,13 @@ export const dict = {
   "native.usage.reset": "Resets {{time}}",
   "native.usage.resetUnknown": "Reset time unknown",
   "native.usage.updated": "Checked {{time}}",
+  "native.slash.new": "Start a new Codex conversation",
+  "native.slash.model": "Choose a Codex model",
+  "native.slash.permissions": "Change Codex permissions",
+  "native.slash.plan": "Switch between plan and execution",
+  "native.slash.status": "View context and account usage",
+  "native.slash.skills": "Browse Codex skills",
+  "native.skills.refresh": "Refresh skills",
+  "native.skills.empty": "No enabled Codex skills found",
+  "native.skills.onlyCodex": "These skills require Codex. Switch back to Codex or remove the skill before sending.",
 }

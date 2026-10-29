@@ -221,6 +221,7 @@ import type {
   NativeRuntimeResponses,
   NativeSendQueuedErrors,
   NativeSendQueuedResponses,
+  NativeSkillsResponses,
   NativeSkipQuestionErrors,
   NativeSkipQuestionResponses,
   NativeStatusResponses,
@@ -4688,6 +4689,36 @@ export class Native extends HeyApiClient {
         ...options?.headers,
         ...params.headers,
       },
+    })
+  }
+
+  /**
+   * List enabled Codex skills for this project
+   */
+  public skills<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      refresh?: boolean
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "refresh" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<NativeSkillsResponses, unknown, ThrowOnError>({
+      url: "/native/codex/skills",
+      ...options,
+      ...params,
     })
   }
 

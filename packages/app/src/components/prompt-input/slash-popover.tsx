@@ -2,6 +2,7 @@ import { Component, For, Match, Show, Switch } from "solid-js"
 import { FileIcon } from "@opencode-ai/ui/file-icon"
 import { Icon } from "@opencode-ai/ui/icon"
 import { getDirectory, getFilename } from "@opencode-ai/util/path"
+import type { NativeSkill } from "./native-slash"
 
 export type AtOption =
   | { type: "agent"; name: string; display: string }
@@ -13,8 +14,9 @@ export interface SlashCommand {
   title: string
   description?: string
   keybind?: string
-  type: "builtin" | "custom"
+  type: "builtin" | "custom" | "native" | "skill"
   source?: "command" | "mcp" | "skill"
+  skill?: NativeSkill
 }
 
 type PromptPopoverProps = {
@@ -102,6 +104,7 @@ export const PromptPopover: Component<PromptPopoverProps> = (props) => {
                 {(cmd) => (
                   <button
                     data-slash-id={cmd.id}
+                    title={cmd.description}
                     classList={{
                       "w-full flex items-center justify-between gap-4 rounded-md px-2 py-1": true,
                       "bg-surface-raised-base-hover": props.slashActive === cmd.id,
@@ -116,7 +119,7 @@ export const PromptPopover: Component<PromptPopoverProps> = (props) => {
                       </Show>
                     </div>
                     <div class="flex items-center gap-2 shrink-0">
-                      <Show when={cmd.type === "custom" && cmd.source !== "command"}>
+                      <Show when={(cmd.type === "custom" && cmd.source !== "command") || cmd.type === "skill"}>
                         <span class="text-11-regular text-text-subtle px-1.5 py-0.5 bg-surface-base rounded">
                           {cmd.source === "skill"
                             ? props.t("prompt.slash.badge.skill")

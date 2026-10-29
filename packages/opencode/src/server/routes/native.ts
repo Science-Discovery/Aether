@@ -12,6 +12,7 @@ import { NativeAnswers } from "../../native/answers"
 import { NativeQuestion } from "../../native/questions"
 import { NativeRevert } from "../../native/revert"
 import { NativeAuth } from "../../native/auth"
+import { NativeSkills } from "../../native/skills"
 import { MessageID, SessionID } from "../../session/schema"
 import { lazy } from "../../util/lazy"
 
@@ -212,6 +213,28 @@ export const NativeRoutes = lazy(() =>
           (result) => c.json(result),
           (error: unknown) => c.json({ error: error instanceof Error ? error.message : String(error) }, 409),
         ),
+    )
+    .get(
+      "/codex/skills",
+      describeRoute({
+        summary: "List enabled Codex skills for this project",
+        operationId: "native.skills",
+        responses: {
+          200: {
+            description: "Native skills without running inference",
+            content: { "application/json": { schema: resolver(NativeSkills.Status) } },
+          },
+        },
+      }),
+      validator(
+        "query",
+        z.object({
+          refresh: z
+            .preprocess((value) => (value === "true" ? true : value === "false" ? false : value), z.boolean())
+            .optional(),
+        }),
+      ),
+      async (c) => c.json(await NativeSkills.read(c.req.valid("query"))),
     )
     .get(
       "/codex/usage",

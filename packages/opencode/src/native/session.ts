@@ -11,6 +11,7 @@ import { NotFoundError } from "@/storage/db"
 import { Codex } from "./codex"
 import { NativeEvents } from "./events"
 import { NativeInput } from "./input"
+import { NativeSkills } from "./skills"
 import { Protocol } from "./protocol"
 import { NativeTree } from "./tree"
 import { NativeRuntime } from "./runtime"
@@ -271,6 +272,8 @@ export namespace NativeSession {
     // Queued research context has no assistant response to retire invalid
     // input later, so validate it before making it part of the conversation.
     if (input.noReply) {
+      if (parts.some((part) => part.type === "text" && part.metadata?.nativeSkill !== undefined))
+        throw new Error("Send Codex skills with a message, not as deferred research context.")
       const pending = NativeStore.pending(session.id).flatMap((entry) => entry.data.parts)
       // Keep one MiB for the next normal message and its protocol fields so
       // saved context cannot fill an otherwise immutable native conversation.
@@ -399,6 +402,12 @@ export namespace NativeSession {
       const native = await NativeInput.build(
         pending.flatMap((entry) => entry.data.parts),
         session.id,
+        signal,
+      )
+      await NativeSkills.validate(
+        native.filter((item) => item.type === "skill"),
+        connection.client,
+        session.directory,
         signal,
       )
       if (model.images === false && native.some((item) => item.type === "image" || item.type === "localImage"))

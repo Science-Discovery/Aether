@@ -142,6 +142,57 @@ test("the first question reverts to an empty existing thread", async () => {
   })
 })
 
+test("reverting native skill messages preserves retained skills and supports editing their explicit selection", async () => {
+  await scenario(async (session, dir) => {
+    const skill = { name: "research", path: "skill://fixture/research", description: "Research", enabled: true }
+    await Bun.write(path.join(dir, "skills.json"), JSON.stringify([skill]))
+    const parts = [
+      { type: "text" as const, text: "$research Analyze" },
+      {
+        type: "text" as const,
+        text: "$research",
+        ignored: true,
+        metadata: { nativeSkill: { name: skill.name, path: skill.path } },
+      },
+    ]
+    for (const _ of [1, 2]) {
+      const result = await SessionPrompt.prompt({ sessionID: session.id, parts })
+      expect(result.info.role === "assistant" && result.info.error).toBeFalsy()
+    }
+    const history = await NativeStore.history(session.id)
+    const selected = history.filter((entry) => entry.info.role === "user").at(-1)!
+    await send(session.id, "last")
+    const prepared = await NativeRevert.prepare({ sessionID: session.id, messageID: selected.info.id })
+    expect((await NativeRevert.commit({ sessionID: session.id, id: prepared.id })).state).toBe("applied")
+    const retained = (await NativeStore.history(session.id)).filter((entry) => entry.info.role === "user")
+    expect(retained).toHaveLength(1)
+    expect(retained[0].parts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          ignored: true,
+          metadata: expect.objectContaining({ nativeSkill: { name: skill.name, path: skill.path } }),
+        }),
+      ]),
+    )
+    const result = await SessionPrompt.prompt({
+      sessionID: session.id,
+      parts: selected.parts
+        .filter((part) => part.type === "text")
+        .map((part) => ({
+          type: "text",
+          text: part.ignored ? part.text : "$research Analyze again",
+          ignored: part.ignored,
+          metadata: part.metadata,
+        })),
+    })
+    expect(result.info.role === "assistant" && result.info.error).toBeFalsy()
+    expect((await calls(dir)).filter((entry) => entry.method === "turn/start").at(-1)!.params.input).toEqual([
+      { type: "text", text: "$research Analyze again", text_elements: [] },
+      { type: "skill", name: skill.name, path: skill.path },
+    ])
+  })
+}, 30_000)
+
 test.each(["failed", "rejected"])(
   "confirmed %s inputs do not permanently block later edits",
   async (kind) => {

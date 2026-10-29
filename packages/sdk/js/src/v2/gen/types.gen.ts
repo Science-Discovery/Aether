@@ -2503,6 +2503,18 @@ export type NativePendingQuestions = Array<{
   question: NativeQuestion
 }>
 
+export type NativeCodexSkills = {
+  state: "ready" | "unavailable" | "disabled"
+  skills: Array<{
+    name: string
+    path: string
+    description: string
+    displayName?: string
+  }>
+  errors: Array<string>
+  error?: string
+}
+
 export type NativeUsageStatus = {
   enabled: boolean
   state: "available" | "unavailable" | "disabled"
@@ -6733,6 +6745,26 @@ export type NativeSkipQuestionResponses = {
 }
 
 export type NativeSkipQuestionResponse = NativeSkipQuestionResponses[keyof NativeSkipQuestionResponses]
+
+export type NativeSkillsData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+    refresh?: boolean
+  }
+  url: "/native/codex/skills"
+}
+
+export type NativeSkillsResponses = {
+  /**
+   * Native skills without running inference
+   */
+  200: NativeCodexSkills
+}
+
+export type NativeSkillsResponse = NativeSkillsResponses[keyof NativeSkillsResponses]
 
 export type NativeUsageData = {
   body?: never

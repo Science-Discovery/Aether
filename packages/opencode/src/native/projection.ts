@@ -200,6 +200,16 @@ export function project(snapshot: NativeHistory.Snapshot, opts: Options) {
             texts.push(value.text)
             continue
           }
+          if (value.type === "skill" && typeof value.name === "string" && typeof value.path === "string") {
+            parts.push({
+              ...part,
+              type: "text",
+              text: `$${value.name}`,
+              ignored: true,
+              metadata: { native: identity, nativeSkill: { name: value.name, path: value.path } },
+            })
+            continue
+          }
           const url =
             value.type === "localImage" && typeof value.path === "string"
               ? path.isAbsolute(value.path)

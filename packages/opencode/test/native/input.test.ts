@@ -12,6 +12,27 @@ const base = () => ({ sessionID: session, messageID: MessageID.ascending(), id: 
 const signal = () => new AbortController().signal
 
 describe("native input", () => {
+  test("native skills survive ignored metadata carriers and deduplicate exact identities", async () => {
+    const metadata = {
+      nativeSkill: { name: "research", path: "skill://one", source: { value: "$research", start: 0, end: 9 } },
+    }
+    const part = { ...base(), type: "text" as const, text: "$research", ignored: true, metadata }
+    const result = await NativeInput.build(
+      [{ ...base(), type: "text", text: "$research Explain" }, part, { ...part, id: PartID.ascending() }],
+      session,
+      signal(),
+    )
+    expect(result).toEqual([
+      { type: "text", text: "$research Explain", text_elements: [] },
+      { type: "skill", name: "research", path: "skill://one" },
+    ])
+    expect(NativeInput.key([part])).not.toBe(
+      NativeInput.key([{ ...part, metadata: { nativeSkill: { name: "research", path: "skill://two" } } }]),
+    )
+    await expect(
+      NativeInput.build([{ ...part, metadata: { nativeSkill: { name: "research" } } }], session, signal()),
+    ).rejects.toThrow()
+  })
   test("queued inputs require content and compare complete attachment and citation content", () => {
     const input = { sessionID: session, messageID: MessageID.ascending(), text: "summary" }
     const parts = NativeInput.parts({

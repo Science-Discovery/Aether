@@ -9,6 +9,7 @@ import { NativeStore } from "./store"
 import { Protocol } from "./protocol"
 import { NativeDisplay } from "./display"
 import { NativeInput } from "./input"
+import { NativeSkills } from "./skills"
 
 export namespace NativeInteraction {
   const receipt = z.object({ turn: z.string(), thread: z.string(), parent: z.string(), error: z.string().optional() })
@@ -152,6 +153,12 @@ export namespace NativeInteraction {
         clientUserMessageId: input.messageID,
         input: await NativeInput.build(parts, input.sessionID, run.signal),
       }
+      await NativeSkills.validate(
+        payload.input.filter((item) => item.type === "skill"),
+        run.client,
+        session.directory,
+        run.signal,
+      )
       Protocol.check("turn/steer", payload)
       if (!valid()) return result("rejected", "The expected Codex turn ended before the input was sent.")
       const user: MessageV2.User = {

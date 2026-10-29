@@ -1915,4 +1915,13 @@ export const dict = {
   "native.usage.reset": "重置时间 {{time}}",
   "native.usage.resetUnknown": "重置时间未知",
   "native.usage.updated": "查询时间 {{time}}",
+  "native.slash.new": "新建 Codex 对话",
+  "native.slash.model": "选择 Codex 模型",
+  "native.slash.permissions": "设置 Codex 权限",
+  "native.slash.plan": "切换计划与执行模式",
+  "native.slash.status": "查看上下文和账户额度",
+  "native.slash.skills": "浏览 Codex 技能",
+  "native.skills.refresh": "刷新技能",
+  "native.skills.empty": "未找到已启用的 Codex 技能",
+  "native.skills.onlyCodex": "这些技能需要 Codex 后端。请切回 Codex，或移除技能后再发送。",
 } satisfies Partial<Record<Keys, string>>

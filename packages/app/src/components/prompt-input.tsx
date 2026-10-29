@@ -17,6 +17,7 @@ import {
   ImageAttachmentPart,
   AgentPart,
   FileAttachmentPart,
+  SkillPart,
 } from "@/context/prompt"
 import { useLayout } from "@/context/layout"
 import { useSDK } from "@/context/sdk"
@@ -76,6 +77,8 @@ import { VariantSelect } from "./prompt-input/variant-select"
 import { EngineSelect, NativeModels } from "./native-controls"
 import { createNativeRun } from "@/context/native-run"
 import { NativeRunPanel } from "./native-run"
+import { createNativeSkills } from "@/context/native-skills"
+import { nativeSlash, NativeChoice, NativeSkills, type NativeSkill } from "./prompt-input/native-slash"
 
 interface PromptInputProps {
   blocked?: boolean
@@ -357,7 +360,6 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
   createEffect(() => {
     if (!local.native.engine()) return
     if (store.mode === "shell") setStore("mode", "normal")
-    if (store.popover === "slash") setStore("popover", null)
   })
 
   const buttonsSpring = useSpring(() => (store.mode === "normal" ? 1 : 0), { visualDuration: 0.2, bounce: 0 })
@@ -716,8 +718,23 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     onSelect: handleAtSelect,
   })
 
+  const catalog = createNativeSkills({
+    key: () =>
+      local.native.engine()
+        ? `${sdk.url}\n${sdk.directory}\n${local.native.status()?.path ?? ""}\n${local.native.enabled()}`
+        : "",
+    active: () => !!local.native.engine() && store.popover === "slash",
+    read: (refresh) => sdk.client.native.skills({ refresh }, { throwOnError: true }).then((result) => result.data),
+  })
   const slashCommands = createMemo<SlashCommand[]>(() => {
-    if (local.native.engine()) return []
+    if (local.native.engine())
+      return nativeSlash({
+        session: params.id,
+        enabled: local.native.enabled(),
+        plan: !!local.native.status()?.capabilities?.plan || local.native.mode() === "plan",
+        skills: catalog.data()?.skills ?? [],
+        t: language.t,
+      })
     const builtin = command.options
       .filter((opt) => !opt.disabled && !opt.id.startsWith("suggested.") && opt.slash)
       .map((opt) => ({
@@ -741,10 +758,63 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     return [...custom, ...builtin]
   })
 
+  const selectSkill = (skill: NativeSkill) => {
+    if (!local.native.engine()) return
+    const content = `$${skill.name}`
+    const parts: Prompt = [
+      { type: "skill", name: skill.name, path: skill.path, content, start: 0, end: content.length },
+      { type: "text", content: " ", start: content.length, end: content.length + 1 },
+      ...imageAttachments(),
+    ]
+    closePopover()
+    prompt.set(parts, content.length + 1)
+    renderEditor(parts)
+    focusEditorEnd()
+  }
   const handleSlashSelect = (cmd: SlashCommand | undefined) => {
     if (!cmd) return
     promptProbe.select(cmd.id)
     closePopover()
+
+    if (cmd.type === "skill" && cmd.skill) {
+      selectSkill(cmd.skill)
+      return
+    }
+    if (cmd.type === "native") {
+      const scope = `${sdk.url}\n${sdk.directory}\n${params.id ?? ""}`
+      clearEditor()
+      prompt.set([{ type: "text", content: "", start: 0, end: 0 }, ...imageAttachments()], 0)
+      if (cmd.trigger === "new") {
+        local.native.start()
+        command.trigger("session.new", "slash")
+      }
+      if (cmd.trigger === "model" || cmd.trigger === "permissions" || cmd.trigger === "plan") {
+        const kind = cmd.trigger
+        dialog.show(() => (
+          <NativeChoice
+            kind={kind}
+            valid={() => !!local.native.engine() && scope === `${sdk.url}\n${sdk.directory}\n${params.id ?? ""}`}
+          />
+        ))
+      }
+      if (cmd.trigger === "status") {
+        if (!view().reviewPanel.opened()) view().reviewPanel.open()
+        layout.fileTree.setTab("all")
+        tabs().open("context")
+        tabs().setActive("context")
+      }
+      if (cmd.trigger === "skills")
+        dialog.show(() => (
+          <NativeSkills
+            catalog={catalog}
+            onSelect={(skill) => {
+              if (scope !== `${sdk.url}\n${sdk.directory}\n${params.id ?? ""}`) return
+              selectSkill(skill)
+            }}
+          />
+        ))
+      return
+    }
 
     if (cmd.type === "custom") {
       const text = `/${cmd.trigger} `
@@ -772,12 +842,13 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     onSelect: handleSlashSelect,
   })
 
-  const createPill = (part: FileAttachmentPart | AgentPart) => {
+  const createPill = (part: FileAttachmentPart | AgentPart | SkillPart) => {
     const pill = document.createElement("span")
     pill.textContent = part.content
     pill.setAttribute("data-type", part.type)
-    if (part.type === "file") pill.setAttribute("data-path", part.path)
-    if (part.type === "agent") pill.setAttribute("data-name", part.name)
+    if (part.type === "file" || part.type === "skill") pill.setAttribute("data-path", part.path)
+    if (part.type === "agent" || part.type === "skill") pill.setAttribute("data-name", part.name)
+    if (part.type === "skill") pill.title = part.path
     pill.setAttribute("contenteditable", "false")
     pill.style.userSelect = "text"
     pill.style.cursor = "default"
@@ -800,6 +871,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
       const el = node as HTMLElement
       if (el.dataset.type === "file") return true
       if (el.dataset.type === "agent") return true
+      if (el.dataset.type === "skill") return true
       return el.tagName === "BR"
     })
 
@@ -810,7 +882,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
         editorRef.appendChild(createTextFragment(part.content))
         continue
       }
-      if (part.type === "file" || part.type === "agent") {
+      if (part.type === "file" || part.type === "agent" || part.type === "skill") {
         editorRef.appendChild(createPill(part))
       }
     }
@@ -947,6 +1019,20 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
         pushAgent(el)
         return
       }
+      if (el.dataset.type === "skill") {
+        flushText()
+        const content = el.textContent ?? ""
+        parts.push({
+          type: "skill",
+          name: el.dataset.name!,
+          path: el.dataset.path!,
+          content,
+          start: position,
+          end: position + content.length,
+        })
+        position += content.length
+        return
+      }
       if (el.tagName === "BR") {
         buffer += "\n"
         return
@@ -1036,7 +1122,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     const range = selection.getRangeAt(0)
     if (!editorRef.contains(range.startContainer)) return false
 
-    if (part.type === "file" || part.type === "agent") {
+    if (part.type === "file" || part.type === "agent" || part.type === "skill") {
       const cursorPosition = getCursorPosition(editorRef)
       const rawText = prompt
         .current()
@@ -1524,6 +1610,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                 "w-full pl-3 pr-2 pt-2 text-14-regular text-text-strong focus:outline-none whitespace-pre-wrap": true,
                 "[&_[data-type=file]]:text-syntax-property": true,
                 "[&_[data-type=agent]]:text-syntax-type": true,
+                "[&_[data-type=skill]]:text-syntax-type": true,
                 "font-mono!": store.mode === "shell",
               }}
               style={{ "padding-bottom": space }}

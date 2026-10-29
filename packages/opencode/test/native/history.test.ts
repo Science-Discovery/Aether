@@ -43,6 +43,22 @@ const page = (data: unknown[], nextCursor: string | null = null, cursor?: string
   result: { data, nextCursor },
 })
 
+test("native skill input remains structured through history projection without duplicating visible text", () => {
+  const value = turn()
+  value.items[0].content = [
+    { type: "text", text: "$research Explain" },
+    { type: "skill", name: "research", path: "skill://one" },
+  ]
+  const result = NativeHistory.project(snapshot([value]), opts)
+  expect(result.complete).toBe(true)
+  const parts = result.messages[0].parts.filter((part) => part.type === "text")
+  expect(parts.filter((part) => !part.ignored).map((part) => part.text)).toEqual(["$research Explain"])
+  expect(parts.find((part) => part.metadata?.nativeSkill)).toMatchObject({
+    ignored: true,
+    metadata: { nativeSkill: { name: "research", path: "skill://one" } },
+  })
+})
+
 test("history projects async questions and exact Desktop answers from a later completed turn", () => {
   const item = {
     id: "call_question",

@@ -52,6 +52,14 @@ for await (const text of line) {
     })
     continue
   }
+  if (request.method === "skills/list") {
+    reply({
+      data: [
+        { cwd: process.cwd(), skills: await Bun.file(path.join(process.cwd(), "skills.json")).json(), errors: [] },
+      ],
+    })
+    continue
+  }
   if (request.method === "thread/loaded/list") {
     reply({ data: ["queue-thread"], nextCursor: null })
     continue
