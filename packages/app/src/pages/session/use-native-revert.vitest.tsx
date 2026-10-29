@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest"
 import { createRoot, createSignal, type JSX } from "solid-js"
+import { createStore, produce } from "solid-js/store"
 import { render } from "solid-js/web"
 import type { Message, Part, Session } from "@opencode-ai/sdk/v2"
 import type { Prompt } from "@/context/prompt"
@@ -302,6 +303,31 @@ test("recovers a pending revert after reload using the same operation id without
   expect(mocks.prepare).not.toHaveBeenCalled()
   expect(mocks.set).not.toHaveBeenCalled()
   expect(drafts.source).toEqual(text("Restored draft"))
+})
+
+test("unlocks an applied revert after history replaces the session with equivalent data", async () => {
+  const [store, set] = createStore({ session: sessions })
+  sessions = store.session
+  drafts.source = text("Restored draft")
+  mocks.status.mockResolvedValue({ data: applied })
+  mocks.sync.mockImplementation(async () => {
+    // Bound the regression loop while preserving the real sync.session.sync replacement.
+    if (mocks.sync.mock.calls.length > 3) return
+    set(
+      "session",
+      produce((items) => {
+        items[0] = { ...items[0], engine: { ...items[0].engine! }, time: { ...items[0].time } }
+      }),
+    )
+  })
+
+  const current = mount()
+  await ready(current.result)
+  expect(mocks.status).toHaveBeenCalledExactlyOnceWith({ sessionID: "source" }, { throwOnError: true })
+  expect(mocks.sync).toHaveBeenCalledExactlyOnceWith("source", { force: true })
+  expect(current.result.notice()).toBe(false)
+  expect(drafts.source).toEqual(text("Restored draft"))
+  expect(mocks.revert).not.toHaveBeenCalled()
 })
 
 test("keeps the draft on a definite rejection and unlocks when the server confirms no pending revert", async () => {

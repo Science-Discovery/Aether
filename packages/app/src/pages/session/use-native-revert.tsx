@@ -1,4 +1,4 @@
-import { createEffect, on, onCleanup, Show } from "solid-js"
+import { createEffect, createMemo, on, onCleanup, Show } from "solid-js"
 import { createStore } from "solid-js/store"
 import { useParams } from "@solidjs/router"
 import { base64Encode } from "@opencode-ai/util/encode"
@@ -40,8 +40,10 @@ export function useNativeRevert() {
   let disposed = false
   const seen = new Map<string, string>()
   const source = () => sync.data.session.find((item) => item.id === params.id)
-  const enabled = () => source()?.engine?.type === "codex"
-  const key = () => `${sdk.url}\n${sdk.directory}\n${params.id ?? ""}\n${source()?.engine?.thread ?? ""}`
+  const enabled = createMemo(() => source()?.engine?.type === "codex")
+  // History refresh replaces the session object. Only a changed identity should
+  // restart recovery, or an applied revert will keep refreshing itself.
+  const key = createMemo(() => `${sdk.url}\n${sdk.directory}\n${params.id ?? ""}\n${source()?.engine?.thread ?? ""}`)
   const valid = (stamp: number, scope: string) => !disposed && epoch === stamp && scope === key()
   const blocked = () =>
     enabled() &&
