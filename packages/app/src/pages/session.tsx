@@ -705,7 +705,7 @@ function SessionPageContent(props: SessionPageProps = {}) {
         version={quickReadingController.version()}
         onVersionChange={quickReadingController.latex.displayed}
         header={
-          <Show when={quickReadingController.compiled()}>
+          <Show when={quickReadingController.compiled() && !desktopReviewOpen()}>
             <LatexReadingToolbar reading={quickReadingController.latex} download={quickReadingController.download} />
           </Show>
         }
@@ -2617,6 +2617,11 @@ function SessionPageContent(props: SessionPageProps = {}) {
 
         <SessionSidePanel
           style={{ order: "2" }}
+          header={
+            <Show when={quickReadingController.compiled() && desktopReviewOpen()}>
+              <LatexReadingToolbar reading={quickReadingController.latex} download={quickReadingController.download} />
+            </Show>
+          }
           widthOverride={effectiveSidePanelWidth()}
           reviewOpenOverride={readingModeActive() ? desktopReviewOpen() : undefined}
           fileOpenOverride={readingModeActive() ? desktopFileTreeOpen() : undefined}

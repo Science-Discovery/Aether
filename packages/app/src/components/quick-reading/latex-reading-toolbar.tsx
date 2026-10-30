@@ -14,10 +14,10 @@ export function LatexReadingToolbar(props: {
       class="flex flex-col gap-1 border-b border-border-base px-3 py-2 text-12-regular"
       data-component="latex-reading-toolbar"
     >
-      <div class="flex items-center gap-2">
+      <div class="flex flex-wrap items-center gap-2">
         <span class="shrink-0">{language.t("latex.preview")}</span>
         <select
-          class="min-w-0 flex-1 rounded border border-border-base bg-surface-base px-2 py-1"
+          class="min-w-0 max-w-full flex-1 basis-40 rounded border border-border-base bg-surface-base px-2 py-1"
           aria-label={language.t("latex.preview.versions")}
           value={props.reading.state.selected}
           onChange={(event) => props.reading.select(event.currentTarget.value)}

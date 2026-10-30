@@ -61,6 +61,7 @@ import type { FileNode } from "@opencode-ai/sdk/v2"
 
 export function SessionSidePanel(props: {
   style?: JSX.CSSProperties
+  header?: JSX.Element
   widthOverride?: number
   reviewOpenOverride?: boolean
   fileOpenOverride?: boolean
@@ -953,13 +954,14 @@ export function SessionSidePanel(props: {
           <div
             aria-hidden={!reviewOpen()}
             inert={!reviewOpen()}
-            class="relative min-w-0 h-full flex-1 overflow-hidden bg-background-base"
+            class="relative min-w-0 h-full flex flex-col flex-1 overflow-hidden bg-background-base"
             classList={{
               "pointer-events-none": !reviewOpen(),
             }}
             style={{ "min-width": reviewOpen() ? "107px" : undefined }}
           >
-            <div class="size-full min-w-0 h-full bg-background-base">
+            <div class="shrink-0">{props.header}</div>
+            <div class="min-h-0 min-w-0 flex-1 bg-background-base">
               <Tabs value={activeTab()} onChange={openTab}>
                 <Show when={reviewTab()}>
                   <Tabs.Content value="review" class="flex flex-col h-full overflow-hidden contain-strict">
