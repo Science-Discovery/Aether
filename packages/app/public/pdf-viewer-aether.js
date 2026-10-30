@@ -47,6 +47,16 @@
   let annotations = []
   let annotationEditor = null
   let annotationUndo = null
+  const labels = {
+    toolbar: "PDF selection tools",
+    copy: "Copy",
+    translate: "Translate",
+    ask: "Ask AI",
+    highlight: "Highlight",
+    underline: "Underline",
+    strikeout: "Strikethrough",
+    note: "Add note",
+  }
   const annotationColors = {
     yellow: "#f6cf35",
     red: "#ef5350",
@@ -364,6 +374,12 @@
       mode,
       viewTheme,
       layoutSwapped: !!input?.layoutSwapped,
+      labels: Object.fromEntries(
+        Object.entries(labels).map(([key, fallback]) => [
+          key,
+          typeof input?.labels?.[key] === "string" && input.labels[key].trim() ? input.labels[key] : fallback,
+        ]),
+      ),
       page:
         typeof input?.page === "number" && Number.isFinite(input.page) && input.page > 0 ? Math.round(input.page) : 1,
       location: typeof input?.location === "string" && input.location ? input.location : undefined,
@@ -403,21 +419,47 @@
       selectionMenu = document.createElement("div")
       selectionMenu.id = "aetherSelectionMenu"
       selectionMenu.hidden = true
+      selectionMenu.setAttribute("role", "group")
       ;[
-        { action: "copy", label: "Copy" },
-        { action: "translate", label: "Translate" },
-        { action: "ask", label: "Ask" },
-        { action: "highlight", label: "Highlight", annotation: true },
-        { action: "underline", label: "Underline", annotation: true },
-        { action: "strikeout", label: "Strike", annotation: true },
-        { action: "note", label: "Note", annotation: true },
+        { action: "copy", path: "M8 8h12v12H8zM15 8V3H3v12h5" },
+        { action: "translate", separator: true },
+        { action: "ask" },
+        {
+          action: "highlight",
+          path: "m9 11 6 6M21 6l-3-3-9 9v3l3 3h3zM9 15l-4 4v2h6l4-4M3 21h4",
+          annotation: true,
+          separator: true,
+        },
+        { action: "underline", path: "M6 3v8a6 6 0 0 0 12 0V3M4 21h16", annotation: true },
+        {
+          action: "strikeout",
+          path: "M17 5a7 7 0 0 0-5-2C5 3 5 10 12 10M12 14c7 0 7 7 0 7a8 8 0 0 1-5-2M3 12h18",
+          annotation: true,
+        },
+        { action: "note", path: "M4 4h16v12H9l-5 4zM8 8h8M8 12h5", annotation: true },
       ].forEach(function (item) {
+        if (item.separator) {
+          const separator = document.createElement("span")
+          separator.className = "aetherSelectionMenuSeparator"
+          separator.setAttribute("aria-hidden", "true")
+          if (item.annotation) separator.dataset.annotation = "true"
+          selectionMenu.appendChild(separator)
+        }
         const button = document.createElement("button")
         button.type = "button"
         button.className = "aetherSelectionMenuButton"
         button.dataset.action = item.action
         if (item.annotation) button.dataset.annotation = "true"
-        button.textContent = item.label
+        if (item.path) {
+          const icon = svg("svg")
+          icon.setAttribute("viewBox", "0 0 24 24")
+          icon.setAttribute("aria-hidden", "true")
+          icon.setAttribute("focusable", "false")
+          const path = svg("path")
+          path.setAttribute("d", item.path)
+          icon.appendChild(path)
+          button.appendChild(icon)
+        }
         button.addEventListener("mousedown", function (event) {
           event.preventDefault()
         })
@@ -430,6 +472,7 @@
 
       document.body.appendChild(selectionMenu)
     }
+    localize()
 
     if (!selectionHint) {
       selectionHint = document.createElement("div")
@@ -437,6 +480,19 @@
       selectionHint.hidden = true
       document.body.appendChild(selectionHint)
     }
+  }
+
+  function localize() {
+    if (!selectionMenu) return
+    const text = currentConfig?.labels || labels
+    selectionMenu.setAttribute("aria-label", text.toolbar)
+    selectionMenu.querySelectorAll("button[data-action]").forEach(function (button) {
+      const action = button.dataset.action
+      button.title = text[action]
+      button.setAttribute("aria-label", text[action])
+      if (action === "translate" || action === "ask") button.textContent = text[action]
+    })
+    if (!selectionMenu.hidden && selectionState?.rect) positionSelectionMenu(selectionState.rect)
   }
 
   function ensureCaptureUi() {
@@ -1269,21 +1325,23 @@
       page: drag.page,
       imageDataUrl: cropped.imageDataUrl,
       imageBlob: cropped.blob,
+      rect: {
+        top: rect.top,
+        left: rect.left,
+        width: rect.right - rect.left,
+        height: rect.bottom - rect.top,
+      },
     }
     selectionMenu.querySelectorAll("[data-annotation]").forEach(function (button) {
       button.hidden = true
     })
     selectionMenu.hidden = false
-    positionSelectionMenu({
-      top: rect.top,
-      left: rect.left,
-      width: rect.right - rect.left,
-      height: rect.bottom - rect.top,
-    })
+    positionSelectionMenu(selectionState.rect)
     setCaptureMode(false)
   }
 
   function applyChrome(config) {
+    localize()
     document.body.dataset.mode = config.mode
     document.body.dataset.viewTheme = config.viewTheme
     document.body.dataset.layoutSwapped = config.layoutSwapped ? "on" : "off"

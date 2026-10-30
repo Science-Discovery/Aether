@@ -340,10 +340,11 @@ body.aether-pdf-viewer #aetherSelectionMenu {
   z-index: 1200;
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 2px;
+  box-sizing: border-box;
   max-width: calc(100vw - 24px);
   flex-wrap: wrap;
-  padding: 6px;
+  padding: 4px;
   border: 1px solid var(--border-base);
   border-radius: 10px;
   background: color-mix(in srgb, var(--surface-raised-stronger-non-alpha) 94%, transparent);
@@ -371,16 +372,45 @@ body.aether-pdf-viewer #aetherSelectionHint {
 
 body.aether-pdf-viewer .aetherSelectionMenuButton {
   appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  min-width: 32px;
+  height: 32px;
   border: 0;
-  border-radius: 8px;
+  border-radius: 6px;
   background: transparent;
   color: var(--text-strong);
   font: inherit;
   font-size: 12px;
   font-weight: 600;
   line-height: 1;
-  padding: 7px 10px;
+  padding: 0 8px;
+  white-space: nowrap;
   cursor: pointer;
+}
+
+body.aether-pdf-viewer .aetherSelectionMenuButton:has(svg) {
+  width: 32px;
+  padding: 0;
+}
+
+body.aether-pdf-viewer .aetherSelectionMenuButton svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+body.aether-pdf-viewer .aetherSelectionMenuSeparator {
+  width: 1px;
+  height: 16px;
+  margin: 0 3px;
+  background: var(--border-base);
 }
 
 body.aether-pdf-viewer .aetherSelectionMenuButton:hover,

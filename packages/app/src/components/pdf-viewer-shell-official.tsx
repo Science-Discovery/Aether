@@ -2,6 +2,7 @@ import { type Component, createEffect, createMemo, createSignal, onCleanup } fro
 import { href } from "@/base-path"
 import { useSDK } from "@/context/sdk"
 import { usePlatform } from "@/context/platform"
+import { useLanguage } from "@/context/language"
 import { showToast } from "@opencode-ai/ui/toast"
 import "./pdf-viewer-shell.css"
 
@@ -139,6 +140,7 @@ type ViewerMessage =
 export const PdfViewerShell: Component<PdfViewerShellProps> = (props) => {
   const sdk = useSDK()
   const platform = usePlatform()
+  const language = useLanguage()
   const channel = crypto.randomUUID()
   bindViewThemeSync()
   let iframeRef: HTMLIFrameElement | undefined
@@ -169,6 +171,16 @@ export const PdfViewerShell: Component<PdfViewerShellProps> = (props) => {
     mode: props.mode,
     viewTheme: props.viewTheme ?? viewTheme(),
     layoutSwapped: !!props.layoutSwapped,
+    labels: {
+      toolbar: language.t("pdf.selection.toolbar"),
+      copy: language.t("pdf.selection.copy"),
+      translate: language.t("pdf.selection.translate"),
+      ask: language.t("pdf.selection.ask"),
+      highlight: language.t("pdf.selection.highlight"),
+      underline: language.t("pdf.selection.underline"),
+      strikeout: language.t("pdf.selection.strikeout"),
+      note: language.t("pdf.selection.note"),
+    },
     features: {
       pdf2md: !!props.onPdfToMarkdown,
       readingMode: !!props.onOpenReadingMode,

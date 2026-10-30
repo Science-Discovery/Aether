@@ -1777,6 +1777,15 @@ export const dict = {
   "reading.toolbar.nightMode": "Night mode",
   "reading.toolbar.continuousMode": "Continuous reading",
 
+  "pdf.selection.toolbar": "PDF selection tools",
+  "pdf.selection.copy": "Copy",
+  "pdf.selection.translate": "Translate",
+  "pdf.selection.ask": "Ask AI",
+  "pdf.selection.highlight": "Highlight",
+  "pdf.selection.underline": "Underline",
+  "pdf.selection.strikeout": "Strikethrough",
+  "pdf.selection.note": "Add note",
+
   "memory.search.failed": "Memory search failed",
   "memory.reflect.finished": "Memory reflection finished",
   "memory.init.start": "Memory initialization started",

@@ -1718,6 +1718,15 @@ export const dict = {
   "reading.toolbar.nightMode": "夜览模式",
   "reading.toolbar.continuousMode": "连续阅读",
 
+  "pdf.selection.toolbar": "PDF 选区工具",
+  "pdf.selection.copy": "复制",
+  "pdf.selection.translate": "翻译",
+  "pdf.selection.ask": "问 AI",
+  "pdf.selection.highlight": "高亮",
+  "pdf.selection.underline": "下划线",
+  "pdf.selection.strikeout": "删除线",
+  "pdf.selection.note": "添加批注",
+
   "memory.search.failed": "记忆搜索失败",
   "memory.reflect.finished": "记忆反思完成",
   "memory.init.start": "记忆初始化已开始",
