@@ -218,7 +218,17 @@ export namespace Latex {
       let directory = path.dirname(full)
       while (LatexProject.contains(base.workspace, directory)) {
         const root = await LatexProject.root(directory)
-        if (await binding(root)) return view(root, current, input.path)
+        const saved = await binding(root)
+        if (saved) {
+          // A moved main must not claim new projects below its old folder.
+          // Keep a local binding so its revision/history remain repairable.
+          if (directory === path.dirname(full)) return view(root, current, input.path)
+          const main = await fs.stat(path.join(root.path, saved.binding.main)).catch((cause: NodeJS.ErrnoException) => {
+            if (cause.code === "ENOENT" || cause.code === "ENOTDIR") return
+            throw cause
+          })
+          if (main?.isFile()) return view(root, current, input.path)
+        }
         if (directory === base.workspace) break
         directory = path.dirname(directory)
       }
@@ -236,6 +246,9 @@ export namespace Latex {
       directory = path.dirname(full)
       while (LatexProject.contains(base.workspace, directory)) {
         const root = await LatexProject.root(directory)
+        // Without a closer main, retain the stale binding for explicit repair
+        // rather than losing the expectedRevision needed to replace it.
+        if (await binding(root)) return view(root, current, input.path)
         const candidates = await LatexProject.candidates(root, true)
         if (candidates.length)
           return {

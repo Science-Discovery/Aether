@@ -8,6 +8,56 @@ import { Latex } from "../../src/latex"
 import { tmpdir } from "../fixture/fixture"
 
 describe("LaTeX saved project", () => {
+  test("moving a main into a child project skips the stale ancestor but preserves its binding for repair", async () => {
+    await using dir = await tmpdir()
+    await Bun.write(path.join(dir.path, "test.tex"), "\\documentclass{article}")
+    await fs.mkdir(path.join(dir.path, "test-tex"))
+    await Instance.provide({
+      directory: dir.path,
+      fn: async () => {
+        const bound = await Latex.bind({ root: ".", main: "test.tex", driver: "auto", program: "auto" })
+        await fs.rename(path.join(dir.path, "test.tex"), path.join(dir.path, "test-tex", "test.tex"))
+        const found = await Latex.inspect({ path: "test-tex/test.tex" })
+        expect(found.root).toBe("test-tex")
+        expect(found.main).toBe("test.tex")
+        expect(found.reason).toBe("single")
+        expect(found.binding).toBeUndefined()
+        expect((await Latex.inspect({ root: "." })).binding).toEqual(bound.binding)
+        const child = await Latex.bind({ root: found.root, main: found.main!, driver: "auto", program: "auto" })
+        expect((await Latex.inspect({ path: "test-tex/test.tex" })).binding).toEqual(child.binding)
+
+        await Bun.write(path.join(dir.path, "replacement.tex"), "\\documentclass{book}")
+        await Bun.write(path.join(dir.path, "sections", "part.tex"), "Chapter")
+        const local = await Latex.inspect({ path: "replacement.tex" })
+        expect(local.binding).toEqual(bound.binding)
+        expect((await Latex.inspect({ path: "sections/part.tex" })).binding).toEqual(bound.binding)
+        const repaired = await Latex.bind({
+          root: ".",
+          main: "replacement.tex",
+          driver: "auto",
+          program: "auto",
+          expectedRevision: local.binding?.revision,
+        })
+        expect(repaired.binding?.main).toBe("replacement.tex")
+        await Instance.dispose()
+      },
+    })
+  })
+
+  test("an existing ancestor main retains precedence over unbound child candidates", async () => {
+    await using dir = await tmpdir()
+    await Bun.write(path.join(dir.path, "main.tex"), "\\documentclass{article}")
+    await Bun.write(path.join(dir.path, "child", "main.tex"), "\\documentclass{book}")
+    await Instance.provide({
+      directory: dir.path,
+      fn: async () => {
+        const bound = await Latex.bind({ root: ".", main: "main.tex", driver: "auto", program: "auto" })
+        expect((await Latex.inspect({ path: "child/main.tex" })).binding).toEqual(bound.binding)
+        await Instance.dispose()
+      },
+    })
+  })
+
   test("discovers nearby mains without scanning unrelated workspace files", async () => {
     await using dir = await tmpdir()
     await Bun.write(path.join(dir.path, "paper", "main.tex"), "\\documentclass{article}")
