@@ -159,7 +159,7 @@ export function writing(opts: WritingStyle) {
         },
         ".cm-scroller": {
           fontFamily: typography(
-            vscode && opts.typeface !== "aether"
+            opts.typeface !== "aether"
               ? 'Consolas, Menlo, Monaco, "Liberation Mono", "DejaVu Sans Mono", monospace'
               : opts.font,
           ),

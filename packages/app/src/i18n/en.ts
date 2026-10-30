@@ -1810,7 +1810,7 @@ export const dict = {
   "latex.appearance.preset.paper": "Soft writing",
   "latex.appearance.preset.vscode": "VS Code",
   "latex.appearance.typeface": "Editor font",
-  "latex.appearance.typeface.vscode": "VS Code default font",
+  "latex.appearance.typeface.vscode": "Classic monospace (Consolas / Menlo)",
   "latex.appearance.typeface.aether": "Follow Aether",
   "latex.appearance.guides": "Indent guides",
   "latex.appearance.brackets": "Bracket pair colors",
@@ -1826,7 +1826,7 @@ export const dict = {
   "latex.appearance.reset": "Restore defaults",
   "latex.appearance.font": "Uses the font selected in Appearance, with Chinese, Japanese, and Korean font fallbacks.",
   "latex.appearance.font.vscode":
-    "Uses the VS Code default monospace fonts available on your system, with sans-serif fallbacks for Chinese, Japanese, and Korean. No fonts are downloaded.",
+    "Both styles use classic editor fonts such as Consolas and Menlo, with sans-serif fallbacks for Chinese, Japanese, and Korean. No fonts are downloaded.",
   "latex.source": "Source",
   "latex.preview": "PDF preview",
   "latex.root": "Project folder",
@@ -1943,7 +1943,7 @@ export const dict = {
   "latex.help.settings":
     "Adjust editor appearance, install Tectonic, or configure the paths to installed Tectonic and latexmk executables.",
   "latex.help.appearance":
-    "Choose Soft writing or VS Code, with Follow Aether, Light, or Dark colors. Soft writing uses your Aether font. VS Code defaults to its system monospace fonts, or can follow Aether instead; switching styles preserves that choice, font size and line spacing. VS Code offers independent indent guides and bracket pair colors; both are on by default. Guides show existing indentation without reformatting the source. These local settings apply immediately without changing compilation or the PDF. Restore defaults returns to Soft writing, Follow Aether colors, 14 px and normal spacing, with the default font and both aids enabled for VS Code.",
+    "Choose Soft writing or VS Code, with Follow Aether, Light, or Dark colors. Both styles default to classic monospace fonts, or can follow Aether instead; switching styles preserves that choice, font size and line spacing. VS Code offers independent indent guides and bracket pair colors; both are on by default. Guides show existing indentation without reformatting the source. These local settings apply immediately without changing compilation or the PDF. Restore defaults returns to Soft writing, classic monospace, Follow Aether colors, 14 px and normal spacing, with both aids enabled for VS Code.",
   "latex.help.folding": "Fold source",
   "latex.help.folding.description":
     "Use the arrows beside line numbers to fold sections, environments, or bibliography entries. Folding changes only the editor view; saving and compiling still use the complete source.",

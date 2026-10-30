@@ -125,6 +125,7 @@ test("updates font size, spacing, palette, and CJK fallbacks on the current edit
     size: 18,
     spacing: "wide",
     font: 'ui-monospace, "JetBrains Mono", monospace',
+    typeface: "aether",
   })
   expect(styles(editor.view)).toContain("font-size: 18px;")
   expect(styles(editor.view)).toContain("line-height: 1.9;")
@@ -188,8 +189,9 @@ test.each([
   expect(editor.changes).toEqual([])
 })
 
-test("VS Code fonts are local and appearance-only changes retain the syntax tree", () => {
+test("classic monospace works in both styles and font changes retain the syntax tree", () => {
   const editor = mount()
+  expect(styles(editor.view)).toContain('font-family: Consolas, Menlo, Monaco, "Liberation Mono"')
   editor.set("appearance", { preset: "vscode" })
   const tree = syntaxTree(editor.view.state)
   const doc = editor.view.state.doc
@@ -204,7 +206,11 @@ test("VS Code fonts are local and appearance-only changes retain the syntax tree
   editor.set("appearance", { typeface: "vscode", guides: false, brackets: false })
   expect(syntaxTree(editor.view.state)).toBe(tree)
   editor.set("appearance", { preset: "paper" })
+  expect(styles(editor.view)).toContain('font-family: Consolas, Menlo, Monaco, "Liberation Mono"')
+  const paper = syntaxTree(editor.view.state)
+  editor.set("appearance", { typeface: "aether" })
   expect(styles(editor.view)).toContain('font-family: "Fira Code", "Microsoft YaHei"')
+  expect(syntaxTree(editor.view.state)).toBe(paper)
   expect(editor.view.state.facet(language)).not.toBe(modern)
   expect(editor.view.state.doc).toBe(doc)
   expect(editor.changes).toEqual([])

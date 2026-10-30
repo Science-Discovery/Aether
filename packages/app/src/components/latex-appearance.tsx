@@ -37,21 +37,19 @@ export function LatexAppearance() {
             triggerProps={{ "aria-label": language.t("latex.appearance.preset") }}
           />
         </Row>
-        <Show when={settings.latex.preset() === "vscode"}>
-          <Row title={language.t("latex.appearance.typeface")}>
-            <Select
-              options={["vscode", "aether"] as const}
-              current={settings.latex.typeface()}
-              label={(value) => language.t(`latex.appearance.typeface.${value}`)}
-              onSelect={(value) => value && settings.latex.setTypeface(value)}
-              variant="secondary"
-              size="small"
-              triggerVariant="settings"
-              data-action="latex-appearance-typeface"
-              triggerProps={{ "aria-label": language.t("latex.appearance.typeface") }}
-            />
-          </Row>
-        </Show>
+        <Row title={language.t("latex.appearance.typeface")}>
+          <Select
+            options={["vscode", "aether"] as const}
+            current={settings.latex.typeface()}
+            label={(value) => language.t(`latex.appearance.typeface.${value}`)}
+            onSelect={(value) => value && settings.latex.setTypeface(value)}
+            variant="secondary"
+            size="small"
+            triggerVariant="settings"
+            data-action="latex-appearance-typeface"
+            triggerProps={{ "aria-label": language.t("latex.appearance.typeface") }}
+          />
+        </Row>
         <Row title={language.t("latex.appearance.mode")}>
           <Select
             options={["auto", "light", "dark"] as const}
@@ -116,11 +114,7 @@ export function LatexAppearance() {
         </Show>
       </SettingsList>
       <p class="text-12-regular text-text-weak">
-        {language.t(
-          settings.latex.preset() === "vscode" && settings.latex.typeface() === "vscode"
-            ? "latex.appearance.font.vscode"
-            : "latex.appearance.font",
-        )}
+        {language.t(settings.latex.typeface() === "vscode" ? "latex.appearance.font.vscode" : "latex.appearance.font")}
       </p>
     </section>
   )
