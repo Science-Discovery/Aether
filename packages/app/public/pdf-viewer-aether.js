@@ -1299,6 +1299,15 @@
 
   function positionAnnotationEditor() {
     if (!annotationEditor) return
+    const note = annotationEditor.querySelector("textarea")
+    const style = getComputedStyle(note)
+    const line = Number.parseFloat(style.lineHeight) || 20
+    const padding = Number.parseFloat(style.paddingTop) + Number.parseFloat(style.paddingBottom)
+    const border = Number.parseFloat(style.borderTopWidth) + Number.parseFloat(style.borderBottomWidth)
+    const scroll = note.scrollTop
+    note.style.height = "0px"
+    note.style.height = Math.max(line * 3 + padding, Math.min(note.scrollHeight, line * 6 + padding)) + border + "px"
+    note.scrollTop = scroll
     const box = annotationEditor.getBoundingClientRect()
     const x = Number(annotationEditor.dataset.x)
     const y = Number(annotationEditor.dataset.y)
@@ -1327,19 +1336,21 @@
     editor.addEventListener("click", function (event) {
       event.stopPropagation()
     })
+    let composing = false
+    editor.addEventListener("compositionstart", () => (composing = true))
+    editor.addEventListener("compositionend", () => (composing = false))
     editor.addEventListener("keydown", function (event) {
-      if (event.key !== "Escape") return
+      if (event.key !== "Escape" || composing || event.isComposing || event.keyCode === 229) return
       event.preventDefault()
       event.stopPropagation()
       closeAnnotationEditor()
     })
 
-    const header = document.createElement("div")
-    header.className = "aetherAnnotationEditorHeader"
     const title = document.createElement("h3")
     title.id = "aetherAnnotationTitle"
+    title.className = "aetherAnnotationEditorTitle"
     title.dataset.label = draft ? "annotationAdd" : "annotationEdit"
-    header.appendChild(title)
+    editor.appendChild(title)
     const close = document.createElement("button")
     close.type = "button"
     close.className = "aetherAnnotationIcon"
@@ -1352,9 +1363,6 @@
     cross.appendChild(stroke)
     close.appendChild(cross)
     close.addEventListener("click", closeAnnotationEditor)
-    header.appendChild(close)
-    editor.appendChild(header)
-
     const controls = document.createElement("div")
     controls.className = "aetherAnnotationEditorControls"
     const type = document.createElement("select")
@@ -1377,7 +1385,7 @@
       button.type = "button"
       button.dataset.tooltip = "annotation" + value[0].toUpperCase() + value.slice(1)
       button.dataset.color = value
-      button.style.background = annotationColors[value]
+      button.style.setProperty("--annotation-color", annotationColors[value])
       button.classList.toggle("selected", item.color === value)
       button.setAttribute("aria-pressed", item.color === value ? "true" : "false")
       button.addEventListener("click", function () {
@@ -1389,11 +1397,14 @@
       palette.appendChild(button)
     })
     controls.appendChild(palette)
+    controls.appendChild(close)
     editor.appendChild(controls)
 
     const note = document.createElement("textarea")
     note.dataset.tooltip = "annotationText"
+    note.rows = 3
     note.value = item.note || ""
+    note.addEventListener("input", positionAnnotationEditor)
     editor.appendChild(note)
 
     const actions = document.createElement("div")

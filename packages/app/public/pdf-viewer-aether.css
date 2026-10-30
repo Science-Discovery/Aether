@@ -488,15 +488,15 @@ body.aether-pdf-viewer .annotationLayer .popupContent {
 
 body.aether-pdf-viewer #aetherAnnotationEditor {
   position: fixed;
-  z-index: 1250;
+  z-index: 11000;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 8px;
   box-sizing: border-box;
   width: min(300px, calc(100vw - 24px));
   max-height: calc(100vh - 24px);
   overflow: auto;
-  padding: 12px;
+  padding: 10px;
   border: 1px solid var(--border-base);
   border-radius: 12px;
   background: var(--surface-raised-stronger-non-alpha);
@@ -507,60 +507,71 @@ body.aether-pdf-viewer #aetherAnnotationEditor {
   font-size: 13px;
 }
 
-body.aether-pdf-viewer .aetherAnnotationEditorHeader,
 body.aether-pdf-viewer .aetherAnnotationEditorControls {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto 24px;
+  grid-template-areas: "type palette close";
   align-items: center;
-  justify-content: space-between;
-  gap: 10px;
+  gap: 8px;
   flex: none;
 }
 
-body.aether-pdf-viewer .aetherAnnotationEditorHeader h3 {
+body.aether-pdf-viewer .aetherAnnotationEditorTitle {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
   margin: 0;
-  font-size: 13px;
-  font-weight: 600;
 }
 
-body.aether-pdf-viewer .aetherAnnotationEditorControls {
-  flex-wrap: wrap;
+@media (width < 260px) {
+  body.aether-pdf-viewer .aetherAnnotationEditorControls {
+    grid-template-columns: minmax(0, 1fr) 24px;
+    grid-template-areas:
+      "type close"
+      "palette palette";
+  }
 }
 
 body.aether-pdf-viewer #aetherAnnotationEditor select,
 body.aether-pdf-viewer #aetherAnnotationEditor textarea {
   box-sizing: border-box;
   width: 100%;
-  border: 1px solid var(--border-base);
+  border: 1px solid var(--border-weak-base, var(--border-base));
   border-radius: 8px;
   background: var(--input-base);
   color: var(--text-strong);
   font: inherit;
-  padding: 8px;
+  padding: 6px 8px;
 }
 
 body.aether-pdf-viewer #aetherAnnotationEditor select {
-  flex: 1;
-  width: auto;
-  max-width: 140px;
+  grid-area: type;
   min-width: 0;
-  height: 30px;
+  height: 28px;
   padding: 4px 6px;
   font-size: 12px;
 }
 
 body.aether-pdf-viewer #aetherAnnotationEditor textarea {
-  min-height: 72px;
-  height: 136px;
-  flex: 0 1 136px;
+  min-height: 34px;
+  flex: 0 1 auto;
   resize: none;
   overflow: auto;
   font-size: 13px;
-  line-height: 1.6;
+  line-height: 20px;
 }
 
 body.aether-pdf-viewer #aetherAnnotationEditor :is(select, textarea, button):focus-visible {
   outline: 2px solid var(--border-selected);
   outline-offset: 2px;
+}
+
+body.aether-pdf-viewer #aetherAnnotationEditor textarea:focus-visible {
+  outline: none;
+  border-color: var(--border-selected);
 }
 
 body.aether-pdf-viewer #aetherAnnotationEditor textarea::placeholder {
@@ -575,27 +586,43 @@ body.aether-pdf-viewer .aetherAnnotationEditorActions {
 }
 
 body.aether-pdf-viewer .aetherAnnotationPalette {
+  grid-area: palette;
   flex: none;
-  gap: 6px;
+  gap: 2px;
 }
 
 body.aether-pdf-viewer .aetherAnnotationPalette button {
-  width: 20px;
-  height: 20px;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
   padding: 0;
-  border: 2px solid transparent;
+  border: 0;
   border-radius: 999px;
+  background: transparent;
   cursor: pointer;
 }
 
-body.aether-pdf-viewer .aetherAnnotationPalette button.selected {
-  border-color: var(--text-strong);
-  box-shadow: 0 0 0 2px var(--surface-raised-stronger-non-alpha);
+body.aether-pdf-viewer .aetherAnnotationPalette button::before {
+  content: "";
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--annotation-color);
+}
+
+body.aether-pdf-viewer .aetherAnnotationPalette button.selected::before {
+  outline: 1.5px solid var(--text-strong);
+  outline-offset: 1.5px;
 }
 
 body.aether-pdf-viewer .aetherAnnotationEditorActions {
   flex: none;
   justify-content: flex-end;
+}
+
+body.aether-pdf-viewer .aetherAnnotationEditorActions button {
+  height: 28px;
 }
 
 body.aether-pdf-viewer #aetherAnnotationEditor .aetherAnnotationIcon,
@@ -619,6 +646,12 @@ body.aether-pdf-viewer #aetherAnnotationEditor .aetherAnnotationIcon {
   height: 28px;
   padding: 0;
   background: transparent;
+}
+
+body.aether-pdf-viewer #aetherAnnotationEditor .aetherAnnotationEditorControls .aetherAnnotationIcon {
+  grid-area: close;
+  width: 24px;
+  height: 24px;
 }
 
 body.aether-pdf-viewer #aetherAnnotationEditor .aetherAnnotationIcon svg {
