@@ -493,7 +493,8 @@ body.aether-pdf-viewer #aetherAnnotationEditor {
   flex-direction: column;
   gap: 8px;
   box-sizing: border-box;
-  width: min(440px, calc(100vw - 24px));
+  width: max-content;
+  max-width: calc(100vw - 24px);
   max-height: calc(100vh - 24px);
   overflow: auto;
   padding: 10px;
