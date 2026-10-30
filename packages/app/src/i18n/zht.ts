@@ -1167,12 +1167,18 @@ export const dict = {
   "latex.bind": "儲存專案設定",
   "latex.unverified": "預覽狀態尚未確認",
   "latex.help": "說明",
+  "latex.fileSave": "儲存目前檔案（不編譯）",
+  "latex.fileDiscard": "放棄目前檔案未儲存的修改",
+  "latex.manualOnly": "自動儲存已開啟，關閉後可手動儲存或放棄修改。",
+  "latex.baseMissing": "無法確認檔案原版本，請比較磁碟內容後再儲存。",
+  "latex.readFailed": "無法讀取文字檔案，草稿已保留。",
+  "latex.discardChanged": "讀取期間發生了新的編輯，草稿已保留，請再次確認後操作。",
   "latex.collapse": "收合",
   "latex.expand": "展開",
   "latex.settingsPending": "專案設定尚未儲存",
   "latex.toolbar": "工具列展開與收合",
   "latex.help.toolbar":
-    "點選「收合」可隱藏版本、匯出與低頻設定，保留儲存、編譯狀態與操作。點選「展開」還原；切換檔案或聊天會保留選擇，錯誤與衝突仍會顯示。",
+    "點選「收合」可隱藏版本、匯出與低頻設定，保留儲存、放棄修改、儲存並編譯及狀態。點選「展開」還原；切換檔案或聊天會保留選擇，錯誤與衝突仍會顯示。",
   "latex.help.title": "LaTeX 寫作說明",
   "latex.help.subtitle": "在同一處編輯原始碼、編譯與閱讀 PDF。",
   "latex.help.quick": "快速上手",
@@ -1192,7 +1198,12 @@ export const dict = {
   "latex.help.reminder": "手動模式下，離開頁面前請先儲存草稿。",
   "latex.help.start": "開啟 .tex 檔案，Aether 會辨識專案與主文件。如有多個候選，選擇一次並儲存專案設定。",
   "latex.help.automatic": "停筆約 1 秒後，自動儲存原始碼並編譯整篇論文；輸入法組字期間會等待輸入完成。",
-  "latex.help.manual": "關閉「自動儲存並編譯」後，修改保留為草稿。點選「儲存並編譯」時，才儲存專案草稿並編譯。",
+  "latex.help.manual":
+    "關閉「自動儲存並編譯」後，修改保留為草稿。點選 ✓ 僅儲存目前檔案，或點選「儲存並編譯」儲存專案草稿並編譯。",
+  "latex.help.fileSave":
+    "✓ 僅儲存目前檔案，不編譯、不退出編輯；無需安裝編譯器或設定主文件。僅在手動模式且目前檔案有未儲存修改時可用，儲存仍會檢查檔案衝突。",
+  "latex.help.fileDiscard":
+    "× 用磁碟內容替換目前檔案未儲存的草稿，保持編輯狀態，不影響其他檔案。僅在手動模式且有未儲存修改時可用；讀取失敗或讀取期間繼續編輯時會保留草稿。",
   "latex.help.project": "主文件名稱是一個按鈕，點選可展開或收合專案設定。",
   "latex.help.refresh": "檢查磁碟檔案、專案設定與編譯狀態。手動模式下不會儲存草稿；自動模式下發現修改可能觸發編譯。",
   "latex.help.settings": "安裝 Tectonic，或設定已安裝的 Tectonic、latexmk 執行檔路徑。",

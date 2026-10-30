@@ -1806,12 +1806,18 @@ export const dict = {
   "latex.setup.unsupported": "此服务端平台暂不支持自动安装，请使用手动安装指南。",
   "latex.automatic": "自动保存并编译",
   "latex.help": "帮助",
+  "latex.fileSave": "保存当前文件（不编译）",
+  "latex.fileDiscard": "放弃当前文件未保存修改",
+  "latex.manualOnly": "自动保存已开启，关闭后可手动保存或放弃修改。",
+  "latex.baseMissing": "无法确认文件原版本，请比较磁盘内容后再保存。",
+  "latex.readFailed": "无法读取文本文件，草稿已保留。",
+  "latex.discardChanged": "读取期间发生了新的编辑，草稿已保留，请再次确认后操作。",
   "latex.collapse": "收起",
   "latex.expand": "展开",
   "latex.settingsPending": "工程设置未保存",
   "latex.toolbar": "工具栏展开与收起",
   "latex.help.toolbar":
-    "点击「收起」可隐藏版本、导出和低频设置，保留保存、编译状态与操作。点击「展开」恢复；切换文件或聊天会保留选择，错误和冲突仍会显示。",
+    "点击「收起」可隐藏版本、导出和低频设置，保留保存、放弃修改、保存并编译及状态。点击「展开」恢复；切换文件或聊天会保留选择，错误和冲突仍会显示。",
   "latex.help.title": "LaTeX 写作帮助",
   "latex.help.subtitle": "一处完成源码编辑、编译与 PDF 阅读。",
   "latex.help.quick": "快速上手",
@@ -1831,7 +1837,12 @@ export const dict = {
   "latex.help.reminder": "手动模式下，离开页面前请先保存草稿。",
   "latex.help.start": "打开 .tex 文件，Aether 会识别工程和主文档。如有多个候选，选择一次并保存工程设置。",
   "latex.help.automatic": "停笔约 1 秒后，自动保存源码并编译整篇论文；输入法组词期间会等待输入完成。",
-  "latex.help.manual": "关闭「自动保存并编译」后，修改保留为草稿。点击「保存并编译」时，才保存工程草稿并编译。",
+  "latex.help.manual":
+    "关闭「自动保存并编译」后，修改保留为草稿。点击 ✓ 仅保存当前文件，或点击「保存并编译」保存工程草稿并编译。",
+  "latex.help.fileSave":
+    "✓ 仅保存当前文件，不编译、不退出编辑；无需安装编译器或配置主文档。仅在手动模式且当前文件有未保存修改时可用，保存仍会检查文件冲突。",
+  "latex.help.fileDiscard":
+    "× 用磁盘内容替换当前文件的未保存草稿，保持编辑状态，不影响其他文件。仅在手动模式且有未保存修改时可用；读取失败或读取期间继续编辑时会保留草稿。",
   "latex.help.project": "主文档名称是一个按钮，点击可展开或收起工程设置。",
   "latex.help.refresh": "检查磁盘文件、工程设置和编译状态。手动模式下不会保存草稿；自动模式下发现修改可能触发编译。",
   "latex.help.settings": "安装 Tectonic，或设置已经安装的 Tectonic、latexmk 可执行文件路径。",

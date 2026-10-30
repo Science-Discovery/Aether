@@ -12,6 +12,8 @@ export function DialogLatexHelp() {
       title: "latex.help.controls",
       items: [
         ["latex.toolbar", "latex.help.toolbar"],
+        ["latex.fileSave", "latex.help.fileSave"],
+        ["latex.fileDiscard", "latex.help.fileDiscard"],
         ["latex.project", "latex.help.project"],
         ["latex.refresh", "latex.help.refresh"],
         ["latex.settings", "latex.help.settings"],

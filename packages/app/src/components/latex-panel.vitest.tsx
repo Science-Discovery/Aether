@@ -17,6 +17,7 @@ const mocks = vi.hoisted(() => ({
   build: vi.fn<() => Promise<{ data: LatexBuild }>>(),
   stop: vi.fn(),
   write: vi.fn<(input: { path: string; content: string; expectedChecksum?: string }) => Promise<unknown>>(),
+  read: vi.fn<(input: { path: string }) => Promise<{ data: { type: "text"; content: string } }>>(),
 }))
 const [buffer, setBuffer] = createStore({ drafts: [] as LatexDraft[], disk: {} as Record<string, string> })
 const [state, setState] = createStore({
@@ -33,7 +34,7 @@ vi.mock("@/context/sdk", () => ({
     get directory() {
       return state.directory
     },
-    client: { latex: mocks, file: { write: mocks.write } },
+    client: { latex: mocks, file: { write: mocks.write, read: mocks.read } },
     event: { on: () => mocks.stop },
   }),
 }))
@@ -140,6 +141,7 @@ const edit = (key: "root" | "main" | "driver" | "program", value: string) => {
   field(key).dispatchEvent(new Event(key === "root" || key === "main" ? "input" : "change", { bubbles: true }))
 }
 const current = () => host.querySelector('[data-component="latex-preview-status"]')?.getAttribute("data-current")
+const action = (name: "save" | "discard") => host.querySelector<HTMLButtonElement>(`[data-action="latex-${name}"]`)!
 
 beforeEach(() => {
   vi.useFakeTimers()
@@ -154,6 +156,9 @@ beforeEach(() => {
   mocks.write.mockImplementation(async (input) => {
     setBuffer("disk", input.path, input.content)
   })
+  mocks.read.mockImplementation(async (input) => ({
+    data: { type: "text", content: buffer.disk[input.path] ?? "" },
+  }))
   host = document.createElement("div")
   document.body.append(host)
 })
@@ -391,6 +396,177 @@ test("a failed background check is unverified, not evidence of modified source",
   expect(latex.verified()).toBe(false)
   expect(latex.outdated()).toBe(false)
   expect(latex.state.loadError).toContain("Cannot check files")
+})
+
+test("single-file controls stay visible when folded and only enable for a manual dirty draft", async () => {
+  mount()
+  await tick()
+  expect(action("save").disabled).toBe(true)
+  expect(action("discard").disabled).toBe(true)
+  setBuffer("drafts", [{ path: "main.tex", content: "draft", base: "" }])
+  expect(action("save").disabled).toBe(true)
+  expect(action("discard").disabled).toBe(true)
+  latex.automatic(false)
+  latex.collapse(true)
+  expect(action("save").disabled).toBe(false)
+  expect(action("discard").disabled).toBe(false)
+  expect(action("save").closest("[hidden]")).toBeNull()
+  expect(action("discard").closest("[hidden]")).toBeNull()
+  latex.composing("main.tex", true)
+  expect(action("save").disabled).toBe(true)
+  expect(action("discard").disabled).toBe(true)
+  latex.composing("main.tex", false)
+  setBuffer("drafts", 0, "base", checksum("draft"))
+  expect(action("save").disabled).toBe(true)
+  expect(action("discard").disabled).toBe(true)
+})
+
+test("single-file save works without discovery or a compiler and does not save other drafts", async () => {
+  mocks.project.mockRejectedValue(new Error("Project discovery unavailable"))
+  mocks.status.mockResolvedValue({ data: { tools: [{ driver: "tectonic", installed: false }] } })
+  mount()
+  await tick()
+  latex.automatic(false)
+  setBuffer("drafts", [
+    { path: "main.tex", content: "current file", base: checksum("original") },
+    { path: "chapter.tex", content: "another draft", base: "" },
+  ])
+  expect(latex.state.project).toBeUndefined()
+  const calls = mocks.project.mock.calls.length
+  action("save").click()
+  await tick()
+  expect(mocks.write).toHaveBeenCalledExactlyOnceWith(
+    { path: "main.tex", content: "current file", expectedChecksum: checksum("original") },
+    { throwOnError: true },
+  )
+  expect(buffer.drafts[0].base).toBe(checksum("current file"))
+  expect(buffer.drafts[1]).toEqual({ path: "chapter.tex", content: "another draft", base: "" })
+  expect(mocks.project).toHaveBeenCalledTimes(calls)
+  expect(mocks.refresh).not.toHaveBeenCalled()
+  expect(mocks.build).not.toHaveBeenCalled()
+  expect(action("save").disabled).toBe(true)
+})
+
+test("single-file save serializes actions while preserving input typed during the write", async () => {
+  const pending = Promise.withResolvers<unknown>()
+  mocks.write.mockReturnValueOnce(pending.promise)
+  mount()
+  await tick()
+  latex.automatic(false)
+  setBuffer("drafts", [{ path: "main.tex", content: "captured", base: "" }])
+  const request = latex.persist("main.tex")
+  expect(latex.state.busy).toBe(true)
+  expect(action("save").disabled).toBe(true)
+  expect(action("discard").disabled).toBe(true)
+  await latex.persist("main.tex")
+  await latex.discard("main.tex")
+  setBuffer("drafts", 0, "content", "new typing")
+  pending.resolve(undefined)
+  await request
+  expect(mocks.write).toHaveBeenCalledTimes(1)
+  expect(mocks.read).not.toHaveBeenCalled()
+  expect(buffer.drafts[0]).toEqual({ path: "main.tex", content: "new typing", base: checksum("captured") })
+  expect(latex.state.busy).toBe(false)
+  expect(action("save").disabled).toBe(false)
+  expect(mocks.build).not.toHaveBeenCalled()
+})
+
+test("a conflicting single-file save preserves the draft and disk versions", async () => {
+  mocks.write.mockRejectedValueOnce({
+    error: "conflict",
+    currentChecksum: checksum("external"),
+    currentContent: "external",
+  })
+  mount()
+  await tick()
+  latex.automatic(false)
+  setBuffer({ drafts: [{ path: "main.tex", content: "my draft", base: "" }], disk: { "main.tex": "external" } })
+  await latex.persist("main.tex")
+  expect(mocks.write).toHaveBeenCalledExactlyOnceWith(
+    { path: "main.tex", content: "my draft", expectedChecksum: "" },
+    { throwOnError: true },
+  )
+  expect(buffer.drafts[0]).toEqual({ path: "main.tex", content: "my draft", base: "" })
+  expect(buffer.disk["main.tex"]).toBe("external")
+  expect(latex.state.error).not.toBe("")
+  expect(latex.conflicts()).toHaveLength(1)
+  expect(mocks.build).not.toHaveBeenCalled()
+})
+
+test("an isolated running build does not prevent single-file saving", async () => {
+  const project = { ...bound(), latest: { ...bound().latest!, state: "running" as const } }
+  mocks.project.mockResolvedValue({ data: project })
+  mocks.refresh.mockResolvedValue({ data: project })
+  mount()
+  await tick()
+  latex.automatic(false)
+  setBuffer("drafts", [{ path: "main.tex", content: "next version", base: "" }])
+  expect(latex.running()).toBe(true)
+  expect(host.querySelector<HTMLButtonElement>('[data-action="latex-compile"]')?.disabled).toBe(true)
+  expect(action("save").disabled).toBe(false)
+  action("save").click()
+  await tick()
+  expect(mocks.write).toHaveBeenCalledTimes(1)
+  expect(buffer.drafts[0].base).toBe(checksum("next version"))
+  expect(latex.running()).toBe(true)
+  expect(mocks.build).not.toHaveBeenCalled()
+})
+
+test("discard restores only the current file from disk without writing or compiling", async () => {
+  mount()
+  await tick()
+  latex.automatic(false)
+  setBuffer({
+    drafts: [
+      { path: "main.tex", content: "discard me", base: "" },
+      { path: "chapter.tex", content: "keep me", base: "" },
+    ],
+    disk: { "main.tex": "current disk version" },
+  })
+  action("discard").click()
+  await tick()
+  expect(mocks.read).toHaveBeenCalledExactlyOnceWith({ path: "main.tex" }, { throwOnError: true })
+  expect(buffer.drafts[0]).toEqual({
+    path: "main.tex",
+    content: "current disk version",
+    base: checksum("current disk version"),
+  })
+  expect(buffer.drafts[1]).toEqual({ path: "chapter.tex", content: "keep me", base: "" })
+  expect(latex.state.resolved).toMatchObject({ path: "main.tex", content: "current disk version" })
+  expect(latex.state.resolved.nonce).toBeGreaterThan(0)
+  expect(action("discard").disabled).toBe(true)
+  expect(mocks.write).not.toHaveBeenCalled()
+  expect(mocks.build).not.toHaveBeenCalled()
+})
+
+test("failed discard reads preserve the unsaved draft and its original base", async () => {
+  mocks.read.mockRejectedValueOnce(new Error("File cannot be read"))
+  mount()
+  await tick()
+  latex.automatic(false)
+  setBuffer("drafts", [{ path: "main.tex", content: "keep my work", base: checksum("original") }])
+  await latex.discard("main.tex")
+  expect(buffer.drafts[0]).toEqual({ path: "main.tex", content: "keep my work", base: checksum("original") })
+  expect(latex.state.resolved.nonce).toBe(0)
+  expect(latex.state.error).toContain("File cannot be read")
+  expect(mocks.write).not.toHaveBeenCalled()
+})
+
+test("discard cannot overwrite input entered while its disk read is pending", async () => {
+  const pending = Promise.withResolvers<{ data: { type: "text"; content: string } }>()
+  mocks.read.mockReturnValueOnce(pending.promise)
+  mount()
+  await tick()
+  latex.automatic(false)
+  setBuffer("drafts", [{ path: "main.tex", content: "initial draft", base: "" }])
+  const request = latex.discard("main.tex")
+  setBuffer("drafts", 0, "content", "later typing")
+  pending.resolve({ data: { type: "text", content: "disk version" } })
+  await request
+  expect(buffer.drafts[0]).toEqual({ path: "main.tex", content: "later typing", base: "" })
+  expect(latex.state.resolved.nonce).toBe(0)
+  expect(latex.state.error).not.toBe("")
+  expect(mocks.write).not.toHaveBeenCalled()
 })
 
 test("manual mode keeps drafts until save and compile is explicitly requested", async () => {

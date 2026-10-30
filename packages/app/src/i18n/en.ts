@@ -1871,12 +1871,19 @@ export const dict = {
     "Automatic installation is unavailable for this server platform. Use the manual installation guide.",
   "latex.automatic": "Auto save and compile",
   "latex.help": "Help",
+  "latex.fileSave": "Save current file without compiling",
+  "latex.fileDiscard": "Discard unsaved changes in current file",
+  "latex.manualOnly": "Auto save is on. Turn it off to save or discard changes manually.",
+  "latex.baseMissing": "The original file version is unknown. Compare the saved file before saving.",
+  "latex.readFailed": "Could not read the text file. Your draft has been kept.",
+  "latex.discardChanged":
+    "New edits were made while reading the file. Your draft has been kept; review it before trying again.",
   "latex.collapse": "Collapse",
   "latex.expand": "Expand",
   "latex.settingsPending": "Unsaved project settings",
   "latex.toolbar": "Expand and collapse the toolbar",
   "latex.help.toolbar":
-    "Collapse hides version, export and setup controls while keeping save and build status and actions. Expand restores them. Your choice stays when switching files or chats; errors and conflicts remain visible.",
+    "Collapse hides version, export and setup controls. Save, discard, Save and compile, and status remain visible. Expand restores the controls; switching files or chats keeps your choice. Errors and conflicts remain visible.",
   "latex.help.title": "Writing with LaTeX",
   "latex.help.subtitle": "Edit source, compile, and read your PDF in one place.",
   "latex.help.quick": "Quick start",
@@ -1901,7 +1908,11 @@ export const dict = {
   "latex.help.automatic":
     "After a pause of about one second, Aether saves the source and compiles the paper. It waits for input-method composition to finish.",
   "latex.help.manual":
-    "Turn off Auto save and compile to keep edits as drafts. Choose Save and compile when you are ready to save the project's drafts and build.",
+    "Turn off Auto save and compile to keep edits as drafts. Use ✓ to save only the current file, or Save and compile to save the project's drafts and build.",
+  "latex.help.fileSave":
+    "✓ saves only the current file without compiling or leaving the editor. No compiler or main-document setup is needed. It is available in manual mode when the file has unsaved changes; file conflicts are still checked.",
+  "latex.help.fileDiscard":
+    "× replaces only the current file's unsaved draft with its saved content and keeps the editor open. It is available in manual mode when there are unsaved changes. A failed read or edits made during the read preserve the draft.",
   "latex.help.project": "The main document's name is a button. Click it to expand or collapse project settings.",
   "latex.help.refresh":
     "Check files on disk, project settings and build status. This does not save drafts in manual mode. With automatic mode on, detected changes can trigger a build.",

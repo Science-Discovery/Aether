@@ -2,6 +2,8 @@ import { createEffect, createUniqueId, For, on, onCleanup, Show, type JSX } from
 import { createStore } from "solid-js/store"
 import type { LatexBinding } from "@opencode-ai/sdk/v2"
 import { Button } from "@opencode-ai/ui/button"
+import { IconButton } from "@opencode-ai/ui/icon-button"
+import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { Dialog } from "@opencode-ai/ui/dialog"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { useFile } from "@/context/file"
@@ -39,6 +41,15 @@ function Workspace(props: Props) {
   const choices = createUniqueId()
   const controls = createUniqueId()
   const state = latex.state
+  const disabled = () =>
+    state.automatic ||
+    state.busy ||
+    !file.ready() ||
+    state.path !== props.path ||
+    state.composing.includes(props.path) ||
+    !latex.pending().some((draft) => draft.path === props.path)
+  const hint = (key: "latex.fileSave" | "latex.fileDiscard") =>
+    state.automatic ? language.t("latex.manualOnly") : language.t(key)
   const [local, setLocal] = createStore({ error: "" })
   createEffect(
     on(
@@ -69,7 +80,7 @@ function Workspace(props: Props) {
           ? language.t("latex.saving")
           : latex.pending().length
             ? language.t("latex.unsaved", { count: latex.pending().length })
-            : state.project?.binding
+            : state.path
               ? language.t("latex.saved")
               : "",
       state.project?.binding && latex.changed()
@@ -205,6 +216,32 @@ function Workspace(props: Props) {
           </div>
           <div class="flex shrink-0 items-center gap-2">
             <Show when={!state.collapsed}>{props.actions}</Show>
+            <Tooltip placement="top" gutter={4} value={hint("latex.fileDiscard")}>
+              <span class="inline-flex">
+                <IconButton
+                  icon="close"
+                  variant="ghost"
+                  size="small"
+                  data-action="latex-discard"
+                  aria-label={language.t("latex.fileDiscard")}
+                  disabled={disabled()}
+                  onClick={() => void latex.discard(props.path)}
+                />
+              </span>
+            </Tooltip>
+            <Tooltip placement="top" gutter={4} value={hint("latex.fileSave")}>
+              <span class="inline-flex">
+                <IconButton
+                  icon="check"
+                  variant="ghost"
+                  size="small"
+                  data-action="latex-save"
+                  aria-label={language.t("latex.fileSave")}
+                  disabled={disabled()}
+                  onClick={() => void latex.persist(props.path)}
+                />
+              </span>
+            </Tooltip>
             <Button
               size="small"
               variant="secondary"
@@ -324,7 +361,7 @@ function Workspace(props: Props) {
                   ? language.t("latex.saving")
                   : latex.pending().length
                     ? language.t("latex.unsaved", { count: latex.pending().length })
-                    : state.project?.binding
+                    : state.path
                       ? language.t("latex.saved")
                       : ""}
             </span>

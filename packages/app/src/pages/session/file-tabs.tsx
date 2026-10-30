@@ -1469,7 +1469,7 @@ export function FileTabContent(props: { tab: string; visible: boolean }) {
           />
         </Tooltip>
       </Show>
-      <Show when={!managed()}>
+      <Show when={!latex()}>
         <Show
           when={isEditing() && isTextFile()}
           fallback={

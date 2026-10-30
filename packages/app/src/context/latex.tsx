@@ -50,9 +50,13 @@ export const { use: useLatex, provider: LatexProvider } = createSimpleContext({
     let watcher: ReturnType<typeof setTimeout> | undefined
     const scope = createMemo(() => `${sdk.url}\n${sdk.directory}`)
     const drafts = createMemo(() =>
-      state.project?.binding
-        ? file.drafts().filter((draft) => source(draft.path) && contains(state.project!.root, draft.path))
-        : [],
+      file
+        .drafts()
+        .filter(
+          (draft) =>
+            source(draft.path) &&
+            (state.project?.binding ? contains(state.project.root, draft.path) : draft.path === state.path),
+        ),
     )
     const pending = createMemo(() => drafts().filter(dirty))
     const conflicts = createMemo(() =>
@@ -211,6 +215,75 @@ export const { use: useLatex, provider: LatexProvider } = createSimpleContext({
       )
         schedule()
     }
+    const record = (path: string, content: string, stale = true) => {
+      if (!state.project || !contains(state.project.root, path)) return
+      if (stale) setState("project", "freshness", "state", "stale")
+      const base = checksum(content) ?? ""
+      const index = state.project.editors.findIndex((item) => item.path === path)
+      if (index < 0) {
+        setState("project", "editors", (items) => [...items, { path, checksum: base }])
+        return
+      }
+      setState("project", "editors", index, "checksum", base)
+    }
+    const modify = async (path: string, action: "save" | "discard") => {
+      if (state.automatic || state.busy || !file.ready() || state.composing.includes(path) || path !== state.path)
+        return
+      const draft = file.drafts().find((item) => item.path === path && source(item.path))
+      if (!draft || !dirty(draft)) return
+      const snapshot = { ...draft }
+      const version = epoch
+      const client = sdk.client
+      const buffer = file.capture()
+      serial++
+      clearTimeout(timer)
+      setState({ busy: true, saving: action === "save", scanning: false, error: "" })
+      try {
+        if (action === "save") {
+          if (snapshot.base === undefined) throw new Error(language.t("latex.baseMissing"))
+          await client.file.write(
+            { path, content: snapshot.content, expectedChecksum: snapshot.base },
+            { throwOnError: true },
+          )
+          // Advance only the captured buffer's base; later typing remains unsaved.
+          buffer.saved(path, snapshot.content)
+          if (version !== epoch) return
+          record(path, snapshot.content)
+        }
+        if (action === "discard") {
+          const result = (await client.file.read({ path }, { throwOnError: true })).data
+          if (version !== epoch) return
+          if (!result || result.type !== "text") throw new Error(language.t("latex.readFailed"))
+          if (
+            file.draft(path) !== snapshot.content ||
+            file.draftBase(path) !== snapshot.base ||
+            state.composing.includes(path)
+          )
+            throw new Error(language.t("latex.discardChanged"))
+          batch(() => {
+            file.setDraft(path, result.content)
+            buffer.saved(path, result.content)
+            record(path, result.content, snapshot.base !== (checksum(result.content) ?? ""))
+            setState("resolved", { path, content: result.content, nonce: state.resolved.nonce + 1 })
+          })
+        }
+        setState("blocked", (paths) => paths.filter((item) => item !== path))
+      } catch (cause) {
+        if (version !== epoch) return
+        if (
+          action === "save" &&
+          (snapshot.base === undefined ||
+            (typeof cause === "object" && cause !== null && "error" in cause && cause.error === "conflict"))
+        )
+          setState("blocked", (paths) => [...new Set([...paths, path])])
+        error(cause)
+      } finally {
+        if (version === epoch) {
+          setState({ busy: false, saving: false })
+          if (!state.error && !conflicts().length) schedule()
+        }
+      }
+    }
     const flush = async () => {
       const project = state.project
       if (!project?.binding || state.composing.length || conflicts().length) return false
@@ -229,17 +302,11 @@ export const { use: useLatex, provider: LatexProvider } = createSimpleContext({
                 { throwOnError: true },
               )
             : Promise.reject(new Error(language.t("latex.changed"))),
-        saved: (draft, base) =>
+        saved: (draft) =>
           batch(() => {
             buffer.saved(draft.path, draft.content)
             if (version !== epoch || state.project?.root !== root) return
-            setState("project", "freshness", "state", "stale")
-            const index = state.project.editors.findIndex((item) => item.path === draft.path)
-            if (index < 0) {
-              setState("project", "editors", (items) => [...items, { path: draft.path, checksum: base }])
-              return
-            }
-            setState("project", "editors", index, "checksum", base)
+            record(draft.path, draft.content)
           }),
       })
       if (version !== epoch) return false
@@ -333,7 +400,7 @@ export const { use: useLatex, provider: LatexProvider } = createSimpleContext({
         target = { path, root }
         return
       }
-      if (state.automatic && (pending().length || conflicts().length)) {
+      if (state.automatic && state.project?.binding && (pending().length || conflicts().length)) {
         target = { path, root }
         await run(true, false)
         if (pending().length || conflicts().length) return
@@ -447,10 +514,9 @@ export const { use: useLatex, provider: LatexProvider } = createSimpleContext({
     }
     const compare = async (path: string) => {
       const version = epoch
-      await file.load(path, { force: true })
+      const content = (await sdk.client.file.read({ path }, { throwOnError: true })).data
       if (version !== epoch) return
-      const content = file.get(path)?.content
-      if (content?.type !== "text") throw new Error(language.t("latex.changed"))
+      if (content?.type !== "text") throw new Error(language.t("latex.readFailed"))
       return {
         path,
         disk: content.content,
@@ -482,9 +548,11 @@ export const { use: useLatex, provider: LatexProvider } = createSimpleContext({
           const fresh = await compare(snapshot.path)
           if (!fresh || fresh.base !== snapshot.base) throw new Error(language.t("latex.changed"))
           if (file.draft(snapshot.path) !== snapshot.draft) throw new Error(language.t("latex.typing"))
-          file.setDraft(snapshot.path, snapshot.disk)
-          file.setDraftBase(snapshot.path, snapshot.base)
-          setState("resolved", { path: snapshot.path, content: snapshot.disk, nonce: state.resolved.nonce + 1 })
+          batch(() => {
+            file.setDraft(snapshot.path, snapshot.disk)
+            buffer.saved(snapshot.path, snapshot.disk)
+            setState("resolved", { path: snapshot.path, content: snapshot.disk, nonce: state.resolved.nonce + 1 })
+          })
         }
         setState(
           "blocked",
@@ -558,7 +626,7 @@ export const { use: useLatex, provider: LatexProvider } = createSimpleContext({
       on(
         () => [state.busy, pending().length, conflicts().length, state.composing.length, state.automatic] as const,
         ([busy, pending, conflicts, composing, automatic]) => {
-          if (!target || busy || composing || (automatic && (pending || conflicts))) return
+          if (!target || busy || composing || (automatic && state.project?.binding && (pending || conflicts))) return
           const next = target
           target = undefined
           void open(next.path, next.root)
@@ -629,6 +697,8 @@ export const { use: useLatex, provider: LatexProvider } = createSimpleContext({
       changed,
       compile: () => run(true),
       save: () => run(true, false),
+      persist: (path: string) => modify(path, "save"),
+      discard: (path: string) => modify(path, "discard"),
       edit: (value: Partial<Pick<typeof state, "root" | "main" | "driver" | "program">>) => {
         edits++
         setState(value)
