@@ -54,7 +54,8 @@
   let copying = false
   let capturing = false
   let switching = false
-  let rendered = false
+  const painted = new Set()
+  let cover = null
   let reported = false
   let pending = null
   const annotationColors = {
@@ -1625,10 +1626,113 @@
     forward.disabled = !(valid && state.uid < pdfHistory._maxUid)
   }
 
+  function visible() {
+    const viewer = window.PDFViewerApplication?.pdfViewer
+    const pages = viewer?._getVisiblePages?.().views
+    return pages?.length
+      ? pages.map(function (page) {
+          return page.id
+        })
+      : [viewer?.currentPageNumber || 1]
+  }
+
+  function uncover() {
+    if (!cover) return
+    clearTimeout(cover.timer)
+    cover.node.remove()
+    cover.container.inert = cover.inert
+    cover = null
+  }
+
+  // Keep only the currently visible pages, including their painted canvas pixels.
+  // PDF.js clears its page DOM in close(); this temporary cover bridges that gap.
+  function preserve() {
+    uncover()
+    const container = document.getElementById("viewerContainer")
+    const viewer = document.getElementById("viewer")
+    if (!container || !viewer) return
+    const rect = container.getBoundingClientRect()
+    if (!rect.width || !rect.height) return
+    const node = document.createElement("div")
+    node.className = viewer.className
+    node.dataset.aetherRefresh = ""
+    node.setAttribute("aria-hidden", "true")
+    node.inert = true
+    node.style.cssText = viewer.style.cssText
+    Object.assign(node.style, {
+      position: "fixed",
+      left: `${rect.left}px`,
+      top: `${rect.top}px`,
+      width: `${rect.width}px`,
+      height: `${rect.height}px`,
+      margin: "0",
+      padding: "0",
+      overflow: "hidden",
+      zIndex: "1000",
+      pointerEvents: "auto",
+      background: window.getComputedStyle(container).backgroundColor,
+    })
+    for (const id of visible()) {
+      const page = viewer.querySelector(`.page[data-page-number="${id}"]`)
+      if (!page) continue
+      const bounds = page.getBoundingClientRect()
+      const copy = page.cloneNode(true)
+      copy.removeAttribute("id")
+      copy.querySelectorAll("[id]").forEach(function (item) {
+        item.removeAttribute("id")
+      })
+      const originals = page.querySelectorAll("canvas")
+      copy.querySelectorAll("canvas").forEach(function (canvas, index) {
+        const original = originals[index]
+        if (original.width && original.height) canvas.getContext("2d")?.drawImage(original, 0, 0)
+      })
+      Object.assign(copy.style, {
+        position: "absolute",
+        left: `${bounds.left - rect.left}px`,
+        top: `${bounds.top - rect.top}px`,
+        margin: "0",
+        boxSizing: "border-box",
+        width: `${bounds.width}px`,
+        height: `${bounds.height}px`,
+      })
+      node.appendChild(copy)
+    }
+    if (!node.childElementCount) return
+    cover = { node, container, inert: container.inert, timer: 0 }
+    container.inert = true
+    document.body.appendChild(node)
+    cover.timer = setTimeout(function () {
+      paintError(new Error("PDF preview did not finish rendering. Please retry."))
+    }, 30000)
+  }
+
+  function paintError(error) {
+    if (!switching || !currentConfig) return
+    switching = false
+    uncover()
+    post("loaderror", {
+      src: currentConfig.src,
+      document: currentConfig.document,
+      version: currentConfig.version,
+      message: error instanceof Error ? error.message : String(error),
+    })
+  }
+
   function announce() {
-    if (reported || !rendered || !docSettled || !currentConfig) return
+    const viewer = window.PDFViewerApplication?.pdfViewer
+    if (
+      reported ||
+      !docSettled ||
+      !currentConfig ||
+      !visible().every(function (id) {
+        const page = viewer?.getPageView?.(id - 1)
+        return painted.has(id) && (!page || page.renderingState === 3)
+      })
+    )
+      return
     reported = true
     switching = false
+    uncover()
     post("documentinfo", {
       totalPages: window.PDFViewerApplication.pdfDocument.numPages,
       source: {
@@ -1699,9 +1803,10 @@
     })
 
     eventBus.on("pagerendered", function (evt) {
-      if (!evt?.error) rendered = true
-      announce()
+      if (evt?.error && visible().includes(evt.pageNumber)) paintError(evt.error)
+      if (!evt?.error && !evt?.cssTransform) painted.add(evt.pageNumber)
       requestAnimationFrame(function () {
+        announce()
         renderAnnotations()
         hideEmptyPdfPopups()
       })
@@ -1988,17 +2093,19 @@
     restoreState = identity(currentConfig) === identity(config) ? saved : loadDocState(identity(config))
     const next = pending
     pending = null
+    if (identity(currentConfig) === identity(config)) preserve()
     switching = true
     docSettled = false
     await app.close().catch(async function (error) {
       await next.task.destroy()
       switching = false
+      uncover()
       throw error
     })
     currentConfig = config
     currentKey = key(config)
     docSettled = false
-    rendered = false
+    painted.clear()
     reported = false
     lastLocation = ""
     annotations = []
@@ -2050,7 +2157,11 @@
       schedule(200)
       return
     }
-    if (currentKey && identity(currentConfig) === identity(config)) {
+    if (
+      currentKey &&
+      identity(currentConfig) === identity(config) &&
+      !(currentConfig.version && config.version && currentConfig.version !== config.version)
+    ) {
       const wait = RELOAD_MIN_INTERVAL - (Date.now() - reloadAt)
       if (wait > 0) {
         schedule(wait)
@@ -2068,6 +2179,7 @@
           error,
         })
         switching = false
+        uncover()
         if (window.PDFViewerApplication?.pdfDocument)
           showSelectionHint("PDF refresh failed. The previous version is still open.", 5000)
         else showViewerError(error)

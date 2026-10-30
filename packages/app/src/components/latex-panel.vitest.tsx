@@ -107,7 +107,7 @@ const bound = (): LatexProject => {
     reason: "binding",
     freshness: { state: "fresh", sourceRevision: "source-1", checkedAt: 1 },
     latest: build,
-    lastSuccessful: build,
+    lastSuccessful: { ...build },
   })
 }
 let host: HTMLDivElement
@@ -440,6 +440,51 @@ test("a running build only queues the latest saved source revision", async () =>
     expect.objectContaining({ sourceRevision: "v4", allowDownloads: false }),
     { throwOnError: true },
   )
+})
+
+test("a completed build reaches the preview within one short poll and stops polling", async () => {
+  mocks.project.mockResolvedValue({ data: bound() })
+  mocks.refresh.mockResolvedValue({ data: bound() })
+  mocks.build.mockResolvedValue({ data: { ...bound().latest!, id: "build-2", state: "running" } })
+  mount()
+  await tick()
+  latex.automatic(false)
+  await vi.advanceTimersByTimeAsync(1000)
+  await latex.compile()
+  expect(latex.pdf()?.build.id).toBe("build-1")
+  const build = { ...bound().latest!, id: "build-2" }
+  mocks.project.mockResolvedValue({ data: { ...bound(), latest: build, lastSuccessful: build } })
+  mocks.refresh.mockResolvedValue({ data: { ...bound(), latest: build, lastSuccessful: build } })
+  await vi.advanceTimersByTimeAsync(500)
+  expect(latex.pdf()?.build.id).toBe("build-2")
+  expect(latex.running()).toBe(false)
+  const calls = mocks.project.mock.calls.length
+  await vi.advanceTimersByTimeAsync(2000)
+  expect(mocks.project).toHaveBeenCalledTimes(calls)
+})
+
+test("slow build status requests do not overlap or discard the completed result", async () => {
+  mocks.project.mockResolvedValue({ data: bound() })
+  mocks.refresh.mockResolvedValue({ data: bound() })
+  mocks.build.mockResolvedValue({ data: { ...bound().latest!, id: "build-2", state: "running" } })
+  mount()
+  await tick()
+  latex.automatic(false)
+  await vi.advanceTimersByTimeAsync(1000)
+  await latex.compile()
+  const pending = Promise.withResolvers<{ data: LatexProject }>()
+  const calls = mocks.project.mock.calls.length
+  mocks.project.mockReturnValueOnce(pending.promise)
+  await vi.advanceTimersByTimeAsync(2000)
+  expect(mocks.project).toHaveBeenCalledTimes(calls + 1)
+  const build = { ...bound().latest!, id: "build-2" }
+  const project = { ...bound(), latest: build, lastSuccessful: build }
+  mocks.project.mockResolvedValue({ data: project })
+  mocks.refresh.mockResolvedValue({ data: project })
+  pending.resolve({ data: project })
+  await tick()
+  expect(latex.pdf()?.build.id).toBe("build-2")
+  expect(latex.running()).toBe(false)
 })
 
 test("conflicts pause autosave and compare resolution uses the displayed disk checksum", async () => {

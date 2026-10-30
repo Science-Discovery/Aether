@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test"
+import { expect, spyOn, test } from "bun:test"
 import { readFileSync } from "node:fs"
 import { runInNewContext } from "node:vm"
 
@@ -18,6 +18,7 @@ async function viewer() {
   const timers = new Map<number, () => void>()
   const storage = new Map<string, string>()
   const posts: Event[] = []
+  const dom = document.implementation.createHTMLDocument()
   const state = {
     time: 10000,
     selected: false,
@@ -25,6 +26,9 @@ async function viewer() {
     location: "",
     loads: [] as string[],
     destroyed: [] as string[],
+    visible: [] as number[],
+    delayed: false,
+    covered: false,
   }
   const broken = new Set<string>()
   const failed = new Set<string>()
@@ -35,7 +39,14 @@ async function viewer() {
     initializedPromise: Promise.resolve(),
     pdfDocument: null as Doc | null,
     pdfLoadingTask: undefined as Task | undefined,
-    pdfViewer: { currentPageNumber: 1, currentScaleValue: "auto", scrollMode: 0, spreadMode: 0, pagesRotation: 0 },
+    pdfViewer: {
+      currentPageNumber: 1,
+      currentScaleValue: "auto",
+      scrollMode: 0,
+      spreadMode: 0,
+      pagesRotation: 0,
+      _getVisiblePages: () => ({ views: state.visible.map((id) => ({ id })) }),
+    },
     pdfLinkService: {
       setHash: (hash: string) => {
         state.location = hash
@@ -60,6 +71,8 @@ async function viewer() {
     close: async () => {
       if (!app.pdfDocument) return
       state.closed++
+      state.covered = !!dom.querySelector("[data-aether-refresh]")
+      dom.getElementById("viewer")?.replaceChildren()
       await app.pdfLoadingTask?.destroy()
       app.pdfDocument = null
     },
@@ -69,7 +82,7 @@ async function viewer() {
       emit("documentloaded")
       emit("pagesinit")
       emit("pagesloaded", { pagesCount: doc.numPages })
-      emit("pagerendered", { pageNumber: app.page })
+      if (!state.delayed) emit("pagerendered", { pageNumber: app.page })
     },
   }
   const timeout = (fn: () => void) => {
@@ -85,6 +98,7 @@ async function viewer() {
     addEventListener: (type: string, fn: (event: Event) => unknown) => callbacks.set(type, fn),
     setTimeout: timeout,
     clearTimeout: clear,
+    getComputedStyle: () => ({ backgroundColor: "rgb(32, 32, 32)" }),
     getSelection: () => ({
       isCollapsed: !state.selected,
       removeAllRanges: () => {
@@ -116,7 +130,7 @@ async function viewer() {
   }
   runInNewContext(script, {
     window,
-    document: document.implementation.createHTMLDocument(),
+    document: dom,
     PDFViewerApplication: app,
     PDFViewerApplicationOptions: { set: () => undefined },
     localStorage: {
@@ -156,10 +170,17 @@ async function viewer() {
     paused,
     emit,
     storage,
-    open: async (src: string, document = "paper") => {
-      state.time += 10000
+    dom,
+    open: async (src: string, document = "paper", version: string | null = src, elapsed = 10000) => {
+      state.time += elapsed
       await send("config", {
-        config: { src, document, version: src, mode: "full", features: { textSelectionActions: true } },
+        config: {
+          src,
+          document,
+          version: version ?? undefined,
+          mode: "full",
+          features: { textSelectionActions: true },
+        },
       })
     },
     flush: async () => {
@@ -226,4 +247,73 @@ test("an obsolete preloaded build cannot replace the latest requested build", as
   await Promise.all([second, third])
   expect(ctx.state.loads).toEqual(["first", "third"])
   expect(ctx.state.destroyed).toContain("second")
+})
+
+test("immutable build versions bypass the ordinary file refresh interval", async () => {
+  const ctx = await viewer()
+  await ctx.open("first")
+  await ctx.open("second", "paper", "second", 100)
+  expect(ctx.state.loads).toEqual(["first", "second"])
+  await ctx.open("file?v=1", "ordinary", null)
+  await ctx.open("file?v=2", "ordinary", null, 100)
+  expect(ctx.state.loads).toEqual(["first", "second", "file?v=1"])
+  await ctx.flush()
+  expect(ctx.state.loads).toEqual(["first", "second", "file?v=1", "file?v=2"])
+})
+
+test("a viewport snapshot keeps painted pixels until the restored visible page renders", async () => {
+  const ctx = await viewer()
+  await ctx.open("first")
+  ctx.app.page = 7
+  ctx.state.visible = [7]
+  ctx.state.delayed = true
+  ctx.dom.body.insertAdjacentHTML(
+    "beforeend",
+    '<div id="viewerContainer"><div id="viewer" class="pdfViewer"><div class="page" data-page-number="7"><canvas id="old-canvas" width="20" height="20"></canvas></div></div></div>',
+  )
+  const container = ctx.dom.getElementById("viewerContainer")!
+  container.getBoundingClientRect = () => new DOMRect(0, 32, 400, 600)
+  ctx.dom.querySelector(".page")!.getBoundingClientRect = () => new DOMRect(10, 12, 380, 800)
+  let copied = 0
+  const spy = spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({
+    drawImage: () => copied++,
+  } as unknown as CanvasRenderingContext2D)
+  try {
+    await ctx.open("second")
+    const cover = ctx.dom.querySelector<HTMLElement>("[data-aether-refresh]")!
+    expect(ctx.state.covered).toBe(true)
+    expect(copied).toBe(1)
+    expect(cover.getAttribute("aria-hidden")).toBe("true")
+    expect(cover.querySelector("[id]")).toBeNull()
+    expect(container.inert).toBe(true)
+    ctx.emit("pagerendered", { pageNumber: 1 })
+    ctx.emit("pagerendered", { pageNumber: 7, cssTransform: true })
+    expect(cover.isConnected).toBe(true)
+    expect(ctx.posts.filter((item) => item.type === "documentinfo").map((item) => item.version)).toEqual(["first"])
+    ctx.emit("pagerendered", { pageNumber: 7 })
+    expect(cover.isConnected).toBe(false)
+    expect(container.inert).toBe(false)
+    expect(ctx.posts.filter((item) => item.type === "documentinfo").map((item) => item.version)).toEqual([
+      "first",
+      "second",
+    ])
+  } finally {
+    spy.mockRestore()
+  }
+})
+
+test("a visible page render error releases replacement so another build can recover", async () => {
+  const ctx = await viewer()
+  await ctx.open("first")
+  ctx.state.delayed = true
+  await ctx.open("second")
+  ctx.emit("pagerendered", { pageNumber: 1, error: new Error("Rendering failed") })
+  expect(ctx.posts.find((item) => item.type === "loaderror")?.version).toBe("second")
+  ctx.state.delayed = false
+  await ctx.open("third")
+  expect(ctx.state.loads).toEqual(["first", "second", "third"])
+  expect(ctx.posts.filter((item) => item.type === "documentinfo").map((item) => item.version)).toEqual([
+    "first",
+    "third",
+  ])
 })

@@ -542,15 +542,26 @@ export const { use: useLatex, provider: LatexProvider } = createSimpleContext({
         onCleanup(stop)
       }),
     )
-    const poll = setInterval(() => {
-      if (!state.path || state.busy || state.scanning || !running()) return
-      void read(false).then((project) => {
-        if (project && !["preparing", "running"].includes(project.latest?.state ?? "")) {
-          if (state.queued) schedule()
-          void refresh()
-        }
-      })
-    }, 1500)
+    createEffect(
+      on(scope, () => {
+        let polling = false
+        const poll = setInterval(() => {
+          if (polling || !state.path || state.busy || state.scanning || !running()) return
+          polling = true
+          void read(false)
+            .then((project) => {
+              if (project && !["preparing", "running"].includes(project.latest?.state ?? "")) {
+                if (state.queued) schedule()
+                void refresh()
+              }
+            })
+            .finally(() => {
+              polling = false
+            })
+        }, 500)
+        onCleanup(() => clearInterval(poll))
+      }),
+    )
     const focus = () => {
       if (state.path && !document.hidden) void refresh()
     }
@@ -561,7 +572,6 @@ export const { use: useLatex, provider: LatexProvider } = createSimpleContext({
       epoch++
       clearTimeout(timer)
       clearTimeout(watcher)
-      clearInterval(poll)
       clearInterval(interval)
       window.removeEventListener("focus", focus)
       document.removeEventListener("visibilitychange", focus)
