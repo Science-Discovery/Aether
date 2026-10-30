@@ -721,6 +721,10 @@ function SessionPageContent(props: SessionPageProps = {}) {
         document={quickReadingController.document()}
         version={quickReadingController.version()}
         onVersionChange={quickReadingController.latex.displayed}
+        reveal={quickReadingController.navigation.reveal()}
+        onSourceLocate={quickReadingController.compiled() ? quickReadingController.navigation.inverse : undefined}
+        onLocateUnavailable={quickReadingController.navigation.unavailable}
+        onBusyChange={quickReadingController.navigation.busy}
         header={
           <Show when={quickReadingController.compiled() && !desktopReviewOpen()}>
             <LatexReadingToolbar reading={quickReadingController.latex} download={quickReadingController.download} />

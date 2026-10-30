@@ -210,6 +210,28 @@ export const LatexRoutes = lazy(() =>
       async (c) => c.json(await Latex.get(c.req.valid("param").id)),
     )
     .post(
+      "/build/:id/sync/forward",
+      describeRoute({
+        operationId: "latex.forward",
+        summary: "Locate a source line in this immutable PDF build",
+        responses: { ...response(LatexSchema.Destination), ...failure },
+      }),
+      validator("param", z.object({ id: z.string().uuid() })),
+      validator("json", LatexSchema.Forward),
+      async (c) => c.json(await Latex.forward(c.req.valid("param").id, c.req.valid("json"))),
+    )
+    .post(
+      "/build/:id/sync/inverse",
+      describeRoute({
+        operationId: "latex.inverse",
+        summary: "Locate a PDF user-space point in its unchanged source project",
+        responses: { ...response(LatexSchema.Source), ...failure },
+      }),
+      validator("param", z.object({ id: z.string().uuid() })),
+      validator("json", LatexSchema.Inverse),
+      async (c) => c.json(await Latex.inverse(c.req.valid("param").id, c.req.valid("json"))),
+    )
+    .post(
       "/build/:id/cancel",
       describeRoute({
         operationId: "latex.cancel",

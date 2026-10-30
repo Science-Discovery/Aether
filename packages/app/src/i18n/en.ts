@@ -1829,6 +1829,16 @@ export const dict = {
     "Both styles use classic editor fonts such as Consolas and Menlo, with sans-serif fallbacks for Chinese, Japanese, and Korean. No fonts are downloaded.",
   "latex.source": "Source",
   "latex.preview": "PDF preview",
+  "latex.sync.locate": "Locate in PDF",
+  "latex.sync.shortcut": "Ctrl+Alt+J (macOS: Control+Option+J)",
+  "latex.sync.source": "Locate source from PDF",
+  "latex.sync.versions": "Locate within the same build",
+  "latex.sync.stale": "Save and compile first. The source and displayed PDF are not the same version.",
+  "latex.sync.unavailable": "This build has no usable source locations. Recompile to generate them.",
+  "latex.sync.missing": "Compile successfully before locating this source in the PDF.",
+  "latex.sync.nomatch": "No source location was found for this position.",
+  "latex.sync.busy": "Finish the current selection, annotation, or capture before locating.",
+  "latex.sync.failed": "Could not locate this position. Try again after refreshing the project.",
   "latex.root": "Project folder",
   "latex.open": "Open project",
   "latex.main": "Main document",
@@ -1948,6 +1958,12 @@ export const dict = {
   "latex.help.folding.description":
     "Use the arrows beside line numbers to fold sections, environments, or bibliography entries. Folding changes only the editor view; saving and compiling still use the complete source.",
   "latex.help.preview": "Open the project's PDF in the reading view. This button does not start a build.",
+  "latex.help.sync":
+    "Place the cursor in the source and choose Locate in PDF, or press Ctrl+Alt+J (Control+Option+J on macOS). The corresponding paragraph is briefly highlighted without changing the PDF zoom. Locations refer to source lines and paragraphs, not individual characters.",
+  "latex.help.sync.source":
+    "Ctrl-click PDF content (Command-click on macOS) to open its source file and line. Ordinary clicks and double-clicks still select text. Links, annotation controls, and capture mode do not trigger source navigation.",
+  "latex.help.sync.versions":
+    "Source navigation uses the displayed PDF's build. If source files, drafts, or project settings have changed, save and compile before trying again; Aether does not guess new line numbers or switch historical PDFs. Older builds without source locations need recompilation.",
   "latex.help.root":
     "The folder containing this paper's source files, chapters, images and bibliography, relative to the workspace.",
   "latex.help.open":

@@ -21,6 +21,7 @@ type Props = {
   auth?: string
   actions?: JSX.Element
   onNavigate: (path: string, line: number) => void
+  onLocate?: () => void
   children: JSX.Element
 }
 
@@ -219,6 +220,17 @@ function Workspace(props: Props) {
               <Button size="small" variant="secondary" onClick={latex.show}>
                 {language.t("latex.preview")}
               </Button>
+              <Show when={props.onLocate}>
+                <Button
+                  size="small"
+                  variant="secondary"
+                  data-action="latex-locate"
+                  title={language.t("latex.sync.shortcut")}
+                  onClick={() => props.onLocate?.()}
+                >
+                  {language.t("latex.sync.locate")}
+                </Button>
+              </Show>
               <Button size="small" variant="secondary" data-action="latex-help" onClick={help}>
                 {language.t("latex.help")}
               </Button>

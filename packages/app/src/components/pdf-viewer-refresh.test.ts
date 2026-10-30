@@ -29,6 +29,14 @@ async function viewer() {
     visible: [] as number[],
     delayed: false,
     covered: false,
+    mac: false,
+    reveals: [] as Array<{ pageNumber: number; destArray: unknown[]; ignoreDestinationZoom: boolean }>,
+  }
+  const viewport = {
+    width: 300,
+    height: 400,
+    convertToPdfPoint: (x: number, y: number) => [x / 2, 200 - y / 2],
+    convertToViewportPoint: (x: number, y: number) => [x * 2, 400 - y * 2],
   }
   const broken = new Set<string>()
   const failed = new Set<string>()
@@ -46,6 +54,11 @@ async function viewer() {
       spreadMode: 0,
       pagesRotation: 0,
       _getVisiblePages: () => ({ views: state.visible.map((id) => ({ id })) }),
+      getPageView: () => ({ viewport, renderingState: 3 }),
+      scrollPageIntoView: (target: { pageNumber: number; destArray: unknown[]; ignoreDestinationZoom: boolean }) => {
+        state.reveals.push(target)
+        app.page = target.pageNumber
+      },
     },
     pdfLinkService: {
       setHash: (hash: string) => {
@@ -94,12 +107,18 @@ async function viewer() {
   const window = {
     location: { protocol: "http:", origin: "http://aether.test" },
     parent,
+    navigator: {
+      get platform() {
+        return state.mac ? "MacIntel" : "Win32"
+      },
+    },
     PDFViewerApplication: app,
     addEventListener: (type: string, fn: (event: Event) => unknown) => callbacks.set(type, fn),
     setTimeout: timeout,
     clearTimeout: clear,
     getComputedStyle: () => ({ backgroundColor: "rgb(32, 32, 32)" }),
     getSelection: () => ({
+      rangeCount: 0,
       isCollapsed: !state.selected,
       removeAllRanges: () => {
         state.selected = false
@@ -152,14 +171,16 @@ async function viewer() {
     },
     console: { error: () => undefined },
     crypto,
+    Element,
   })
   await callbacks.get("load")!({})
   await Promise.resolve()
-  const send = async (type: string, data: Event) =>
+  const send = async (type: string, data: Event, event: Event = {}) =>
     callbacks.get("message")!({
       source: parent,
       origin: window.location.origin,
       data: { channel: "aether-pdf-viewer", type, ...data },
+      ...event,
     })
   return {
     app,
@@ -171,7 +192,16 @@ async function viewer() {
     emit,
     storage,
     dom,
-    open: async (src: string, document = "paper", version: string | null = src, elapsed = 10000) => {
+    viewport,
+    send,
+    open: async (
+      src: string,
+      document = "paper",
+      version: string | null = src,
+      elapsed = 10000,
+      locate = false,
+      opts: { activity?: boolean; annotations?: boolean } = {},
+    ) => {
       state.time += elapsed
       await send("config", {
         config: {
@@ -179,7 +209,7 @@ async function viewer() {
           document,
           version: version ?? undefined,
           mode: "full",
-          features: { textSelectionActions: true },
+          features: { textSelectionActions: true, sourceLocate: locate, ...opts },
         },
       })
     },
@@ -192,6 +222,262 @@ async function viewer() {
     },
   }
 }
+
+function page(ctx: Awaited<ReturnType<typeof viewer>>) {
+  ctx.dom.getElementById("viewerContainer")?.remove()
+  ctx.dom.body.insertAdjacentHTML(
+    "beforeend",
+    '<div id="viewerContainer"><div id="viewer"><div class="page" data-page-number="1"><div class="canvasWrapper"></div></div></div></div>',
+  )
+  const page = ctx.dom.querySelector<HTMLElement>(".page")!
+  const canvas = page.querySelector<HTMLElement>(".canvasWrapper")!
+  page.getBoundingClientRect = () => new DOMRect(8, 18, 304, 404)
+  canvas.getBoundingClientRect = () => new DOMRect(10, 20, 300, 400)
+  return canvas
+}
+
+function click(target: HTMLElement, opts: MouseEventInit = {}) {
+  const init = { bubbles: true, cancelable: true, clientX: 70, clientY: 100, ctrlKey: true, ...opts }
+  target.dispatchEvent(new MouseEvent("pointerdown", init))
+  return target.dispatchEvent(new MouseEvent("click", init))
+}
+
+test("activity reports ordinary PDF selections without polling or enabling source lookup", async () => {
+  const ctx = await viewer()
+  await ctx.open("file", "", null, 10000, false, { activity: true })
+  const updates = () => ctx.posts.filter((item) => item.type === "busychange")
+  expect(updates().map((item) => item.busy)).toEqual([false])
+  ctx.state.selected = true
+  ctx.dom.dispatchEvent(new Event("selectionchange"))
+  await Promise.resolve()
+  expect(updates().map((item) => item.busy)).toEqual([false, true])
+  ctx.dom.dispatchEvent(new Event("selectionchange"))
+  await Promise.resolve()
+  expect(updates()).toHaveLength(2)
+  ctx.state.selected = false
+  ctx.dom.dispatchEvent(new Event("selectionchange"))
+  await Promise.resolve()
+  expect(updates().map((item) => item.busy)).toEqual([false, true, false])
+  expect(updates().every((item) => item.src === "file" && item.version === undefined)).toBe(true)
+  expect(ctx.posts.some((item) => item.type === "sourcelocate")).toBe(false)
+})
+
+test("activity covers annotation editing and remains busy until annotation writes finish", async () => {
+  const ctx = await viewer()
+  await ctx.open("first", "paper", "first", 10000, false, { activity: true, annotations: true })
+  page(ctx)
+  await ctx.send("annotations", {
+    document: "paper",
+    version: "first",
+    src: "first",
+    annotations: [
+      {
+        id: "note",
+        type: "note",
+        color: "yellow",
+        pages: [{ page: 1, quads: [[10, 10, 30, 10, 10, 20, 30, 20]] }],
+        selectedText: "Text",
+        note: "",
+        createdAt: 1,
+        updatedAt: 1,
+      },
+    ],
+  })
+  ctx.dom
+    .querySelector(".aetherAnnotationHit")!
+    .dispatchEvent(new MouseEvent("click", { bubbles: true, clientX: 70, clientY: 100 }))
+  await Promise.resolve()
+  expect(ctx.posts.filter((item) => item.type === "busychange").at(-1)?.busy).toBe(true)
+  ctx.dom
+    .getElementById("aetherAnnotationEditor")!
+    .dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }))
+  await Promise.resolve()
+  expect(ctx.dom.getElementById("aetherAnnotationEditor")).toBeNull()
+  expect(ctx.posts.filter((item) => item.type === "busychange").at(-1)?.busy).toBe(true)
+  await ctx.send("annotationstatus", { document: "paper", version: "first", src: "first", id: 1, ok: true })
+  expect(ctx.posts.filter((item) => item.type === "busychange").at(-1)?.busy).toBe(false)
+})
+
+test("activity reporting is opt-in", async () => {
+  const ctx = await viewer()
+  await ctx.open("first")
+  ctx.state.selected = true
+  ctx.dom.dispatchEvent(new Event("selectionchange"))
+  await Promise.resolve()
+  expect(ctx.posts.some((item) => item.type === "busychange")).toBe(false)
+})
+
+test("source reveal keeps zoom, handles repeated same-page requests and rejects stale or untrusted messages", async () => {
+  const ctx = await viewer()
+  await ctx.open("first")
+  page(ctx)
+  ctx.app.pdfViewer.currentScaleValue = "200"
+  const data = { id: "one", document: "paper", version: "first", src: "first", page: 1, rect: [20, 120, 50, 140] }
+  await ctx.send("reveal", data)
+  await ctx.send("reveal", { ...data, id: "two" })
+  expect(ctx.state.reveals).toHaveLength(2)
+  expect(ctx.state.reveals[0]).toEqual({
+    pageNumber: 1,
+    destArray: [null, { name: "XYZ" }, 20, 140, null],
+    ignoreDestinationZoom: true,
+  })
+  expect(ctx.app.pdfViewer.currentScaleValue).toBe("200")
+  const mark = ctx.dom.querySelector<HTMLElement>(".aetherSourceHighlight")!
+  expect(mark.style.left).toBe("42px")
+  expect(mark.style.top).toBe("122px")
+  expect(mark.style.width).toBe("60px")
+  expect(mark.style.height).toBe("40px")
+  expect(mark.style.pointerEvents).toBe("none")
+  await ctx.send("reveal", { ...data, version: "second" })
+  await ctx.send("reveal", data, { origin: "https://other.test" })
+  await ctx.send("reveal", data, { source: {} })
+  expect(ctx.state.reveals).toHaveLength(2)
+  await ctx.flush()
+  expect(ctx.dom.querySelector(".aetherSourceHighlight")).toBeNull()
+})
+
+test("source reveal does not disturb a selection and validates destination geometry", async () => {
+  const ctx = await viewer()
+  await ctx.open("first")
+  page(ctx)
+  const data = { id: "one", document: "paper", version: "first", src: "first", page: 1, rect: [20, 120, 50, 140] }
+  ctx.state.selected = true
+  await ctx.send("reveal", data)
+  expect(ctx.state.selected).toBe(true)
+  expect(ctx.state.reveals).toHaveLength(0)
+  expect(ctx.posts.at(-1)).toMatchObject({ type: "locateunavailable", id: "one", reason: "busy", version: "first" })
+  ctx.state.selected = false
+  await ctx.send("reveal", { ...data, id: "bad", rect: [0, 10, Number.NaN, 2] })
+  await ctx.send("reveal", { ...data, id: "page", page: 99 })
+  expect(ctx.state.reveals).toHaveLength(0)
+  expect(ctx.posts.at(-1)).toMatchObject({ type: "locateunavailable", id: "page", reason: "unavailable" })
+})
+
+test("source reveal leaves visible padding below an overlay toolbar without changing zoom, including rotated pages", async () => {
+  const ctx = await viewer()
+  await ctx.open("first")
+  const canvas = page(ctx)
+  const container = ctx.dom.getElementById("viewerContainer")!
+  container.getBoundingClientRect = () => new DOMRect(0, 0, 400, 300)
+  canvas.getBoundingClientRect = () => new DOMRect(10, 112 - container.scrollTop, 300, 400)
+  canvas.parentElement!.getBoundingClientRect = () => new DOMRect(8, 110 - container.scrollTop, 304, 404)
+  const toolbar = ctx.dom.createElement("div")
+  toolbar.id = "toolbarContainer"
+  toolbar.getBoundingClientRect = () => new DOMRect(0, 0, 400, 40)
+  ctx.dom.body.appendChild(toolbar)
+  ctx.app.pdfViewer.currentScaleValue = "200"
+  container.scrollTop = 200
+  const data = { id: "one", document: "paper", version: "first", src: "first", page: 1, rect: [20, 120, 50, 140] }
+  await ctx.send("reveal", data)
+  expect(container.scrollTop).toBe(176)
+  expect(ctx.app.pdfViewer.currentScaleValue).toBe("200")
+  ctx.viewport.convertToViewportPoint = (x, y) => [y * 2, x * 2]
+  container.scrollTop = 200
+  await ctx.send("reveal", { ...data, id: "rotated" })
+  expect(container.scrollTop).toBe(96)
+  expect(ctx.app.pdfViewer.currentScaleValue).toBe("200")
+})
+
+test("source reveal keeps horizontally clipped targets visible after 180 and 270 degree rotation", async () => {
+  const ctx = await viewer()
+  await ctx.open("first")
+  const canvas = page(ctx)
+  const container = ctx.dom.getElementById("viewerContainer")!
+  container.getBoundingClientRect = () => new DOMRect(0, 0, 200, 400)
+  canvas.getBoundingClientRect = () => new DOMRect(112 - container.scrollLeft, 20, 300, 400)
+  canvas.parentElement!.getBoundingClientRect = () => new DOMRect(110 - container.scrollLeft, 18, 304, 404)
+  ctx.viewport.convertToViewportPoint = (x, y) => [300 - x * 2, 400 - y * 2]
+  container.scrollLeft = 350
+  const data = { id: "half", document: "paper", version: "first", src: "first", page: 1, rect: [20, 120, 50, 140] }
+  await ctx.send("reveal", data)
+  expect(container.scrollLeft).toBe(296)
+  ctx.viewport.width = 400
+  ctx.viewport.height = 300
+  ctx.viewport.convertToViewportPoint = (x, y) => [400 - y * 2, x * 2]
+  container.scrollLeft = 350
+  await ctx.send("reveal", { ...data, id: "three-quarters" })
+  expect(container.scrollLeft).toBe(186)
+})
+
+test("source reveal keeps the leading edge of a region wider than the viewport visible", async () => {
+  const ctx = await viewer()
+  await ctx.open("first")
+  const canvas = page(ctx)
+  const container = ctx.dom.getElementById("viewerContainer")!
+  container.getBoundingClientRect = () => new DOMRect(0, 0, 150, 400)
+  canvas.getBoundingClientRect = () => new DOMRect(112 - container.scrollLeft, 20, 300, 400)
+  canvas.parentElement!.getBoundingClientRect = () => new DOMRect(110 - container.scrollLeft, 18, 304, 404)
+  container.scrollLeft = 100
+  await ctx.send("reveal", {
+    id: "wide",
+    document: "paper",
+    version: "first",
+    src: "first",
+    page: 1,
+    rect: [20, 120, 140, 140],
+  })
+  expect(container.scrollLeft).toBe(136)
+})
+
+test("source lookup uses the loaded PDF coordinates and excludes ordinary clicks, links and annotation controls", async () => {
+  const ctx = await viewer()
+  await ctx.open("first", "paper", "first", 10000, true)
+  const canvas = page(ctx)
+  click(canvas)
+  expect(ctx.posts.at(-1)).toMatchObject({
+    type: "sourcelocate",
+    document: "paper",
+    version: "first",
+    page: 1,
+    x: 30,
+    y: 160,
+  })
+  const count = () => ctx.posts.filter((item) => item.type === "sourcelocate").length
+  click(canvas, { ctrlKey: false })
+  canvas.innerHTML = '<a href="#">link</a><div class="aetherAnnotationLayer"><span>annotation</span></div>'
+  click(canvas.querySelector("a")!)
+  click(canvas.querySelector("span")!)
+  expect(count()).toBe(1)
+  ctx.state.mac = true
+  click(canvas)
+  expect(count()).toBe(1)
+  click(canvas, { ctrlKey: false, metaKey: true })
+  expect(count()).toBe(2)
+  ctx.state.selected = true
+  click(canvas, { ctrlKey: false, metaKey: true })
+  expect(ctx.state.selected).toBe(true)
+  expect(count()).toBe(2)
+  expect(ctx.posts.at(-1)).toMatchObject({ type: "locateunavailable", reason: "busy" })
+})
+
+test("source lookup transforms CSS-scaled rotated pages through the PDF viewport", async () => {
+  const ctx = await viewer()
+  await ctx.open("first", "paper", "first", 10000, true)
+  const canvas = page(ctx)
+  ctx.viewport.width = 400
+  ctx.viewport.height = 300
+  ctx.viewport.convertToPdfPoint = (x, y) => [y / 2, x / 2]
+  click(canvas)
+  expect(ctx.posts.at(-1)).toMatchObject({ type: "sourcelocate", page: 1, x: 30, y: 40 })
+})
+
+test("ordinary PDF source lookup stays disabled and preloading does not use the incoming build identity", async () => {
+  const ctx = await viewer()
+  await ctx.open("ordinary", "ordinary", null)
+  click(page(ctx))
+  expect(ctx.posts.some((item) => item.type === "sourcelocate")).toBe(false)
+  await ctx.open("first", "paper", "first", 10000, true)
+  const canvas = page(ctx)
+  const gate = Promise.withResolvers<void>()
+  ctx.paused.set("second", gate.promise)
+  const loading = ctx.open("second", "paper", "second", 10000, true)
+  await Promise.resolve()
+  click(canvas)
+  expect(ctx.posts.at(-1)).toMatchObject({ type: "sourcelocate", version: "first", src: "first" })
+  gate.resolve()
+  await loading
+  expect(ctx.state.loads.at(-1)).toBe("second")
+})
 
 test("a failed PDF fetch or render preserves the loaded document and version", async () => {
   const ctx = await viewer()

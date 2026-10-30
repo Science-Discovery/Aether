@@ -7,6 +7,7 @@ import { Global } from "../../src/global"
 import { Instance } from "../../src/project/instance"
 import { Latex, LatexSchema } from "../../src/latex"
 import { LatexCompiler } from "../../src/latex/compiler"
+import { LatexProject } from "../../src/latex/project"
 import { Server } from "../../src/server/server"
 import { tmpdir } from "../fixture/fixture"
 
@@ -60,6 +61,92 @@ const start = (binding: LatexSchema.Binding, sourceRevision?: string) =>
   Latex.start({ root: binding.root, bindingRevision: binding.revision, sourceRevision, allowDownloads: false })
 
 describe("LaTeX compiler lifecycle", () => {
+  test("publishes build-bound source positions, verifies freshness and survives scratch removal and instance reload", async () => {
+    await using dir = await tmpdir()
+    await Bun.write(path.join(dir.path, "paper", "main.tex"), "\\documentclass{article}")
+    await Bun.write(path.join(dir.path, "paper", "章节", "part.tex"), "One\nTwo\nThree\nFour\nFive")
+    await Bun.write(
+      path.join(dir.path, "paper", "scenario.json"),
+      JSON.stringify({ mode: "sync", source: "章节/part.tex" }),
+    )
+    const id = await Instance.provide({
+      directory: dir.path,
+      fn: async () => {
+        const bound = (await Latex.bind({ root: "paper", main: "main.tex", driver: "tectonic", program: "auto" }))
+          .binding!
+        const build = await terminal((await start(bound)).id)
+        expect(build.state).toBe("succeeded")
+        expect(build.sync).toEqual({ state: "ready" })
+        expect(
+          await Bun.file(path.join(Global.Path.cache, "latex", "jobs", build.id, "output", "main.synctex.gz")).exists(),
+        ).toBe(false)
+        const found = await Latex.forward(build.id, { path: "paper/章节/part.tex", line: 5 })
+        expect(found.page).toBe(1)
+        expect(found.rect[0]).toBeCloseTo(120, 4)
+        expect(found.rect[1]).toBeCloseTo(628, 4)
+        expect(await Latex.inverse(build.id, { page: 1, x: 140, y: 634 })).toEqual({
+          path: "paper/章节/part.tex",
+          line: 5,
+        })
+        await expect(Latex.forward(build.id, { path: "../outside.tex", line: 1 })).rejects.toThrow("outside")
+        const root = await LatexProject.root("paper")
+        const home = path.join(Global.Path.data, "latex", root.owner)
+        const file = path.join(home, "sync", `${build.id}.json`)
+        const original = await Bun.file(file).text()
+        await Bun.write(file, `${original} `)
+        await expect(Latex.forward(build.id, { path: "paper/章节/part.tex", line: 5 })).rejects.toThrow("changed")
+        await Bun.write(file, original)
+        const manifest = path.join(home, "manifests", `${build.id}.json`)
+        const saved = await Bun.file(manifest).text()
+        await Bun.write(manifest, saved.replace(root.owner, "different-workspace"))
+        await expect(Latex.inverse(build.id, { page: 1, x: 140, y: 634 })).rejects.toThrow("manifest is invalid")
+        await Bun.write(manifest, saved)
+        await Instance.dispose()
+        return build.id
+      },
+    })
+    await Instance.provide({
+      directory: dir.path,
+      fn: async () => {
+        expect((await Latex.forward(id, { path: "paper/章节/part.tex", line: 5 })).page).toBe(1)
+        await Bun.write(path.join(dir.path, "paper", "main.tex"), "\\documentclass{book}")
+        await expect(Latex.inverse(id, { page: 1, x: 140, y: 634 })).rejects.toThrow("source has changed")
+        await Bun.write(path.join(dir.path, "paper", "main.tex"), "\\documentclass{article}")
+        const project = await Latex.inspect({ root: "paper" })
+        await Latex.bind({ ...project.binding!, expectedRevision: project.binding!.revision })
+        await expect(Latex.forward(id, { path: "paper/章节/part.tex", line: 5 })).rejects.toThrow("settings changed")
+        await Instance.dispose()
+      },
+    })
+    await using other = await tmpdir()
+    await Instance.provide({
+      directory: other.path,
+      fn: async () => {
+        await expect(Latex.inverse(id, { page: 1, x: 140, y: 634 })).rejects.toThrow("does not belong")
+        await Instance.dispose()
+      },
+    })
+  })
+
+  test("unavailable or malformed source mapping does not fail a valid PDF build", async () => {
+    await using dir = await tmpdir()
+    await Bun.write(path.join(dir.path, "main.tex"), "\\documentclass{article}")
+    await Instance.provide({
+      directory: dir.path,
+      fn: async () => {
+        const bound = (await Latex.bind({ root: ".", main: "main.tex", driver: "tectonic", program: "auto" })).binding!
+        for (const mode of ["success", "invalid-sync"]) {
+          await Bun.write(path.join(dir.path, "scenario.json"), JSON.stringify({ mode }))
+          const build = await terminal((await start(bound)).id)
+          expect(build.state).toBe("succeeded")
+          expect(build.sync?.state).toBe("unavailable")
+          expect((await Latex.pdf(build.id)).bytes.length).toBeGreaterThan(100)
+          await expect(Latex.forward(build.id, { path: "main.tex", line: 1 })).rejects.toThrow("no source mapping")
+        }
+        await Instance.dispose()
+      },
+    })
+  })
   test("lastSuccessful always names a readable PDF through final cleanup", async () => {
     await using dir = await tmpdir()
     await Bun.write(path.join(dir.path, "main.tex"), "\\documentclass{article}")
@@ -269,6 +356,8 @@ describe("LaTeX compiler lifecycle", () => {
     expect(spec.paths?.["/latex/versions"]?.get?.operationId).toBe("latex.versions")
     expect(spec.paths?.["/latex/build/{id}/annotations"]?.put?.operationId).toBe("latex.annotate")
     expect(spec.paths?.["/latex/build/{id}/lease"]?.post?.operationId).toBe("latex.lease")
+    expect(spec.paths?.["/latex/build/{id}/sync/forward"]?.post?.operationId).toBe("latex.forward")
+    expect(spec.paths?.["/latex/build/{id}/sync/inverse"]?.post?.operationId).toBe("latex.inverse")
   })
 
   test("configured executable is probed without compiling and explicit pdfLaTeX is not silently changed", async () => {
@@ -408,6 +497,7 @@ describe("LaTeX compiler lifecycle", () => {
         expect(data.args).toContain(`./${name}`)
         expect(data.args).toContain("--untrusted")
         expect(data.args).toContain("--only-cached")
+        expect(data.args).toContain("--synctex")
         expect(data.cwd).not.toBe(dir.path)
         await Instance.dispose()
       },

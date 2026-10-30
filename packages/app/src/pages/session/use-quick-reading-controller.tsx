@@ -18,6 +18,7 @@ import { Identifier } from "@/utils/id"
 import { createReadingQuoteMetadata, summarizeReadingQuoteText } from "@/utils/comment-note"
 import { formatServerError } from "@/utils/server-errors"
 import { useLatexReading } from "./use-latex-reading"
+import { useLatexNavigation } from "./use-latex-navigation"
 import { source } from "@/utils/pdf-source"
 import { usePlatform } from "@/context/platform"
 
@@ -37,6 +38,7 @@ export function useQuickReadingController(_options: Options) {
   const navigate = useNavigate()
   const platform = usePlatform()
   const latex = useLatexReading()
+  const navigation = useLatexNavigation(latex)
   const { params, view, reading } = useSessionLayout()
   const [firstReadOpen, setFirstReadOpen] = createSignal(false)
 
@@ -361,6 +363,7 @@ export function useQuickReadingController(_options: Options) {
 
   return {
     latex,
+    navigation,
     compiled,
     document: () => (compiled() ? latex.key() : undefined),
     version: () => (compiled() ? latex.state.ready : undefined),

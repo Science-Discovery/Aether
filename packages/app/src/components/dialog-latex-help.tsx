@@ -20,6 +20,7 @@ export function DialogLatexHelp() {
         ["latex.appearance", "latex.help.appearance"],
         ["latex.help.folding", "latex.help.folding.description"],
         ["latex.preview", "latex.help.preview"],
+        ["latex.sync.locate", "latex.help.sync"],
       ],
     },
     {
@@ -39,6 +40,8 @@ export function DialogLatexHelp() {
       title: "latex.help.reading",
       items: [
         ["latex.preview.versions", "latex.help.versions"],
+        ["latex.sync.source", "latex.help.sync.source"],
+        ["latex.sync.versions", "latex.help.sync.versions"],
         ["latex.preview.export", "latex.help.export"],
         ["latex.help.diagnostics", "latex.help.errors"],
         ["latex.downloads", "latex.help.downloads"],

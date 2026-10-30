@@ -58,6 +58,11 @@
   let cover = null
   let reported = false
   let pending = null
+  let destination = null
+  let expiry = 0
+  let pointer = null
+  let notified = ""
+  let notifying = false
   const annotationColors = {
     yellow: "#f6cf35",
     red: "#ef5350",
@@ -403,6 +408,8 @@
         imageSelectionActions: !!input?.features?.imageSelectionActions,
         annotations: !!input?.features?.annotations,
         swapLayout: !!input?.features?.swapLayout,
+        sourceLocate: !!input?.features?.sourceLocate,
+        activity: !!input?.features?.activity,
       },
     }
   }
@@ -511,6 +518,7 @@
     if (!selectionMenu) return
     selectionMenu.hidden = true
     selectionState = null
+    activity()
   }
 
   function hideSelectionUi() {
@@ -521,10 +529,12 @@
   function clearTextSelection() {
     const selection = window.getSelection()
     selection?.removeAllRanges()
+    activity()
   }
 
   function emitAnnotations() {
     dirty = true
+    activity()
     post("annotationchange", { annotations: annotations, id: ++revision })
     renderAnnotations()
   }
@@ -565,6 +575,7 @@
 
     if (action === "copy") {
       copying = true
+      activity()
       let imageCopyUnsupported = false
       try {
         if (selectionState.kind === "image") {
@@ -586,6 +597,7 @@
         // Keep the native selection as fallback.
       }
       copying = false
+      activity()
       if (imageCopyUnsupported) {
         hideSelectionMenu()
         showSelectionHint("Image copy not supported")
@@ -832,6 +844,7 @@
       pages: context.pages,
       rect: context.rect,
     }
+    activity()
     selectionMenu.querySelectorAll("[data-annotation]").forEach(function (button) {
       button.hidden = !annotationsEnabled()
     })
@@ -981,10 +994,12 @@
   function closeAnnotationEditor() {
     annotationEditor?.remove()
     annotationEditor = null
+    activity()
   }
 
   function showAnnotationUndo(item, index) {
     annotationUndo = { item: item, index: index }
+    activity()
     ensureSelectionUi()
     hideSelectionHint(true)
     selectionHint.textContent = "Annotation deleted"
@@ -996,6 +1011,7 @@
       annotations = annotations.slice()
       annotations.splice(annotationUndo.index, 0, annotationUndo.item)
       annotationUndo = null
+      activity()
       hideSelectionHint(true)
       emitAnnotations()
     })
@@ -1004,6 +1020,7 @@
     selectionHintLockedUntil = Date.now() + 5000
     selectionHintTimer = window.setTimeout(function () {
       annotationUndo = null
+      activity()
       hideSelectionHint(true)
     }, 5000)
   }
@@ -1104,6 +1121,7 @@
     editor.style.left = Math.max(12, Math.min(window.innerWidth - box.width - 12, x)) + "px"
     editor.style.top = Math.max(12, Math.min(window.innerHeight - box.height - 12, y)) + "px"
     annotationEditor = editor
+    activity()
     if (item.type === "note") note.focus()
   }
 
@@ -1142,6 +1160,7 @@
   function setCaptureMode(next) {
     const enabled = !!next && imageSelectionActionsEnabled()
     captureModeActive = enabled
+    activity()
     document.body.classList.toggle("capture-mode-active", enabled)
 
     const button = document.getElementById("aetherCaptureRegion")
@@ -1285,8 +1304,10 @@
     }
 
     capturing = true
+    activity()
     const cropped = await cropImageFromSelection(drag.pageElement, rect).finally(function () {
       capturing = false
+      activity()
     })
     if (!cropped || !cropped.imageDataUrl) {
       showSelectionHint("Unable to capture region")
@@ -1530,6 +1551,179 @@
     )
   }
 
+  function activity() {
+    if (notifying) return
+    notifying = true
+    Promise.resolve().then(function () {
+      notifying = false
+      if (!currentConfig?.features.activity) {
+        notified = ""
+        return
+      }
+      if (!reported) return
+      const value = busy() || switching
+      const next = JSON.stringify([currentConfig.document, currentConfig.version, currentConfig.src, value])
+      if (notified === next) return
+      notified = next
+      post("busychange", { busy: value })
+    })
+  }
+
+  function unmark() {
+    clearTimeout(expiry)
+    expiry = 0
+    destination = null
+    document.querySelectorAll(".aetherSourceHighlight").forEach(function (node) {
+      node.remove()
+    })
+  }
+
+  function highlight(align = false) {
+    document.querySelectorAll(".aetherSourceHighlight").forEach(function (node) {
+      node.remove()
+    })
+    if (
+      !destination ||
+      destination.document !== currentConfig?.document ||
+      destination.version !== currentConfig?.version
+    )
+      return
+    const page = document.querySelector(`.page[data-page-number="${destination.page}"]`)
+    const view = window.PDFViewerApplication?.pdfViewer?.getPageView?.(destination.page - 1)
+    if (!page || !view?.viewport) return
+    const box = pageContentRect(page)
+    const bounds = page.getBoundingClientRect()
+    if (!box.width || !box.height || !view.viewport.width || !view.viewport.height) return
+    const rect = destination.rect
+    const points = viewportQuad(view.viewport, [rect[0], rect[1], rect[2], rect[1], rect[0], rect[3], rect[2], rect[3]])
+    const xs = points.map(function (point) {
+      return (point[0] * box.width) / view.viewport.width
+    })
+    const ys = points.map(function (point) {
+      return (point[1] * box.height) / view.viewport.height
+    })
+    const container = viewerContainerElement()
+    if (align && container) {
+      const area = container.getBoundingClientRect()
+      const toolbar = document.getElementById("toolbarContainer")?.getBoundingClientRect()
+      if (area.height > 0) {
+        const padding = Math.min(16, area.height / 4)
+        const edge =
+          toolbar && toolbar.width && toolbar.height && toolbar.right > area.left && toolbar.left < area.right
+            ? Math.max(area.top, toolbar.bottom)
+            : area.top
+        const top = Math.min(area.bottom - padding, edge + padding)
+        const bottom = Math.max(top, area.bottom - padding)
+        const first = box.top + Math.min(...ys)
+        const last = box.top + Math.max(...ys)
+        const offset = first < top ? first - top : last > bottom ? Math.min(first - top, last - bottom) : 0
+        if (offset) container.scrollTop = Math.max(0, container.scrollTop + offset)
+      }
+      if (area.width > 0) {
+        const margin = Math.min(16, area.width / 4)
+        const left = area.left + margin
+        const right = area.right - margin
+        const start = box.left + Math.min(...xs)
+        const end = box.left + Math.max(...xs)
+        const shift = start < left ? start - left : end > right ? Math.min(start - left, end - right) : 0
+        if (shift) container.scrollLeft = Math.max(0, container.scrollLeft + shift)
+      }
+    }
+    const node = document.createElement("div")
+    node.className = "aetherSourceHighlight"
+    node.setAttribute("aria-hidden", "true")
+    node.style.cssText =
+      "position:absolute;pointer-events:none;z-index:6;border:2px solid #d69e00;background:rgba(255,210,70,.22);box-sizing:border-box;border-radius:2px"
+    Object.assign(node.style, {
+      left: `${box.left - bounds.left + Math.min(...xs)}px`,
+      top: `${box.top - bounds.top + Math.min(...ys)}px`,
+      width: `${Math.max(4, Math.max(...xs) - Math.min(...xs))}px`,
+      height: `${Math.max(4, Math.max(...ys) - Math.min(...ys))}px`,
+    })
+    page.appendChild(node)
+  }
+
+  function reveal(data) {
+    if (
+      !currentConfig?.document ||
+      !currentConfig?.version ||
+      data.document !== currentConfig.document ||
+      data.version !== currentConfig.version ||
+      data.src !== currentConfig.src ||
+      typeof data.id !== "string" ||
+      !data.id
+    )
+      return
+    const app = window.PDFViewerApplication
+    if (busy() || switching) {
+      post("locateunavailable", { id: data.id, reason: "busy" })
+      return
+    }
+    if (
+      !reported ||
+      !app?.pdfDocument ||
+      !app.pdfViewer?.scrollPageIntoView ||
+      !Number.isInteger(data.page) ||
+      data.page < 1 ||
+      data.page > app.pdfDocument.numPages ||
+      !Array.isArray(data.rect) ||
+      data.rect.length !== 4 ||
+      !data.rect.every(Number.isFinite) ||
+      data.rect[0] > data.rect[2] ||
+      data.rect[1] > data.rect[3]
+    ) {
+      post("locateunavailable", { id: data.id, reason: "unavailable" })
+      return
+    }
+    unmark()
+    destination = { document: data.document, version: data.version, page: data.page, rect: data.rect.slice() }
+    app.pdfHistory?.pushCurrentPosition()
+    app.pdfViewer.scrollPageIntoView({
+      pageNumber: data.page,
+      destArray: [null, { name: "XYZ" }, data.rect[0], data.rect[3], null],
+      ignoreDestinationZoom: true,
+    })
+    highlight(true)
+    const target = destination
+    requestAnimationFrame(function () {
+      if (destination === target && !busy()) highlight(true)
+    })
+    expiry = setTimeout(unmark, 2000)
+  }
+
+  function modified(event) {
+    const mac = /Mac|iPhone|iPad/.test(window.navigator?.platform || "")
+    return (
+      event.button === 0 &&
+      !event.altKey &&
+      !event.shiftKey &&
+      !event.getModifierState?.("AltGraph") &&
+      (mac ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey)
+    )
+  }
+
+  function point(event) {
+    if (!(event.target instanceof Element)) return
+    if (
+      event.target.closest(
+        "a,button,input,textarea,select,[contenteditable],.annotationLayer,.annotationEditorLayer,.aetherAnnotationLayer,#aetherAnnotationEditor,#aetherSelectionMenu,#aetherCaptureOverlay",
+      )
+    )
+      return
+    const page = closestPageElement(event.target)
+    const number = pageNumberFromElement(page)
+    const view = number ? window.PDFViewerApplication?.pdfViewer?.getPageView?.(number - 1) : null
+    if (!page || !number || !view?.viewport || !viewerContainerElement()?.contains(page)) return
+    const box = pageContentRect(page)
+    if (!box.width || !box.height) return
+    const x = ((event.clientX - box.left) * view.viewport.width) / box.width
+    const y = ((event.clientY - box.top) * view.viewport.height) / box.height
+    if (x < 0 || y < 0 || x > view.viewport.width || y > view.viewport.height) return
+    const result = view.viewport.convertToPdfPoint(x, y)
+    if (!result.every(Number.isFinite)) return
+    return { page: number, x: result[0], y: result[1] }
+  }
+
   function captureState() {
     const app = window.PDFViewerApplication
     if (!app?.pdfViewer || !app.pdfDocument) return null
@@ -1744,6 +1938,7 @@
       },
     })
     post("pagechange", { page: window.PDFViewerApplication.page })
+    activity()
   }
 
   function bindEvents() {
@@ -1808,6 +2003,7 @@
       requestAnimationFrame(function () {
         announce()
         renderAnnotations()
+        highlight()
         hideEmptyPdfPopups()
       })
     })
@@ -1970,8 +2166,71 @@
     }
 
     document.addEventListener("selectionchange", function () {
+      activity()
       scheduleSelectionUiUpdate()
     })
+    document.addEventListener(
+      "pointerdown",
+      function (event) {
+        pointer = null
+        if (
+          !currentConfig?.features.sourceLocate ||
+          !currentConfig.document ||
+          !currentConfig.version ||
+          captureModeActive ||
+          !modified(event)
+        )
+          return
+        const target = point(event)
+        if (!target) return
+        pointer = {
+          ...target,
+          document: currentConfig.document,
+          version: currentConfig.version,
+          src: currentConfig.src,
+          left: event.clientX,
+          top: event.clientY,
+        }
+        event.preventDefault()
+        event.stopImmediatePropagation()
+      },
+      true,
+    )
+    document.addEventListener(
+      "pointercancel",
+      function () {
+        pointer = null
+      },
+      true,
+    )
+    document.addEventListener(
+      "click",
+      function (event) {
+        const target = pointer
+        pointer = null
+        if (!target || !modified(event)) return
+        event.preventDefault()
+        event.stopImmediatePropagation()
+        if (Math.abs(target.left - event.clientX) > 4 || Math.abs(target.top - event.clientY) > 4) return
+        if (
+          target.document !== currentConfig?.document ||
+          target.version !== currentConfig?.version ||
+          target.src !== currentConfig?.src
+        )
+          return
+        if (!currentConfig.features.sourceLocate || captureModeActive) return
+        if (busy() || switching) {
+          post("locateunavailable", { reason: "busy" })
+          return
+        }
+        if (!reported) {
+          post("locateunavailable", { reason: "unavailable" })
+          return
+        }
+        post("sourcelocate", { page: target.page, x: target.x, y: target.y })
+      },
+      true,
+    )
     document.addEventListener("pointerup", function () {
       scheduleSelectionUiUpdate()
     })
@@ -2089,6 +2348,8 @@
     }
 
     const saved = docSettled ? captureState() : restoreState
+    unmark()
+    pointer = null
     saveDocState(identity(currentConfig), saved)
     restoreState = identity(currentConfig) === identity(config) ? saved : loadDocState(identity(config))
     const next = pending
@@ -2151,6 +2412,7 @@
       }
       currentConfig = config
       applyChrome(config)
+      activity()
       return
     }
     if (busy() || switching) {
@@ -2202,6 +2464,11 @@
 
       if (event.data.type === "config") {
         await applyConfig(event.data.config)
+        return
+      }
+
+      if (event.data.type === "reveal") {
+        reveal(event.data)
         return
       }
 
@@ -2260,6 +2527,7 @@
           return
         if (event.data.ok) {
           dirty = false
+          activity()
           document.getElementById("aetherAnnotationError")?.remove()
           return
         }
@@ -2281,6 +2549,7 @@
         reload.addEventListener("click", function () {
           if (!window.confirm("Discard unsaved annotation changes and load the saved annotations?")) return
           dirty = false
+          activity()
           annotated = false
           alert.remove()
           post("reloadannotations")

@@ -82,6 +82,8 @@ export function CodeEditor(props: {
   content: string
   filename: string
   onChange: (value: string) => void
+  onCursor?: (position: { line: number; column: number }) => void
+  onLocate?: () => void
   disabled?: boolean
   wordWrap?: boolean
   appearance?: WritingStyle
@@ -101,6 +103,12 @@ export function CodeEditor(props: {
   const wrapCompartment = new Compartment()
   const style = new Compartment()
   const syntax = new Compartment()
+  const cursor = (state: EditorState) => {
+    if (!manuscript(props.filename) || !props.onCursor) return
+    const head = state.selection.main.head
+    const line = state.doc.lineAt(head)
+    props.onCursor({ line: line.number, column: head - line.from + 1 })
+  }
   const appearance = () => [
     writing(props.appearance ?? { dark: true, size: 14, spacing: "normal", font: "var(--font-family-mono)" }),
     assistance.of({
@@ -221,10 +229,32 @@ export function CodeEditor(props: {
         : []),
       editableCompartment.of(EditorView.editable.of(!props.disabled)),
       wrapCompartment.of(props.wordWrap ? EditorView.lineWrapping : []),
+      EditorView.domEventHandlers({
+        keydown: (event, editor) => {
+          if (
+            !manuscript(props.filename) ||
+            !props.onLocate ||
+            !event.ctrlKey ||
+            !event.altKey ||
+            event.metaKey ||
+            event.shiftKey ||
+            (event.code !== "KeyJ" && event.key.toLowerCase() !== "j") ||
+            event.isComposing ||
+            event.keyCode === 229 ||
+            editor.composing ||
+            event.getModifierState("AltGraph")
+          )
+            return false
+          cursor(editor.state)
+          props.onLocate()
+          return true
+        },
+      }),
       EditorView.updateListener.of((update) => {
         if (update.docChanged) {
           props.onChange(update.state.doc.toString())
         }
+        if (update.docChanged || update.selectionSet) cursor(update.state)
       }),
     ]
 
@@ -236,6 +266,7 @@ export function CodeEditor(props: {
       parent: container,
     })
     locate()
+    cursor(view.state)
 
     const scroller = container.querySelector(".cm-scroller") as HTMLElement | null
     let frame: number | undefined

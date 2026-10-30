@@ -2457,6 +2457,10 @@ export type LatexBuild = {
   log: string
   truncated: boolean
   pdf: boolean
+  sync?: {
+    state: "ready" | "unavailable"
+    reason?: string
+  }
   error?: string
 }
 
@@ -2517,6 +2521,17 @@ export type LatexAnnotations = {
 export type LatexLease = {
   token: string
   expiresAt: number
+}
+
+export type LatexDestination = {
+  page: number
+  rect: [number, number, number, number]
+}
+
+export type LatexSource = {
+  path: string
+  line: number
+  column?: number
 }
 
 export type Symbol = {
@@ -7262,6 +7277,102 @@ export type LatexGetResponses = {
 }
 
 export type LatexGetResponse = LatexGetResponses[keyof LatexGetResponses]
+
+export type LatexForwardData = {
+  body?: {
+    path: string
+    line: number
+    column?: number
+  }
+  path: {
+    id: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/latex/build/{id}/sync/forward"
+}
+
+export type LatexForwardErrors = {
+  /**
+   * Invalid project or request
+   */
+  400: unknown
+  /**
+   * Build or artifact not found
+   */
+  404: unknown
+  /**
+   * Project changed or build already running
+   */
+  409: unknown
+  /**
+   * Project exceeds snapshot limits
+   */
+  413: unknown
+  /**
+   * Compiler unavailable
+   */
+  503: unknown
+}
+
+export type LatexForwardResponses = {
+  /**
+   * LaTeX result
+   */
+  200: LatexDestination
+}
+
+export type LatexForwardResponse = LatexForwardResponses[keyof LatexForwardResponses]
+
+export type LatexInverseData = {
+  body?: {
+    page: number
+    x: number
+    y: number
+  }
+  path: {
+    id: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/latex/build/{id}/sync/inverse"
+}
+
+export type LatexInverseErrors = {
+  /**
+   * Invalid project or request
+   */
+  400: unknown
+  /**
+   * Build or artifact not found
+   */
+  404: unknown
+  /**
+   * Project changed or build already running
+   */
+  409: unknown
+  /**
+   * Project exceeds snapshot limits
+   */
+  413: unknown
+  /**
+   * Compiler unavailable
+   */
+  503: unknown
+}
+
+export type LatexInverseResponses = {
+  /**
+   * LaTeX result
+   */
+  200: LatexSource
+}
+
+export type LatexInverseResponse = LatexInverseResponses[keyof LatexInverseResponses]
 
 export type LatexCancelData = {
   body?: never

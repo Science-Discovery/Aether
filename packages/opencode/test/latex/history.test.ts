@@ -20,6 +20,7 @@ async function seed(count: number) {
   for (const [index, id] of ids.entries()) {
     await Bun.write(path.join(dir, "artifacts", `${id}.pdf`), bytes)
     await Bun.write(path.join(dir, "manifests", `${id}.json`), "{}")
+    await Bun.write(path.join(dir, "sync", `${id}.json`), "{}")
     await Bun.write(
       path.join(dir, "builds", `${id}.json`),
       JSON.stringify({
@@ -118,6 +119,8 @@ describe("immutable LaTeX PDF history", () => {
         expect(renewed.token).toBe(lease.token)
         const result = await Latex.cleanup({ root: "." })
         expect(result.removed).toEqual([fixture.ids[3]])
+        expect(await Bun.file(path.join(fixture.dir, "sync", `${fixture.ids[3]}.json`)).exists()).toBe(false)
+        expect(await Bun.file(path.join(fixture.dir, "sync", `${fixture.ids[0]}.json`)).exists()).toBe(true)
         expect(result.versions.map((row) => row.build.id)).toEqual(
           fixture.ids.toReversed().filter((id) => id !== fixture.ids[3]),
         )
@@ -125,6 +128,7 @@ describe("immutable LaTeX PDF history", () => {
         expect(result.versions.find((row) => row.build.id === fixture.ids[1])?.referenced).toBe(true)
         expect(result.versions.find((row) => row.build.id === fixture.ids[2])?.viewing).toBe(true)
         await expect(Latex.pdf(fixture.ids[3])).rejects.toThrow("does not belong")
+        await expect(Latex.forward(fixture.ids[0], { path: "main.tex", line: 1 })).rejects.toThrow("no source mapping")
         await Latex.release(fixture.ids[2], lease.token)
         expect((await Latex.cleanup({ root: "." })).removed).toEqual([fixture.ids[2]])
         expect((await Latex.annotations(fixture.ids[0])).data.annotations).toEqual([item])

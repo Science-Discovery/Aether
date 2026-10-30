@@ -1770,6 +1770,16 @@ export const dict = {
     "两种风格均使用 Consolas、Menlo 等经典编辑器字体，并为中日韩文字提供无衬线字体回退，不额外下载字体。",
   "latex.source": "源码",
   "latex.preview": "PDF 预览",
+  "latex.sync.locate": "定位到 PDF",
+  "latex.sync.shortcut": "Ctrl+Alt+J（macOS：Control+Option+J）",
+  "latex.sync.source": "从 PDF 定位源码",
+  "latex.sync.versions": "同一构建内定位",
+  "latex.sync.stale": "请先保存并编译。当前源码与正在显示的 PDF 不是同一版本。",
+  "latex.sync.unavailable": "此构建没有可用的源码定位信息，请重新编译后再试。",
+  "latex.sync.missing": "请先成功编译，再定位此源码对应的 PDF。",
+  "latex.sync.nomatch": "未找到此位置对应的源码或页面内容。",
+  "latex.sync.busy": "请先完成当前选区、批注或截图操作，再进行定位。",
+  "latex.sync.failed": "暂时无法定位，请刷新工程后重试。",
   "latex.root": "工程目录",
   "latex.open": "打开工程",
   "latex.main": "主文档",
@@ -1876,6 +1886,12 @@ export const dict = {
   "latex.help.folding.description":
     "使用行号旁的箭头折叠章节、环境或参考文献条目。折叠只改变编辑器的显示，保存与编译仍使用完整源码。",
   "latex.help.preview": "在阅读视图打开工程的 PDF；这个按钮不会重新编译。",
+  "latex.help.sync":
+    "在源码中放置光标，点击「定位到 PDF」，或按 Ctrl+Alt+J（macOS 为 Control+Option+J）。阅读视图会短暂高亮对应段落并保持缩放。定位精度为源码行和段落，不是逐字定位。",
+  "latex.help.sync.source":
+    "在 PDF 内容上按住 Ctrl 单击（macOS 为 Command 单击），可打开对应源码文件和行。普通单击、双击仍用于选字；链接、批注控件和截图模式不会触发源码定位。",
+  "latex.help.sync.versions":
+    "定位始终对应正在显示的 PDF 构建。源码、草稿或工程设置已变化时，请先保存并编译，再尝试定位；Aether 不推算新行号，也不自动切换历史 PDF。旧构建没有定位信息时，需要重新编译。",
   "latex.help.root": "相对于工作区的论文文件夹，应包含源码、章节、图片和参考文献文件。",
   "latex.help.open": "读取填写的文件夹，发现工程设置和主文档候选；不会新建文件夹。",
   "latex.help.main": "编译整篇论文的 .tex 入口，路径相对于工程目录。即使正在编辑章节，也会从这个文件编译。",

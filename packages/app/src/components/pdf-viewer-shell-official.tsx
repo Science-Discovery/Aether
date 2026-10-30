@@ -26,6 +26,20 @@ type PdfAnnotationFile = {
 }
 
 export type PdfVersion = { document?: string; version?: string; src?: string }
+export type PdfReveal = {
+  id: string
+  document: string
+  version: string
+  page: number
+  rect: [number, number, number, number]
+}
+export type PdfLocate = { document: string; version: string; page: number; x: number; y: number }
+export type PdfLocateUnavailable = {
+  reason: "busy" | "unavailable"
+  document: string
+  version: string
+  id?: string
+}
 type PdfSource = PdfVersion & { src: string; annotationPath?: string; annotationBuild?: string }
 type PdfAnnotations = { status: "ready" | "stale"; data: PdfAnnotationFile; revision?: string }
 
@@ -93,6 +107,10 @@ export type PdfViewerShellProps = {
   layoutSwapped?: boolean
   annotationPath?: string
   annotationBuild?: string
+  reveal?: PdfReveal
+  onSourceLocate?: (input: PdfLocate) => void
+  onLocateUnavailable?: (input: PdfLocateUnavailable) => void
+  onBusyChange?: (busy: boolean) => void
   onVersionChange?: (version: string) => void
   onPageChange?: (page: number) => void
   onLocationChange?: (location: string) => void
@@ -149,6 +167,9 @@ type ViewerMessage = PdfVersion &
     | { channel: "aether-pdf-viewer"; type: "annotationchange"; annotations: PdfAnnotation[]; id: number }
     | { channel: "aether-pdf-viewer"; type: "exportannotations" }
     | { channel: "aether-pdf-viewer"; type: "reloadannotations" }
+    | ({ channel: "aether-pdf-viewer"; type: "sourcelocate" } & PdfLocate)
+    | ({ channel: "aether-pdf-viewer"; type: "locateunavailable" } & PdfLocateUnavailable)
+    | { channel: "aether-pdf-viewer"; type: "busychange"; busy: boolean }
   )
 
 export const PdfViewerShell: Component<PdfViewerShellProps> = (props) => {
@@ -161,6 +182,7 @@ export const PdfViewerShell: Component<PdfViewerShellProps> = (props) => {
   let lastReportedPage: number | undefined
   let lastReportedLocation: string | undefined
   let lastConfigKey = ""
+  let revealed = ""
   let serial = 0
   let saving = Promise.resolve()
   const [viewTheme, setViewTheme] = createSignal(props.viewTheme ?? sharedViewTheme)
@@ -205,6 +227,8 @@ export const PdfViewerShell: Component<PdfViewerShellProps> = (props) => {
       imageSelectionActions: !!props.onImageSelectionAction,
       annotations: !!(props.annotationPath || props.annotationBuild),
       swapLayout: !!props.onSwapLayout,
+      sourceLocate: !!props.onSourceLocate,
+      activity: !!props.onBusyChange,
     },
   }))
 
@@ -477,6 +501,17 @@ export const PdfViewerShell: Component<PdfViewerShellProps> = (props) => {
   })
 
   createEffect(() => {
+    const target = props.reveal
+    const source = loaded()
+    if (!target || !source || !viewerReady() || revealed === target.id) return
+    // A requested PDF may still be loading while the previous build remains visible.
+    if (target.document !== source.document || target.version !== source.version) return
+    revealed = target.id
+    // Solid store arrays are proxies and cannot cross the iframe structured-clone boundary.
+    post({ channel: "aether-pdf-viewer", type: "reveal", ...target, rect: Array.from(target.rect), src: source.src })
+  })
+
+  createEffect(() => {
     const root = document.documentElement
     const observer = new MutationObserver(() => {
       if (!viewerReady()) return
@@ -548,6 +583,34 @@ export const PdfViewerShell: Component<PdfViewerShellProps> = (props) => {
         document: event.data.document,
         version: event.data.version,
       })
+      return
+    }
+
+    if (event.data.type === "sourcelocate") {
+      if (!props.onSourceLocate || !matches(loaded(), event.data)) return
+      const data = event.data
+      if (typeof data.document !== "string" || !data.document || typeof data.version !== "string" || !data.version)
+        return
+      if (data.document !== props.document || !Number.isInteger(data.page) || data.page < 1) return
+      if (!Number.isFinite(data.x) || !Number.isFinite(data.y)) return
+      props.onSourceLocate({ document: data.document, version: data.version, page: data.page, x: data.x, y: data.y })
+      return
+    }
+
+    if (event.data.type === "busychange") {
+      if (!matches(loaded(), event.data) || typeof event.data.busy !== "boolean") return
+      props.onBusyChange?.(event.data.busy)
+      return
+    }
+
+    if (event.data.type === "locateunavailable") {
+      if (!matches(loaded(), event.data)) return
+      const data = event.data
+      if (typeof data.document !== "string" || !data.document || typeof data.version !== "string" || !data.version)
+        return
+      if (data.document !== props.document || (data.reason !== "busy" && data.reason !== "unavailable")) return
+      if (data.id ? props.reveal?.id !== data.id : !props.onSourceLocate) return
+      props.onLocateUnavailable?.({ document: data.document, version: data.version, reason: data.reason, id: data.id })
       return
     }
 
@@ -632,6 +695,7 @@ export const PdfViewerShell: Component<PdfViewerShellProps> = (props) => {
   window.addEventListener("message", onMessage)
   onCleanup(() => {
     serial++
+    props.onBusyChange?.(false)
     window.removeEventListener("message", onMessage)
     if (retryTimer) clearTimeout(retryTimer)
   })

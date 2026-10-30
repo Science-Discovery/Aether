@@ -1548,6 +1548,7 @@ export function FileTabContent(props: { tab: string; visible: boolean }) {
         auth={pdfAuthHeader()}
         actions={<Show when={state()?.loaded && isTextFile()}>{actions()}</Show>}
         onNavigate={(target, line) => void navigate(target, line)}
+        onLocate={() => project.locate(path() ?? "")}
       >
         <Show
           when={isEditing()}
@@ -1611,6 +1612,8 @@ export function FileTabContent(props: { tab: string; visible: boolean }) {
                 : undefined
             }
             location={file.location(path() ?? "")}
+            onCursor={latex() ? (position) => project.cursor(path() ?? "", position) : undefined}
+            onLocate={latex() ? () => project.locate(path() ?? "") : undefined}
             onChange={setEditContent}
             disabled={isSaving()}
             wordWrap={wordWrap()}

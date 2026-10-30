@@ -36,6 +36,8 @@ export const { use: useLatex, provider: LatexProvider } = createSimpleContext({
       downloads: false,
       queued: false,
       preview: 0,
+      cursors: {} as Record<string, { line: number; column: number }>,
+      locating: { path: "", line: 1, column: 1, nonce: 0 },
       reading: { root: "", main: "", updating: false, outdated: false },
       composing: [] as string[],
       blocked: [] as string[],
@@ -601,6 +603,8 @@ export const { use: useLatex, provider: LatexProvider } = createSimpleContext({
           composing: [],
           downloads: false,
           automatic: true,
+          cursors: {},
+          locating: { path: "", line: 1, column: 1, nonce: 0 },
           reading: { root: "", main: "", updating: false, outdated: false },
         })
       }),
@@ -697,6 +701,13 @@ export const { use: useLatex, provider: LatexProvider } = createSimpleContext({
       outdated,
       verified,
       changed,
+      cursor: (path: string, position: { line: number; column: number }) => setState("cursors", path, position),
+      locate: (path: string) =>
+        setState("locating", {
+          path,
+          ...(state.cursors[path] ?? { line: 1, column: 1 }),
+          nonce: state.locating.nonce + 1,
+        }),
       compile: () => run(true),
       save: () => run(true, false),
       persist: (path: string) => modify(path, "save"),

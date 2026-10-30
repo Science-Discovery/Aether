@@ -302,6 +302,7 @@ export namespace LatexCompiler {
             "-interaction=nonstopmode",
             "-no-shell-escape",
             "-file-line-error",
+            "-synctex=1",
             `-output-directory=${input.output}`,
             name,
           ]

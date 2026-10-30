@@ -57,6 +57,7 @@ export namespace LatexSchema {
       log: z.string(),
       truncated: z.boolean(),
       pdf: z.boolean(),
+      sync: z.object({ state: z.enum(["ready", "unavailable"]), reason: z.string().optional() }).optional(),
       error: z.string().optional(),
     })
     .meta({ ref: "LatexBuild" })
@@ -130,6 +131,29 @@ export namespace LatexSchema {
     root: z.string(),
     editors: z.string().array().max(500).default([]),
   })
+  export const Forward = z.object({
+    path: z.string().min(1).max(4096),
+    line: z.number().int().positive().max(10_000_000),
+    column: z.number().int().positive().max(10_000_000).optional(),
+  })
+  export const Inverse = z.object({
+    page: z.number().int().positive().max(10_000),
+    x: z.number().finite().min(-1_000_000).max(1_000_000),
+    y: z.number().finite().min(-1_000_000).max(1_000_000),
+  })
+  export const Destination = z
+    .object({
+      page: z.number().int().positive(),
+      rect: z.tuple([z.number(), z.number(), z.number(), z.number()]),
+    })
+    .meta({ ref: "LatexDestination" })
+  export const Source = z
+    .object({
+      path: z.string(),
+      line: z.number().int().positive(),
+      column: z.number().int().positive().optional(),
+    })
+    .meta({ ref: "LatexSource" })
   export class Error extends globalThis.Error {
     constructor(
       readonly code: 400 | 404 | 409 | 413 | 503,

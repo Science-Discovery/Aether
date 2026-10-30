@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest"
 import { createStore } from "solid-js/store"
+import type { ComponentProps } from "solid-js"
 import { render } from "solid-js/web"
 import { redo, undo, undoDepth } from "@codemirror/commands"
 import { foldCode, foldedRanges, language, syntaxTree } from "@codemirror/language"
@@ -12,7 +13,11 @@ import { modern } from "./code-editor-latex-modern"
 let host: HTMLDivElement
 let dispose: VoidFunction | undefined
 
-function mount(filename = "draft.tex", content = "\\begin{equation}\nx = y + z\n\\end{equation}\n\n中文正文。") {
+function mount(
+  filename = "draft.tex",
+  content = "\\begin{equation}\nx = y + z\n\\end{equation}\n\n中文正文。",
+  opts: Pick<ComponentProps<typeof CodeEditor>, "onCursor" | "onLocate"> = {},
+) {
   const [state, set] = createStore({
     content,
     appearance: { dark: true, size: 14, spacing: "normal", font: '"Fira Code", monospace' } as WritingStyle,
@@ -24,6 +29,8 @@ function mount(filename = "draft.tex", content = "\\begin{equation}\nx = y + z\n
         filename={filename}
         content={state.content}
         appearance={state.appearance}
+        onCursor={opts.onCursor}
+        onLocate={opts.onLocate}
         onChange={(value) => {
           changes.push(value)
           set("content", value)
@@ -42,6 +49,16 @@ function styles(view: EditorView) {
     .facet(EditorView.styleModule)
     .map((module) => module.getRules())
     .join("\n")
+}
+
+function keyboard(opts: KeyboardEventInit) {
+  const event = new KeyboardEvent("keydown", { bubbles: true, cancelable: true, ...opts })
+  const modifier = event.getModifierState.bind(event)
+  // Happy DOM aliases AltGraph to Alt, unlike real browser keyboard events.
+  vi.spyOn(event, "getModifierState").mockImplementation((key) =>
+    key === "AltGraph" ? !!opts.modifierAltGraph : modifier(key),
+  )
+  return event
 }
 
 beforeEach(() => {
@@ -269,4 +286,76 @@ test("BST files receive guides without TeX bracket decorations", () => {
   editor.set("appearance", { preset: "vscode" })
   expect(editor.dom.querySelector(".cm-latex-indent")).not.toBeNull()
   expect(editor.dom.querySelector(".cm-latex-bracket-0")).toBeNull()
+})
+
+test("reports the initial LaTeX cursor and subsequent selections and edits using one-based positions", () => {
+  const cursor = vi.fn()
+  const editor = mount("main.tex", "first\n中文正文", { onCursor: cursor })
+  expect(cursor).toHaveBeenLastCalledWith({ line: 1, column: 1 })
+  editor.view.dispatch({ selection: { anchor: 8 } })
+  expect(cursor).toHaveBeenLastCalledWith({ line: 2, column: 3 })
+  editor.view.dispatch({ changes: { from: 8, insert: "新" }, selection: { anchor: 9 } })
+  expect(cursor).toHaveBeenLastCalledWith({ line: 2, column: 4 })
+  const count = cursor.mock.calls.length
+  editor.set("appearance", { dark: false, size: 18 })
+  expect(cursor).toHaveBeenCalledTimes(count)
+  expect(EditorView.findFromDOM(editor.dom)).toBe(editor.view)
+})
+
+test("physical Ctrl+Alt+J locates the current LaTeX cursor without changing the document or save shortcut", () => {
+  const cursor = vi.fn()
+  const locate = vi.fn()
+  const editor = mount("main.tex", "中文正文", { onCursor: cursor, onLocate: locate })
+  editor.view.focus()
+  editor.view.dispatch({ selection: { anchor: 2 } })
+  const doc = editor.view.state.doc
+  const event = keyboard({ key: "j", ctrlKey: true, altKey: true })
+  editor.view.contentDOM.dispatchEvent(event)
+  expect(event.defaultPrevented).toBe(true)
+  expect(locate).toHaveBeenCalledTimes(1)
+  expect(cursor).toHaveBeenLastCalledWith({ line: 1, column: 3 })
+  expect(editor.view.state.doc).toBe(doc)
+  expect(editor.view.state.selection.main.head).toBe(2)
+
+  const option = keyboard({
+    key: "∆",
+    code: "KeyJ",
+    ctrlKey: true,
+    altKey: true,
+  })
+  editor.view.contentDOM.dispatchEvent(option)
+  expect(option.defaultPrevented).toBe(true)
+  expect(locate).toHaveBeenCalledTimes(2)
+
+  const save = keyboard({ key: "s", ctrlKey: true })
+  editor.view.contentDOM.dispatchEvent(save)
+  expect(save.defaultPrevented).toBe(false)
+  expect(locate).toHaveBeenCalledTimes(2)
+})
+
+test("location shortcuts ignore composition, AltGraph and Command+Option", () => {
+  const locate = vi.fn()
+  const editor = mount("main.tex", "中文正文", { onLocate: locate })
+  editor.view.focus()
+  for (const opts of [{ isComposing: true }, { keyCode: 229 }, { metaKey: true }, { shiftKey: true }]) {
+    editor.view.contentDOM.dispatchEvent(keyboard({ key: "j", ctrlKey: true, altKey: true, ...opts }))
+  }
+  const event = keyboard({ key: "j", ctrlKey: true, altKey: true, modifierAltGraph: true })
+  editor.view.contentDOM.dispatchEvent(event)
+  expect(locate).not.toHaveBeenCalled()
+  expect(event.defaultPrevented).toBe(false)
+  expect(editor.changes).toEqual([])
+})
+
+test("ordinary code does not report a LaTeX cursor or capture its navigation shortcut", () => {
+  const cursor = vi.fn()
+  const locate = vi.fn()
+  const editor = mount("module.ts", "const n = 1", { onCursor: cursor, onLocate: locate })
+  editor.view.focus()
+  editor.view.dispatch({ selection: { anchor: 5 } })
+  const event = keyboard({ key: "j", ctrlKey: true, altKey: true })
+  editor.view.contentDOM.dispatchEvent(event)
+  expect(cursor).not.toHaveBeenCalled()
+  expect(locate).not.toHaveBeenCalled()
+  expect(event.defaultPrevented).toBe(false)
 })

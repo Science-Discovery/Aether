@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => ({
   bind: vi.fn<() => Promise<{ data: LatexProject }>>(),
   build: vi.fn<() => Promise<{ data: LatexBuild }>>(),
   stop: vi.fn(),
+  locate: vi.fn(),
   write: vi.fn<(input: { path: string; content: string; expectedChecksum?: string }) => Promise<unknown>>(),
   read: vi.fn<(input: { path: string }) => Promise<{ data: { type: "text"; content: string } }>>(),
 }))
@@ -123,7 +124,13 @@ const mount = () => {
     () => (
       <LatexProvider>
         <Probe />
-        <LatexPanel enabled active={state.active} path={state.path} onNavigate={() => undefined}>
+        <LatexPanel
+          enabled
+          active={state.active}
+          path={state.path}
+          onNavigate={() => undefined}
+          onLocate={mocks.locate}
+        >
           <div>Source editor</div>
         </LatexPanel>
       </LatexProvider>
@@ -335,6 +342,21 @@ test("folding hides setup controls while keeping save, status and the editor ava
   button("latex.expand").click()
   expect(host.querySelector<HTMLElement>('[data-component="latex-toolbar-details"]')?.hidden).toBe(false)
   expect(button("latex.refresh")).toBeDefined()
+})
+
+test("locating is available only in the expanded controls and never saves or compiles", async () => {
+  mount()
+  await tick()
+  expect(button("latex.sync.locate").disabled).toBe(false)
+  button("latex.sync.locate").click()
+  expect(mocks.locate).toHaveBeenCalledTimes(1)
+  expect(mocks.build).not.toHaveBeenCalled()
+  expect(mocks.write).not.toHaveBeenCalled()
+  latex.collapse(true)
+  expect(button("latex.sync.locate")).toBeUndefined()
+  expect(host.textContent).toContain("Source editor")
+  latex.collapse(false)
+  expect(button("latex.sync.locate")).toBeDefined()
 })
 
 test("folding retains its state across source tabs and does not stop autosave", async () => {

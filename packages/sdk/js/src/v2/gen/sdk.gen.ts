@@ -181,8 +181,12 @@ import type {
   LatexCleanupResponses,
   LatexExportAnnotationsErrors,
   LatexExportAnnotationsResponses,
+  LatexForwardErrors,
+  LatexForwardResponses,
   LatexGetErrors,
   LatexGetResponses,
+  LatexInverseErrors,
+  LatexInverseResponses,
   LatexLeaseErrors,
   LatexLeaseResponses,
   LatexPdfErrors,
@@ -5097,6 +5101,88 @@ export class Latex extends HeyApiClient {
       url: "/latex/build/{id}",
       ...options,
       ...params,
+    })
+  }
+
+  /**
+   * Locate a source line in this immutable PDF build
+   */
+  public forward<ThrowOnError extends boolean = false>(
+    parameters: {
+      id: string
+      directory?: string
+      workspace?: string
+      path?: string
+      line?: number
+      column?: number
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "id" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "path" },
+            { in: "body", key: "line" },
+            { in: "body", key: "column" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<LatexForwardResponses, LatexForwardErrors, ThrowOnError>({
+      url: "/latex/build/{id}/sync/forward",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Locate a PDF user-space point in its unchanged source project
+   */
+  public inverse<ThrowOnError extends boolean = false>(
+    parameters: {
+      id: string
+      directory?: string
+      workspace?: string
+      page?: number
+      x?: number
+      y?: number
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "id" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "page" },
+            { in: "body", key: "x" },
+            { in: "body", key: "y" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<LatexInverseResponses, LatexInverseErrors, ThrowOnError>({
+      url: "/latex/build/{id}/sync/inverse",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
     })
   }
 

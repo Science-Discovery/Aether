@@ -11,6 +11,7 @@ import { Instance } from "@/project/instance"
 import { LatexSchema } from "./schema"
 import { LatexProject } from "./project"
 import { LatexCompiler } from "./compiler"
+import { LatexSync } from "./sync"
 import { PdfAnnotations } from "../pdf-annotations"
 import { Lock } from "../util/lock"
 
@@ -31,6 +32,8 @@ export namespace Latex {
     build: LatexSchema.Build,
     pdfHash: z.string().optional(),
     pdfSize: z.number().optional(),
+    syncHash: z.string().optional(),
+    syncSize: z.number().optional(),
   })
   type Stored = z.infer<typeof stored>
   const review = z.object({
@@ -55,6 +58,7 @@ export namespace Latex {
     locks: Set<string>
     checked: Map<string, { revision: string; checkedAt: number }>
     refresh: Map<string, Promise<LatexSchema.Project>>
+    indexes: Map<string, { hash: string; index: LatexSync.Index }>
     closed: boolean
     abort: AbortController
   }
@@ -72,6 +76,7 @@ export namespace Latex {
             locks: new Set(),
             checked: new Map(),
             refresh: new Map(),
+            indexes: new Map(),
             closed: false,
             abort: new AbortController(),
           }
@@ -96,6 +101,7 @@ export namespace Latex {
   const project = (root: LatexProject.Root) => path.join(home(root), "projects", `${root.key}.json`)
   const document = (root: LatexProject.Root, id: string) => path.join(home(root), "builds", `${id}.json`)
   const artifact = (root: LatexProject.Root, id: string) => path.join(home(root), "artifacts", `${id}.pdf`)
+  const mapping = (root: LatexProject.Root, id: string) => path.join(home(root), "sync", `${id}.json`)
   const annotation = (root: LatexProject.Root, id: string) => path.join(home(root), "annotations", `${id}.json`)
   const mutex = (root: LatexProject.Root) => `latex-artifacts:${root.owner}`
   const identifier = z.string().uuid()
@@ -469,6 +475,36 @@ export namespace Latex {
       job.abort.signal.throwIfAborted()
       job.data.pdfHash = LatexProject.hash(bytes)
       job.data.pdfSize = bytes.length
+      build.sync = await (async () => {
+        const index = LatexSync.Index.parse({
+          version: 1,
+          owner: job.root.owner,
+          key: job.root.key,
+          build: build.id,
+          sourceRevision: build.sourceRevision,
+          pdfHash: job.data.pdfHash,
+          ...(await LatexSync.collect({
+            output,
+            source,
+            main: bound.main,
+            files: snapshot.manifest.files.map((file) => file.path),
+            pages: pdf.getPages().map((page) => page.getMediaBox()),
+          })),
+        })
+        const encoded = JSON.stringify(index)
+        if (Buffer.byteLength(encoded) > LatexSync.limit)
+          throw new Error("The source mapping exceeds its supported size.")
+        await write(mapping(job.root, build.id), index)
+        job.data.syncHash = LatexProject.hash(encoded)
+        job.data.syncSize = Buffer.byteLength(encoded)
+        return { state: "ready" as const }
+      })().catch((error: unknown) => ({
+        state: "unavailable" as const,
+        reason:
+          error instanceof Error && !("code" in error)
+            ? error.message
+            : "The compiler did not produce readable SyncTeX data for this build.",
+      }))
       const checked = await LatexProject.scan(job.root, { signal: job.abort.signal }).catch(() => undefined)
       job.abort.signal.throwIfAborted()
       if (checked) current.checked.set(job.root.key, { revision: checked.manifest.revision, checkedAt: Date.now() })
@@ -492,6 +528,7 @@ export namespace Latex {
       if (!build.diagnostics.some((item) => item.severity === "error"))
         build.diagnostics.push({ severity: "error", message: build.error })
       await fs.rm(artifact(job.root, build.id), { force: true }).catch(() => undefined)
+      await fs.rm(mapping(job.root, build.id), { force: true }).catch(() => undefined)
       await write(document(job.root, build.id), job.data).catch(() => undefined)
     } finally {
       // Only our fixed UUID child of the dedicated jobs directory is removed.
@@ -536,6 +573,113 @@ export namespace Latex {
     using lock = await Lock.read(mutex(root))
     const result = await published(root, id, await state())
     return { bytes: result.bytes, hash: result.hash }
+  }
+
+  async function synchronized(root: LatexProject.Root, id: string, current: State) {
+    const result = await published(root, id, current)
+    const data = result.data
+    if (data.build.sync?.state !== "ready" || !data.syncHash || !data.syncSize)
+      throw new LatexSchema.Error(404, "This PDF has no source mapping. Save and compile again.")
+    const actual = await LatexProject.root(data.build.root).catch(() => {
+      throw new LatexSchema.Error(
+        409,
+        "The source project changed or is unavailable. Save and compile before locating.",
+      )
+    })
+    const saved = await binding(actual)
+    if (
+      actual.owner !== root.owner ||
+      actual.key !== data.key ||
+      saved?.binding.revision !== data.build.bindingRevision
+    )
+      throw new LatexSchema.Error(409, "The project settings changed since this PDF. Save and compile before locating.")
+    const read = async (file: string) => JSON.parse(await LatexSync.read(file)) as unknown
+    const manifest = z
+      .object({
+        owner: z.string(),
+        key: z.string(),
+        bindingRevision: z.string(),
+        revision: z.string(),
+        files: z
+          .array(z.object({ path: z.string().max(4096), hash: z.string(), size: z.number().int().nonnegative() }))
+          .max(10_000),
+      })
+      .safeParse(await read(path.join(home(root), "manifests", `${id}.json`)).catch(() => undefined))
+    if (
+      !manifest.success ||
+      manifest.data.owner !== root.owner ||
+      manifest.data.key !== actual.key ||
+      manifest.data.bindingRevision !== data.build.bindingRevision ||
+      manifest.data.revision !== data.build.sourceRevision ||
+      LatexProject.hash(JSON.stringify(manifest.data.files)) !== manifest.data.revision
+    )
+      throw new LatexSchema.Error(409, "The build source manifest is invalid. Compile again before locating.")
+    const encoded = await LatexSync.read(mapping(root, id)).catch(() => {
+      throw new LatexSchema.Error(409, "The source mapping is unavailable. Compile again before locating.")
+    })
+    if (Buffer.byteLength(encoded) !== data.syncSize || LatexProject.hash(encoded) !== data.syncHash)
+      throw new LatexSchema.Error(409, "The source mapping changed after publication. Compile again before locating.")
+    const cached = current.indexes.get(id)
+    const parsed =
+      cached?.hash === data.syncHash
+        ? { success: true as const, data: cached.index }
+        : LatexSync.Index.safeParse(JSON.parse(encoded))
+    if (
+      !parsed.success ||
+      parsed.data.owner !== root.owner ||
+      parsed.data.key !== actual.key ||
+      parsed.data.build !== id ||
+      parsed.data.pdfHash !== result.hash ||
+      parsed.data.sourceRevision !== data.build.sourceRevision
+    )
+      throw new LatexSchema.Error(409, "The source mapping belongs to a different PDF build.")
+    const paths = new Set(manifest.data.files.map((file) => file.path))
+    if (
+      parsed.data.nodes.some(
+        (node) =>
+          !paths.has(node.path) ||
+          path.isAbsolute(node.path) ||
+          !LatexProject.contains(actual.path, path.resolve(actual.path, node.path)) ||
+          node.page > parsed.data.pages.length ||
+          node.rect[0] > node.rect[2] ||
+          node.rect[1] > node.rect[3],
+      )
+    )
+      throw new LatexSchema.Error(409, "The source mapping contains an invalid project location.")
+    const snapshot = await LatexProject.scan(actual, { signal: current.abort.signal })
+    if (
+      snapshot.manifest.revision !== data.build.sourceRevision ||
+      (await binding(actual))?.binding.revision !== data.build.bindingRevision
+    )
+      throw new LatexSchema.Error(
+        409,
+        "The source has changed since the displayed PDF. Save and compile before locating.",
+      )
+    current.checked.set(actual.key, { revision: snapshot.manifest.revision, checkedAt: Date.now() })
+    current.indexes.delete(id)
+    current.indexes.set(id, { hash: data.syncHash, index: parsed.data })
+    if (current.indexes.size > 4) current.indexes.delete(current.indexes.keys().next().value!)
+    return { root: actual, index: parsed.data }
+  }
+
+  export async function forward(id: string, input: z.infer<typeof LatexSchema.Forward>) {
+    const root = await LatexProject.root()
+    using lock = await Lock.read(mutex(root))
+    const value = await synchronized(root, id, await state())
+    if (path.isAbsolute(input.path) || input.path.includes("\0"))
+      throw new LatexSchema.Error(400, "Use a workspace-relative source path.")
+    const full = path.resolve(root.workspace, input.path)
+    if (!LatexProject.contains(value.root.path, full))
+      throw new LatexSchema.Error(400, "The source is outside this LaTeX project.")
+    return LatexSync.forward(value.index, LatexProject.slash(path.relative(value.root.path, full)), input.line)
+  }
+
+  export async function inverse(id: string, input: z.infer<typeof LatexSchema.Inverse>) {
+    const root = await LatexProject.root()
+    using lock = await Lock.read(mutex(root))
+    const value = await synchronized(root, id, await state())
+    const found = LatexSync.inverse(value.index, input.page, input.x, input.y)
+    return { ...found, path: LatexProject.slash(path.relative(root.workspace, path.join(value.root.path, found.path))) }
   }
 
   async function notes(root: LatexProject.Root, data: Stored) {
@@ -706,10 +850,12 @@ export namespace Latex {
     for (const id of expired) {
       // All targets are fixed UUID children of this workspace's artifact store.
       await fs.rm(artifact(root, id), { force: true })
+      await fs.rm(mapping(root, id), { force: true })
       await fs.rm(path.join(home(root), "manifests", `${id}.json`), { force: true })
       await fs.rm(annotation(root, id), { force: true })
       await fs.rm(document(root, id), { force: true })
       current.jobs.delete(id)
+      current.indexes.delete(id)
       removed.push(id)
     }
     return { removed, versions: all.filter((row) => !expired.has(row.build.id)) }

@@ -12,6 +12,10 @@ export const QuickReadingPanel: Component<{
   document?: string
   version?: string
   onVersionChange?: (version: string) => void
+  reveal?: PdfViewerShellProps["reveal"]
+  onSourceLocate?: PdfViewerShellProps["onSourceLocate"]
+  onLocateUnavailable?: PdfViewerShellProps["onLocateUnavailable"]
+  onBusyChange?: PdfViewerShellProps["onBusyChange"]
   header?: JSX.Element
   width: number
   minWidth: number
@@ -53,6 +57,10 @@ export const QuickReadingPanel: Component<{
               document={props.document}
               version={props.version}
               onVersionChange={props.onVersionChange}
+              reveal={props.reveal}
+              onSourceLocate={props.onSourceLocate}
+              onLocateUnavailable={props.onLocateUnavailable}
+              onBusyChange={props.onBusyChange}
               authHeader={props.authHeader}
               mode="full"
               class="size-full"
