@@ -27,6 +27,7 @@
 
   let currentConfig = null
   let currentKey = ""
+  let loaded = null
   let lastLocation = ""
   let restoreState = null
   let docSettled = false
@@ -56,6 +57,23 @@
     underline: "Underline",
     strikeout: "Strikethrough",
     note: "Add note",
+    annotationAdd: "Add annotation",
+    annotationEdit: "Edit annotation",
+    annotationClose: "Close",
+    annotationType: "Annotation type",
+    annotationColor: "Annotation color",
+    annotationText: "Note",
+    annotationPlaceholder: "Write a note…",
+    annotationDelete: "Delete annotation",
+    annotationCancel: "Cancel",
+    annotationSave: "Save",
+    annotationDeleted: "Annotation deleted",
+    annotationUndo: "Undo",
+    annotationNote: "Note",
+    annotationYellow: "Yellow",
+    annotationRed: "Red",
+    annotationGreen: "Green",
+    annotationBlue: "Blue",
   }
   const annotationColors = {
     yellow: "#f6cf35",
@@ -370,6 +388,7 @@
           : "day"
     return {
       src: typeof input?.src === "string" ? input.src : "",
+      document: typeof input?.document === "string" ? input.document : "",
       authHeader: typeof input?.authHeader === "string" && input.authHeader ? input.authHeader : undefined,
       mode,
       viewTheme,
@@ -411,7 +430,14 @@
   }
 
   function annotationsEnabled() {
-    return !!(currentConfig && currentConfig.features && currentConfig.features.annotations)
+    return !!(
+      loaded &&
+      currentConfig?.features.annotations &&
+      loaded.doc === window.PDFViewerApplication?.pdfDocument &&
+      loaded.config.document === currentConfig.document &&
+      loaded.config.src === currentConfig.src &&
+      loaded.config.authHeader === currentConfig.authHeader
+    )
   }
 
   function ensureSelectionUi() {
@@ -483,16 +509,28 @@
   }
 
   function localize() {
-    if (!selectionMenu) return
     const text = currentConfig?.labels || labels
-    selectionMenu.setAttribute("aria-label", text.toolbar)
-    selectionMenu.querySelectorAll("button[data-action]").forEach(function (button) {
+    selectionMenu?.setAttribute("aria-label", text.toolbar)
+    selectionMenu?.querySelectorAll("button[data-action]").forEach(function (button) {
       const action = button.dataset.action
       button.title = text[action]
       button.setAttribute("aria-label", text[action])
       if (action === "translate" || action === "ask") button.textContent = text[action]
     })
-    if (!selectionMenu.hidden && selectionState?.rect) positionSelectionMenu(selectionState.rect)
+    if (selectionMenu && !selectionMenu.hidden && selectionState?.rect) positionSelectionMenu(selectionState.rect)
+    ;[annotationEditor, selectionHint].forEach(function (root) {
+      root?.querySelectorAll("[data-label]").forEach(function (node) {
+        node.textContent = text[node.dataset.label]
+      })
+      root?.querySelectorAll("[data-tooltip]").forEach(function (node) {
+        node.title = text[node.dataset.tooltip]
+        node.setAttribute("aria-label", text[node.dataset.tooltip])
+      })
+    })
+    if (annotationEditor) {
+      annotationEditor.querySelector("textarea").placeholder = text.annotationPlaceholder
+      positionAnnotationEditor()
+    }
   }
 
   function ensureCaptureUi() {
@@ -554,12 +592,14 @@
   }
 
   function emitAnnotations() {
-    post("annotationchange", { annotations: annotations })
+    if (!annotationsEnabled()) return
+    post("annotationchange", { document: currentConfig.document, annotations: annotations })
     renderAnnotations()
   }
 
   function createAnnotation(type) {
-    if (!selectionState || selectionState.kind !== "text" || !selectionState.pages?.length) return
+    if (!annotationsEnabled() || !selectionState || selectionState.kind !== "text" || !selectionState.pages?.length)
+      return
     const now = Date.now()
     const item = {
       id: crypto.randomUUID(),
@@ -572,16 +612,21 @@
       updatedAt: now,
     }
     const rect = selectionState.rect
-    annotations = annotations.concat(item)
-    emitAnnotations()
     clearTextSelection()
     hideSelectionUi()
-    if (type === "note") openAnnotationEditor(item.id, rect?.right || 24, rect?.bottom || 72)
+    if (type === "note") {
+      openAnnotationEditor(item.id, rect?.right || 24, rect?.bottom || 72, item)
+      return
+    }
+    annotations = annotations.concat(item)
+    emitAnnotations()
   }
 
   function rememberAnnotationColor(type, color) {
     annotationDefaults[type] = color
-    localStorage.setItem("aether-pdf-annotation-colors", JSON.stringify(annotationDefaults))
+    try {
+      localStorage.setItem("aether-pdf-annotation-colors", JSON.stringify(annotationDefaults))
+    } catch (_) {}
   }
 
   async function handleSelectionAction(action) {
@@ -1014,12 +1059,15 @@
     annotationUndo = { item: item, index: index }
     ensureSelectionUi()
     hideSelectionHint(true)
-    selectionHint.textContent = "Annotation deleted"
+    selectionHint.textContent = ""
+    const message = document.createElement("span")
+    message.dataset.label = "annotationDeleted"
+    selectionHint.appendChild(message)
     const undo = document.createElement("button")
     undo.type = "button"
-    undo.textContent = "Undo"
+    undo.dataset.label = "annotationUndo"
     undo.addEventListener("click", function () {
-      if (!annotationUndo) return
+      if (!annotationUndo || !annotationsEnabled()) return
       annotations = annotations.slice()
       annotations.splice(annotationUndo.index, 0, annotationUndo.item)
       annotationUndo = null
@@ -1027,6 +1075,7 @@
       emitAnnotations()
     })
     selectionHint.appendChild(undo)
+    localize()
     selectionHint.hidden = false
     selectionHintLockedUntil = Date.now() + 5000
     selectionHintTimer = window.setTimeout(function () {
@@ -1035,103 +1084,173 @@
     }, 5000)
   }
 
-  function openAnnotationEditor(id, x, y) {
-    const index = annotations.findIndex(function (item) {
-      return item.id === id
-    })
-    if (index < 0) return
+  function positionAnnotationEditor() {
+    if (!annotationEditor) return
+    const box = annotationEditor.getBoundingClientRect()
+    const x = Number(annotationEditor.dataset.x)
+    const y = Number(annotationEditor.dataset.y)
+    annotationEditor.style.left = Math.max(12, Math.min(window.innerWidth - box.width - 12, x)) + "px"
+    annotationEditor.style.top = Math.max(12, Math.min(window.innerHeight - box.height - 12, y)) + "px"
+  }
+
+  function openAnnotationEditor(id, x, y, draft) {
+    if (!annotationsEnabled()) return
+    const item =
+      draft ||
+      annotations.find(function (part) {
+        return part.id === id
+      })
+    if (!item) return
     closeAnnotationEditor()
-    const item = annotations[index]
     const editor = document.createElement("form")
     editor.id = "aetherAnnotationEditor"
+    editor.dataset.x = x
+    editor.dataset.y = y
+    editor.setAttribute("role", "dialog")
+    editor.setAttribute("aria-labelledby", "aetherAnnotationTitle")
     editor.addEventListener("pointerdown", function (event) {
       event.stopPropagation()
     })
+    editor.addEventListener("click", function (event) {
+      event.stopPropagation()
+    })
+    editor.addEventListener("keydown", function (event) {
+      if (event.key !== "Escape") return
+      event.preventDefault()
+      event.stopPropagation()
+      closeAnnotationEditor()
+    })
 
+    const header = document.createElement("div")
+    header.className = "aetherAnnotationEditorHeader"
+    const title = document.createElement("h3")
+    title.id = "aetherAnnotationTitle"
+    title.dataset.label = draft ? "annotationAdd" : "annotationEdit"
+    header.appendChild(title)
+    const close = document.createElement("button")
+    close.type = "button"
+    close.className = "aetherAnnotationIcon"
+    close.dataset.tooltip = "annotationClose"
+    const cross = svg("svg")
+    cross.setAttribute("viewBox", "0 0 24 24")
+    cross.setAttribute("aria-hidden", "true")
+    const stroke = svg("path")
+    stroke.setAttribute("d", "m6 6 12 12M6 18 18 6")
+    cross.appendChild(stroke)
+    close.appendChild(cross)
+    close.addEventListener("click", closeAnnotationEditor)
+    header.appendChild(close)
+    editor.appendChild(header)
+
+    const controls = document.createElement("div")
+    controls.className = "aetherAnnotationEditorControls"
     const type = document.createElement("select")
+    type.dataset.tooltip = "annotationType"
     ;["highlight", "underline", "strikeout", "note"].forEach(function (value) {
       const option = document.createElement("option")
       option.value = value
-      option.textContent = value === "strikeout" ? "Strikeout" : value[0].toUpperCase() + value.slice(1)
+      option.dataset.label = value === "note" ? "annotationNote" : value
       option.selected = item.type === value
       type.appendChild(option)
     })
+    controls.appendChild(type)
 
     const palette = document.createElement("div")
     palette.className = "aetherAnnotationPalette"
+    palette.setAttribute("role", "group")
+    palette.dataset.tooltip = "annotationColor"
     Object.keys(annotationColors).forEach(function (value) {
       const button = document.createElement("button")
       button.type = "button"
-      button.title = value
+      button.dataset.tooltip = "annotation" + value[0].toUpperCase() + value.slice(1)
       button.dataset.color = value
       button.style.background = annotationColors[value]
       button.classList.toggle("selected", item.color === value)
+      button.setAttribute("aria-pressed", item.color === value ? "true" : "false")
       button.addEventListener("click", function () {
         palette.querySelectorAll("button").forEach(function (part) {
           part.classList.toggle("selected", part === button)
+          part.setAttribute("aria-pressed", part === button ? "true" : "false")
         })
       })
       palette.appendChild(button)
     })
-    editor.appendChild(palette)
-    editor.appendChild(type)
+    controls.appendChild(palette)
+    editor.appendChild(controls)
 
     const note = document.createElement("textarea")
-    note.placeholder = "Add a note…"
+    note.dataset.tooltip = "annotationText"
     note.value = item.note || ""
     editor.appendChild(note)
 
     const actions = document.createElement("div")
     actions.className = "aetherAnnotationEditorActions"
-    const remove = document.createElement("button")
-    remove.type = "button"
-    remove.textContent = "Delete"
-    remove.className = "danger"
-    remove.addEventListener("click", function () {
-      annotations = annotations.filter(function (part) {
-        return part.id !== id
+    if (!draft) {
+      const remove = document.createElement("button")
+      remove.type = "button"
+      remove.dataset.tooltip = "annotationDelete"
+      remove.className = "aetherAnnotationIcon danger"
+      const icon = svg("svg")
+      icon.setAttribute("viewBox", "0 0 24 24")
+      icon.setAttribute("aria-hidden", "true")
+      const path = svg("path")
+      path.setAttribute("d", "M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7M14 10v7")
+      icon.appendChild(path)
+      remove.appendChild(icon)
+      remove.addEventListener("click", function () {
+        const index = annotations.findIndex(function (part) {
+          return part.id === id
+        })
+        if (index < 0) {
+          closeAnnotationEditor()
+          return
+        }
+        const removed = annotations[index]
+        annotations = annotations.filter(function (part) {
+          return part.id !== id
+        })
+        closeAnnotationEditor()
+        emitAnnotations()
+        showAnnotationUndo(removed, index)
       })
-      closeAnnotationEditor()
-      emitAnnotations()
-      showAnnotationUndo(item, index)
-    })
-    actions.appendChild(remove)
+      actions.appendChild(remove)
+    }
     const cancel = document.createElement("button")
     cancel.type = "button"
-    cancel.textContent = "Cancel"
+    cancel.dataset.label = "annotationCancel"
     cancel.addEventListener("click", closeAnnotationEditor)
     actions.appendChild(cancel)
     const save = document.createElement("button")
     save.type = "submit"
-    save.textContent = "Save"
+    save.dataset.label = "annotationSave"
     save.className = "primary"
     actions.appendChild(save)
     editor.appendChild(actions)
 
     editor.addEventListener("submit", function (event) {
       event.preventDefault()
+      if (annotationEditor !== editor || !annotationsEnabled()) return
       const selected = palette.querySelector("button.selected")
-      annotations = annotations.map(function (part) {
-        if (part.id !== id) return part
-        return {
-          ...part,
-          type: type.value,
-          color: selected?.dataset.color || part.color,
-          note: note.value,
-          updatedAt: Date.now(),
-        }
-      })
+      const value = {
+        type: type.value,
+        color: selected?.dataset.color || item.color,
+        note: note.value,
+        updatedAt: Date.now(),
+      }
+      annotations = draft
+        ? annotations.concat({ ...item, ...value })
+        : annotations.map(function (part) {
+            return part.id === id ? { ...part, ...value } : part
+          })
       rememberAnnotationColor(type.value, selected?.dataset.color || item.color)
       closeAnnotationEditor()
       emitAnnotations()
     })
 
     document.body.appendChild(editor)
-    const box = editor.getBoundingClientRect()
-    editor.style.left = Math.max(12, Math.min(window.innerWidth - box.width - 12, x)) + "px"
-    editor.style.top = Math.max(12, Math.min(window.innerHeight - box.height - 12, y)) + "px"
     annotationEditor = editor
-    if (item.type === "note") note.focus()
+    localize()
+    note.focus({ preventScroll: true })
   }
 
   function annotationAt(event) {
@@ -1440,9 +1559,9 @@
     }
 
     const exportAnnotations = document.getElementById("aetherExportAnnotations")
-    if (exportAnnotations) exportAnnotations.hidden = !config.features.annotations
+    if (exportAnnotations) exportAnnotations.hidden = !annotationsEnabled()
     const exportAnnotationsSecondary = document.getElementById("aetherExportAnnotationsSecondary")
-    if (exportAnnotationsSecondary) exportAnnotationsSecondary.hidden = !config.features.annotations
+    if (exportAnnotationsSecondary) exportAnnotationsSecondary.hidden = !annotationsEnabled()
 
     if (config.mode === "compact" && outerContainer) {
       outerContainer.classList.remove("sidebarOpen", "sidebarMoving", "sidebarResizing")
@@ -1837,14 +1956,16 @@
     const exportAnnotations = document.getElementById("aetherExportAnnotations")
     if (exportAnnotations) {
       exportAnnotations.addEventListener("click", function () {
-        post("exportannotations")
+        if (!annotationsEnabled()) return
+        post("exportannotations", { document: currentConfig.document })
       })
     }
 
     const exportAnnotationsSecondary = document.getElementById("aetherExportAnnotationsSecondary")
     if (exportAnnotationsSecondary) {
       exportAnnotationsSecondary.addEventListener("click", function () {
-        post("exportannotations")
+        if (!annotationsEnabled()) return
+        post("exportannotations", { document: currentConfig.document })
         window.PDFViewerApplication?.secondaryToolbar?.close?.()
       })
     }
@@ -1888,6 +2009,7 @@
         return
       }
       if (selectionMenu?.contains(event.target)) return
+      if (selectionHint?.contains(event.target)) return
       if (annotationEditor?.contains(event.target)) return
       closeAnnotationEditor()
       hideSelectionUi()
@@ -1908,6 +2030,7 @@
     })
     window.addEventListener("resize", function () {
       scheduleToolbarOverflowSync()
+      positionAnnotationEditor()
       if (!selectionState) return
       scheduleSelectionUiUpdate()
     })
@@ -1919,6 +2042,7 @@
 
     const key = [config.src, config.authHeader || "", config.mode].join("|")
     if (currentKey === key) {
+      if (loaded && loaded.doc === app.pdfDocument) loaded = { doc: loaded.doc, config }
       applyChrome(config)
       if (app.pdfViewer) {
         app.pdfViewer.scrollMode = mapScrollMode(config.scrollMode)
@@ -1934,6 +2058,7 @@
       restoreState = captureState() || restoreState
     }
     docSettled = false
+    loaded = null
     currentKey = key
     hideViewerError()
     sidebarState = {
@@ -1941,6 +2066,7 @@
       userClosed: true,
     }
     hideSelectionUi()
+    closeAnnotationEditor()
     applyChrome(config)
     closeSidebar(app)
 
@@ -1974,10 +2100,29 @@
       doc._pdfInfo.fingerprints = [config.src]
     }
     await app.load(doc)
+    await app.pdfViewer.firstPagePromise
+    hideSelectionUi()
+    clearTextSelection()
+    loaded = { doc, config }
+    applyChrome(currentConfig)
   }
 
   async function applyConfig(nextConfig) {
-    currentConfig = sanitizeConfig(nextConfig)
+    const config = sanitizeConfig(nextConfig)
+    const changed = config.document !== currentConfig?.document
+    if (changed || !config.features.annotations) annotations = []
+    if (
+      changed ||
+      config.src !== currentConfig?.src ||
+      config.authHeader !== currentConfig?.authHeader ||
+      !config.features.annotations
+    ) {
+      annotationUndo = null
+      closeAnnotationEditor()
+      hideSelectionUi()
+    }
+    currentConfig = config
+    renderAnnotations()
     applyChrome(currentConfig)
     const key = [currentConfig.src, currentConfig.authHeader || "", currentConfig.mode].join("|")
     if (currentKey && currentKey !== key && isReload(currentKey, key)) {
@@ -2052,6 +2197,7 @@
       }
 
       if (event.data.type === "annotations") {
+        if (event.data.document !== currentConfig?.document) return
         annotations = Array.isArray(event.data.annotations) ? event.data.annotations : []
         renderAnnotations()
       }

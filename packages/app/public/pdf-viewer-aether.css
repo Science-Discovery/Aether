@@ -489,17 +489,41 @@ body.aether-pdf-viewer .annotationLayer .popupContent {
 body.aether-pdf-viewer #aetherAnnotationEditor {
   position: fixed;
   z-index: 1250;
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  align-items: center;
-  gap: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  box-sizing: border-box;
   width: min(300px, calc(100vw - 24px));
+  max-height: calc(100vh - 24px);
+  overflow: auto;
   padding: 12px;
   border: 1px solid var(--border-base);
   border-radius: 12px;
   background: var(--surface-raised-stronger-non-alpha);
-  box-shadow: var(--shadow-lg-border-base);
+  box-shadow:
+    0 8px 28px rgb(0 0 0 / 16%),
+    0 2px 6px rgb(0 0 0 / 8%);
   color: var(--text-strong);
+  font-size: 13px;
+}
+
+body.aether-pdf-viewer .aetherAnnotationEditorHeader,
+body.aether-pdf-viewer .aetherAnnotationEditorControls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex: none;
+}
+
+body.aether-pdf-viewer .aetherAnnotationEditorHeader h3 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+body.aether-pdf-viewer .aetherAnnotationEditorControls {
+  flex-wrap: wrap;
 }
 
 body.aether-pdf-viewer #aetherAnnotationEditor select,
@@ -515,15 +539,32 @@ body.aether-pdf-viewer #aetherAnnotationEditor textarea {
 }
 
 body.aether-pdf-viewer #aetherAnnotationEditor select {
-  grid-column: 2;
-  grid-row: 1;
+  flex: 1;
+  width: auto;
+  max-width: 140px;
   min-width: 0;
+  height: 30px;
+  padding: 4px 6px;
+  font-size: 12px;
 }
 
 body.aether-pdf-viewer #aetherAnnotationEditor textarea {
-  grid-column: 1 / -1;
-  min-height: 118px;
-  resize: vertical;
+  min-height: 72px;
+  height: 136px;
+  flex: 0 1 136px;
+  resize: none;
+  overflow: auto;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+body.aether-pdf-viewer #aetherAnnotationEditor :is(select, textarea, button):focus-visible {
+  outline: 2px solid var(--border-selected);
+  outline-offset: 2px;
+}
+
+body.aether-pdf-viewer #aetherAnnotationEditor textarea::placeholder {
+  color: var(--text-weak, var(--text-base));
 }
 
 body.aether-pdf-viewer .aetherAnnotationPalette,
@@ -534,13 +575,13 @@ body.aether-pdf-viewer .aetherAnnotationEditorActions {
 }
 
 body.aether-pdf-viewer .aetherAnnotationPalette {
-  grid-column: 1;
-  grid-row: 1;
+  flex: none;
+  gap: 6px;
 }
 
 body.aether-pdf-viewer .aetherAnnotationPalette button {
-  width: 22px;
-  height: 22px;
+  width: 20px;
+  height: 20px;
   padding: 0;
   border: 2px solid transparent;
   border-radius: 999px;
@@ -553,10 +594,11 @@ body.aether-pdf-viewer .aetherAnnotationPalette button.selected {
 }
 
 body.aether-pdf-viewer .aetherAnnotationEditorActions {
-  grid-column: 1 / -1;
+  flex: none;
   justify-content: flex-end;
 }
 
+body.aether-pdf-viewer #aetherAnnotationEditor .aetherAnnotationIcon,
 body.aether-pdf-viewer .aetherAnnotationEditorActions button,
 body.aether-pdf-viewer #aetherSelectionHint button {
   border: 0;
@@ -568,9 +610,38 @@ body.aether-pdf-viewer #aetherSelectionHint button {
   cursor: pointer;
 }
 
-body.aether-pdf-viewer .aetherAnnotationEditorActions button:first-child {
+body.aether-pdf-viewer #aetherAnnotationEditor .aetherAnnotationIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  background: transparent;
+}
+
+body.aether-pdf-viewer #aetherAnnotationEditor .aetherAnnotationIcon svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+body.aether-pdf-viewer #aetherAnnotationEditor button:hover {
+  background: var(--surface-base-hover);
+}
+
+body.aether-pdf-viewer .aetherAnnotationEditorActions button.danger {
   margin-right: auto;
-  color: #d33;
+  color: var(--text-weak, var(--text-base));
+}
+
+body.aether-pdf-viewer .aetherAnnotationEditorActions button.danger:hover {
+  color: var(--text-critical-base, #d33);
 }
 
 body.aether-pdf-viewer .aetherAnnotationEditorActions button.primary {
