@@ -129,6 +129,9 @@ export namespace NativeChats {
             limit: 30,
             sortKey: "updated_at",
             sortDirection: "desc",
+            // Listing must not scan and repair every saved rollout. The native
+            // clients use the index too; attachment verifies full history below.
+            useStateDbOnly: true,
             sourceKinds: ["cli", "vscode", "appServer"],
             cwd: [...new Set([Instance.directory, Instance.directory.replaceAll("\\", "/")])],
             archived: false,

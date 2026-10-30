@@ -87,6 +87,7 @@ export function createNativeRun(opts: {
         if (disposed || run !== epoch || !opts.enabled() || key !== opts.key()) return
         if (!value) throw new Error("The Aether server did not return the Codex run state.")
         setStore("data", value)
+        if (!value.queue.items.length && store.notices[key]?.type === "queued") setStore("notices", key, undefined)
       })
       .catch((err: unknown) => {
         if (disposed || run !== epoch || key !== opts.key()) return

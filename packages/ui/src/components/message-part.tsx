@@ -1496,6 +1496,9 @@ PART_MAPPING["tool"] = function ToolPartDisplay(props) {
             />
           </Match>
         </Switch>
+        <Show when={data.toolExtension}>
+          {(extension) => <Dynamic component={extension()} part={part()} message={props.message} />}
+        </Show>
       </div>
     </Show>
   )

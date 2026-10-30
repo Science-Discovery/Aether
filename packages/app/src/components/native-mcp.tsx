@@ -13,6 +13,14 @@ export function NativeMcp() {
   let revision = 0
   let disposed = false
   const key = () => `${sdk.url}\n${sdk.directory}`
+  const auth = (value: string) => {
+    if (value === "unsupported") return language.t("native.mcp.auth.unsupported")
+    if (value === "bearerToken") return language.t("native.mcp.auth.token")
+    if (value === "oAuth") return language.t("native.mcp.auth.oauth")
+    if (value === "notLoggedIn") return language.t("native.mcp.auth.required")
+    if (value === "unknown") return language.t("native.mcp.auth.unknown")
+    return value
+  }
   async function refresh(force = false) {
     const scope = key()
     const stamp = ++revision
@@ -61,7 +69,7 @@ export function NativeMcp() {
               <div class="text-12-regular text-text-weak">
                 {language.t("native.mcp.connection")}:{" "}
                 {server.status === "unknown" ? language.t("native.mcp.unknown") : server.status} ·{" "}
-                {language.t("native.mcp.auth")}: {server.auth}
+                {language.t("native.mcp.auth")}: {auth(server.auth)}
               </div>
               <Show when={server.error}>
                 {(error) => (

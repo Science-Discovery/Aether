@@ -3,6 +3,7 @@ import type {
   Session,
   Part,
   TextPart,
+  ToolPart,
   FileDiff,
   SessionStatus,
   ProviderListResponse,
@@ -36,6 +37,7 @@ export type NavigateToSessionFn = (sessionID: string) => void
 
 export type SessionHrefFn = (sessionID: string) => string
 export type TextExtension = Component<{ part: TextPart; message: Message }>
+export type ToolExtension = Component<{ part: ToolPart; message: Message }>
 
 export const { use: useData, provider: DataProvider } = createSimpleContext({
   name: "Data",
@@ -48,6 +50,7 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
     onNavigateToSession?: NavigateToSessionFn
     onSessionHref?: SessionHrefFn
     textExtension?: TextExtension
+    toolExtension?: ToolExtension
   }) => {
     return {
       get store() {
@@ -62,6 +65,9 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
       sessionHref: props.onSessionHref,
       get textExtension() {
         return props.textExtension
+      },
+      get toolExtension() {
+        return props.toolExtension
       },
     }
   },

@@ -17,6 +17,7 @@ import { NativeMcp } from "../../native/mcp"
 import { NativeCompactRoutes } from "../../native/compact-routes"
 import { NativeChatRoutes } from "../../native/chats-routes"
 import { NativeTaskRoutes } from "../../native/tasks-routes"
+import { NativeImageRoutes } from "../../native/image-routes"
 import { MessageID, SessionID } from "../../session/schema"
 import { lazy } from "../../util/lazy"
 
@@ -25,6 +26,7 @@ export const NativeRoutes = lazy(() =>
     .route("/", NativeCompactRoutes())
     .route("/", NativeChatRoutes())
     .route("/", NativeTaskRoutes())
+    .route("/", NativeImageRoutes())
     .get(
       "/codex/mcp",
       describeRoute({

@@ -2501,6 +2501,11 @@ export type NativeTasks = Array<{
   questions: Array<NativeQuestion>
 }>
 
+export type NativeImage = {
+  url: string
+  name: string
+}
+
 export type NativeMcpStatus = {
   state: "ready" | "disabled" | "unavailable"
   servers: Array<{
@@ -6759,6 +6764,40 @@ export type NativeOpenTaskResponses = {
 }
 
 export type NativeOpenTaskResponse = NativeOpenTaskResponses[keyof NativeOpenTaskResponses]
+
+export type NativeImageData = {
+  body?: never
+  path: {
+    sessionID: string
+    messageID: string
+    partID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/native/codex/{sessionID}/message/{messageID}/image/{partID}"
+}
+
+export type NativeImageErrors = {
+  /**
+   * Image unavailable
+   */
+  409: {
+    error: string
+  }
+}
+
+export type NativeImageError = NativeImageErrors[keyof NativeImageErrors]
+
+export type NativeImageResponses = {
+  /**
+   * Image preview
+   */
+  200: NativeImage
+}
+
+export type NativeImageResponse = NativeImageResponses[keyof NativeImageResponses]
 
 export type NativeMcpData = {
   body?: never

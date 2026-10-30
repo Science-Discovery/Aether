@@ -96,7 +96,10 @@ test("native chat listing pages and searches only current project interactive ch
     expect(
       calls
         .filter((call) => call.method === "thread/list")
-        .every((call) => Array.isArray(call.params.cwd) && call.params.cwd.includes(dir)),
+        .every(
+          (call) =>
+            call.params.useStateDbOnly === true && Array.isArray(call.params.cwd) && call.params.cwd.includes(dir),
+        ),
     ).toBe(true)
   })
 })

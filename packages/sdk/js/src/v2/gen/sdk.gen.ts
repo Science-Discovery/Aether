@@ -209,6 +209,8 @@ import type {
   NativeEnqueueResponses,
   NativeFileInput,
   NativeHistoryResponses,
+  NativeImageErrors,
+  NativeImageResponses,
   NativeLoginErrors,
   NativeLoginResponses,
   NativeLoginStatusErrors,
@@ -4636,6 +4638,40 @@ export class Native extends HeyApiClient {
         ...options?.headers,
         ...params.headers,
       },
+    })
+  }
+
+  /**
+   * Preview a completed Codex image item
+   */
+  public image<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      messageID: string
+      partID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "path", key: "messageID" },
+            { in: "path", key: "partID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<NativeImageResponses, NativeImageErrors, ThrowOnError>({
+      url: "/native/codex/{sessionID}/message/{messageID}/image/{partID}",
+      ...options,
+      ...params,
     })
   }
 

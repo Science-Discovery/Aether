@@ -103,6 +103,30 @@ describe("native active-turn controls", () => {
     expect(fixture.sent).toHaveLength(0)
   })
 
+  test("clears the queued notice once polling confirms all queued messages have finished", async () => {
+    const snapshot = waiting()
+    const fixture = setup({
+      read: async () => structuredClone(snapshot),
+      enqueue: async () => structuredClone(snapshot.queue),
+    })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(await fixture.run.submit("First task")).toBe(true)
+    expect(await fixture.run.submit("Second task")).toBe(true)
+    expect(fixture.run.notice()?.type).toBe("queued")
+    snapshot.queue.items.shift()
+    await vi.advanceTimersByTimeAsync(2_000)
+    expect(fixture.run.notice()?.type).toBe("queued")
+    snapshot.queue.items.length = 0
+    snapshot.active = null
+    await vi.advanceTimersByTimeAsync(2_000)
+    expect(fixture.run.data()?.queue.items).toEqual([])
+    expect(fixture.run.notice()).toBeUndefined()
+    fixture.set("id", "two")
+    fixture.set("id", "one")
+    await vi.advanceTimersByTimeAsync(0)
+    expect(fixture.run.notice()).toBeUndefined()
+  })
+
   test("only sends pending entries while the active turn supports steering", async () => {
     const snapshot = waiting()
     snapshot.active!.steer = false
@@ -139,6 +163,9 @@ describe("native active-turn controls", () => {
     expect(fixture.run.unconfirmed()).toBe("first")
     expect(await fixture.run.send("second")).toBe(false)
     expect(calls).toHaveLength(1)
+    await fixture.run.refresh()
+    expect(fixture.run.data()?.active).toBeNull()
+    expect(fixture.run.notice()?.type).toBe("error")
     await fixture.run.remove("unrelated-queue-entry")
     expect(fixture.run.unconfirmed()).toBe("first")
     await fixture.run.refresh()
