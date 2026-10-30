@@ -162,7 +162,7 @@ function Workspace(props: Props) {
   }
   return (
     <div data-component="latex-workspace" class="flex min-h-0 flex-1 flex-col overflow-hidden">
-      <div class="shrink-0 border-b border-border-weak-base px-3 pb-2 text-12-regular">
+      <div class="shrink-0 border-b border-border-weak-base px-3 py-2 text-12-regular">
         <div class="flex flex-wrap items-center gap-2">
           <Button
             size="small"
