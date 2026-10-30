@@ -156,7 +156,10 @@ function Workspace(props: Props) {
   }
   return (
     <div data-component="latex-workspace" class="flex min-h-0 flex-1 flex-col overflow-hidden">
-      <div class="shrink-0 border-b border-border-weak-base px-3 py-2 text-12-regular">
+      <div
+        class="shrink-0 border-b border-border-weak-base px-3 text-12-regular"
+        classList={{ "min-h-8 flex flex-col justify-center py-[3px]": state.collapsed, "py-2": !state.collapsed }}
+      >
         <div class="flex items-start gap-2">
           <div class="flex min-w-0 flex-1 flex-wrap items-center gap-2">
             <Button
