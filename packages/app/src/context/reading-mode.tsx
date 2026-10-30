@@ -36,20 +36,6 @@ export type ReadingHighlight = {
   createdAt: number
 }
 
-export type ReadingPendingQuestion = {
-  kind: "text-question"
-  startPage: number
-  endPage: number
-  text: string
-  createdAt: number
-} | {
-  kind: "image-question"
-  page: number
-  text: string
-  imageDataUrl: string
-  createdAt: number
-} | null
-
 type Store = {
   currentPage: number
   totalPages: number
@@ -59,7 +45,6 @@ type Store = {
   continuousMode: boolean // true = scroll through all pages, false = single page
   sessionMeta: ReadingModeSessionMeta | null
   annotations: ReadingHighlight[]
-  pendingQuestion: ReadingPendingQuestion
 }
 
 type Ctx = {
@@ -72,7 +57,6 @@ type Ctx = {
   setContinuousMode: (v: boolean) => void
   setSessionMeta: (meta: ReadingModeSessionMeta | null) => void
   setAnnotations: (items: ReadingHighlight[]) => void
-  setPendingQuestion: (question: ReadingPendingQuestion) => void
 }
 
 const ReadingModeContext = createContext<Ctx>()
@@ -87,7 +71,6 @@ export function ReadingModeProvider(props: ParentProps) {
     continuousMode: true,
     sessionMeta: null,
     annotations: [],
-    pendingQuestion: null,
   })
 
   const ctx: Ctx = {
@@ -100,7 +83,6 @@ export function ReadingModeProvider(props: ParentProps) {
     setContinuousMode: (v) => setStore("continuousMode", v),
     setSessionMeta: (meta) => setStore("sessionMeta", meta),
     setAnnotations: (items) => setStore("annotations", items),
-    setPendingQuestion: (question) => setStore("pendingQuestion", question),
   }
 
   return <ReadingModeContext.Provider value={ctx}>{props.children}</ReadingModeContext.Provider>

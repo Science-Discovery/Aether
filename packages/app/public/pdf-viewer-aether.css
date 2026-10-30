@@ -340,10 +340,11 @@ body.aether-pdf-viewer #aetherSelectionMenu {
   z-index: 1200;
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 2px;
+  box-sizing: border-box;
   max-width: calc(100vw - 24px);
   flex-wrap: wrap;
-  padding: 6px;
+  padding: 4px;
   border: 1px solid var(--border-base);
   border-radius: 10px;
   background: color-mix(in srgb, var(--surface-raised-stronger-non-alpha) 94%, transparent);
@@ -371,16 +372,45 @@ body.aether-pdf-viewer #aetherSelectionHint {
 
 body.aether-pdf-viewer .aetherSelectionMenuButton {
   appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  min-width: 32px;
+  height: 32px;
   border: 0;
-  border-radius: 8px;
+  border-radius: 6px;
   background: transparent;
   color: var(--text-strong);
   font: inherit;
   font-size: 12px;
   font-weight: 600;
   line-height: 1;
-  padding: 7px 10px;
+  padding: 0 8px;
+  white-space: nowrap;
   cursor: pointer;
+}
+
+body.aether-pdf-viewer .aetherSelectionMenuButton:has(svg) {
+  width: 32px;
+  padding: 0;
+}
+
+body.aether-pdf-viewer .aetherSelectionMenuButton svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+body.aether-pdf-viewer .aetherSelectionMenuSeparator {
+  width: 1px;
+  height: 16px;
+  margin: 0 3px;
+  background: var(--border-base);
 }
 
 body.aether-pdf-viewer .aetherSelectionMenuButton:hover,
@@ -458,42 +488,105 @@ body.aether-pdf-viewer .annotationLayer .popupContent {
 
 body.aether-pdf-viewer #aetherAnnotationEditor {
   position: fixed;
-  z-index: 1250;
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  align-items: center;
-  gap: 10px 12px;
-  width: min(300px, calc(100vw - 24px));
-  padding: 12px;
+  z-index: 11000;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  box-sizing: border-box;
+  width: max-content;
+  max-width: calc(100vw - 24px);
+  max-height: calc(100vh - 24px);
+  overflow: auto;
+  padding: 10px;
   border: 1px solid var(--border-base);
   border-radius: 12px;
   background: var(--surface-raised-stronger-non-alpha);
-  box-shadow: var(--shadow-lg-border-base);
+  box-shadow:
+    0 8px 28px rgb(0 0 0 / 16%),
+    0 2px 6px rgb(0 0 0 / 8%);
   color: var(--text-strong);
+  font-size: 13px;
+}
+
+body.aether-pdf-viewer .aetherAnnotationEditorControls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto 24px;
+  grid-template-areas: "type palette actions close";
+  align-items: center;
+  gap: 6px;
+  flex: none;
+}
+
+body.aether-pdf-viewer .aetherAnnotationEditorTitle {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  margin: 0;
+}
+
+@media (width < 440px) {
+  body.aether-pdf-viewer .aetherAnnotationEditorControls {
+    grid-template-columns: minmax(0, 1fr) auto 24px;
+    grid-template-areas:
+      "type palette close"
+      "actions actions actions";
+  }
+}
+
+@media (width < 260px) {
+  body.aether-pdf-viewer .aetherAnnotationEditorControls {
+    grid-template-columns: minmax(0, 1fr) 24px;
+    grid-template-areas:
+      "type close"
+      "palette palette"
+      "actions actions";
+  }
 }
 
 body.aether-pdf-viewer #aetherAnnotationEditor select,
 body.aether-pdf-viewer #aetherAnnotationEditor textarea {
   box-sizing: border-box;
   width: 100%;
-  border: 1px solid var(--border-base);
+  border: 1px solid var(--border-weak-base, var(--border-base));
   border-radius: 8px;
   background: var(--input-base);
   color: var(--text-strong);
   font: inherit;
-  padding: 8px;
+  padding: 6px 8px;
 }
 
 body.aether-pdf-viewer #aetherAnnotationEditor select {
-  grid-column: 2;
-  grid-row: 1;
+  grid-area: type;
   min-width: 0;
+  height: 28px;
+  padding: 4px 6px;
+  font-size: 12px;
 }
 
 body.aether-pdf-viewer #aetherAnnotationEditor textarea {
-  grid-column: 1 / -1;
-  min-height: 118px;
-  resize: vertical;
+  min-height: 34px;
+  flex: 0 1 auto;
+  resize: none;
+  overflow: auto;
+  font-size: 13px;
+  line-height: 20px;
+}
+
+body.aether-pdf-viewer #aetherAnnotationEditor :is(select, textarea, button):focus-visible {
+  outline: 2px solid var(--border-selected);
+  outline-offset: 2px;
+}
+
+body.aether-pdf-viewer #aetherAnnotationEditor textarea:focus-visible {
+  outline: none;
+  border-color: var(--border-selected);
+}
+
+body.aether-pdf-viewer #aetherAnnotationEditor textarea::placeholder {
+  color: var(--text-weak, var(--text-base));
 }
 
 body.aether-pdf-viewer .aetherAnnotationPalette,
@@ -504,29 +597,50 @@ body.aether-pdf-viewer .aetherAnnotationEditorActions {
 }
 
 body.aether-pdf-viewer .aetherAnnotationPalette {
-  grid-column: 1;
-  grid-row: 1;
+  grid-area: palette;
+  flex: none;
+  gap: 2px;
 }
 
 body.aether-pdf-viewer .aetherAnnotationPalette button {
-  width: 22px;
-  height: 22px;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
   padding: 0;
-  border: 2px solid transparent;
+  border: 0;
   border-radius: 999px;
+  background: transparent;
   cursor: pointer;
 }
 
-body.aether-pdf-viewer .aetherAnnotationPalette button.selected {
-  border-color: var(--text-strong);
-  box-shadow: 0 0 0 2px var(--surface-raised-stronger-non-alpha);
+body.aether-pdf-viewer .aetherAnnotationPalette button::before {
+  content: "";
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--annotation-color);
+}
+
+body.aether-pdf-viewer .aetherAnnotationPalette button.selected::before {
+  outline: 1.5px solid var(--text-strong);
+  outline-offset: 1.5px;
 }
 
 body.aether-pdf-viewer .aetherAnnotationEditorActions {
-  grid-column: 1 / -1;
+  grid-area: actions;
+  flex: none;
   justify-content: flex-end;
+  gap: 6px;
 }
 
+body.aether-pdf-viewer .aetherAnnotationEditorActions button {
+  height: 28px;
+  flex: none;
+  white-space: nowrap;
+}
+
+body.aether-pdf-viewer #aetherAnnotationEditor .aetherAnnotationIcon,
 body.aether-pdf-viewer .aetherAnnotationEditorActions button,
 body.aether-pdf-viewer #aetherSelectionHint button {
   border: 0;
@@ -538,9 +652,44 @@ body.aether-pdf-viewer #aetherSelectionHint button {
   cursor: pointer;
 }
 
-body.aether-pdf-viewer .aetherAnnotationEditorActions button:first-child {
+body.aether-pdf-viewer #aetherAnnotationEditor .aetherAnnotationIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  background: transparent;
+}
+
+body.aether-pdf-viewer #aetherAnnotationEditor .aetherAnnotationEditorControls > .aetherAnnotationIcon {
+  grid-area: close;
+  width: 24px;
+  height: 24px;
+}
+
+body.aether-pdf-viewer #aetherAnnotationEditor .aetherAnnotationIcon svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+body.aether-pdf-viewer #aetherAnnotationEditor button:hover {
+  background: var(--surface-base-hover);
+}
+
+body.aether-pdf-viewer .aetherAnnotationEditorActions button.danger {
   margin-right: auto;
-  color: #d33;
+  color: var(--text-weak, var(--text-base));
+}
+
+body.aether-pdf-viewer .aetherAnnotationEditorActions button.danger:hover {
+  color: var(--text-critical-base, #d33);
 }
 
 body.aether-pdf-viewer .aetherAnnotationEditorActions button.primary {
@@ -642,4 +791,64 @@ body.aether-pdf-viewer #aetherToolbarAuto::before {
 /* Auto-hide state is reflected in the taiji colors (inverted when active). */
 body.aether-pdf-viewer #aetherToolbarAuto.toggled::before {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='8' cy='8' r='7' fill='%23000' stroke='%23fff' stroke-width='1.4'/%3E%3Cpath d='M8 1a7 7 0 0 1 0 14 3.5 3.5 0 0 1 0-7 3.5 3.5 0 0 0 0-7z' fill='%23fff'/%3E%3Ccircle cx='8' cy='4.5' r='1.1' fill='%23fff'/%3E%3Ccircle cx='8' cy='11.5' r='1.1' fill='%23000'/%3E%3C/svg%3E");
+}
+
+.aetherAskSelection {
+  position: fixed;
+  z-index: 100;
+  pointer-events: none;
+  background: rgba(80, 130, 240, 0.24);
+  border: 1px solid rgba(80, 130, 240, 0.6);
+  box-sizing: border-box;
+}
+
+.aetherAskLayer {
+  position: absolute;
+  z-index: 6;
+  pointer-events: none;
+}
+.aetherAskRegion {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  pointer-events: none;
+}
+.aetherAskRegion.active {
+  opacity: 1;
+}
+.aetherAskRegion polygon {
+  fill: rgba(75, 124, 235, 0.2);
+  stroke: rgba(75, 124, 235, 0.6);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+.aetherAskBadge {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid #386cd0;
+  border-radius: 50%;
+  background: #edf3ff;
+  color: #244d98;
+  font:
+    600 12px/1 system-ui,
+    sans-serif;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+  cursor: pointer;
+  pointer-events: auto;
+}
+.aetherAskBadge:hover,
+.aetherAskBadge:focus-visible {
+  background: #d7e5ff;
+  outline: 2px solid #6d9aed;
+  outline-offset: 1px;
+}
+body.aether-pdf-viewer[data-view-theme="night"] .aetherAskBadge {
+  background: #1f365c;
+  color: #e0eaff;
+  border-color: #86aaf0;
 }

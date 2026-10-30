@@ -1555,7 +1555,11 @@ PART_MAPPING["text"] = function TextPartDisplay(props) {
   return (
     <Show when={throttledText()}>
       <div data-component="text-part">
-        <div data-slot="text-part-body">
+        <div
+          data-slot="text-part-body"
+          data-assistant-message-id={props.message.role === "assistant" ? props.message.id : undefined}
+          data-assistant-part-id={props.message.role === "assistant" ? part().id : undefined}
+        >
           <Markdown text={throttledText()} cacheKey={part().id} />
         </div>
         <Show when={showCopy()}>

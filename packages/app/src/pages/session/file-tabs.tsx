@@ -1,3 +1,4 @@
+import type { PdfTextSelection, PdfImageSelection } from "@/components/pdf-viewer-shell-official"
 import { createEffect, createMemo, createSignal, Match, on, onCleanup, Show, Switch } from "solid-js"
 import { createStore } from "solid-js/store"
 import { Dynamic } from "solid-js/web"
@@ -516,31 +517,35 @@ export function FileTabContent(props: { tab: string }) {
     setFirstReadOpen(true)
   }
 
-  const handlePreviewTextSelection = async (input: {
-    action: "copy" | "translate" | "ask"
-    startPage: number
-    endPage: number
-    text: string
-  }) => {
+  const handlePreviewTextSelection = async (input: PdfTextSelection) => {
     const text = input.text.trim()
     if (!text) return
-    const binding = ensureQuickBinding()
-    if (!binding) return
     if (input.action === "ask") {
-      quickReading.setPendingQuestion({
-        kind: "text-question",
-        sessionID: binding.sessionID,
-        pdfPath: binding.path,
-        pdfFileName: binding.fileName,
+      const pdf = path()
+      if (!pdf || input.question === undefined || !input.selection) return
+      prompt.references.add({
+        id: crypto.randomUUID(),
+        version: 1,
+        kind: "pdf",
+        question: input.question,
+        path: pdf,
+        filename: pdf.split(/[\\/]/).pop() ?? "document.pdf",
+        mode: "quick",
         startPage: input.startPage,
         endPage: input.endPage,
+        selection: input.selection,
+        fingerprint: input.fingerprint,
+        content: "text",
         text,
-        createdAt: Date.now(),
+        summary: summarizeReadingQuoteText(text),
+        settings: { questionPrompt: quickReading.store.snapshot.settings.questionPrompt },
+        totalPages: pdfPages[pdf],
       })
-      focusPromptInput()
       return
     }
     if (input.action !== "translate") return
+    const binding = ensureQuickBinding()
+    if (!binding) return
     const range =
       input.endPage > input.startPage ? `pages ${input.startPage}-${input.endPage}` : `page ${input.startPage}`
     const settings = quickReading.store.snapshot.settings
@@ -574,29 +579,35 @@ export function FileTabContent(props: { tab: string }) {
     })
   }
 
-  const handlePreviewImageSelection = async (input: {
-    action: "copy" | "translate" | "ask"
-    page: number
-    imageDataUrl: string
-  }) => {
+  const handlePreviewImageSelection = async (input: PdfImageSelection) => {
     if (!input.imageDataUrl) return
-    const binding = ensureQuickBinding()
-    if (!binding) return
     if (input.action === "ask") {
-      quickReading.setPendingQuestion({
-        kind: "image-question",
-        sessionID: binding.sessionID,
-        pdfPath: binding.path,
-        pdfFileName: binding.fileName,
-        page: input.page,
-        text: `Captured region from ${binding.fileName}, page ${input.page}`,
-        imageDataUrl: input.imageDataUrl,
-        createdAt: Date.now(),
+      const pdf = path()
+      if (!pdf || input.question === undefined || !input.selection) return
+      prompt.references.add({
+        id: crypto.randomUUID(),
+        version: 1,
+        kind: "pdf",
+        question: input.question,
+        path: pdf,
+        filename: pdf.split(/[\\/]/).pop() ?? "document.pdf",
+        mode: "quick",
+        startPage: input.page,
+        endPage: input.page,
+        selection: input.selection,
+        fingerprint: input.fingerprint,
+        content: "image",
+        image: input.imageDataUrl,
+        text: "",
+        summary: `${pdf.split(/[\\/]/).pop() ?? "document.pdf"} · ${input.page}`,
+        settings: { questionPrompt: quickReading.store.snapshot.settings.questionPrompt },
+        totalPages: pdfPages[pdf],
       })
-      focusPromptInput()
       return
     }
     if (input.action !== "translate") return
+    const binding = ensureQuickBinding()
+    if (!binding) return
     const settings = quickReading.store.snapshot.settings
     await sendQuickTranslate({
       page: input.page,
@@ -1271,6 +1282,9 @@ export function FileTabContent(props: { tab: string }) {
           </Show>
           <PdfViewerShell
             src={rawPreviewUrl()}
+            askScope={params.id}
+            references={prompt.references.items()}
+            onReferenceEdit={(id, question) => prompt.references.update(id, question)}
             annotationPath={currentPath}
             authHeader={pdfAuthHeader()}
             mode="full"

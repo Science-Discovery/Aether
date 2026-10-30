@@ -1,14 +1,14 @@
-import { Index, Show, createEffect, createMemo, onCleanup } from "solid-js"
+import { Index, Show, createEffect, createMemo, createSignal, on, onCleanup } from "solid-js"
 import { createStore } from "solid-js/store"
 import { useSpring } from "@opencode-ai/ui/motion-spring"
 import { getFilename } from "@opencode-ai/util/path"
 import { PromptInput } from "@/components/prompt-input"
-import { type FollowupDraft } from "@/components/prompt-input/submit"
-import { useMaybeConversationQuote } from "@/context/conversation-quote"
+import { AskEditor, type AskEditorProps } from "@/components/ask-editor"
+import type { Reference } from "@/utils/ask-reference"
+import { IconButton } from "@opencode-ai/ui/icon-button"
+import { type FollowupDraft, type FollowupEdit } from "@/components/prompt-input/submit"
 import { useMaybeFileQuote } from "@/context/file-quote"
 import { useLanguage } from "@/context/language"
-import { useMaybeQuickReadingMode } from "@/context/quick-reading-mode"
-import { useMaybeReadingMode } from "@/context/reading-mode"
 import { usePrompt } from "@/context/prompt"
 import { SessionFollowupDock } from "@/pages/session/composer/session-followup-dock"
 import type { SessionComposerState } from "@/pages/session/composer/session-composer-state"
@@ -33,7 +33,7 @@ export function SessionComposerRegion(props: {
     queue: () => boolean
     items: { id: string; text: string }[]
     sending?: string
-    edit?: { id: string; prompt: FollowupDraft["prompt"]; context: FollowupDraft["context"] }
+    edit?: FollowupEdit
     onQueue: (draft: FollowupDraft) => void
     onAbort: () => void
     onSend: (id: string) => void
@@ -50,19 +50,14 @@ export function SessionComposerRegion(props: {
 }) {
   const prompt = usePrompt()
   const language = useLanguage()
-  const quote = useMaybeConversationQuote()
   const fileQuote = useMaybeFileQuote()
-  const readingMode = useMaybeReadingMode()
-  const quickReadingMode = useMaybeQuickReadingMode()
   const route = useSessionKey()
-  const quotes = createMemo(
-    () => quote?.store.pendingQuestions.filter((item) => item.sessionID === route.params.id) ?? [],
-  )
-  const quoteCards = createMemo(() => quotes().slice().reverse())
-  const pendingQuestion = createMemo(() => {
-    const quickPending = quickReadingMode?.store.pendingQuestion
-    if (quickPending?.sessionID === route.params.id) return quickPending
-    return readingMode?.store.pendingQuestion ?? null
+  const references = createMemo(() => prompt.references.items())
+  const [editor, setEditor] = createSignal<{ reference: Reference; anchor: AskEditorProps["anchor"] }>()
+  createEffect(on(route.sessionKey, () => setEditor(undefined)))
+  createEffect(() => {
+    const current = editor()
+    if (current && !references().some((ref) => ref.id === current.reference.id)) setEditor(undefined)
   })
   const fileQuoteQuestion = createMemo(() => {
     const pending = fileQuote?.store.question
@@ -263,74 +258,126 @@ export function SessionComposerRegion(props: {
                   onEdit={props.followup!.onEdit}
                 />
               </Show>
-              <Show when={quotes().length > 0}>
+              <Show when={references().length > 0}>
                 <div
+                  data-component="ask-reference-list"
                   class="mb-2 flex flex-col gap-2 pr-1"
-                  classList={{
-                    "max-h-[160px] overflow-y-auto": quotes().length > 2,
-                  }}
+                  classList={{ "max-h-64 overflow-y-auto": references().length > 2 }}
                 >
-                  <Index each={quoteCards()}>
-                    {(item) => (
-                      <div class="rounded-lg border border-border-weak-base bg-surface-base px-3 py-2 shadow-xs">
-                        <div class="flex items-start justify-between gap-3">
-                          <div class="min-w-0 flex-1">
-                            <div class="text-11-medium uppercase tracking-wide text-text-weak">AI Reply Quote</div>
-                            <div class="mt-1 line-clamp-3 whitespace-pre-wrap break-words text-13-regular text-text-strong">
-                              {item().summary}
-                            </div>
+                  <Index each={references()}>
+                    {(item, index) => {
+                      const [expanded, setExpanded] = createSignal(false)
+                      const [failed, setFailed] = createSignal(false)
+                      const pdf = createMemo(() => {
+                        const ref = item()
+                        return ref.kind === "pdf" ? ref : undefined
+                      })
+                      const image = () => pdf()?.image
+                      createEffect(
+                        on(
+                          () => item().id,
+                          () => setExpanded(false),
+                        ),
+                      )
+                      createEffect(on(image, () => setFailed(false)))
+                      return (
+                        <div
+                          data-reference-id={item().id}
+                          class="rounded-lg border border-border-weak-base bg-surface-base px-3 py-2 shadow-xs"
+                        >
+                          <div class="flex items-center gap-2">
+                            <span class="shrink-0 text-11-medium text-text-weak">
+                              {language.t("ask.reference.title", { number: index + 1 })}
+                            </span>
+                            <span class="min-w-0 flex-1 truncate text-12-medium text-text-strong">
+                              {pdf()?.filename ?? language.t("ask.reference.conversation")}
+                            </span>
+                            <Show when={pdf()}>
+                              {(ref) => (
+                                <span class="shrink-0 text-11-medium text-text-weak">
+                                  p.{formatReadingPageRange(ref())}
+                                </span>
+                              )}
+                            </Show>
+                            <IconButton
+                              icon="edit"
+                              size="small"
+                              variant="ghost"
+                              aria-label={language.t("common.edit")}
+                              onClick={(event) =>
+                                setEditor({ reference: item(), anchor: event.currentTarget.getBoundingClientRect() })
+                              }
+                            />
+                            <IconButton
+                              icon="close"
+                              size="small"
+                              variant="ghost"
+                              aria-label={language.t("common.delete")}
+                              onClick={() => prompt.references.remove(item().id)}
+                            />
+                          </div>
+                          <Show when={pdf()?.content === "image"}>
+                            <Show
+                              when={image() && !failed()}
+                              fallback={
+                                <div class="mt-2 text-12-regular text-text-weak">
+                                  {language.t("ask.reference.missingImage")}
+                                </div>
+                              }
+                            >
+                              <img
+                                src={image()}
+                                alt={item().summary}
+                                class="mt-2 h-20 max-w-full rounded-md border border-border-weak-base object-contain"
+                                onError={() => setFailed(true)}
+                              />
+                            </Show>
+                          </Show>
+                          <div
+                            class="mt-1 whitespace-pre-wrap break-words text-12-regular text-text-weak [overflow-wrap:anywhere]"
+                            classList={{ "line-clamp-2": !expanded(), "max-h-48 overflow-auto": expanded() }}
+                          >
+                            {expanded() ? item().text : item().summary}
                           </div>
                           <button
                             type="button"
-                            class="shrink-0 rounded-md px-1 py-0.5 text-12-medium text-text-weak transition hover:bg-surface-hover hover:text-text-strong"
-                            onClick={() => quote?.removePendingQuestion(item())}
-                            aria-label={language.t("common.clear")}
+                            class="mt-1 text-11-medium text-text-weak hover:text-text-strong"
+                            aria-expanded={expanded()}
+                            onClick={() => setExpanded(!expanded())}
                           >
-                            x
+                            {language.t(expanded() ? "ask.reference.collapse" : "ask.reference.expand")}
                           </button>
+                          <Show when={item().question}>
+                            <div class="mt-2 max-h-32 overflow-y-auto whitespace-pre-wrap break-words border-t border-border-weak-base pt-2 text-13-regular text-text-strong [overflow-wrap:anywhere]">
+                              <span class="text-text-weak">{language.t("ask.reference.question")}: </span>
+                              {item().question}
+                            </div>
+                          </Show>
                         </div>
-                      </div>
-                    )}
+                      )
+                    }}
                   </Index>
                 </div>
               </Show>
-              <Show when={pendingQuestion()} keyed>
-                {(question) => (
-                  <div class="mb-2 rounded-lg border border-border-weak-base bg-surface-base px-3 py-2 shadow-xs">
-                    <div class="flex items-start justify-between gap-3">
-                      <div class="min-w-0 flex-1">
-                        <div class="text-11-medium uppercase tracking-wide text-text-weak">
-                          {"pdfFileName" in question
-                            ? `${question.pdfFileName} · p.${formatReadingPageRange({ startPage: question.kind === "text-question" ? question.startPage : question.page, endPage: question.kind === "text-question" ? question.endPage : question.page })}`
-                            : `PDF Quote - p.${formatReadingPageRange({ startPage: question.kind === "text-question" ? question.startPage : question.page, endPage: question.kind === "text-question" ? question.endPage : question.page })}`}
-                        </div>
-                        <Show when={question.kind === "image-question"}>
-                          <img
-                            src={question.kind === "image-question" ? question.imageDataUrl : undefined}
-                            alt={`Captured region from page ${question.kind === "image-question" ? question.page : 0}`}
-                            class="mt-2 h-20 max-w-full rounded-md border border-border-weak-base bg-background-base object-contain"
-                          />
-                        </Show>
-                        <div class="mt-1 line-clamp-3 whitespace-pre-wrap break-words text-13-regular text-text-strong">
-                          {question.kind === "image-question" ? "Captured region" : question.text}
-                        </div>
-                      </div>
-                      <button
-                        type="button"
-                        class="shrink-0 rounded-md px-1 py-0.5 text-12-medium text-text-weak transition hover:bg-surface-hover hover:text-text-strong"
-                        onClick={() => {
-                          if ("pdfFileName" in question) {
-                            quickReadingMode?.setPendingQuestion(null)
-                            return
-                          }
-                          readingMode?.setPendingQuestion(null)
-                        }}
-                        aria-label={language.t("common.clear")}
-                      >
-                        x
-                      </button>
-                    </div>
-                  </div>
+              <Show when={editor()} keyed>
+                {(value) => (
+                  <AskEditor
+                    title={
+                      value.reference.kind === "pdf"
+                        ? value.reference.filename
+                        : language.t("ask.reference.conversation")
+                    }
+                    preview={value.reference.text}
+                    image={value.reference.kind === "pdf" ? value.reference.image : undefined}
+                    question={value.reference.question}
+                    anchor={value.anchor}
+                    editing
+                    onCancel={() => setEditor(undefined)}
+                    onSave={(question) => {
+                      prompt.references.update(value.reference.id, question)
+                      setEditor(undefined)
+                    }}
+                  />
                 )}
               </Show>
               <Show when={fileQuoteQuestion()} keyed>

@@ -10,29 +10,6 @@ export type QuickReadingSettings = {
   autoFirstRead: boolean
 }
 
-export type QuickReadingPendingQuestion =
-  | {
-      kind: "text-question"
-      sessionID: string
-      pdfPath: string
-      pdfFileName: string
-      startPage: number
-      endPage: number
-      text: string
-      createdAt: number
-    }
-  | {
-      kind: "image-question"
-      sessionID: string
-      pdfPath: string
-      pdfFileName: string
-      page: number
-      text: string
-      imageDataUrl: string
-      createdAt: number
-    }
-  | null
-
 export type QuickReadingPersistedPdfState = {
   totalPages: number
   layoutSwapped: boolean
@@ -65,7 +42,6 @@ type Store = {
   binding: Binding
   snapshot: Snapshot
   view: View
-  pendingQuestion: QuickReadingPendingQuestion
   hydratedKey?: string
 }
 
@@ -77,9 +53,7 @@ type Ctx = {
   setLocation: (location?: string) => void
   setTotalPages: (totalPages: number) => void
   setLayoutSwapped: (swapped: boolean) => void
-  setPendingQuestion: (question: QuickReadingPendingQuestion) => void
   setSettings: (settings: QuickReadingSettings) => void
-  clearTransientState: () => void
 }
 
 const DEFAULT_SETTINGS: QuickReadingSettings = {
@@ -155,7 +129,6 @@ export function QuickReadingModeProvider(props: ParentProps) {
     binding: null,
     snapshot: { ...createPdfState(), settings: cloneSettings() },
     view: createView(),
-    pendingQuestion: null,
     hydratedKey: undefined,
   })
 
@@ -276,13 +249,11 @@ export function QuickReadingModeProvider(props: ParentProps) {
       if (store.snapshot.layoutSwapped === swapped) return
       updateSnapshot((current) => ({ ...current, layoutSwapped: swapped }))
     },
-    setPendingQuestion: (question) => setStore("pendingQuestion", question),
     setSettings: (settings) => {
       const next = cloneSettings(settings)
       setPersistedStore("settings", next)
       updateSnapshot((current) => ({ ...current, settings: next }), false)
     },
-    clearTransientState: () => setStore("pendingQuestion", null),
   }
 
   return <QuickReadingModeContext.Provider value={ctx}>{props.children}</QuickReadingModeContext.Provider>

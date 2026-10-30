@@ -27,6 +27,7 @@
 
   let currentConfig = null
   let currentKey = ""
+  let loaded = null
   let lastLocation = ""
   let restoreState = null
   let docSettled = false
@@ -44,9 +45,38 @@
   let selectionHintTimer = 0
   let selectionHintLockedUntil = 0
   let selectionState = null
+  let askSelection = null
+  let askReferences = { document: "", fingerprint: "", items: [] }
   let annotations = []
   let annotationEditor = null
   let annotationUndo = null
+  const labels = {
+    toolbar: "PDF selection tools",
+    copy: "Copy",
+    translate: "Translate",
+    ask: "Ask AI",
+    highlight: "Highlight",
+    underline: "Underline",
+    strikeout: "Strikethrough",
+    note: "Add note",
+    annotationAdd: "Add annotation",
+    annotationEdit: "Edit annotation",
+    annotationClose: "Close",
+    annotationType: "Annotation type",
+    annotationColor: "Annotation color",
+    annotationText: "Note",
+    annotationPlaceholder: "Write a note…",
+    annotationDelete: "Delete annotation",
+    annotationCancel: "Cancel",
+    annotationSave: "Save",
+    annotationDeleted: "Annotation deleted",
+    annotationUndo: "Undo",
+    annotationNote: "Note",
+    annotationYellow: "Yellow",
+    annotationRed: "Red",
+    annotationGreen: "Green",
+    annotationBlue: "Blue",
+  }
   const annotationColors = {
     yellow: "#f6cf35",
     red: "#ef5350",
@@ -80,6 +110,7 @@
   let captureBox = null
   let captureModeActive = false
   let captureDrag = null
+  let captureEpoch = 0
   let suppressBroadcastUntil = 0
 
   const ERROR_OVERLAY_ID = "aether-pdf-viewer-error-overlay"
@@ -360,10 +391,18 @@
           : "day"
     return {
       src: typeof input?.src === "string" ? input.src : "",
+      document: typeof input?.document === "string" ? input.document : "",
+      selectionDocument: typeof input?.selectionDocument === "string" ? input.selectionDocument : "",
       authHeader: typeof input?.authHeader === "string" && input.authHeader ? input.authHeader : undefined,
       mode,
       viewTheme,
       layoutSwapped: !!input?.layoutSwapped,
+      labels: Object.fromEntries(
+        Object.entries(labels).map(([key, fallback]) => [
+          key,
+          typeof input?.labels?.[key] === "string" && input.labels[key].trim() ? input.labels[key] : fallback,
+        ]),
+      ),
       page:
         typeof input?.page === "number" && Number.isFinite(input.page) && input.page > 0 ? Math.round(input.page) : 1,
       location: typeof input?.location === "string" && input.location ? input.location : undefined,
@@ -384,18 +423,210 @@
 
   function selectionActionsEnabled() {
     return !!(
-      currentConfig &&
+      pdfReady() &&
       currentConfig.features &&
       (currentConfig.features.textSelectionActions || currentConfig.features.annotations)
     )
   }
 
   function imageSelectionActionsEnabled() {
-    return !!(currentConfig && currentConfig.features && currentConfig.features.imageSelectionActions)
+    return !!(pdfReady() && currentConfig.features && currentConfig.features.imageSelectionActions)
+  }
+
+  function pdfReady() {
+    return !!(
+      loaded &&
+      currentConfig &&
+      loaded.doc === window.PDFViewerApplication?.pdfDocument &&
+      loaded.config.document === currentConfig.document &&
+      loaded.config.src === currentConfig.src &&
+      loaded.config.authHeader === currentConfig.authHeader
+    )
   }
 
   function annotationsEnabled() {
-    return !!(currentConfig && currentConfig.features && currentConfig.features.annotations)
+    return pdfReady() && !!currentConfig.features.annotations
+  }
+
+  function closeAsk(notify) {
+    if (!askSelection) return
+    const key = askSelection.document
+    askSelection = null
+    document.querySelectorAll(".aetherAskSelection").forEach((node) => node.remove())
+    document.querySelectorAll(".aetherAskRegion.active").forEach((node) => node.classList.remove("active"))
+    if (notify) post("askcancel", { document: key })
+  }
+
+  function freezeAsk() {
+    const item = selectionState
+    const rects =
+      item.kind === "image"
+        ? [item.rect]
+        : Array.from(
+            window.getSelection()?.rangeCount ? window.getSelection().getRangeAt(0).getClientRects() : [item.rect],
+          )
+    askSelection = { document: currentConfig.selectionDocument }
+    rects.forEach((rect) => {
+      const node = document.createElement("div")
+      node.className = "aetherAskSelection"
+      Object.assign(node.style, {
+        left: rect.left + "px",
+        top: rect.top + "px",
+        width: rect.width + "px",
+        height: rect.height + "px",
+      })
+      document.body.appendChild(node)
+    })
+  }
+
+  function publishDocument() {
+    if (!pdfReady()) return
+    post("documentready", { document: currentConfig.selectionDocument, fingerprint: loaded.fingerprint })
+  }
+
+  function renderAskReferences() {
+    const focus = document.hasFocus() && document.activeElement?.closest?.(".aetherAskBadge")
+    const focused = focus && { id: focus.dataset.referenceId, page: focus.closest(".page")?.dataset.pageNumber }
+    document.querySelectorAll(".aetherAskLayer").forEach((node) => node.remove())
+    if (
+      !pdfReady() ||
+      askReferences.document !== currentConfig.selectionDocument ||
+      !loaded.fingerprint ||
+      askReferences.fingerprint !== loaded.fingerprint
+    )
+      return
+    const occupied = new Map()
+    const activate = (id, active) => {
+      document.querySelectorAll(".aetherAskRegion").forEach((node) => {
+        node.classList.toggle(
+          "active",
+          node.dataset.referenceId === askSelection?.reference || (active && node.dataset.referenceId === id),
+        )
+      })
+    }
+    askReferences.items.forEach(function (item) {
+      item.pages.forEach(function (part) {
+        const page = document.querySelector(`.page[data-page-number="${part.page}"]`)
+        const view = window.PDFViewerApplication.pdfViewer.getPageView(part.page - 1)
+        if (!page || !view?.viewport || !part.quads.length) return
+        const box = pageContentRect(page)
+        if (!box.width || !box.height) return
+        const bounds = page.getBoundingClientRect()
+        let layer = page.querySelector(".aetherAskLayer")
+        if (!layer) {
+          layer = document.createElement("div")
+          layer.className = "aetherAskLayer"
+          Object.assign(layer.style, {
+            left: box.left - bounds.left - page.clientLeft + "px",
+            top: box.top - bounds.top - page.clientTop + "px",
+            width: box.width + "px",
+            height: box.height + "px",
+          })
+          page.appendChild(layer)
+        }
+        const area = svg("svg")
+        area.classList.add("aetherAskRegion")
+        area.dataset.referenceId = item.id
+        area.classList.toggle("active", askSelection?.reference === item.id)
+        area.setAttribute("viewBox", `0 0 ${view.viewport.width} ${view.viewport.height}`)
+        area.setAttribute("preserveAspectRatio", "none")
+        const quads = part.quads.map((quad) => viewportQuad(view.viewport, quad))
+        quads.forEach((points) => {
+          const polygon = svg("polygon")
+          polygon.setAttribute(
+            "points",
+            [points[0], points[1], points[3], points[2]].map((point) => point.join(",")).join(" "),
+          )
+          area.appendChild(polygon)
+        })
+        layer.appendChild(area)
+        const points = quads[0]
+        const width = Math.min(Math.max(22, String(item.number).length * 7 + 10), box.width)
+        const height = Math.min(22, box.height)
+        const left = Math.max(
+          0,
+          Math.min(
+            box.width - width,
+            (Math.max(...points.map((point) => point[0])) * box.width) / view.viewport.width + 3,
+          ),
+        )
+        const top = Math.max(
+          0,
+          Math.min(
+            box.height - height,
+            (Math.min(...points.map((point) => point[1])) * box.height) / view.viewport.height - 3,
+          ),
+        )
+        const placed = occupied.get(part.page) || []
+        let position = { left, top }
+        let found = false
+        for (let column = 0; column <= Math.ceil(box.width / 26) && !found; column++) {
+          for (let row = 0; row <= Math.ceil(box.height / 26) && !found; row++) {
+            for (const y of row ? [top + row * 26, top - row * 26] : [top]) {
+              const x = left - column * 26
+              if (x < 0 || y < 0 || y + height > box.height) continue
+              if (
+                placed.some(
+                  (rect) =>
+                    x < rect.left + rect.width + 3 &&
+                    x + width + 3 > rect.left &&
+                    y < rect.top + rect.height + 3 &&
+                    y + height + 3 > rect.top,
+                )
+              )
+                continue
+              position = { left: x, top: y }
+              found = true
+              break
+            }
+          }
+        }
+        if (!found) return
+        placed.push({ ...position, width, height })
+        occupied.set(part.page, placed)
+        const badge = document.createElement("button")
+        badge.type = "button"
+        badge.className = "aetherAskBadge"
+        badge.dataset.referenceId = item.id
+        badge.textContent = String(item.number)
+        badge.setAttribute("aria-label", (currentConfig.labels.ask || "Ask AI") + " " + item.number)
+        Object.assign(badge.style, {
+          left: position.left + "px",
+          top: position.top + "px",
+          width: width + "px",
+          height: height + "px",
+        })
+        badge.addEventListener("pointerdown", (event) => event.stopPropagation())
+        badge.addEventListener("mouseenter", () => activate(item.id, true))
+        badge.addEventListener("mouseleave", () => activate(item.id, document.activeElement === badge))
+        badge.addEventListener("focus", () => activate(item.id, true))
+        badge.addEventListener("blur", () => activate(item.id, false))
+        const key = askReferences.document
+        const fingerprint = askReferences.fingerprint
+        badge.addEventListener("click", function (event) {
+          event.stopPropagation()
+          if (
+            !pdfReady() ||
+            key !== currentConfig.selectionDocument ||
+            fingerprint !== loaded.fingerprint ||
+            !askReferences.items.some((ref) => ref.id === item.id)
+          )
+            return
+          closeAsk(false)
+          askSelection = { document: key, reference: item.id }
+          activate(item.id, true)
+          const rect = badge.getBoundingClientRect()
+          post("askreference", {
+            document: key,
+            fingerprint,
+            id: item.id,
+            rect: { top: rect.top, left: rect.left, bottom: rect.bottom, right: rect.right },
+          })
+        })
+        layer.appendChild(badge)
+        if (focused?.id === item.id && focused.page === String(part.page)) badge.focus({ preventScroll: true })
+      })
+    })
   }
 
   function ensureSelectionUi() {
@@ -403,21 +634,47 @@
       selectionMenu = document.createElement("div")
       selectionMenu.id = "aetherSelectionMenu"
       selectionMenu.hidden = true
+      selectionMenu.setAttribute("role", "group")
       ;[
-        { action: "copy", label: "Copy" },
-        { action: "translate", label: "Translate" },
-        { action: "ask", label: "Ask" },
-        { action: "highlight", label: "Highlight", annotation: true },
-        { action: "underline", label: "Underline", annotation: true },
-        { action: "strikeout", label: "Strike", annotation: true },
-        { action: "note", label: "Note", annotation: true },
+        { action: "copy", path: "M8 8h12v12H8zM15 8V3H3v12h5" },
+        { action: "translate", separator: true },
+        { action: "ask", separator: true },
+        {
+          action: "highlight",
+          path: "m9 11 6 6M21 6l-3-3-9 9v3l3 3h3zM9 15l-4 4v2h6l4-4M3 21h4",
+          annotation: true,
+          separator: true,
+        },
+        { action: "underline", path: "M6 3v8a6 6 0 0 0 12 0V3M4 21h16", annotation: true },
+        {
+          action: "strikeout",
+          path: "M17 5a7 7 0 0 0-5-2C5 3 5 10 12 10M12 14c7 0 7 7 0 7a8 8 0 0 1-5-2M3 12h18",
+          annotation: true,
+        },
+        { action: "note", path: "M4 4h16v12H9l-5 4zM8 8h8M8 12h5", annotation: true },
       ].forEach(function (item) {
+        if (item.separator) {
+          const separator = document.createElement("span")
+          separator.className = "aetherSelectionMenuSeparator"
+          separator.setAttribute("aria-hidden", "true")
+          if (item.annotation) separator.dataset.annotation = "true"
+          selectionMenu.appendChild(separator)
+        }
         const button = document.createElement("button")
         button.type = "button"
         button.className = "aetherSelectionMenuButton"
         button.dataset.action = item.action
         if (item.annotation) button.dataset.annotation = "true"
-        button.textContent = item.label
+        if (item.path) {
+          const icon = svg("svg")
+          icon.setAttribute("viewBox", "0 0 24 24")
+          icon.setAttribute("aria-hidden", "true")
+          icon.setAttribute("focusable", "false")
+          const path = svg("path")
+          path.setAttribute("d", item.path)
+          icon.appendChild(path)
+          button.appendChild(icon)
+        }
         button.addEventListener("mousedown", function (event) {
           event.preventDefault()
         })
@@ -430,12 +687,38 @@
 
       document.body.appendChild(selectionMenu)
     }
+    localize()
 
     if (!selectionHint) {
       selectionHint = document.createElement("div")
       selectionHint.id = "aetherSelectionHint"
       selectionHint.hidden = true
       document.body.appendChild(selectionHint)
+    }
+  }
+
+  function localize() {
+    const text = currentConfig?.labels || labels
+    selectionMenu?.setAttribute("aria-label", text.toolbar)
+    selectionMenu?.querySelectorAll("button[data-action]").forEach(function (button) {
+      const action = button.dataset.action
+      button.title = text[action]
+      button.setAttribute("aria-label", text[action])
+      if (action === "translate" || action === "ask") button.textContent = text[action]
+    })
+    if (selectionMenu && !selectionMenu.hidden && selectionState?.rect) positionSelectionMenu(selectionState.rect)
+    ;[annotationEditor, selectionHint].forEach(function (root) {
+      root?.querySelectorAll("[data-label]").forEach(function (node) {
+        node.textContent = text[node.dataset.label]
+      })
+      root?.querySelectorAll("[data-tooltip]").forEach(function (node) {
+        node.title = text[node.dataset.tooltip]
+        node.setAttribute("aria-label", text[node.dataset.tooltip])
+      })
+    })
+    if (annotationEditor) {
+      annotationEditor.querySelector("textarea").placeholder = text.annotationPlaceholder
+      positionAnnotationEditor()
     }
   }
 
@@ -488,6 +771,7 @@
   }
 
   function hideSelectionUi() {
+    captureEpoch += 1
     hideSelectionMenu()
     hideSelectionHint(true)
   }
@@ -498,12 +782,14 @@
   }
 
   function emitAnnotations() {
-    post("annotationchange", { annotations: annotations })
+    if (!annotationsEnabled()) return
+    post("annotationchange", { document: currentConfig.document, annotations: annotations })
     renderAnnotations()
   }
 
   function createAnnotation(type) {
-    if (!selectionState || selectionState.kind !== "text" || !selectionState.pages?.length) return
+    if (!annotationsEnabled() || !selectionState || selectionState.kind !== "text" || !selectionState.pages?.length)
+      return
     const now = Date.now()
     const item = {
       id: crypto.randomUUID(),
@@ -516,20 +802,25 @@
       updatedAt: now,
     }
     const rect = selectionState.rect
-    annotations = annotations.concat(item)
-    emitAnnotations()
     clearTextSelection()
     hideSelectionUi()
-    if (type === "note") openAnnotationEditor(item.id, rect?.right || 24, rect?.bottom || 72)
+    if (type === "note") {
+      openAnnotationEditor(item.id, rect?.right || 24, rect?.bottom || 72, item)
+      return
+    }
+    annotations = annotations.concat(item)
+    emitAnnotations()
   }
 
   function rememberAnnotationColor(type, color) {
     annotationDefaults[type] = color
-    localStorage.setItem("aether-pdf-annotation-colors", JSON.stringify(annotationDefaults))
+    try {
+      localStorage.setItem("aether-pdf-annotation-colors", JSON.stringify(annotationDefaults))
+    } catch (_) {}
   }
 
   async function handleSelectionAction(action) {
-    if (!selectionState) return
+    if (!selectionState || !pdfReady()) return
 
     if (["highlight", "underline", "strikeout", "note"].includes(action)) {
       createAnnotation(action)
@@ -567,14 +858,36 @@
       return
     }
 
+    const rect = selectionState.rect
+    const meta = {
+      document: currentConfig.selectionDocument,
+      fingerprint: loaded.fingerprint,
+      selection:
+        selectionState.selection ||
+        JSON.stringify(
+          selectionState.pages.map((page) => ({
+            page: page.page,
+            quads: page.quads.map((quad) => quad.map((n) => Math.round(n * 100) / 100)),
+          })),
+        ),
+      rect: {
+        top: rect.top,
+        left: rect.left,
+        right: rect.right ?? rect.left + rect.width,
+        bottom: rect.bottom ?? rect.top + rect.height,
+      },
+    }
+    if (action === "ask") freezeAsk()
     if (selectionState.kind === "image") {
       post("imageselectionaction", {
+        ...meta,
         action,
         page: selectionState.page,
         imageDataUrl: selectionState.imageDataUrl,
       })
     } else {
       post("textselectionaction", {
+        ...meta,
         action,
         startPage: selectionState.startPage,
         endPage: selectionState.endPage,
@@ -777,6 +1090,7 @@
   }
 
   function updateSelectionUi() {
+    if (askSelection) return
     if (!selectionActionsEnabled()) {
       hideSelectionUi()
       return
@@ -958,12 +1272,15 @@
     annotationUndo = { item: item, index: index }
     ensureSelectionUi()
     hideSelectionHint(true)
-    selectionHint.textContent = "Annotation deleted"
+    selectionHint.textContent = ""
+    const message = document.createElement("span")
+    message.dataset.label = "annotationDeleted"
+    selectionHint.appendChild(message)
     const undo = document.createElement("button")
     undo.type = "button"
-    undo.textContent = "Undo"
+    undo.dataset.label = "annotationUndo"
     undo.addEventListener("click", function () {
-      if (!annotationUndo) return
+      if (!annotationUndo || !annotationsEnabled()) return
       annotations = annotations.slice()
       annotations.splice(annotationUndo.index, 0, annotationUndo.item)
       annotationUndo = null
@@ -971,6 +1288,7 @@
       emitAnnotations()
     })
     selectionHint.appendChild(undo)
+    localize()
     selectionHint.hidden = false
     selectionHintLockedUntil = Date.now() + 5000
     selectionHintTimer = window.setTimeout(function () {
@@ -979,103 +1297,184 @@
     }, 5000)
   }
 
-  function openAnnotationEditor(id, x, y) {
-    const index = annotations.findIndex(function (item) {
-      return item.id === id
-    })
-    if (index < 0) return
+  function positionAnnotationEditor() {
+    if (!annotationEditor) return
+    const note = annotationEditor.querySelector("textarea")
+    const style = getComputedStyle(note)
+    const line = Number.parseFloat(style.lineHeight) || 20
+    const padding = Number.parseFloat(style.paddingTop) + Number.parseFloat(style.paddingBottom)
+    const border = Number.parseFloat(style.borderTopWidth) + Number.parseFloat(style.borderBottomWidth)
+    const scroll = note.scrollTop
+    note.style.height = "0px"
+    note.style.height = Math.max(line * 3 + padding, Math.min(note.scrollHeight, line * 6 + padding)) + border + "px"
+    note.scrollTop = scroll
+    const box = annotationEditor.getBoundingClientRect()
+    const x = Number(annotationEditor.dataset.x)
+    const y = Number(annotationEditor.dataset.y)
+    annotationEditor.style.left = Math.max(12, Math.min(window.innerWidth - box.width - 12, x)) + "px"
+    annotationEditor.style.top = Math.max(12, Math.min(window.innerHeight - box.height - 12, y)) + "px"
+  }
+
+  function openAnnotationEditor(id, x, y, draft) {
+    if (!annotationsEnabled()) return
+    const item =
+      draft ||
+      annotations.find(function (part) {
+        return part.id === id
+      })
+    if (!item) return
     closeAnnotationEditor()
-    const item = annotations[index]
     const editor = document.createElement("form")
     editor.id = "aetherAnnotationEditor"
+    editor.dataset.x = x
+    editor.dataset.y = y
+    editor.setAttribute("role", "dialog")
+    editor.setAttribute("aria-labelledby", "aetherAnnotationTitle")
     editor.addEventListener("pointerdown", function (event) {
       event.stopPropagation()
     })
+    editor.addEventListener("click", function (event) {
+      event.stopPropagation()
+    })
+    let composing = false
+    editor.addEventListener("compositionstart", () => (composing = true))
+    editor.addEventListener("compositionend", () => (composing = false))
+    editor.addEventListener("keydown", function (event) {
+      if (event.key !== "Escape" || composing || event.isComposing || event.keyCode === 229) return
+      event.preventDefault()
+      event.stopPropagation()
+      closeAnnotationEditor()
+    })
 
+    const title = document.createElement("h3")
+    title.id = "aetherAnnotationTitle"
+    title.className = "aetherAnnotationEditorTitle"
+    title.dataset.label = draft ? "annotationAdd" : "annotationEdit"
+    editor.appendChild(title)
+    const close = document.createElement("button")
+    close.type = "button"
+    close.className = "aetherAnnotationIcon"
+    close.dataset.tooltip = "annotationClose"
+    const cross = svg("svg")
+    cross.setAttribute("viewBox", "0 0 24 24")
+    cross.setAttribute("aria-hidden", "true")
+    const stroke = svg("path")
+    stroke.setAttribute("d", "m6 6 12 12M6 18 18 6")
+    cross.appendChild(stroke)
+    close.appendChild(cross)
+    close.addEventListener("click", closeAnnotationEditor)
+    const controls = document.createElement("div")
+    controls.className = "aetherAnnotationEditorControls"
     const type = document.createElement("select")
+    type.dataset.tooltip = "annotationType"
     ;["highlight", "underline", "strikeout", "note"].forEach(function (value) {
       const option = document.createElement("option")
       option.value = value
-      option.textContent = value === "strikeout" ? "Strikeout" : value[0].toUpperCase() + value.slice(1)
+      option.dataset.label = value === "note" ? "annotationNote" : value
       option.selected = item.type === value
       type.appendChild(option)
     })
+    controls.appendChild(type)
 
     const palette = document.createElement("div")
     palette.className = "aetherAnnotationPalette"
+    palette.setAttribute("role", "group")
+    palette.dataset.tooltip = "annotationColor"
     Object.keys(annotationColors).forEach(function (value) {
       const button = document.createElement("button")
       button.type = "button"
-      button.title = value
+      button.dataset.tooltip = "annotation" + value[0].toUpperCase() + value.slice(1)
       button.dataset.color = value
-      button.style.background = annotationColors[value]
+      button.style.setProperty("--annotation-color", annotationColors[value])
       button.classList.toggle("selected", item.color === value)
+      button.setAttribute("aria-pressed", item.color === value ? "true" : "false")
       button.addEventListener("click", function () {
         palette.querySelectorAll("button").forEach(function (part) {
           part.classList.toggle("selected", part === button)
+          part.setAttribute("aria-pressed", part === button ? "true" : "false")
         })
       })
       palette.appendChild(button)
     })
-    editor.appendChild(palette)
-    editor.appendChild(type)
+    controls.appendChild(palette)
+    editor.appendChild(controls)
 
     const note = document.createElement("textarea")
-    note.placeholder = "Add a note…"
+    note.dataset.tooltip = "annotationText"
+    note.rows = 3
     note.value = item.note || ""
+    note.addEventListener("input", positionAnnotationEditor)
     editor.appendChild(note)
 
     const actions = document.createElement("div")
     actions.className = "aetherAnnotationEditorActions"
-    const remove = document.createElement("button")
-    remove.type = "button"
-    remove.textContent = "Delete"
-    remove.className = "danger"
-    remove.addEventListener("click", function () {
-      annotations = annotations.filter(function (part) {
-        return part.id !== id
+    if (!draft) {
+      const remove = document.createElement("button")
+      remove.type = "button"
+      remove.dataset.tooltip = "annotationDelete"
+      remove.className = "aetherAnnotationIcon danger"
+      const icon = svg("svg")
+      icon.setAttribute("viewBox", "0 0 24 24")
+      icon.setAttribute("aria-hidden", "true")
+      const path = svg("path")
+      path.setAttribute("d", "M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7M14 10v7")
+      icon.appendChild(path)
+      remove.appendChild(icon)
+      remove.addEventListener("click", function () {
+        const index = annotations.findIndex(function (part) {
+          return part.id === id
+        })
+        if (index < 0) {
+          closeAnnotationEditor()
+          return
+        }
+        const removed = annotations[index]
+        annotations = annotations.filter(function (part) {
+          return part.id !== id
+        })
+        closeAnnotationEditor()
+        emitAnnotations()
+        showAnnotationUndo(removed, index)
       })
-      closeAnnotationEditor()
-      emitAnnotations()
-      showAnnotationUndo(item, index)
-    })
-    actions.appendChild(remove)
+      actions.appendChild(remove)
+    }
     const cancel = document.createElement("button")
     cancel.type = "button"
-    cancel.textContent = "Cancel"
+    cancel.dataset.label = "annotationCancel"
     cancel.addEventListener("click", closeAnnotationEditor)
     actions.appendChild(cancel)
     const save = document.createElement("button")
     save.type = "submit"
-    save.textContent = "Save"
+    save.dataset.label = "annotationSave"
     save.className = "primary"
     actions.appendChild(save)
-    editor.appendChild(actions)
+    controls.appendChild(actions)
+    controls.appendChild(close)
 
     editor.addEventListener("submit", function (event) {
       event.preventDefault()
+      if (annotationEditor !== editor || !annotationsEnabled()) return
       const selected = palette.querySelector("button.selected")
-      annotations = annotations.map(function (part) {
-        if (part.id !== id) return part
-        return {
-          ...part,
-          type: type.value,
-          color: selected?.dataset.color || part.color,
-          note: note.value,
-          updatedAt: Date.now(),
-        }
-      })
+      const value = {
+        type: type.value,
+        color: selected?.dataset.color || item.color,
+        note: note.value,
+        updatedAt: Date.now(),
+      }
+      annotations = draft
+        ? annotations.concat({ ...item, ...value })
+        : annotations.map(function (part) {
+            return part.id === id ? { ...part, ...value } : part
+          })
       rememberAnnotationColor(type.value, selected?.dataset.color || item.color)
       closeAnnotationEditor()
       emitAnnotations()
     })
 
     document.body.appendChild(editor)
-    const box = editor.getBoundingClientRect()
-    editor.style.left = Math.max(12, Math.min(window.innerWidth - box.width - 12, x)) + "px"
-    editor.style.top = Math.max(12, Math.min(window.innerHeight - box.height - 12, y)) + "px"
     annotationEditor = editor
-    if (item.type === "note") note.focus()
+    localize()
+    note.focus({ preventScroll: true })
   }
 
   function annotationAt(event) {
@@ -1111,6 +1510,7 @@
   }
 
   function setCaptureMode(next) {
+    captureEpoch += 1
     const enabled = !!next && imageSelectionActionsEnabled()
     captureModeActive = enabled
     document.body.classList.toggle("capture-mode-active", enabled)
@@ -1234,6 +1634,10 @@
 
   async function finalizeCapture(event) {
     if (!captureDrag) return
+    if (!pdfReady()) {
+      setCaptureMode(false)
+      return
+    }
 
     const drag = captureDrag
     captureDrag = null
@@ -1255,7 +1659,29 @@
       bottom: Math.max(drag.start.y, point.y),
     }
 
+    const key = currentConfig?.selectionDocument
+    const epoch = captureEpoch
+    const box = pageContentRect(drag.pageElement)
+    rect.left = Math.max(rect.left, box.left)
+    rect.top = Math.max(rect.top, box.top)
+    rect.right = Math.min(rect.right, box.right)
+    rect.bottom = Math.min(rect.bottom, box.bottom)
+    const viewport = window.PDFViewerApplication.pdfViewer.getPageView(drag.page - 1).viewport
+    const selection = JSON.stringify(
+      [
+        ...viewport.convertToPdfPoint(
+          ((rect.left - box.left) * viewport.width) / box.width,
+          ((rect.top - box.top) * viewport.height) / box.height,
+        ),
+        ...viewport.convertToPdfPoint(
+          ((rect.right - box.left) * viewport.width) / box.width,
+          ((rect.bottom - box.top) * viewport.height) / box.height,
+        ),
+      ].map((n) => Math.round(n * 100) / 100),
+    )
+    const anchor = { top: rect.top, left: rect.left, width: rect.right - rect.left, height: rect.bottom - rect.top }
     const cropped = await cropImageFromSelection(drag.pageElement, rect)
+    if (epoch !== captureEpoch || key !== currentConfig?.selectionDocument || !pdfReady()) return
     if (!cropped || !cropped.imageDataUrl) {
       showSelectionHint("Unable to capture region")
       setCaptureMode(false)
@@ -1269,25 +1695,24 @@
       page: drag.page,
       imageDataUrl: cropped.imageDataUrl,
       imageBlob: cropped.blob,
+      selection,
+      rect: anchor,
     }
     selectionMenu.querySelectorAll("[data-annotation]").forEach(function (button) {
       button.hidden = true
     })
     selectionMenu.hidden = false
-    positionSelectionMenu({
-      top: rect.top,
-      left: rect.left,
-      width: rect.right - rect.left,
-      height: rect.bottom - rect.top,
-    })
+    positionSelectionMenu(selectionState.rect)
     setCaptureMode(false)
   }
 
   function applyChrome(config) {
+    localize()
     document.body.dataset.mode = config.mode
     document.body.dataset.viewTheme = config.viewTheme
     document.body.dataset.layoutSwapped = config.layoutSwapped ? "on" : "off"
     renderAnnotations()
+    renderAskReferences()
     const outerContainer = document.getElementById("outerContainer")
 
     const pdf2md = document.getElementById("aetherPdf2md")
@@ -1382,9 +1807,9 @@
     }
 
     const exportAnnotations = document.getElementById("aetherExportAnnotations")
-    if (exportAnnotations) exportAnnotations.hidden = !config.features.annotations
+    if (exportAnnotations) exportAnnotations.hidden = !annotationsEnabled()
     const exportAnnotationsSecondary = document.getElementById("aetherExportAnnotationsSecondary")
-    if (exportAnnotationsSecondary) exportAnnotationsSecondary.hidden = !config.features.annotations
+    if (exportAnnotationsSecondary) exportAnnotationsSecondary.hidden = !annotationsEnabled()
 
     if (config.mode === "compact" && outerContainer) {
       outerContainer.classList.remove("sidebarOpen", "sidebarMoving", "sidebarResizing")
@@ -1581,6 +2006,13 @@
 
     const app = window.PDFViewerApplication
     const eventBus = app.eventBus
+    ;["scalechanging", "rotationchanging"].forEach(function (name) {
+      eventBus.on(name, function () {
+        closeAsk(true)
+        hideSelectionUi()
+        if (captureModeActive) setCaptureMode(false)
+      })
+    })
 
     eventBus.on("pagechanging", function (evt) {
       if (!evt?.pageNumber) return
@@ -1630,6 +2062,7 @@
     eventBus.on("pagerendered", function () {
       requestAnimationFrame(function () {
         renderAnnotations()
+        renderAskReferences()
         hideEmptyPdfPopups()
       })
     })
@@ -1779,14 +2212,16 @@
     const exportAnnotations = document.getElementById("aetherExportAnnotations")
     if (exportAnnotations) {
       exportAnnotations.addEventListener("click", function () {
-        post("exportannotations")
+        if (!annotationsEnabled()) return
+        post("exportannotations", { document: currentConfig.document })
       })
     }
 
     const exportAnnotationsSecondary = document.getElementById("aetherExportAnnotationsSecondary")
     if (exportAnnotationsSecondary) {
       exportAnnotationsSecondary.addEventListener("click", function () {
-        post("exportannotations")
+        if (!annotationsEnabled()) return
+        post("exportannotations", { document: currentConfig.document })
         window.PDFViewerApplication?.secondaryToolbar?.close?.()
       })
     }
@@ -1809,6 +2244,7 @@
       scheduleSelectionUiUpdate()
     })
     document.addEventListener("pointerdown", function (event) {
+      closeAsk(true)
       if (captureModeActive) {
         if (selectionMenu?.contains(event.target)) return
         if (event.button !== 0) return
@@ -1830,6 +2266,7 @@
         return
       }
       if (selectionMenu?.contains(event.target)) return
+      if (selectionHint?.contains(event.target)) return
       if (annotationEditor?.contains(event.target)) return
       closeAnnotationEditor()
       hideSelectionUi()
@@ -1845,11 +2282,16 @@
       void finalizeCapture(event)
     })
     document.getElementById("viewerContainer")?.addEventListener("scroll", function () {
+      closeAsk(true)
       hideSelectionUi()
       if (captureModeActive) setCaptureMode(false)
     })
     window.addEventListener("resize", function () {
+      closeAsk(true)
+      hideSelectionUi()
+      if (captureModeActive) setCaptureMode(false)
       scheduleToolbarOverflowSync()
+      positionAnnotationEditor()
       if (!selectionState) return
       scheduleSelectionUiUpdate()
     })
@@ -1861,7 +2303,9 @@
 
     const key = [config.src, config.authHeader || "", config.mode].join("|")
     if (currentKey === key) {
+      if (loaded && loaded.doc === app.pdfDocument) loaded = { ...loaded, config }
       applyChrome(config)
+      publishDocument()
       if (app.pdfViewer) {
         app.pdfViewer.scrollMode = mapScrollMode(config.scrollMode)
         app.pdfViewer.spreadMode = 0
@@ -1876,6 +2320,7 @@
       restoreState = captureState() || restoreState
     }
     docSettled = false
+    loaded = null
     currentKey = key
     hideViewerError()
     sidebarState = {
@@ -1883,6 +2328,7 @@
       userClosed: true,
     }
     hideSelectionUi()
+    closeAnnotationEditor()
     applyChrome(config)
     closeSidebar(app)
 
@@ -1912,14 +2358,46 @@
     }
 
     const doc = await window.pdfjsLib.getDocument(loadOpts).promise
+    const fingerprint = doc.fingerprints?.filter(Boolean).join(":") || ""
     if (doc?._pdfInfo) {
       doc._pdfInfo.fingerprints = [config.src]
     }
     await app.load(doc)
+    await app.pdfViewer.firstPagePromise
+    hideSelectionUi()
+    clearTextSelection()
+    loaded = { doc, config, fingerprint }
+    applyChrome(currentConfig)
+    publishDocument()
   }
 
   async function applyConfig(nextConfig) {
-    currentConfig = sanitizeConfig(nextConfig)
+    const config = sanitizeConfig(nextConfig)
+    const changed = config.document !== currentConfig?.document
+    if (config.selectionDocument !== currentConfig?.selectionDocument)
+      askReferences = { document: "", fingerprint: "", items: [] }
+    if (
+      config.selectionDocument !== currentConfig?.selectionDocument ||
+      config.src !== currentConfig?.src ||
+      config.authHeader !== currentConfig?.authHeader
+    ) {
+      closeAsk(true)
+      hideSelectionUi()
+      clearTextSelection()
+    }
+    if (changed || !config.features.annotations) annotations = []
+    if (
+      changed ||
+      config.src !== currentConfig?.src ||
+      config.authHeader !== currentConfig?.authHeader ||
+      !config.features.annotations
+    ) {
+      annotationUndo = null
+      closeAnnotationEditor()
+      hideSelectionUi()
+    }
+    currentConfig = config
+    renderAnnotations()
     applyChrome(currentConfig)
     const key = [currentConfig.src, currentConfig.authHeader || "", currentConfig.mode].join("|")
     if (currentKey && currentKey !== key && isReload(currentKey, key)) {
@@ -1964,6 +2442,38 @@
         return
       }
 
+      if (event.data.type === "askreferences") {
+        if (event.source !== window.parent || event.data.document !== currentConfig?.selectionDocument) return
+        const items = Array.isArray(event.data.references) ? event.data.references : []
+        askReferences = {
+          document: event.data.document,
+          fingerprint: event.data.fingerprint,
+          items: items.filter(
+            (item) =>
+              typeof item?.id === "string" &&
+              Number.isSafeInteger(item.number) &&
+              item.number > 0 &&
+              Array.isArray(item.pages) &&
+              item.pages.every(
+                (part) =>
+                  Number.isSafeInteger(part?.page) &&
+                  part.page > 0 &&
+                  Array.isArray(part.quads) &&
+                  part.quads.every((quad) => Array.isArray(quad) && quad.length === 8 && quad.every(Number.isFinite)),
+              ),
+          ),
+        }
+        if (askSelection?.reference && !askReferences.items.some((item) => item.id === askSelection.reference))
+          closeAsk(true)
+        renderAskReferences()
+        return
+      }
+
+      if (event.data.type === "askclose") {
+        if (event.data.document === askSelection?.document) closeAsk(false)
+        return
+      }
+
       if (event.data.type === "navigate") {
         const page = Number(event.data.page)
         if (!Number.isFinite(page) || page < 1) return
@@ -1994,6 +2504,7 @@
       }
 
       if (event.data.type === "annotations") {
+        if (event.data.document !== currentConfig?.document) return
         annotations = Array.isArray(event.data.annotations) ? event.data.annotations : []
         renderAnnotations()
       }

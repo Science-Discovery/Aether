@@ -1,5 +1,6 @@
 import type { FileSelection } from "./file"
 import type { Prompt } from "./prompt"
+import { sanitizeReferences } from "@/utils/ask-reference"
 
 const DEFAULT_PROMPT = [{ type: "text", content: "", start: 0, end: 0 }]
 
@@ -49,8 +50,13 @@ export function sanitizePrompt(value: unknown): Prompt {
 }
 
 export function sanitizePromptState(value: unknown): Record<string, unknown> {
-  if (!record(value)) return { prompt: DEFAULT_PROMPT, context: { items: [] } }
+  if (!record(value)) return { prompt: DEFAULT_PROMPT, context: { items: [] }, references: [] }
   const prompt = sanitizePrompt(value.prompt)
   const context = record(value.context) && Array.isArray(value.context.items) ? value.context : { items: [] }
-  return { ...value, prompt: prompt.length ? prompt : DEFAULT_PROMPT, context }
+  return {
+    ...value,
+    prompt: prompt.length ? prompt : DEFAULT_PROMPT,
+    context,
+    references: sanitizeReferences(value.references),
+  }
 }

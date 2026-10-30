@@ -1,7 +1,7 @@
 import path from "path"
 import fs from "fs/promises"
 import { createHash } from "crypto"
-import { PDFDocument, PDFHexString } from "pdf-lib"
+import { PDFDocument, PDFHexString, PDFName, PDFNumber } from "pdf-lib"
 import z from "zod"
 import { Global } from "../global"
 import { Instance } from "../project/instance"
@@ -156,36 +156,218 @@ export namespace PdfAnnotations {
     return `D:${value}Z`
   }
 
+  const number = (value: number) => PDFNumber.of(value).toString()
+
+  function bounds(quads: number[][]) {
+    return quads
+      .flatMap((quad) => [0, 2, 4, 6].map((index) => [quad[index], quad[index + 1]]))
+      .reduce(
+        (box, point) => [
+          Math.min(box[0], point[0]),
+          Math.min(box[1], point[1]),
+          Math.max(box[2], point[0]),
+          Math.max(box[3], point[1]),
+        ],
+        [Infinity, Infinity, -Infinity, -Infinity],
+      )
+  }
+
+  function appearance(
+    pdf: PDFDocument,
+    box: number[],
+    color: readonly number[],
+    opacity: number,
+    commands: string[],
+    multiply = false,
+  ) {
+    return pdf.context.register(
+      pdf.context.flateStream(
+        [
+          "q",
+          "/GS gs",
+          `${color.map(number).join(" ")} rg`,
+          `${color.map(number).join(" ")} RG`,
+          ...commands,
+          "Q",
+        ].join("\n"),
+        {
+          Type: "XObject",
+          Subtype: "Form",
+          FormType: 1,
+          BBox: box,
+          Resources: {
+            ExtGState: { GS: { Type: "ExtGState", CA: opacity, ca: opacity, BM: multiply ? "Multiply" : "Normal" } },
+          },
+        },
+      ),
+    )
+  }
+
+  function position(box: number[], quads: number[][], rotation: number, occupied: number[][]) {
+    const width = rotation % 180 ? box[3] - box[1] : box[2] - box[0]
+    const height = rotation % 180 ? box[2] - box[0] : box[3] - box[1]
+    const size = Math.min(20, width, height)
+    const view = (x: number, y: number) => {
+      if (rotation === 90) return [y - box[1], x - box[0]]
+      if (rotation === 180) return [box[2] - x, y - box[1]]
+      if (rotation === 270) return [box[3] - y, box[2] - x]
+      return [x - box[0], box[3] - y]
+    }
+    const points = quads.map((quad) => [0, 2, 4, 6].flatMap((index) => view(quad[index], quad[index + 1])))
+    const area = bounds(points)
+    const first = bounds([points[0]])
+    const xs = [area[2] + 3, area[0] - size - 3, first[0], 0, width - size]
+    const ys = [
+      first[1],
+      area[1] - size - 3,
+      area[3] + 3,
+      0,
+      height - size,
+      ...occupied.flatMap((rect) => [rect[1], rect[3] + 3, rect[1] - size - 3]),
+    ]
+    const candidates = xs
+      .flatMap((x) => ys.map((y) => [x, y, x + size, y + size]))
+      .filter((rect) => rect[0] >= 0 && rect[1] >= 0 && rect[2] <= width && rect[3] <= height)
+    const overlap = (rect: number[]) =>
+      [area, ...occupied].reduce(
+        (sum, part) =>
+          sum +
+          Math.max(0, Math.min(rect[2], part[2]) - Math.max(rect[0], part[0])) *
+            Math.max(0, Math.min(rect[3], part[3]) - Math.max(rect[1], part[1])),
+        0,
+      )
+    // Prefer space outside the whole selection, including longer subsequent lines.
+    // A completely covered page has no empty spot: keep the marker in bounds.
+    const rect =
+      candidates.find((rect) => !overlap(rect)) ??
+      candidates.reduce((best, rect) => (overlap(rect) < overlap(best) ? rect : best))
+    const anchor =
+      rotation === 90
+        ? [box[0] + rect[1], box[1] + rect[0]]
+        : rotation === 180
+          ? [box[2] - rect[0], box[1] + rect[1]]
+          : rotation === 270
+            ? [box[2] - rect[1], box[3] - rect[0]]
+            : [box[0] + rect[0], box[3] - rect[1]]
+    occupied.push(rect)
+    // NoRotate Text annotations pivot around Rect's PDF upper-left corner.
+    return [anchor[0], anchor[1] - size, anchor[0] + size, anchor[1]]
+  }
+
   export async function exportPdf(input: string) {
     const abs = resolve(input)
     const stored = await read(abs)
     if (stored.status === "stale") throw new Error("PDF changed after annotations were created")
     const pdf = await PDFDocument.load(await Bun.file(abs).arrayBuffer())
+    const occupied = new Map<number, number[][]>()
     for (const item of stored.data.annotations) {
-      for (const page of item.pages) {
-        if (page.page > pdf.getPageCount()) continue
+      const pages = item.pages.flatMap((page) => {
+        if (page.page > pdf.getPageCount()) return []
         const target = pdf.getPage(page.page - 1)
-        if (!target) continue
-        const points = page.quads.flat()
-        const xs = points.filter((_, index) => index % 2 === 0)
-        const ys = points.filter((_, index) => index % 2 === 1)
-        const color = item.type === "note" ? colors.yellow : colors[item.color]
+        const crop = target.getCropBox()
+        const media = target.getMediaBox()
+        const box = [
+          Math.max(crop.x, media.x),
+          Math.max(crop.y, media.y),
+          Math.min(crop.x + crop.width, media.x + media.width),
+          Math.min(crop.y + crop.height, media.y + media.height),
+        ]
+        const quads = page.quads.filter((quad) => {
+          const rect = bounds([quad])
+          return (
+            Math.abs((quad[2] - quad[0]) * (quad[5] - quad[1]) - (quad[3] - quad[1]) * (quad[4] - quad[0])) > 0 &&
+            rect[2] > box[0] &&
+            rect[0] < box[2] &&
+            rect[3] > box[1] &&
+            rect[1] < box[3]
+          )
+        })
+        if (!quads.length || box[2] <= box[0] || box[3] <= box[1]) return []
+        return [{ target, box, quads, page: page.page }]
+      })
+      for (const page of pages) {
+        const color = colors[item.color]
+        const fill = item.type === "highlight" || item.type === "note"
+        const rect = bounds(page.quads).map((value, index) => value + (fill ? 0 : index < 2 ? -0.5 : 0.5))
+        const opacity = item.type === "note" ? 0.22 : 0.45
+        const commands = page.quads.flatMap((quad) => {
+          if (fill)
+            return [
+              `${number(quad[0])} ${number(quad[1])} m ${number(quad[2])} ${number(quad[3])} l ${number(quad[6])} ${number(quad[7])} l ${number(quad[4])} ${number(quad[5])} l h f`,
+            ]
+          const line =
+            item.type === "underline" ? quad.slice(4) : [0, 1, 2, 3].map((index) => (quad[index] + quad[index + 4]) / 2)
+          return [`1 w ${number(line[0])} ${number(line[1])} m ${number(line[2])} ${number(line[3])} l S`]
+        })
         const annot = pdf.context.obj({
           Type: "Annot",
-          Subtype:
-            item.type === "underline" ? "Underline" : item.type === "strikeout" ? "StrikeOut" : "Highlight",
-          Rect: [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)],
-          QuadPoints: points,
+          Subtype: item.type === "underline" ? "Underline" : item.type === "strikeout" ? "StrikeOut" : "Highlight",
+          P: page.target.ref,
+          Rect: rect,
+          QuadPoints: page.quads.flat(),
           C: [...color],
-          CA: item.type === "note" ? 0.22 : 0.45,
+          CA: opacity,
+          AP: { N: appearance(pdf, rect, color, opacity, commands, fill) },
           F: 4,
           NM: PDFHexString.fromText(`${item.id}:${page.page}`),
-          T: PDFHexString.fromText("Aether"),
-          Subj: PDFHexString.fromText(item.type === "note" ? "Note" : item.type),
-          Contents: PDFHexString.fromText(item.note),
+          ...(item.type === "note"
+            ? {}
+            : {
+                T: PDFHexString.fromText("Aether"),
+                Subj: PDFHexString.fromText(item.type),
+                Contents: PDFHexString.fromText(item.note.replace(/\r\n|\n/g, "\r")),
+              }),
           M: PDFHexString.fromText(date(item.updatedAt)),
         })
-        target.node.addAnnot(pdf.context.register(annot))
+        page.target.node.addAnnot(pdf.context.register(annot))
+        if (item.type !== "note" || page !== pages[0]) continue
+
+        const rotation = ((page.target.getRotation().angle % 360) + 360) % 360
+        const markers = occupied.get(page.page) ?? []
+        occupied.set(page.page, markers)
+        const location = position(page.box, page.quads, rotation, markers)
+        const note = pdf.context.obj({
+          Type: "Annot",
+          Subtype: "Text",
+          P: page.target.ref,
+          Rect: location,
+          Name: "Note",
+          Open: false,
+          F: 28,
+          C: [...color],
+          NM: PDFHexString.fromText(`${item.id}:note`),
+          T: PDFHexString.fromText("Aether"),
+          Subj: PDFHexString.fromText("Note"),
+          Contents: PDFHexString.fromText(item.note.replace(/\r\n|\n/g, "\r")),
+          CreationDate: PDFHexString.fromText(date(item.createdAt)),
+          M: PDFHexString.fromText(date(item.updatedAt)),
+          AP: {
+            N: appearance(pdf, [0, 0, 20, 20], color, 1, [
+              "0.2 0.2 0.2 RG 1 w 2 1 m 18 1 l 18 14 l 13 19 l 2 19 l h B",
+              "13 19 m 13 14 l 18 14 l S 5 11 m 14 11 l S 5 7 m 13 7 l S",
+            ]),
+          },
+        })
+        const ref = pdf.context.register(note)
+        const width = Math.min(240, page.box[2] - page.box[0])
+        const height = Math.min(120, page.box[3] - page.box[1])
+        const px = Math.max(page.box[0], Math.min(page.box[2] - width, location[2]))
+        const py = Math.max(page.box[1], Math.min(page.box[3] - height, location[3] - height))
+        const popup = pdf.context.register(
+          pdf.context.obj({
+            Type: "Annot",
+            Subtype: "Popup",
+            P: page.target.ref,
+            Parent: ref,
+            Rect: [px, py, px + width, py + height],
+            Open: false,
+          }),
+        )
+        note.set(PDFName.of("Popup"), popup)
+        // PDFium stops at the first annotation Rect under the pointer, even when
+        // that annotation has no popup. Keep notes ahead of large highlight boxes.
+        page.target.node.Annots()?.insert(0, ref)
+        page.target.node.addAnnot(popup)
       }
     }
     return pdf.save()
