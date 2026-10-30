@@ -1782,6 +1782,7 @@ export const dict = {
   "ask.editor.save": "Add question",
   "ask.editor.update": "Save changes",
   "ask.reference.title": "Reference {{number}}",
+  "ask.reference.group": "References · {{count}}",
   "ask.reference.conversation": "AI reply",
   "ask.reference.expand": "Show full reference",
   "ask.reference.collapse": "Collapse reference",

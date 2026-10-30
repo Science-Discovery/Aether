@@ -1723,6 +1723,7 @@ export const dict = {
   "ask.editor.save": "加入问题",
   "ask.editor.update": "保存修改",
   "ask.reference.title": "引用 {{number}}",
+  "ask.reference.group": "引用 · {{count}} 处",
   "ask.reference.conversation": "AI 回复",
   "ask.reference.expand": "展开全文",
   "ask.reference.collapse": "收起全文",

@@ -1158,6 +1158,7 @@ export const dict = {
   "ask.editor.save": "加入問題",
   "ask.editor.update": "儲存修改",
   "ask.reference.title": "引用 {{number}}",
+  "ask.reference.group": "引用 · {{count}} 處",
   "ask.reference.conversation": "AI 回覆",
   "ask.reference.expand": "展開全文",
   "ask.reference.collapse": "收合全文",

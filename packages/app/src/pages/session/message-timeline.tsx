@@ -24,6 +24,7 @@ import { shouldMarkBoundaryGesture, normalizeWheelDelta } from "@/pages/session/
 import { createTurnCollapse } from "@/pages/session/message-collapse"
 import { resolveSelectionAnchorRect } from "@/pages/session/selection-anchor"
 import { conversationSelection } from "@/pages/session/conversation-selection"
+import { MessageReferences } from "@/pages/session/message-references"
 import { SessionContextUsage } from "@/components/session-context-usage"
 import { useI18n } from "@opencode-ai/ui/context"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
@@ -40,7 +41,6 @@ import { useSDK } from "@/context/sdk"
 import { useSync } from "@/context/sync"
 import { messageAgentColor } from "@/utils/agent"
 import {
-  formatReadingPageRange,
   parseCommentNote,
   readFileQuoteMetadata,
   readCommentMetadata,
@@ -1557,122 +1557,92 @@ export function MessageTimeline(props: {
                       }}
                     >
                       <Show when={commentCount() > 0 || references().length > 0 || fileQuoteCount() > 0}>
-                        <div class="w-full px-4 md:px-5 pb-2">
-                          <div class="ml-auto max-w-[82%] min-w-0 overflow-x-auto no-scrollbar overscroll-x-contain">
-                            <div class="flex w-max min-w-full justify-end gap-2">
-                              <Index each={comments()}>
-                                {(commentAccessor: () => MessageComment) => {
-                                  const comment = createMemo(() => commentAccessor())
-                                  return (
-                                    <Show when={comment()}>
-                                      {(c) => (
-                                        <div class="w-[260px] max-w-full shrink-0 rounded-[6px] border border-border-weak-base bg-background-stronger px-2.5 py-2">
-                                          <div class="flex items-center gap-1.5 min-w-0 text-11-medium text-text-strong">
-                                            <FileIcon
-                                              node={{ path: c().path, type: "file" }}
-                                              class="size-3.5 shrink-0"
-                                            />
-                                            <span class="truncate">{getFilename(c().path)}</span>
-                                            <Show when={c().selection}>
-                                              {(selection) => (
-                                                <span class="shrink-0 text-text-weak">
-                                                  {selection().startLine === selection().endLine
-                                                    ? `:${selection().startLine}`
-                                                    : `:${selection().startLine}-${selection().endLine}`}
-                                                </span>
-                                              )}
-                                            </Show>
-                                          </div>
-                                          <div class="pt-1 text-12-regular text-text-strong whitespace-pre-wrap break-words">
-                                            {c().comment}
-                                          </div>
-                                        </div>
-                                      )}
-                                    </Show>
-                                  )
-                                }}
-                              </Index>
-                              <Index each={references()}>
-                                {(ref, index) => {
-                                  const pdf = createMemo(() => {
-                                    const value = ref()
-                                    return value.kind === "pdf" ? value.quote : undefined
-                                  })
-                                  return (
-                                    <button
-                                      type="button"
-                                      class="w-[260px] max-w-full shrink-0 rounded-[6px] border border-border-weak-base bg-background-stronger px-2.5 py-2 text-left transition hover:bg-background-base"
-                                      onClick={() => dialog.show(() => <DialogQuoteContent reference={ref()} />)}
-                                    >
-                                      <div class="text-11-medium text-text-weak">
-                                        {language.t("ask.reference.title", { number: ref().quote.order ?? index + 1 })}
-                                      </div>
-                                      <div class="pt-1 truncate text-12-medium text-text-strong">
-                                        {pdf()?.pdfFileName ?? language.t("ask.reference.conversation")}
-                                      </div>
-                                      <Show when={pdf()}>
-                                        {(value) => (
-                                          <div class="pt-1 text-11-medium text-text-weak">
-                                            p.{formatReadingPageRange(value())} ·{" "}
-                                            {language.t(
-                                              value().action === "translate"
-                                                ? "pdf.selection.translate"
-                                                : "pdf.selection.ask",
-                                            )}
+                        <div class="flex w-full flex-col gap-2 px-4 md:px-5 pb-2">
+                          <Show when={references().length > 0}>
+                            <div class="ml-auto w-full max-w-[82%] min-w-0">
+                              <MessageReferences
+                                references={references()}
+                                onSelect={(reference) =>
+                                  dialog.show(() => <DialogQuoteContent reference={reference} />)
+                                }
+                              />
+                            </div>
+                          </Show>
+                          <Show when={commentCount() > 0 || fileQuoteCount() > 0}>
+                            <div class="ml-auto max-w-[82%] min-w-0 overflow-x-auto no-scrollbar overscroll-x-contain">
+                              <div class="flex w-max min-w-full justify-end gap-2">
+                                <Index each={comments()}>
+                                  {(commentAccessor: () => MessageComment) => {
+                                    const comment = createMemo(() => commentAccessor())
+                                    return (
+                                      <Show when={comment()}>
+                                        {(c) => (
+                                          <div class="w-[260px] max-w-full shrink-0 rounded-[6px] border border-border-weak-base bg-background-stronger px-2.5 py-2">
+                                            <div class="flex items-center gap-1.5 min-w-0 text-11-medium text-text-strong">
+                                              <FileIcon
+                                                node={{ path: c().path, type: "file" }}
+                                                class="size-3.5 shrink-0"
+                                              />
+                                              <span class="truncate">{getFilename(c().path)}</span>
+                                              <Show when={c().selection}>
+                                                {(selection) => (
+                                                  <span class="shrink-0 text-text-weak">
+                                                    {selection().startLine === selection().endLine
+                                                      ? `:${selection().startLine}`
+                                                      : `:${selection().startLine}-${selection().endLine}`}
+                                                  </span>
+                                                )}
+                                              </Show>
+                                            </div>
+                                            <div class="pt-1 text-12-regular text-text-strong whitespace-pre-wrap break-words">
+                                              {c().comment}
+                                            </div>
                                           </div>
                                         )}
                                       </Show>
-                                      <div class="pt-1 line-clamp-3 whitespace-pre-wrap break-words text-12-regular text-text-strong">
-                                        {ref().quote.summary}
-                                      </div>
-                                      <Show when={ref().quote.question}>
-                                        <div class="mt-2 line-clamp-3 whitespace-pre-wrap break-words border-t border-border-weak-base pt-1 text-12-regular text-text-strong">
-                                          {ref().quote.question}
-                                        </div>
+                                    )
+                                  }}
+                                </Index>
+                                <Index each={fileQuotes()}>
+                                  {(quoteAccessor: () => MessageFileQuote) => {
+                                    const quote = createMemo(() => quoteAccessor())
+                                    return (
+                                      <Show when={quote()}>
+                                        {(q) => (
+                                          <button
+                                            type="button"
+                                            class="w-[260px] max-w-full shrink-0 rounded-[6px] border border-border-weak-base bg-background-stronger px-2.5 py-2 text-left transition hover:bg-background-base"
+                                            onClick={() => {
+                                              dialog.show(() => <DialogFileQuoteTextContent quote={q()} />)
+                                            }}
+                                          >
+                                            <div class="flex items-center gap-1.5 min-w-0 text-11-medium text-text-strong">
+                                              <FileIcon
+                                                node={{ path: q().path, type: "file" }}
+                                                class="size-3.5 shrink-0"
+                                              />
+                                              <span class="truncate">{getFilename(q().path)}</span>
+                                              <Show when={q().startLine !== undefined}>
+                                                <span class="shrink-0 text-text-weak">
+                                                  {q().endLine !== undefined && q().endLine !== q().startLine
+                                                    ? `:${q().startLine}-${q().endLine}`
+                                                    : `:${q().startLine}`}
+                                                </span>
+                                              </Show>
+                                            </div>
+                                            <div class="pt-1 text-11-medium text-text-weak">Ask</div>
+                                            <div class="pt-1 text-12-regular text-text-strong whitespace-pre-wrap break-words line-clamp-3">
+                                              {q().summary}
+                                            </div>
+                                          </button>
+                                        )}
                                       </Show>
-                                    </button>
-                                  )
-                                }}
-                              </Index>
-                              <Index each={fileQuotes()}>
-                                {(quoteAccessor: () => MessageFileQuote) => {
-                                  const quote = createMemo(() => quoteAccessor())
-                                  return (
-                                    <Show when={quote()}>
-                                      {(q) => (
-                                        <button
-                                          type="button"
-                                          class="w-[260px] max-w-full shrink-0 rounded-[6px] border border-border-weak-base bg-background-stronger px-2.5 py-2 text-left transition hover:bg-background-base"
-                                          onClick={() => {
-                                            dialog.show(() => <DialogFileQuoteTextContent quote={q()} />)
-                                          }}
-                                        >
-                                          <div class="flex items-center gap-1.5 min-w-0 text-11-medium text-text-strong">
-                                            <FileIcon
-                                              node={{ path: q().path, type: "file" }}
-                                              class="size-3.5 shrink-0"
-                                            />
-                                            <span class="truncate">{getFilename(q().path)}</span>
-                                            <Show when={q().startLine !== undefined}>
-                                              <span class="shrink-0 text-text-weak">
-                                                {q().endLine !== undefined && q().endLine !== q().startLine
-                                                  ? `:${q().startLine}-${q().endLine}`
-                                                  : `:${q().startLine}`}
-                                              </span>
-                                            </Show>
-                                          </div>
-                                          <div class="pt-1 text-11-medium text-text-weak">Ask</div>
-                                          <div class="pt-1 text-12-regular text-text-strong whitespace-pre-wrap break-words line-clamp-3">
-                                            {q().summary}
-                                          </div>
-                                        </button>
-                                      )}
-                                    </Show>
-                                  )
-                                }}
-                              </Index>
+                                    )
+                                  }}
+                                </Index>
+                              </div>
                             </div>
-                          </div>
+                          </Show>
                         </div>
                       </Show>
                       <SessionTurn

@@ -21,6 +21,8 @@ PDF 的“问 AI”和对话正文的 Ask 共用一套待提问列表。选中�
 
 请求仍使用现有消息、附件和阅读模式接口。模型收到编号、来源、原文及对应问题，总问题单列。发送记录通过现有引用 metadata 的可选字段展示原文和逐项问题，旧记录仍可读取。
 
+发送后的引用集中在一个限高、纵向滚动的引用框中，按顺序显示编号、来源和原文摘要。点击单项可以查看完整原文、截图及对应问题；简略卡片不重复展开问题。主消息保留总问题；未填写总问题时显示各处问题的编号列表。
+
 ## 定向验证
 
 从 `packages/app` 运行相关测试，不从仓库根目录运行测试：
@@ -28,7 +30,7 @@ PDF 的“问 AI”和对话正文的 Ask 共用一套待提问列表。选中�
 ```powershell
 bun test --preload ./happydom.ts ./src/utils/ask-reference.test.ts ./src/context/prompt.test.ts ./src/components/prompt-input/history.test.ts ./src/utils/comment-note.test.ts ./src/pages/session/conversation-selection.test.ts
 bun test --preload ./happydom.ts ./src/components/prompt-input/ask-request.test.ts ./src/components/prompt-input/submit.test.ts ./src/components/prompt-input/build-request-parts.test.ts
-bun run ./script/vitest.ts run --config ./vitest.config.ts src/components/ask-editor.vitest.tsx src/components/pdf-viewer-shell-official.vitest.tsx src/pages/session/composer/session-composer-region.vitest.tsx
+bun run ./script/vitest.ts run --config ./vitest.config.ts src/components/ask-editor.vitest.tsx src/components/pdf-viewer-shell-official.vitest.tsx src/pages/session/composer/session-composer-region.vitest.tsx src/pages/session/message-references.vitest.tsx
 bun typecheck
 ```
 
