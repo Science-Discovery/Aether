@@ -16,6 +16,7 @@ type Props = {
   active: boolean
   path: string
   auth?: string
+  actions?: JSX.Element
   onNavigate: (path: string, line: number) => void
   children: JSX.Element
 }
@@ -163,48 +164,51 @@ function Workspace(props: Props) {
   return (
     <div data-component="latex-workspace" class="flex min-h-0 flex-1 flex-col overflow-hidden">
       <div class="shrink-0 border-b border-border-weak-base px-3 py-2 text-12-regular">
-        <div class="flex flex-wrap items-center gap-2">
-          <Button
-            size="small"
-            variant="secondary"
-            aria-expanded={state.configuring}
-            onClick={() => latex.configure(!state.configuring)}
-          >
-            {state.project?.binding?.main ?? language.t("latex.project")}
-          </Button>
-          <label class="flex items-center gap-2 text-text-weak">
-            <input
-              type="checkbox"
-              checked={state.automatic}
-              onChange={(event) => latex.automatic(event.currentTarget.checked)}
-            />
-            {language.t("latex.automatic")}
-          </label>
-          <Button
-            size="small"
-            data-action="latex-compile"
-            disabled={state.busy || latex.running() || latex.changed() || !file.ready() || !!latex.conflicts().length}
-            onClick={() => void latex.compile()}
-          >
-            {state.saving ? language.t("latex.saving") : language.t("latex.compile")}
-          </Button>
-          <Show when={latex.running()}>
-            <Button size="small" variant="secondary" onClick={() => void latex.cancel()}>
-              {language.t("common.cancel")}
+        <div class="flex items-start gap-2">
+          <div class="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+            <Button
+              size="small"
+              variant="secondary"
+              aria-expanded={state.configuring}
+              onClick={() => latex.configure(!state.configuring)}
+            >
+              {state.project?.binding?.main ?? language.t("latex.project")}
             </Button>
-          </Show>
-          <Button size="small" variant="secondary" onClick={() => void latex.refresh()} disabled={state.busy}>
-            {language.t("latex.refresh")}
-          </Button>
-          <Button size="small" variant="secondary" onClick={settings}>
-            {language.t("latex.settings")}
-          </Button>
-          <Button size="small" variant="secondary" onClick={latex.show}>
-            {language.t("latex.preview")}
-          </Button>
-          <Button size="small" variant="secondary" data-action="latex-help" onClick={help}>
-            {language.t("latex.help")}
-          </Button>
+            <label class="flex items-center gap-2 text-text-weak">
+              <input
+                type="checkbox"
+                checked={state.automatic}
+                onChange={(event) => latex.automatic(event.currentTarget.checked)}
+              />
+              {language.t("latex.automatic")}
+            </label>
+            <Button
+              size="small"
+              data-action="latex-compile"
+              disabled={state.busy || latex.running() || latex.changed() || !file.ready() || !!latex.conflicts().length}
+              onClick={() => void latex.compile()}
+            >
+              {state.saving ? language.t("latex.saving") : language.t("latex.compile")}
+            </Button>
+            <Show when={latex.running()}>
+              <Button size="small" variant="secondary" onClick={() => void latex.cancel()}>
+                {language.t("common.cancel")}
+              </Button>
+            </Show>
+            <Button size="small" variant="secondary" onClick={() => void latex.refresh()} disabled={state.busy}>
+              {language.t("latex.refresh")}
+            </Button>
+            <Button size="small" variant="secondary" onClick={settings}>
+              {language.t("latex.settings")}
+            </Button>
+            <Button size="small" variant="secondary" onClick={latex.show}>
+              {language.t("latex.preview")}
+            </Button>
+            <Button size="small" variant="secondary" data-action="latex-help" onClick={help}>
+              {language.t("latex.help")}
+            </Button>
+          </div>
+          {props.actions}
         </div>
         <Show when={state.configuring}>
           <div

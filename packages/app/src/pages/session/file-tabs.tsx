@@ -1446,17 +1446,76 @@ export function FileTabContent(props: { tab: string; visible: boolean }) {
     ),
   )
 
+  const actions = () => (
+    <div class="flex shrink-0 justify-end gap-1.5">
+      <Show when={!isEditing() && isPython()}>
+        <IconButton
+          icon="console"
+          variant="ghost"
+          size="small"
+          aria-label="运行 Python 文件"
+          onClick={runPython}
+          disabled={isRunning()}
+        />
+      </Show>
+      <Show when={isTextFile()}>
+        <Tooltip placement="top" gutter={4} value={wordWrap() ? "关闭自动换行" : "开启自动换行"}>
+          <IconButton
+            icon="align-right"
+            variant={wordWrap() ? "secondary" : "ghost"}
+            size="small"
+            aria-label={wordWrap() ? "关闭自动换行" : "开启自动换行"}
+            onClick={() => setWordWrap(!wordWrap())}
+          />
+        </Tooltip>
+      </Show>
+      <Show when={!managed()}>
+        <Show
+          when={isEditing() && isTextFile()}
+          fallback={
+            <Show when={isTextFile() && !isStale()}>
+              <IconButton
+                icon="pencil-line"
+                variant="ghost"
+                size="small"
+                aria-label={language.t("common.edit")}
+                onClick={startEditing}
+              />
+            </Show>
+          }
+        >
+          <IconButton
+            icon="close"
+            variant="ghost"
+            size="small"
+            aria-label={language.t("common.cancel")}
+            onClick={cancelEditing}
+            disabled={isSaving()}
+          />
+          <IconButton
+            icon="check"
+            variant="ghost"
+            size="small"
+            aria-label={language.t("common.save")}
+            onClick={saveEditing}
+            disabled={isSaving()}
+          />
+        </Show>
+      </Show>
+    </div>
+  )
+
   return (
     <Tabs.Content
       ref={(el: HTMLDivElement) => (tabRoot = el)}
       value={props.tab}
       classList={{
         "relative flex h-full min-h-0 flex-col overflow-hidden contain-strict": true,
-        // PDFs fill the tab flush; the gap reads as a stray empty bar above them.
-        "mt-3": !isPDF(),
+        // PDFs fill the tab flush; LaTeX supplies its own toolbar padding.
+        "mt-3": !isPDF() && !latex(),
       }}
     >
-      <Show when={state()?.loaded && (isTextFile() || isPython())}>
+      <Show when={state()?.loaded && (isTextFile() || isPython()) && (!latex() || isStale())}>
         <div class="px-3 pb-1 shrink-0">
           <Show when={isStale() && isTextFile()}>
             <div class="mb-2 flex items-center justify-between gap-3 rounded-md border border-yellow-500/25 bg-yellow-500/10 px-3 py-2">
@@ -1474,62 +1533,7 @@ export function FileTabContent(props: { tab: string; visible: boolean }) {
               </div>
             </div>
           </Show>
-          <div class="flex justify-end gap-1.5">
-            <Show when={!isEditing() && isPython()}>
-              <IconButton
-                icon="console"
-                variant="ghost"
-                size="small"
-                aria-label="运行 Python 文件"
-                onClick={runPython}
-                disabled={isRunning()}
-              />
-            </Show>
-            <Show when={isTextFile()}>
-              <Tooltip placement="top" gutter={4} value={wordWrap() ? "关闭自动换行" : "开启自动换行"}>
-                <IconButton
-                  icon="align-right"
-                  variant={wordWrap() ? "secondary" : "ghost"}
-                  size="small"
-                  aria-label={wordWrap() ? "关闭自动换行" : "开启自动换行"}
-                  onClick={() => setWordWrap(!wordWrap())}
-                />
-              </Tooltip>
-            </Show>
-            <Show when={!managed()}>
-              <Show
-                when={isEditing() && isTextFile()}
-                fallback={
-                  <Show when={isTextFile() && !isStale()}>
-                    <IconButton
-                      icon="pencil-line"
-                      variant="ghost"
-                      size="small"
-                      aria-label={language.t("common.edit")}
-                      onClick={startEditing}
-                    />
-                  </Show>
-                }
-              >
-                <IconButton
-                  icon="close"
-                  variant="ghost"
-                  size="small"
-                  aria-label={language.t("common.cancel")}
-                  onClick={cancelEditing}
-                  disabled={isSaving()}
-                />
-                <IconButton
-                  icon="check"
-                  variant="ghost"
-                  size="small"
-                  aria-label={language.t("common.save")}
-                  onClick={saveEditing}
-                  disabled={isSaving()}
-                />
-              </Show>
-            </Show>
-          </div>
+          <Show when={!latex()}>{actions()}</Show>
         </div>
       </Show>
       <LatexPanel
@@ -1537,6 +1541,7 @@ export function FileTabContent(props: { tab: string; visible: boolean }) {
         active={props.visible && activeFileTab() === props.tab}
         path={path() ?? ""}
         auth={pdfAuthHeader()}
+        actions={<Show when={state()?.loaded && isTextFile()}>{actions()}</Show>}
         onNavigate={(target, line) => void navigate(target, line)}
       >
         <Show
