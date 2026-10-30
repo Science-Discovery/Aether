@@ -348,6 +348,8 @@ stream_max_retries = 0
     sandbox: "read-only",
     historyMode: "paginated",
     serviceName: "aether-interop",
+    // Probe native unload separately from Aether's default warm-thread policy.
+    config: { thread_unload_delay_secs: 0 },
   })
   const thread = string(object(started.thread).id)
   const first = await owner.call("turn/start", {
@@ -394,6 +396,20 @@ stream_max_retries = 0
     turns: active.map((turn) => ({ id: turn.id, status: turn.status, items: turn.items })),
     receivedDeltas: deltas(reader, secondid).length,
   })
+  const busy = await reader.call("thread/resume", { threadId: thread, excludeTurns: true }).then(
+    () => undefined,
+    (error: unknown) => String(error),
+  )
+  assert(busy?.includes(`thread ${thread} already has an active writer`), "Another writer must refuse resume")
+  checks.push({ check: "native_writer_while_active", passed: true, error: busy })
+  const fork = await reader.call("thread/fork", {
+    threadId: thread,
+    lastTurnId: firstid,
+    excludeTurns: true,
+    deferGoalContinuation: true,
+  })
+  assert.notEqual(object(fork.thread).id, thread)
+  checks.push({ check: "fork_does_not_acquire_source_writer", passed: true })
   held = false
   await complete(owner, secondid)
   const finished = await history(owner, thread)
@@ -406,6 +422,21 @@ stream_max_retries = 0
     finished.flatMap((turn) => array(turn.items)),
   )
   checks.push({ check: "item_pagination_identity", passed: true, items: items.length })
+  const idle = await reader.call("thread/resume", { threadId: thread, excludeTurns: true }).then(
+    () => undefined,
+    (error: unknown) => String(error),
+  )
+  assert(idle?.includes(`thread ${thread} already has an active writer`), "An idle loaded thread still owns its writer")
+  checks.push({ check: "native_writer_while_idle", passed: true, error: idle })
+  await owner.call("thread/unsubscribe", { threadId: thread })
+  await until(
+    () => owner.events.some((event) => event.method === "thread/closed" && event.params?.threadId === thread),
+    "native thread unload",
+  )
+  const resumed = await reader.call("thread/resume", { threadId: thread, excludeTurns: true })
+  assert.equal(object(resumed.thread).id, thread)
+  assert.equal(object(object(resumed.thread).status).type, "idle")
+  checks.push({ check: "native_writer_released_after_unload", passed: true })
 
   const legacy = await owner.call("thread/start", {
     cwd: project,

@@ -2004,7 +2004,7 @@ export const dict = {
   "native.slash.skills": "Browse Codex skills",
   "native.slash.mcp": "Codex MCP tools",
   "native.mcp.description":
-    "Services and tools reported by a separate Codex query connection. This does not inspect Desktop's live connections or change configuration.",
+    "Services and tools reported by a separate Codex query connection. No live conversation connection is available to inspect; this does not report Desktop's connection state.",
   "native.mcp.empty": "No MCP services were reported.",
   "native.mcp.refresh": "Refresh services",
   "native.image.preview": "Preview Codex image",
@@ -2017,9 +2017,31 @@ export const dict = {
   "native.mcp.auth.oauth": "Authenticated with OAuth",
   "native.mcp.auth.required": "Not signed in",
   "native.mcp.auth.unknown": "Not reported",
+  "native.mcp.session":
+    "Services and tools reported by this conversation's Codex connection. Desktop connections are separate.",
+  "native.mcp.login.start": "Sign in",
+  "native.mcp.login.again": "Sign in again",
+  "native.mcp.login.description":
+    "Open the service's authorization page to continue. Codex saves the credentials. Closing this dialog cancels the pending attempt.",
+  "native.mcp.login.open": "Open authorization page",
+  "native.mcp.login.check": "Check sign-in status",
+  "native.mcp.login.starting": "Preparing authorization…",
+  "native.mcp.login.pending": "Waiting for authorization in your browser…",
+  "native.mcp.login.complete": "Authorization completed.",
+  "native.mcp.login.failed": "Authorization was not completed.",
+  "native.mcp.login.cancelled": "Authorization cancelled.",
+  "native.mcp.login.expired": "Authorization expired. Start sign-in again.",
+  "native.mcp.login.recovering":
+    "The connection was interrupted. Check the same authorization attempt before starting another.",
+  "native.mcp.login.invalid": "Codex returned an invalid authorization response.",
   "native.slash.compact": "Compact context",
   "native.slash.resume": "Open an existing Codex chat",
   "native.slash.tasks": "Child tasks",
+  "native.slash.release": "Continue in another client",
+  "native.release.description":
+    "Release Aether's idle Codex connection so another client can continue this chat. History is kept; terminal and tool processes will close. Sending here again reconnects to Codex.",
+  "native.release.action": "Release connection",
+  "native.release.done": "Aether no longer holds this chat. You can continue in another Codex client.",
   "native.compact.description":
     "Compact this Codex context while keeping the conversation history. This uses Codex quota.",
   "native.compact.start": "Compact",
@@ -2056,4 +2078,14 @@ export const dict = {
   "native.skills.refresh": "Refresh skills",
   "native.skills.empty": "No enabled Codex skills found",
   "native.skills.onlyCodex": "These skills require Codex. Switch back to Codex or remove the skill before sending.",
+  "native.elicitation.title": "MCP request · {{server}}",
+  "native.elicitation.choose": "Select an answer",
+  "native.elicitation.yes": "Yes",
+  "native.elicitation.no": "No",
+  "native.elicitation.urlHint":
+    "Open the service page to complete the request, then confirm below. Opening the page does not submit an answer.",
+  "native.elicitation.open": "Open service page",
+  "native.elicitation.complete": "I have completed this step",
+  "native.elicitation.decline": "Decline",
+  "native.elicitation.cancel": "Cancel request",
 }

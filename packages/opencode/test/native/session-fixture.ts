@@ -199,6 +199,13 @@ for await (const line of createInterface({ input: process.stdin })) {
     continue
   }
   if (value.method === "thread/start" || value.method === "thread/resume") {
+    if (cfg.mode === "writer" && value.method === "thread/resume") {
+      write({
+        id: value.id,
+        error: { code: -32600, message: `thread ${params.threadId} already has an active writer` },
+      })
+      continue
+    }
     if (cfg.mode === "resume-fail" && value.method === "thread/resume") {
       write({ id: value.id, error: { code: -32000, message: "Thread unavailable" } })
       continue

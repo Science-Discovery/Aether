@@ -188,19 +188,87 @@ export namespace NativeRuntime {
       if (!entry.active) await close(entry)
     }
 
+    async function handoff(
+      id: string,
+      check?: (entry: { client: Protocol.Client; thread?: string; directory: string; home?: string }) => Promise<void>,
+    ) {
+      const entry = entries.get(id)
+      if (!entry) return false
+      if (entry.active) throw new Error("Wait for the Codex task to finish before releasing this chat.")
+      if (check && entry.client) await check({ ...entry, client: entry.client })
+      if (entries.get(id) !== entry || entry.active)
+        throw new Error("This Codex connection changed. Refresh the chat before releasing it.")
+      await close(entry)
+      return true
+    }
+
+    async function refresh(input: { directory: string; home: string }) {
+      const results = await Promise.all(
+        [...entries.values()]
+          .filter(
+            (entry) =>
+              entry.directory === input.directory &&
+              entry.home === input.home &&
+              entry.client &&
+              !entry.client.closed &&
+              !entry.closing,
+          )
+          .map(async (entry) => {
+            // The native server queues MCP reloads for loaded threads. Do not
+            // close apparently idle processes: native goals can still be live.
+            const client = entry.client!
+            const accepted = await client.request("config/mcpServer/reload", null, { timeout: 10_000 }).then(
+              () => true,
+              () => false,
+            )
+            return accepted || entries.get(entry.id) !== entry || client.closed || !!entry.closing
+          }),
+      )
+      return results.every(Boolean)
+    }
+
+    async function inspect<T>(
+      input: { id: string; directory: string; thread: string; home: string },
+      read: (client: Protocol.Client) => Promise<T>,
+    ): Promise<T | undefined> {
+      const entry = entries.get(input.id)
+      const valid = () =>
+        enabled() &&
+        entry !== undefined &&
+        entries.get(input.id) === entry &&
+        entry.directory === input.directory &&
+        entry.thread === input.thread &&
+        entry.home === input.home &&
+        entry.retain &&
+        !entry.closing &&
+        entry.client !== undefined &&
+        !entry.client.closed
+      if (!valid() || !entry?.client) return
+      // Queries must not acquire a writer, replace turn handlers or extend the idle lease.
+      try {
+        const result = await read(entry.client)
+        if (valid()) return result
+      } catch (error) {
+        if (valid()) throw error
+      }
+    }
+
     async function dispose(directory?: string) {
       await Promise.all(
         [...entries.values()].filter((entry) => directory === undefined || entry.directory === directory).map(close),
       )
     }
 
-    return { acquire, configure, remove, dispose, revision: () => generation }
+    return { acquire, configure, remove, handoff, refresh, inspect, dispose, revision: () => generation }
   }
 
   const pool = create()
   export const acquire = pool.acquire
   export const configure = pool.configure
   export const remove = pool.remove
+  export const handoff = pool.handoff
+  export const refresh = pool.refresh
+  export const inspect = pool.inspect
   export const dispose = pool.dispose
   export const revision = pool.revision
   registerDisposer(dispose)

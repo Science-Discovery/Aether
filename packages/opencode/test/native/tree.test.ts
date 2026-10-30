@@ -76,6 +76,23 @@ function scenario(
   }
 }
 
+test("MCP elicitations without correlated turn IDs still require a verified active thread", async () => {
+  await using run = scenario(async (_method, value) => value)
+  await run.setup()
+  await run.start("child", "root")
+  const ask = (params: unknown, method = "mcpServer/elicitation/request") => run.client.request("fixture/ask", { method, params })
+  expect(await ask({ threadId: "root" })).toEqual({ threadId: "root" })
+  const child = await ask({ threadId: "child", turnId: null })
+  expect(child).toMatchObject({ threadId: "root", nativeAgent: { threadId: "child", turnId: "child-turn" } })
+  expect(await ask({ threadId: "root", turnId: "old-turn" }).catch((err: unknown) => err)).toBeInstanceOf(Protocol.RpcError)
+  expect(await ask({ threadId: "root" }, "item/tool/requestUserInput").catch((err: unknown) => err)).toBeInstanceOf(Protocol.RpcError)
+  await run.client.request("fixture/thread", run.metadata("another-root"))
+  await run.client.request("fixture/thread", run.metadata("foreign", "another-root"))
+  expect(await ask({ threadId: "foreign" }).catch((err: unknown) => err)).toBeInstanceOf(Protocol.RpcError)
+  await run.end("child")
+  expect(await ask({ threadId: "child" }).catch((err: unknown) => err)).toBeInstanceOf(Protocol.RpcError)
+})
+
 test("parent completion drains verified children, grandchildren, and their original approval replies", async () => {
   const answer = Promise.withResolvers<unknown>()
   const asked = Promise.withResolvers<Record<string, unknown>>()

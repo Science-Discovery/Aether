@@ -26,6 +26,15 @@ for await (const line of readline.createInterface({ input: process.stdin })) {
   }
   const thread = (await Bun.file(file).json()) as Thread
   if (request.method === "thread/read" || request.method === "thread/resume") {
+    if (
+      request.method === "thread/resume" &&
+      (await Bun.file(path.join(root, "behavior"))
+        .text()
+        .catch(() => "")) === "writer"
+    ) {
+      write({ id: request.id, error: { code: -32600, message: `thread ${thread.id} already has an active writer` } })
+      continue
+    }
     reply({ thread: { ...thread, status: { type: "idle" }, turns: [] } })
     continue
   }

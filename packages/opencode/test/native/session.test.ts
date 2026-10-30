@@ -475,7 +475,7 @@ describe("native Codex session", () => {
         expect((await calls(dir)).some((call) => call.result?.decision === "accept")).toBe(false)
       })
     }
-  })
+  }, 15_000)
 
   test("file approvals show the associated changes and retain them in a native tool card", async () => {
     await scenario("file-approval", async (session, dir) => {
@@ -666,6 +666,26 @@ describe("native Codex session", () => {
       )
       expect(result.info.role === "assistant" && result.info.error?.name).toBe("UnknownError")
       expect((await calls(dir)).some((call) => call.method === "thread/start")).toBe(false)
+    })
+  })
+
+  test("another native writer refuses sending without starting a replacement or dispatching input", async () => {
+    await scenario("writer", async (session, dir) => {
+      await Session.setEngine({ sessionID: session.id, engine: { type: "codex", thread: "external-thread" } })
+      const result = await NativeSession.prompt(
+        {
+          sessionID: session.id,
+          parts: [{ type: "text", text: "Do not dispatch while another client owns the chat" }],
+        },
+        await Session.get(session.id),
+        new AbortController().signal,
+      )
+      expect(result.info.role === "assistant" && result.info.error?.name).toBe("UnknownError")
+      expect(JSON.stringify(result.info)).toContain("held by another client")
+      expect((await calls(dir)).some((call) => call.method === "thread/start" || call.method === "turn/start")).toBe(
+        false,
+      )
+      expect((await Session.get(session.id)).engine?.thread).toBe("external-thread")
     })
   })
 

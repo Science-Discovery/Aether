@@ -24,7 +24,7 @@ export function nativeSlash(input: {
     ...(input.enabled ? ["model", "permissions"] : []),
     ...(input.enabled && input.plan ? ["plan"] : []),
     ...(input.session ? ["status"] : []),
-    ...(input.enabled && input.session ? ["compact", "tasks"] : []),
+    ...(input.enabled && input.session ? ["compact", "tasks", "release"] : []),
     ...(input.enabled ? ["resume"] : []),
     "skills",
     "mcp",

@@ -50,3 +50,20 @@ test("MCP repeated cursors and malformed inventories fail rather than return a p
   )
   await expect(NativeMcp.list({ request: async <T>() => ({ data: [{ name: "bad" }] }) as T })).rejects.toThrow()
 })
+
+test("MCP inventory forwards the native thread identity on every page without resuming the conversation", async () => {
+  const calls: { method: string; params: unknown }[] = []
+  await NativeMcp.list(
+    {
+      request: async <T>(method: string, params: unknown) => {
+        calls.push({ method, params })
+        return { data: [], nextCursor: calls.length === 1 ? "next" : null } as T
+      },
+    },
+    { threadId: "native-thread" },
+  )
+  expect(calls).toEqual([
+    { method: "mcpServerStatus/list", params: { threadId: "native-thread", cursor: undefined, limit: 100 } },
+    { method: "mcpServerStatus/list", params: { threadId: "native-thread", cursor: "next", limit: 100 } },
+  ])
+})

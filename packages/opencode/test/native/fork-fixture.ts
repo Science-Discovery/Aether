@@ -166,6 +166,10 @@ for await (const line of readline.createInterface({ input: process.stdin })) {
     }
     if (request.method === "thread/resume") {
       resumed = true
+      if (behavior === "writer") {
+        write({ id: request.id, error: { code: -32600, message: `thread ${thread.id} already has an active writer` } })
+        continue
+      }
       if (behavior === "resume-fail") {
         error("Fixture resume refused")
         continue

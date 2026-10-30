@@ -481,7 +481,8 @@ export namespace NativeTree {
         const data = object.parse(value)
         const branch = await ensure(text(data.threadId))
         if (branch && branch.id !== state.root && branch.live && !branch.turn) await reconcile(branch)
-        if (!branch || !branch.turn || !branch.live || data.turnId !== branch.turn)
+        const standalone = method === "mcpServer/elicitation/request" && data.turnId == null
+        if (!state.active || state.stopped || state.failed || state.completed || !branch || !branch.turn || !branch.live || (!standalone && data.turnId !== branch.turn))
           throw new Protocol.RpcError(-32602, "The request does not belong to an active, verified Codex agent.")
         return await handler(method, mapped(branch, data))
       } finally {

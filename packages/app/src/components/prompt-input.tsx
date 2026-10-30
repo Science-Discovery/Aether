@@ -80,6 +80,7 @@ import { NativeRunPanel } from "./native-run"
 import { createNativeSkills } from "@/context/native-skills"
 import { NativeMcp } from "./native-mcp"
 import { NativeCompact } from "./native-compact"
+import { NativeRelease } from "./native-release"
 import { NativeChats } from "./native-chats"
 import { NativeTasks, NativeTaskButton } from "./native-tasks"
 import { useNavigate } from "@solidjs/router"
@@ -795,10 +796,16 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
         local.native.start()
         command.trigger("session.new", "slash")
       }
-      if (cmd.trigger === "mcp") dialog.show(() => <NativeMcp />)
+      if (cmd.trigger === "mcp") dialog.show(() => <NativeMcp sessionID={params.id} />)
       if (cmd.trigger === "compact" && params.id) {
         const id = params.id
         dialog.show(() => <NativeCompact sessionID={id} />)
+      }
+      if (cmd.trigger === "release" && params.id) {
+        const id = params.id
+        dialog.show(() => (
+          <NativeRelease sessionID={id} valid={() => scope === `${sdk.url}\n${sdk.directory}\n${params.id ?? ""}`} />
+        ))
       }
       if (cmd.trigger === "resume")
         dialog.show(() => (

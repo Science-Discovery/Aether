@@ -16,6 +16,7 @@ import { NativeHistory } from "./history"
 import { NativeInteraction } from "./interaction"
 import { NativeLock } from "./lock"
 import { NativePermissions } from "./permissions"
+import { NativeOwnership } from "./ownership"
 import type { Protocol } from "./protocol"
 import { Native } from "./schema"
 import { NativeStore } from "./store"
@@ -44,7 +45,7 @@ export namespace NativeFork {
       return typeof method?.const === "string" ? [method.const] : Array.isArray(method?.enum) ? method.enum : []
     })
     return (
-      ["thread/fork", "thread/goal/get"].every((name) => names.includes(name)) &&
+      ["thread/fork", "thread/resume", "thread/goal/get"].every((name) => names.includes(name)) &&
       ["threadId", "lastTurnId"].every((name) => field(name, "string")) &&
       ["excludeTurns", "deferGoalContinuation"].every((name) => field(name, "boolean")) &&
       NativePermissions.supports(value)
@@ -160,6 +161,11 @@ export namespace NativeFork {
       }
       const file = await Codex.discover(cfg.native?.codex?.path)
       if (!file) throw new Error("Codex was not found. Check the native backend connection.")
+      if (!(await capability(file)))
+        throw new Error(
+          "This Codex version does not advertise safe turn-boundary forking. Update Codex before retrying.",
+        )
+      await NativeOwnership.handoff(source)
       const connection = await Codex.connect({
         executable: file,
         cwd: source.directory,
@@ -169,6 +175,15 @@ export namespace NativeFork {
         const home = NativeStore.state(source.id)?.home
         if (home && connection.home !== home)
           throw new Error("Restore this conversation's original Codex home before forking it.")
+        // A read-only connection can report notLoaded even while Desktop is
+        // writing. Resume first so Codex's native writer lock protects the source.
+        await goal(connection.client, source.engine!.thread!)
+        const resumed = response.parse(
+          await NativeOwnership.resume(connection.client, source.engine!.thread!, {}, { timeout: 15_000 }),
+        )
+        if (resumed.thread.id !== source.engine!.thread || resumed.thread.status.type !== "idle")
+          throw new Error("Wait for this Codex task to finish before forking it.")
+        await goal(connection.client, source.engine!.thread!)
         const snapshot = await NativeHistory.read(connection.client, source.engine!.thread!, { terminal: true })
         if (!snapshot.thread || snapshot.issues.some((issue) => !issue.turn))
           throw new Error(
@@ -226,10 +241,6 @@ export namespace NativeFork {
           await available(source.id, source.engine!.thread)
           return create({ id: SessionID.descending(), source, engine })
         }
-        if (!(await capability(file)))
-          throw new Error(
-            "This Codex version does not advertise safe turn-boundary forking. Update Codex before retrying.",
-          )
         await goal(connection.client, snapshot.thread.id)
         await available(source.id, source.engine!.thread)
         const fork = response.parse(

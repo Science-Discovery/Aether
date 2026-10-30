@@ -15,7 +15,7 @@ import { NativeHistory } from "./history"
 import { NativeInteraction } from "./interaction"
 import { NativeLock } from "./lock"
 import { NativeQueue } from "./queue"
-import { NativeRuntime } from "./runtime"
+import { NativeOwnership } from "./ownership"
 import { NativeStore } from "./store"
 import { NativeSync } from "./sync"
 import { Protocol } from "./protocol"
@@ -264,7 +264,7 @@ export namespace NativeCompact {
         let busy = false
         try {
           await NativeStore.migrate(session)
-          await NativeRuntime.remove(session.id)
+          await NativeOwnership.handoff(session)
           connection = await Codex.connect({ executable: cfg?.path, cwd: session.directory, signal })
           NativeStore.bind(session.id, connection.home, false)
           const snapshot = await NativeHistory.read(connection.client, session.engine!.thread!, {
@@ -284,13 +284,7 @@ export namespace NativeCompact {
             throw new Error("Finish or clear the Codex goal before compacting context.")
           const resumed = z
             .object({ thread: NativeHistory.Thread })
-            .parse(
-              await connection.client.request(
-                "thread/resume",
-                { threadId: snapshot.thread.id, excludeTurns: true },
-                { timeout: 15_000 },
-              ),
-            )
+            .parse(await NativeOwnership.resume(connection.client, snapshot.thread.id, {}, { timeout: 15_000, signal }))
           if (resumed.thread.id !== snapshot.thread.id || resumed.thread.status.type !== "idle")
             throw new Error("The Codex thread is not idle.")
           const current = await NativeHistory.read(connection.client, snapshot.thread.id, { terminal: true, signal })

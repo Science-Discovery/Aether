@@ -10,6 +10,7 @@ const input = createInterface({ input: process.stdin })
 const approvals = new Map<string | number, number>()
 let initialized = false
 let initializes = 0
+let reloads = 0
 
 function send(value: unknown) {
   process.stdout.write(JSON.stringify(value) + "\n")
@@ -24,11 +25,24 @@ for await (const line of input) {
   }
   if (message.method === "initialize") {
     initializes++
-    send({ id: message.id, result: { userAgent: "codex_cli_rs/0.164.0-test" } })
+    send({ id: message.id, result: { userAgent: "codex_cli_rs/0.164.0-test", codexHome: "fixture-home" } })
     continue
   }
   if (message.method === "info") {
     send({ id: message.id, result: { pid: process.pid, initializes } })
+    continue
+  }
+  if (message.method === "reloads") {
+    send({ id: message.id, result: reloads })
+    continue
+  }
+  if (message.method === "config/mcpServer/reload") {
+    reloads++
+    if (process.argv.includes("--reject-reload")) {
+      send({ id: message.id, error: { code: -32601, message: "Reload unsupported" } })
+      continue
+    }
+    send({ id: message.id, result: {} })
     continue
   }
   if (message.method === "notify") {

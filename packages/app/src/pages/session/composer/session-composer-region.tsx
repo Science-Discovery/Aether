@@ -21,6 +21,8 @@ import { useSessionKey } from "@/pages/session/session-layout"
 import { formatReadingPageRange } from "@/utils/comment-note"
 import { NativeQuestionHint, type PendingQuestion } from "@/components/native-question-hint"
 import { NativeRevertNotice, type useNativeRevert } from "@/pages/session/use-native-revert"
+import { NativeElicitationDock } from "@/components/native-elicitation"
+import { useSync } from "@/context/sync"
 
 export function SessionComposerRegion(props: {
   state: SessionComposerState
@@ -59,6 +61,8 @@ export function SessionComposerRegion(props: {
   const readingMode = useMaybeReadingMode()
   const quickReadingMode = useMaybeQuickReadingMode()
   const route = useSessionKey()
+  const sync = useSync()
+  const native = createMemo(() => sync.data.session.find((item) => item.id === route.params.id)?.engine?.type === "codex")
   const quotes = createMemo(
     () => quote?.store.pendingQuestions.filter((item) => item.sessionID === route.params.id) ?? [],
   )
@@ -164,6 +168,7 @@ export function SessionComposerRegion(props: {
         }}
       >
         <Show when={props.questions}>{(questions) => <NativeQuestionHint {...questions()} />}</Show>
+        <NativeElicitationDock session={native() ? route.params.id : undefined} />
         <Show when={props.rollback}>{(revert) => <NativeRevertNotice revert={revert()} />}</Show>
         <Show when={props.state.questionRequest()} keyed>
           {(request) => (

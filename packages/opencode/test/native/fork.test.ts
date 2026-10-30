@@ -8,6 +8,7 @@ import { Global } from "../../src/global"
 import { NativeFork } from "../../src/native/fork"
 import { NativeHistory } from "../../src/native/history"
 import { NativeLock } from "../../src/native/lock"
+import { NativeRuntime } from "../../src/native/runtime"
 import { NativeStore } from "../../src/native/store"
 import { NativeSync } from "../../src/native/sync"
 import { Instance } from "../../src/project/instance"
@@ -370,9 +371,7 @@ test("input received during fork creation runs only after inherited history is i
     expect(messages).toHaveLength(2)
     expect(
       messages.map((entry) =>
-        entry.parts
-          .flatMap((part) => (part.type === "text" && !part.ignored ? [part.text] : []))
-          .join(""),
+        entry.parts.flatMap((part) => (part.type === "text" && !part.ignored ? [part.text] : [])).join(""),
       ),
     ).toEqual(["first", "during creation"])
   })
@@ -535,11 +534,37 @@ test("local busy and unconfirmed history reject before creating a branch", async
     await expect(Session.fork({ sessionID: session.id })).rejects.toThrow("finish")
     await SessionStatus.set(session.id, { type: "idle" })
     await Bun.write(path.join(dir, "behavior"), "busy")
-    await expect(Session.fork({ sessionID: session.id })).rejects.toThrow("incomplete")
+    await expect(Session.fork({ sessionID: session.id })).rejects.toThrow("finish")
     expect((await calls(dir)).some((entry) => entry.method === "thread/fork")).toBe(false)
     expect(await Session.children(session.id)).toEqual([])
   })
 })
+
+test("forking acquires the native source writer before creating any branch", async () => {
+  await scenario(async (session, dir) => {
+    await send(session.id, "first")
+    const before = await NativeStore.history(session.id)
+    await Bun.write(path.join(dir, "behavior"), "writer")
+    await expect(Session.fork({ sessionID: session.id })).rejects.toThrow("held by another client")
+    expect((await calls(dir)).some((entry) => entry.method === "thread/fork")).toBe(false)
+    expect(await Session.children(session.id)).toEqual([])
+    expect(await NativeStore.history(session.id)).toEqual(before)
+  })
+})
+
+for (const mode of ["goal", "busy"])
+  test(`forking does not close a retained native process with ${mode} work`, async () => {
+    await scenario(async (session, dir) => {
+      await send(session.id, "first")
+      const lease = await NativeRuntime.acquire({ id: session.id, directory: Instance.directory })
+      await lease.release(true)
+      await Bun.write(path.join(dir, "behavior"), mode)
+      const error = await Session.fork({ sessionID: session.id }).catch((error: unknown) => error)
+      expect(error).toBeInstanceOf(Error)
+      expect(lease.client.closed).toBe(false)
+      expect((await calls(dir)).some((entry) => entry.method === "thread/fork")).toBe(false)
+    })
+  })
 
 test("goal continuation and missing advertised safeguards fail without a fork RPC", async () => {
   await scenario(async (session, dir) => {
@@ -664,7 +689,9 @@ test("forking through another instance keeps the owning directory and native att
 
 test("capability checks follow required fork fields rather than the binary version", () => {
   const requests = {
-    oneOf: ["thread/fork", "thread/goal/get"].map((method) => ({ properties: { method: { const: method } } })),
+    oneOf: ["thread/fork", "thread/resume", "thread/goal/get"].map((method) => ({
+      properties: { method: { const: method } },
+    })),
   }
   const shape = {
     required: ["threadId"],

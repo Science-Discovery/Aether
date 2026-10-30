@@ -15,6 +15,7 @@ import { NativeSkills } from "./skills"
 import { Protocol } from "./protocol"
 import { NativeTree } from "./tree"
 import { NativeRuntime } from "./runtime"
+import { NativeOwnership } from "./ownership"
 import { NativeStore } from "./store"
 import { NativeLock } from "./lock"
 import { NativePermissions } from "./permissions"
@@ -22,6 +23,7 @@ import { NativeModes } from "./modes"
 import { NativeInteraction } from "./interaction"
 import { NativeTasks } from "./tasks"
 import { NativeResearch } from "./research"
+import { NativeElicitation } from "./elicitation"
 import { setKnowledgeConfig } from "@/tool/knowledge"
 
 export namespace NativeSession {
@@ -65,6 +67,10 @@ export namespace NativeSession {
   ) {
     const data = object.parse(value)
     if (method === "item/tool/call") return NativeResearch.call(info.sessionID, value, signal)
+    if (method === "mcpServer/elicitation/request")
+      return NativeElicitation.ask(info.sessionID, value, signal).catch((err: unknown) => {
+        throw new Protocol.RpcError(-32602, err instanceof Error ? err.message : "Unsupported MCP request.")
+      })
     const agent = object.safeParse(data.nativeAgent)
     const source = agent.success ? `Codex agent (${JSON.stringify(agent.data.name ?? agent.data.threadId)}):\n\n` : ""
     if (method === "item/tool/requestUserInput") {
@@ -456,15 +462,15 @@ export namespace NativeSession {
       if (connection.thread && connection.thread !== session.engine.thread)
         throw new Error("The native connection does not match this session's saved thread.")
       const metadata = response.parse(
-        await connection.client.request(
-          connection.thread ? "thread/read" : session.engine.thread ? "thread/resume" : "thread/start",
-          connection.thread ? { threadId: connection.thread, includeTurns: false } : params,
-          { signal },
-        ),
+        await (connection.thread
+          ? connection.client.request("thread/read", { threadId: connection.thread, includeTurns: false }, { signal })
+          : session.engine.thread
+            ? NativeOwnership.resume(connection.client, session.engine.thread, params, { signal })
+            : connection.client.request("thread/start", params, { signal })),
       )
       const thread =
         connection.thread && metadata.thread.status?.type === "notLoaded"
-          ? response.parse(await connection.client.request("thread/resume", params, { signal }))
+          ? response.parse(await NativeOwnership.resume(connection.client, session.engine.thread!, params, { signal }))
           : metadata
       if (session.engine.thread && thread.thread.id !== session.engine.thread)
         throw new Error("Codex resumed a different thread; the conversation was not continued.")

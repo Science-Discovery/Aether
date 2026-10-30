@@ -197,6 +197,8 @@ import type {
   NativeAttachChatErrors,
   NativeAttachChatResponses,
   NativeCancelLoginResponses,
+  NativeCancelMcpLoginErrors,
+  NativeCancelMcpLoginResponses,
   NativeChatsErrors,
   NativeChatsResponses,
   NativeCompactErrors,
@@ -204,6 +206,8 @@ import type {
   NativeCompactStatusResponses,
   NativeDequeueErrors,
   NativeDequeueResponses,
+  NativeElicitationsErrors,
+  NativeElicitationsResponses,
   NativeEngineInput,
   NativeEnqueueErrors,
   NativeEnqueueResponses,
@@ -215,6 +219,10 @@ import type {
   NativeLoginResponses,
   NativeLoginStatusErrors,
   NativeLoginStatusResponses,
+  NativeMcpLoginErrors,
+  NativeMcpLoginResponses,
+  NativeMcpLoginStatusErrors,
+  NativeMcpLoginStatusResponses,
   NativeMcpResponses,
   NativeMode,
   NativeOpenTaskErrors,
@@ -223,6 +231,10 @@ import type {
   NativePrepareRevertErrors,
   NativePrepareRevertResponses,
   NativeQuestionsResponses,
+  NativeReleaseErrors,
+  NativeReleaseResponses,
+  NativeReplyElicitationErrors,
+  NativeReplyElicitationResponses,
   NativeReplyQuestionErrors,
   NativeReplyQuestionResponses,
   NativeReplyTaskErrors,
@@ -4676,12 +4688,225 @@ export class Native extends HeyApiClient {
   }
 
   /**
+   * Read pending MCP forms on this conversation's execution connection
+   */
+  public elicitations<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<NativeElicitationsResponses, NativeElicitationsErrors, ThrowOnError>({
+      url: "/native/codex/{sessionID}/elicitations",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Accept, decline or cancel the originating MCP request
+   */
+  public replyElicitation<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+      id?: string
+      action?: "accept" | "decline" | "cancel"
+      content?: {
+        [key: string]: string | number | boolean | Array<string>
+      } | null
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "id" },
+            { in: "body", key: "action" },
+            { in: "body", key: "content" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      NativeReplyElicitationResponses,
+      NativeReplyElicitationErrors,
+      ThrowOnError
+    >({
+      url: "/native/codex/{sessionID}/elicitations/reply",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Release this idle Aether execution process for use by another Codex client
+   */
+  public release<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<NativeReleaseResponses, NativeReleaseErrors, ThrowOnError>({
+      url: "/native/codex/{sessionID}/release",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Start Codex-managed OAuth for a configured MCP service
+   */
+  public mcpLogin<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      id?: string
+      name?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "id" },
+            { in: "body", key: "name" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<NativeMcpLoginResponses, NativeMcpLoginErrors, ThrowOnError>({
+      url: "/native/codex/mcp/login",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Cancel only this MCP authorization connection
+   */
+  public cancelMcpLogin<ThrowOnError extends boolean = false>(
+    parameters: {
+      id: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "id" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).delete<
+      NativeCancelMcpLoginResponses,
+      NativeCancelMcpLoginErrors,
+      ThrowOnError
+    >({
+      url: "/native/codex/mcp/login/{id}",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Read the status of the same MCP authorization attempt
+   */
+  public mcpLoginStatus<ThrowOnError extends boolean = false>(
+    parameters: {
+      id: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "id" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<
+      NativeMcpLoginStatusResponses,
+      NativeMcpLoginStatusErrors,
+      ThrowOnError
+    >({
+      url: "/native/codex/mcp/login/{id}",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
    * Read native Codex MCP services and tools
    */
   public mcp<ThrowOnError extends boolean = false>(
     parameters?: {
       directory?: string
       workspace?: string
+      sessionID?: string
       refresh?: boolean
     },
     options?: Options<never, ThrowOnError>,
@@ -4693,6 +4918,7 @@ export class Native extends HeyApiClient {
           args: [
             { in: "query", key: "directory" },
             { in: "query", key: "workspace" },
+            { in: "query", key: "sessionID" },
             { in: "query", key: "refresh" },
           ],
         },

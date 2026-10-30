@@ -75,3 +75,19 @@ bun script/codex-interop.ts "C:/path/to/codex.exe"
 此次验证使用短文本和本地固定回复，尚未覆盖真实 Desktop/VS Code 互通、图片与 PDF 的完整历史恢复、工具结果与子智能体、长历史分页更新竞态、实际自动审批、steer/fork/compact 执行，以及旧版 Codex 的兼容行为。这些仍是后续实现和验收项。
 
 现有产品实现与限制见 [Codex 原生智能体](native-codex.zh-CN.md)；数据拆分、迁移与验收见[历史设计](native-codex-history-design.zh-CN.md)。
+
+## 2026-10-30：原生写入归属与主动释放
+
+使用同一 `0.164.0-alpha.11.1` 安装、独立临时 `CODEX_HOME` 和本地固定 Responses 回复追加核查；不读取真实账户、不调用在线模型，也不接入 Desktop 私有 IPC。可通过 `script/codex-interop.ts` 重现。
+
+| 观察                                                                                                | 结论                                                                                        |
+| --------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| A 正在生成时，B 的 `thread/read` 仍显示 `notLoaded`，历史末轮可显示 `interrupted`                   | 独立读取结果不能用来断言其他客户端空闲                                                      |
+| B 调用 `thread/resume` 返回 `-32600: thread … already has an active writer`                         | 该版本由 Codex 原生进程锁拒绝第二个写入方，Aether 不读写锁文件                              |
+| A 已结束生成但仍加载线程时，B 的 resume 仍被拒绝                                                    | 保留进程及已加载线程会保留写入归属；“当前没生成”不等于已交接                                |
+| A 正在生成时，B 能对已完成的前缀执行 `thread/fork`                                                  | fork 本身不取得源线程写锁；Aether 分叉前先检查 goal、resume 源线程、确认 idle，再读取并分叉 |
+| 诊断线程设置 `thread_unload_delay_secs: 0` 后 unsubscribe，收到 `thread/closed`，B 随后 resume 成功 | 原生卸载会释放写入归属，但每轮卸载也会丢失进程内工具状态，因此未将其作为 Aether 默认策略    |
+
+当前 Aether 保持空闲进程复用，增加手动释放入口。释放只关闭该会话自己的空闲执行进程；本地仍在运行、排队、回答问题、验证回退/压缩结果或存在未确认提交时会拒绝。对已绑定的连接还读取该进程加载的线程与 goal，检查子任务，未知状态会拒绝。再次在 Aether 发送时重新 resume 原线程，不复制历史、不重发旧输入。
+
+发送、回退及压缩沿用原生 resume；本次统一将写锁冲突转成可操作的提示。审批和 MCP 表单仍只回复发出请求的原连接，不能在 Aether 中代答 Desktop 正在等待的卡片。尚未实现 Desktop 与 Aether 同时控制同一任务、实时转发审批或自动抢占；旧 Codex 版本也不能仅凭上述单版本诊断承诺具有相同写锁语义。

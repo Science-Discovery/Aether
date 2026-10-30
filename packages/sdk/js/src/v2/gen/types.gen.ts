@@ -450,6 +450,13 @@ export type EventSessionPreferenceUpdated = {
   }
 }
 
+export type EventNativeElicitationChanged = {
+  type: "native.elicitation.changed"
+  properties: {
+    sessionID: string
+  }
+}
+
 export type FileDiff = {
   file: string
   before: string
@@ -1186,6 +1193,7 @@ export type Event =
   | EventMcpBrowserOpenFailed
   | EventCommandExecuted
   | EventSessionPreferenceUpdated
+  | EventNativeElicitationChanged
   | EventSessionImported
   | EventSessionDiff
   | EventSessionError
@@ -2506,8 +2514,63 @@ export type NativeImage = {
   name: string
 }
 
+export type NativeElicitationField = {
+  name: string
+  title: string
+  description?: string
+  type: "string" | "number" | "integer" | "boolean" | "array"
+  required: boolean
+  options?: Array<{
+    value: string
+    title: string
+  }>
+  format?: "email" | "uri" | "date" | "date-time"
+  min?: number
+  max?: number
+  default?: string | number | boolean | Array<string>
+}
+
+export type NativeElicitation =
+  | {
+      id: string
+      sessionID: string
+      threadID: string
+      server: string
+      message: string
+      expires: number
+      mode: "form"
+      fields: Array<NativeElicitationField>
+    }
+  | {
+      id: string
+      sessionID: string
+      threadID: string
+      server: string
+      message: string
+      expires: number
+      mode: "url"
+      url: string
+    }
+
+export type NativeElicitations = Array<NativeElicitation>
+
+export type NativeElicitationReceipt = {
+  id: string
+  action: "accept" | "decline" | "cancel"
+}
+
+export type NativeMcpAuthStatus = {
+  id: string
+  name?: string
+  state: "starting" | "pending" | "complete" | "failed" | "cancelled" | "expired"
+  url?: string
+  expiresAt?: number
+  error?: string
+}
+
 export type NativeMcpStatus = {
   state: "ready" | "disabled" | "unavailable"
+  scope?: "session" | "catalog"
   servers: Array<{
     name: string
     status: string
@@ -6799,12 +6862,214 @@ export type NativeImageResponses = {
 
 export type NativeImageResponse = NativeImageResponses[keyof NativeImageResponses]
 
+export type NativeElicitationsData = {
+  body?: never
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/native/codex/{sessionID}/elicitations"
+}
+
+export type NativeElicitationsErrors = {
+  /**
+   * Request unavailable
+   */
+  409: {
+    error: string
+  }
+}
+
+export type NativeElicitationsError = NativeElicitationsErrors[keyof NativeElicitationsErrors]
+
+export type NativeElicitationsResponses = {
+  /**
+   * Pending requests
+   */
+  200: NativeElicitations
+}
+
+export type NativeElicitationsResponse = NativeElicitationsResponses[keyof NativeElicitationsResponses]
+
+export type NativeReplyElicitationData = {
+  body?: {
+    id: string
+    action: "accept" | "decline" | "cancel"
+    content?: {
+      [key: string]: string | number | boolean | Array<string>
+    } | null
+  }
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/native/codex/{sessionID}/elicitations/reply"
+}
+
+export type NativeReplyElicitationErrors = {
+  /**
+   * Request unavailable
+   */
+  409: {
+    error: string
+  }
+}
+
+export type NativeReplyElicitationError = NativeReplyElicitationErrors[keyof NativeReplyElicitationErrors]
+
+export type NativeReplyElicitationResponses = {
+  /**
+   * Reply receipt
+   */
+  200: NativeElicitationReceipt
+}
+
+export type NativeReplyElicitationResponse = NativeReplyElicitationResponses[keyof NativeReplyElicitationResponses]
+
+export type NativeReleaseData = {
+  body?: never
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/native/codex/{sessionID}/release"
+}
+
+export type NativeReleaseErrors = {
+  /**
+   * The conversation has unfinished local work
+   */
+  409: {
+    error: string
+  }
+}
+
+export type NativeReleaseError = NativeReleaseErrors[keyof NativeReleaseErrors]
+
+export type NativeReleaseResponses = {
+  /**
+   * Whether an idle Aether process was released; no external client was contacted
+   */
+  200: {
+    released: boolean
+  }
+}
+
+export type NativeReleaseResponse = NativeReleaseResponses[keyof NativeReleaseResponses]
+
+export type NativeMcpLoginData = {
+  body?: {
+    id: string
+    name: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/native/codex/mcp/login"
+}
+
+export type NativeMcpLoginErrors = {
+  /**
+   * Authorization cannot start
+   */
+  409: {
+    error: string
+  }
+}
+
+export type NativeMcpLoginError = NativeMcpLoginErrors[keyof NativeMcpLoginErrors]
+
+export type NativeMcpLoginResponses = {
+  /**
+   * MCP authorization progress
+   */
+  200: NativeMcpAuthStatus
+}
+
+export type NativeMcpLoginResponse = NativeMcpLoginResponses[keyof NativeMcpLoginResponses]
+
+export type NativeCancelMcpLoginData = {
+  body?: never
+  path: {
+    id: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/native/codex/mcp/login/{id}"
+}
+
+export type NativeCancelMcpLoginErrors = {
+  /**
+   * Attempt belongs to another project
+   */
+  404: {
+    error: string
+  }
+}
+
+export type NativeCancelMcpLoginError = NativeCancelMcpLoginErrors[keyof NativeCancelMcpLoginErrors]
+
+export type NativeCancelMcpLoginResponses = {
+  /**
+   * Final authorization status
+   */
+  200: NativeMcpAuthStatus
+}
+
+export type NativeCancelMcpLoginResponse = NativeCancelMcpLoginResponses[keyof NativeCancelMcpLoginResponses]
+
+export type NativeMcpLoginStatusData = {
+  body?: never
+  path: {
+    id: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/native/codex/mcp/login/{id}"
+}
+
+export type NativeMcpLoginStatusErrors = {
+  /**
+   * Attempt unavailable in this project
+   */
+  404: {
+    error: string
+  }
+}
+
+export type NativeMcpLoginStatusError = NativeMcpLoginStatusErrors[keyof NativeMcpLoginStatusErrors]
+
+export type NativeMcpLoginStatusResponses = {
+  /**
+   * MCP authorization progress
+   */
+  200: NativeMcpAuthStatus
+}
+
+export type NativeMcpLoginStatusResponse = NativeMcpLoginStatusResponses[keyof NativeMcpLoginStatusResponses]
+
 export type NativeMcpData = {
   body?: never
   path?: never
   query?: {
     directory?: string
     workspace?: string
+    sessionID?: string
     refresh?: boolean
   }
   url: "/native/codex/mcp"

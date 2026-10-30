@@ -18,7 +18,7 @@ import { NativeHistory } from "./history"
 import { NativeInteraction } from "./interaction"
 import { NativeLock } from "./lock"
 import { NativeQueue } from "./queue"
-import { NativeRuntime } from "./runtime"
+import { NativeOwnership } from "./ownership"
 import { NativeStore } from "./store"
 import { NativeSync } from "./sync"
 import { Protocol } from "./protocol"
@@ -358,7 +358,7 @@ export namespace NativeRevert {
         let connection: Awaited<ReturnType<typeof connect>> | undefined
         try {
           await available(session)
-          await NativeRuntime.remove(session.id)
+          await NativeOwnership.handoff(session)
           connection = await connect(session)
           NativeStore.bind(session.id, connection.home, false)
           if (saved.home !== connection.home)
@@ -373,13 +373,9 @@ export namespace NativeRevert {
           )
           await goal(connection.client, saved.threadID)
           const resumed = response.parse(
-            await connection.client.request(
-              "thread/resume",
-              { threadId: saved.threadID, excludeTurns: true },
-              { timeout: 15_000 },
-            ),
+            await NativeOwnership.resume(connection.client, saved.threadID, {}, { timeout: 15_000 }),
           )
-          if (resumed.thread.id !== saved.threadID || !["idle", "notLoaded"].includes(resumed.thread.status.type))
+          if (resumed.thread.id !== saved.threadID || resumed.thread.status.type !== "idle")
             throw new Error("The Codex thread is not idle and cannot be edited.")
           await goal(connection.client, saved.threadID)
           const current = await NativeHistory.read(connection.client, saved.threadID, { terminal: true })

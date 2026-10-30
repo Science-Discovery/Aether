@@ -1,7 +1,12 @@
 import z from "zod"
 import { Config } from "@/config/config"
 import { Instance } from "@/project/instance"
+import { Session } from "@/session"
+import { SessionID } from "@/session/schema"
+import { Filesystem } from "@/util/filesystem"
 import { Codex } from "./codex"
+import { NativeRuntime } from "./runtime"
+import { NativeStore } from "./store"
 import type { Protocol } from "./protocol"
 
 export namespace NativeMcp {
@@ -15,6 +20,7 @@ export namespace NativeMcp {
   export const Status = z
     .object({
       state: z.enum(["ready", "disabled", "unavailable"]),
+      scope: z.enum(["session", "catalog"]).optional(),
       servers: z.array(Server),
       error: z.string().optional(),
     })
@@ -35,13 +41,13 @@ export namespace NativeMcp {
   })
   const cache = Instance.state(() => new Map<string, { at: number; value: Promise<z.infer<typeof Status>> }>())
 
-  export async function list(client: Pick<Protocol.Client, "request">) {
+  export async function list(client: Pick<Protocol.Client, "request">, opts: { threadId?: string } = {}) {
     const servers = new Map<string, z.infer<typeof Server>>()
     const cursors = new Set<string>()
     let cursor: string | undefined
     for (let index = 0; index < 100; index++) {
       const result = page.parse(
-        await client.request("mcpServerStatus/list", { cursor, limit: 100 }, { timeout: 15_000 }),
+        await client.request("mcpServerStatus/list", { ...opts, cursor, limit: 100 }, { timeout: 15_000 }),
       )
       for (const item of result.data) {
         servers.set(item.name, {
@@ -63,10 +69,32 @@ export namespace NativeMcp {
     throw new Error("Codex MCP catalog exceeds the pagination limit")
   }
 
-  export async function read(opts: { refresh?: boolean } = {}): Promise<z.infer<typeof Status>> {
+  export async function read(opts: { refresh?: boolean; sessionID?: SessionID } = {}): Promise<z.infer<typeof Status>> {
     const cfg = (await Config.getGlobal()).native?.codex
     if (cfg?.enabled === false) return { state: "disabled", servers: [] }
     const key = JSON.stringify([cfg?.path ?? "", process.env.CODEX_HOME ?? ""])
+    const session = opts.sessionID ? await Session.get(opts.sessionID) : undefined
+    if (session && (Filesystem.resolve(session.directory) !== Instance.directory || session.engine?.type !== "codex"))
+      return { state: "unavailable", servers: [], error: "This project has no matching Codex conversation." }
+    const home = session && NativeStore.state(session.id)?.home
+    const scoped =
+      session?.engine?.thread && home
+        ? await NativeRuntime.inspect(
+            { id: session.id, directory: Instance.directory, thread: session.engine.thread, home },
+            (client) => list(client, { threadId: session.engine!.thread }),
+          ).catch(() => ({
+            state: "unavailable" as const,
+            servers: [],
+            error: "Unable to read MCP status from this conversation's Codex connection. Refresh or reconnect it.",
+          }))
+        : undefined
+    if (scoped) {
+      const current = (await Config.getGlobal()).native?.codex
+      if (current?.enabled === false) return { state: "disabled", servers: [] }
+      if (key !== JSON.stringify([current?.path ?? "", process.env.CODEX_HOME ?? ""]))
+        return { state: "unavailable", servers: [], error: "Codex configuration changed; refresh MCP status." }
+      return { ...scoped, scope: "session" }
+    }
     const previous = cache().get(key)
     const cached = !opts.refresh && previous && Date.now() - previous.at < 30_000
     const value = cached
@@ -77,7 +105,9 @@ export namespace NativeMcp {
             cwd: Instance.directory,
             signal: AbortSignal.timeout(30_000),
           })
-          return list(connection.client).finally(() => connection.client.close())
+          return list(connection.client)
+            .then((result) => ({ ...result, scope: "catalog" as const }))
+            .finally(() => connection.client.close())
         })().catch((err: unknown) => ({
           state: "unavailable" as const,
           servers: [],

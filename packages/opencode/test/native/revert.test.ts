@@ -142,6 +142,20 @@ test("the first question reverts to an empty existing thread", async () => {
   })
 })
 
+test("a prepared edit cannot mutate history owned by another native writer", async () => {
+  await scenario(async (session, dir) => {
+    const first = await send(session.id, "first")
+    const prepared = await NativeRevert.prepare({ sessionID: session.id, messageID: first })
+    const before = await NativeStore.history(session.id)
+    await Bun.write(path.join(dir, "behavior"), "writer")
+    await expect(NativeRevert.commit({ sessionID: session.id, id: prepared.id })).rejects.toThrow(
+      "held by another client",
+    )
+    expect((await calls(dir)).some((entry) => entry.method === "thread/revert")).toBe(false)
+    expect(await NativeStore.history(session.id)).toEqual(before)
+  })
+})
+
 test("reverting native skill messages preserves retained skills and supports editing their explicit selection", async () => {
   await scenario(async (session, dir) => {
     const skill = { name: "research", path: "skill://fixture/research", description: "Research", enabled: true }

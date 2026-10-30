@@ -44,6 +44,7 @@ describe("Codex slash menu", () => {
       "status",
       "compact",
       "tasks",
+      "release",
       "resume",
       "skills",
       "mcp",

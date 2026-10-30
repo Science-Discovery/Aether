@@ -14,10 +14,13 @@ import { NativeRevert } from "../../native/revert"
 import { NativeAuth } from "../../native/auth"
 import { NativeSkills } from "../../native/skills"
 import { NativeMcp } from "../../native/mcp"
+import { NativeMcpAuthRoutes } from "../../native/mcp-auth-routes"
 import { NativeCompactRoutes } from "../../native/compact-routes"
 import { NativeChatRoutes } from "../../native/chats-routes"
 import { NativeTaskRoutes } from "../../native/tasks-routes"
 import { NativeImageRoutes } from "../../native/image-routes"
+import { NativeElicitationRoutes } from "../../native/elicitation-routes"
+import { NativeOwnershipRoutes } from "../../native/ownership-routes"
 import { MessageID, SessionID } from "../../session/schema"
 import { lazy } from "../../util/lazy"
 
@@ -27,6 +30,9 @@ export const NativeRoutes = lazy(() =>
     .route("/", NativeChatRoutes())
     .route("/", NativeTaskRoutes())
     .route("/", NativeImageRoutes())
+    .route("/", NativeElicitationRoutes())
+    .route("/", NativeOwnershipRoutes())
+    .route("/", NativeMcpAuthRoutes())
     .get(
       "/codex/mcp",
       describeRoute({
@@ -42,6 +48,7 @@ export const NativeRoutes = lazy(() =>
       validator(
         "query",
         z.object({
+          sessionID: SessionID.zod.optional(),
           refresh: z
             .preprocess((value) => (value === "true" ? true : value === "false" ? false : value), z.boolean())
             .optional(),

@@ -219,3 +219,142 @@ test("session handlers are isolated and retired root and child turns cannot ente
     await pool.dispose()
   }
 })
+
+test("read-only inspection uses only the matching live thread and preserves turn handlers", async () => {
+  const pool = NativeRuntime.create()
+  await pool.configure(config)
+  try {
+    const lease = await pool.acquire({ ...options, id: "one", onRequest: () => ({ decision: "original" }) })
+    lease.bind("thread-one")
+    const scope = { id: "one", directory: options.directory, thread: "thread-one", home: lease.home! }
+    const read = (client: typeof lease.client) => client.request<string>("echo", { value: "tools" }, { timeout: 1000 })
+    expect(await pool.inspect(scope, read)).toBe("tools")
+    expect(await lease.client.request<{ decision: string }>("ask", undefined, { timeout: 1000 })).toEqual({
+      decision: "original",
+    })
+    for (const key of ["id", "directory", "thread", "home"] as const) {
+      expect(await pool.inspect({ ...scope, [key]: "different" }, read)).toBeUndefined()
+    }
+    await expect(pool.inspect(scope, (client) => client.request("wait", undefined, { timeout: 40 }))).rejects.toThrow(
+      "timed out",
+    )
+    await lease.release(true)
+    expect(await pool.inspect(scope, read)).toBe("tools")
+    expect(await pool.handoff("one")).toBe(true)
+    expect(await pool.inspect(scope, read)).toBeUndefined()
+  } finally {
+    await pool.dispose()
+  }
+})
+
+test("inspection discards results invalidated by configuration changes", async () => {
+  const pool = NativeRuntime.create()
+  await pool.configure(config)
+  try {
+    const lease = await pool.acquire({ ...options, id: "one" })
+    lease.bind("thread-one")
+    const scope = { id: "one", directory: options.directory, thread: "thread-one", home: lease.home! }
+    const pending = pool.inspect(scope, (client) => client.request<string>("echo", { value: "old", delay: 50 }))
+    await pool.configure({ ...config, enabled: false })
+    expect(await pending).toBeUndefined()
+    expect(lease.client.closed).toBe(false)
+    await lease.release(true)
+  } finally {
+    await pool.dispose()
+  }
+})
+
+test("handoff refuses an active lease without retiring it and closes only the idle owner", async () => {
+  const pool = NativeRuntime.create()
+  await pool.configure(config)
+  try {
+    const lease = await pool.acquire({ ...options, id: "one" })
+    const other = await pool.acquire({ ...options, id: "two" })
+    await expect(pool.handoff("one")).rejects.toThrow("finish")
+    await lease.release(true)
+    expect(lease.client.closed).toBe(false)
+    expect(await pool.handoff("one")).toBe(true)
+    expect(lease.client.closed).toBe(true)
+    expect(other.client.closed).toBe(false)
+    expect(await pool.handoff("one")).toBe(false)
+    await other.release(true)
+  } finally {
+    await pool.dispose()
+  }
+})
+
+test("credential refresh requests native reload without closing active or retained connections", async () => {
+  await using dir = await tmpdir()
+  const pool = NativeRuntime.create()
+  await pool.configure({ ...config, limit: 4 })
+  try {
+    const active = await pool.acquire({ ...options, id: "one" })
+    const idle = await pool.acquire({ ...options, id: "two" })
+    await idle.release(true)
+    const other = await pool.acquire({ ...options, directory: dir.path, id: "other" })
+    await other.release(true)
+    expect(await pool.refresh({ directory: options.directory, home: "different-home" })).toBe(true)
+    expect(idle.client.closed).toBe(false)
+    expect(await idle.client.request<number>("reloads")).toBe(0)
+    expect(await pool.refresh({ directory: options.directory, home: active.home! })).toBe(true)
+    expect(idle.client.closed).toBe(false)
+    expect(active.client.closed).toBe(false)
+    expect(other.client.closed).toBe(false)
+    expect(await idle.client.request<number>("reloads")).toBe(1)
+    expect(await active.client.request<number>("reloads")).toBe(1)
+    expect(await other.client.request<number>("reloads")).toBe(0)
+    expect(await active.client.request<string>("echo", { value: "still running" })).toBe("still running")
+    await active.release(true)
+    expect(active.client.closed).toBe(false)
+  } finally {
+    await pool.dispose()
+  }
+})
+
+test("unsupported credential refresh leaves the existing connection usable and retained", async () => {
+  const pool = NativeRuntime.create()
+  await pool.configure(config)
+  try {
+    const lease = await pool.acquire({ ...options, id: "one", args: [...options.args, "--reject-reload"] })
+    await lease.release(true)
+    expect(await pool.refresh({ directory: options.directory, home: lease.home! })).toBe(false)
+    expect(lease.client.closed).toBe(false)
+    const next = await pool.acquire({ ...options, id: "one" })
+    expect(next.client).toBe(lease.client)
+    expect(await next.client.request<string>("echo", { value: "still usable" })).toBe("still usable")
+    await next.release(true)
+    expect(next.client.closed).toBe(false)
+  } finally {
+    await pool.dispose()
+  }
+})
+
+test("handoff checks cannot close a lease that became active while checking native state", async () => {
+  const pool = NativeRuntime.create()
+  await pool.configure(config)
+  try {
+    const lease = await pool.acquire({ ...options, id: "one" })
+    lease.bind("thread-one")
+    await lease.release(true)
+    await expect(
+      pool.handoff("one", async () => {
+        throw new Error("Native task is running")
+      }),
+    ).rejects.toThrow("running")
+    expect(lease.client.closed).toBe(false)
+    const gate = Promise.withResolvers<void>()
+    const pending = pool
+      .handoff("one", async (entry) => {
+        expect(entry.thread).toBe("thread-one")
+        await gate.promise
+      })
+      .catch((error: unknown) => error)
+    const active = await pool.acquire({ ...options, id: "one" })
+    gate.resolve()
+    expect(String(await pending)).toContain("changed")
+    expect(active.client.closed).toBe(false)
+    await active.release(true)
+  } finally {
+    await pool.dispose()
+  }
+})

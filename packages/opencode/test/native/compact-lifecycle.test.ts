@@ -127,6 +127,18 @@ test("a lost completion is verified by reading history rather than compacting ag
   })
 }, 15_000)
 
+test("compaction refuses a chat held by another native writer before requesting compaction", async () => {
+  await scenario(async (session, dir) => {
+    await Bun.write(path.join(dir, "behavior"), "writer")
+    const before = await Bun.file(path.join(dir, "compact-history.json")).text()
+    await expect(NativeCompact.start({ sessionID: session.id, id: crypto.randomUUID() })).rejects.toThrow(
+      "held by another client",
+    )
+    expect(await count(dir)).toBe(0)
+    expect(await Bun.file(path.join(dir, "compact-history.json")).text()).toBe(before)
+  })
+})
+
 test("closed unchanged compaction can be checked and released without retrying, unsupported versions fail clearly", async () => {
   await scenario(async (session, dir) => {
     await Bun.write(path.join(dir, "behavior"), "ack-disconnect")
