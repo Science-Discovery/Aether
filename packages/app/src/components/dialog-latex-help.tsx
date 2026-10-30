@@ -11,6 +11,7 @@ export function DialogLatexHelp() {
       id: "controls",
       title: "latex.help.controls",
       items: [
+        ["latex.toolbar", "latex.help.toolbar"],
         ["latex.project", "latex.help.project"],
         ["latex.refresh", "latex.help.refresh"],
         ["latex.settings", "latex.help.settings"],

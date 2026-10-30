@@ -26,6 +26,7 @@ export const { use: useLatex, provider: LatexProvider } = createSimpleContext({
       driver: "auto" as LatexBinding["driver"],
       program: "auto" as LatexBinding["program"],
       configuring: false,
+      collapsed: false,
       busy: false,
       saving: false,
       scanning: false,
@@ -130,6 +131,7 @@ export const { use: useLatex, provider: LatexProvider } = createSimpleContext({
         driver: project.binding?.driver ?? "auto",
         program: project.binding?.program ?? "auto",
         configuring: !project.binding,
+        ...(!project.binding ? { collapsed: false } : {}),
       })
     }
     const schedule = () => {
@@ -524,6 +526,7 @@ export const { use: useLatex, provider: LatexProvider } = createSimpleContext({
           error: "",
           loadError: "",
           configuring: false,
+          collapsed: false,
           queued: false,
           blocked: [],
           composing: [],
@@ -630,7 +633,11 @@ export const { use: useLatex, provider: LatexProvider } = createSimpleContext({
         edits++
         setState(value)
       },
-      configure: (value: boolean) => setState("configuring", value),
+      configure: (value: boolean) => {
+        setState("configuring", value)
+        if (value) setState("collapsed", false)
+      },
+      collapse: (value: boolean) => setState("collapsed", value),
       downloads: (value: boolean) => setState("downloads", value),
       automatic: (value: boolean) => {
         setState("automatic", value)

@@ -1806,6 +1806,12 @@ export const dict = {
   "latex.setup.unsupported": "此服务端平台暂不支持自动安装，请使用手动安装指南。",
   "latex.automatic": "自动保存并编译",
   "latex.help": "帮助",
+  "latex.collapse": "收起",
+  "latex.expand": "展开",
+  "latex.settingsPending": "工程设置未保存",
+  "latex.toolbar": "工具栏展开与收起",
+  "latex.help.toolbar":
+    "点击「收起」可隐藏版本、导出和低频设置，保留保存、编译状态与操作。点击「展开」恢复；切换文件或聊天会保留选择，错误和冲突仍会显示。",
   "latex.help.title": "LaTeX 写作帮助",
   "latex.help.subtitle": "一处完成源码编辑、编译与 PDF 阅读。",
   "latex.help.quick": "快速上手",

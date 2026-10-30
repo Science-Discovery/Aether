@@ -37,6 +37,7 @@ function Workspace(props: Props) {
   const language = useLanguage()
   const dialog = useDialog()
   const choices = createUniqueId()
+  const controls = createUniqueId()
   const state = latex.state
   const [local, setLocal] = createStore({ error: "" })
   createEffect(
@@ -60,6 +61,27 @@ function Workspace(props: Props) {
       </Dialog>
     ))
   const help = () => dialog.show(() => <DialogLatexHelp />)
+  const status = () =>
+    [
+      latex.conflicts().length
+        ? language.t("latex.paused")
+        : state.saving
+          ? language.t("latex.saving")
+          : latex.pending().length
+            ? language.t("latex.unsaved", { count: latex.pending().length })
+            : state.project?.binding
+              ? language.t("latex.saved")
+              : "",
+      state.project?.binding && latex.changed()
+        ? language.t("latex.settingsPending")
+        : state.queued
+          ? language.t("latex.queued")
+          : state.project?.latest
+            ? language.t(`latex.state.${state.project.latest.state}`)
+            : "",
+    ]
+      .filter(Boolean)
+      .join(" · ")
   const compare = async (path: string) => {
     setLocal("error", "")
     const snapshot = await latex.compare(path).catch((cause) => {
@@ -129,19 +151,30 @@ function Workspace(props: Props) {
             <Button
               size="small"
               variant="secondary"
-              aria-expanded={state.configuring}
-              onClick={() => latex.configure(!state.configuring)}
+              aria-expanded={!state.collapsed && state.configuring}
+              onClick={() => latex.configure(state.collapsed || !state.configuring)}
             >
               {state.project?.binding?.main ?? language.t("latex.project")}
             </Button>
-            <label class="flex items-center gap-2 text-text-weak">
-              <input
-                type="checkbox"
-                checked={state.automatic}
-                onChange={(event) => latex.automatic(event.currentTarget.checked)}
-              />
-              {language.t("latex.automatic")}
-            </label>
+            <Show when={!state.collapsed}>
+              <label class="flex items-center gap-2 text-text-weak">
+                <input
+                  type="checkbox"
+                  checked={state.automatic}
+                  onChange={(event) => latex.automatic(event.currentTarget.checked)}
+                />
+                {language.t("latex.automatic")}
+              </label>
+            </Show>
+            <Show when={state.collapsed}>
+              <span
+                class="min-w-0 flex-1 truncate text-text-weak"
+                title={status()}
+                data-component="latex-compact-status"
+              >
+                {status()}
+              </span>
+            </Show>
             <Button
               size="small"
               data-action="latex-compile"
@@ -155,150 +188,168 @@ function Workspace(props: Props) {
                 {language.t("common.cancel")}
               </Button>
             </Show>
-            <Button size="small" variant="secondary" onClick={() => void latex.refresh()} disabled={state.busy}>
-              {language.t("latex.refresh")}
-            </Button>
-            <Button size="small" variant="secondary" onClick={settings}>
-              {language.t("latex.settings")}
-            </Button>
-            <Button size="small" variant="secondary" onClick={latex.show}>
-              {language.t("latex.preview")}
-            </Button>
-            <Button size="small" variant="secondary" data-action="latex-help" onClick={help}>
-              {language.t("latex.help")}
+            <Show when={!state.collapsed}>
+              <Button size="small" variant="secondary" onClick={() => void latex.refresh()} disabled={state.busy}>
+                {language.t("latex.refresh")}
+              </Button>
+              <Button size="small" variant="secondary" onClick={settings}>
+                {language.t("latex.settings")}
+              </Button>
+              <Button size="small" variant="secondary" onClick={latex.show}>
+                {language.t("latex.preview")}
+              </Button>
+              <Button size="small" variant="secondary" data-action="latex-help" onClick={help}>
+                {language.t("latex.help")}
+              </Button>
+            </Show>
+          </div>
+          <div class="flex shrink-0 items-center gap-2">
+            <Show when={!state.collapsed}>{props.actions}</Show>
+            <Button
+              size="small"
+              variant="secondary"
+              data-action="latex-collapse"
+              aria-expanded={!state.collapsed}
+              aria-controls={controls}
+              onClick={() => latex.collapse(!state.collapsed)}
+            >
+              {language.t(state.collapsed ? "latex.expand" : "latex.collapse")}
             </Button>
           </div>
-          {props.actions}
         </div>
-        <Show when={state.configuring}>
-          <div
-            class="mt-2 flex flex-col gap-2 rounded-md border border-border-weak-base p-3"
-            data-component="latex-project-settings"
-          >
-            <label class="flex flex-wrap items-center gap-2">
-              <span>{language.t("latex.root")}</span>
-              <input
-                aria-label={language.t("latex.root")}
-                class="min-w-0 flex-1 rounded border border-border-weak-base bg-background-base px-2 py-1"
-                value={state.root}
-                onInput={(event) => latex.edit({ root: event.currentTarget.value })}
-              />
-              <Button
-                size="small"
-                variant="secondary"
-                onClick={() => void latex.open(props.path, state.root.trim() || ".")}
-                disabled={state.busy || latex.running()}
-              >
-                {language.t("latex.open")}
-              </Button>
-            </label>
-            <label class="flex flex-wrap items-center gap-2">
-              <span>{language.t("latex.main")}</span>
-              <input
-                aria-label={language.t("latex.main")}
-                list={choices}
-                placeholder={language.t("latex.choose")}
-                class="min-w-0 flex-1 rounded border border-border-weak-base bg-background-base px-2 py-1"
-                value={state.main}
-                onInput={(event) => latex.edit({ main: event.currentTarget.value })}
-              />
-              <datalist id={choices}>
-                <For
-                  each={[
-                    ...new Set([
-                      ...(state.project?.candidates ?? []),
-                      ...(state.project?.main ? [state.project.main] : []),
-                    ]),
-                  ]}
+        <div id={controls} hidden={state.collapsed} data-component="latex-toolbar-details">
+          <Show when={state.configuring}>
+            <div
+              class="mt-2 flex flex-col gap-2 rounded-md border border-border-weak-base p-3"
+              data-component="latex-project-settings"
+            >
+              <label class="flex flex-wrap items-center gap-2">
+                <span>{language.t("latex.root")}</span>
+                <input
+                  aria-label={language.t("latex.root")}
+                  class="min-w-0 flex-1 rounded border border-border-weak-base bg-background-base px-2 py-1"
+                  value={state.root}
+                  onInput={(event) => latex.edit({ root: event.currentTarget.value })}
+                />
+                <Button
+                  size="small"
+                  variant="secondary"
+                  onClick={() => void latex.open(props.path, state.root.trim() || ".")}
+                  disabled={state.busy || latex.running()}
                 >
-                  {(main) => <option value={main}>{main}</option>}
-                </For>
-              </datalist>
-            </label>
-            <div class="flex flex-wrap items-center gap-2">
-              <label>
-                {language.t("latex.driver")}{" "}
-                <select
-                  aria-label={language.t("latex.driver")}
-                  class="rounded border border-border-weak-base bg-background-base px-2 py-1"
-                  value={state.driver}
-                  onChange={(event) => latex.edit({ driver: event.currentTarget.value as LatexBinding["driver"] })}
-                >
-                  <option value="auto">{language.t("latex.auto")}</option>
-                  <option value="tectonic">Tectonic</option>
-                  <option value="latexmk">latexmk</option>
-                </select>
+                  {language.t("latex.open")}
+                </Button>
               </label>
-              <label>
-                {language.t("latex.program")}{" "}
-                <select
-                  aria-label={language.t("latex.program")}
-                  class="rounded border border-border-weak-base bg-background-base px-2 py-1"
-                  value={state.program}
-                  onChange={(event) => latex.edit({ program: event.currentTarget.value as LatexBinding["program"] })}
-                >
-                  <option value="auto">{language.t("latex.auto")}</option>
-                  <option value="pdflatex">pdfLaTeX</option>
-                  <option value="xelatex">XeLaTeX</option>
-                </select>
+              <label class="flex flex-wrap items-center gap-2">
+                <span>{language.t("latex.main")}</span>
+                <input
+                  aria-label={language.t("latex.main")}
+                  list={choices}
+                  placeholder={language.t("latex.choose")}
+                  class="min-w-0 flex-1 rounded border border-border-weak-base bg-background-base px-2 py-1"
+                  value={state.main}
+                  onInput={(event) => latex.edit({ main: event.currentTarget.value })}
+                />
+                <datalist id={choices}>
+                  <For
+                    each={[
+                      ...new Set([
+                        ...(state.project?.candidates ?? []),
+                        ...(state.project?.main ? [state.project.main] : []),
+                      ]),
+                    ]}
+                  >
+                    {(main) => <option value={main}>{main}</option>}
+                  </For>
+                </datalist>
               </label>
-              <Button
-                size="small"
-                data-action="latex-bind"
-                onClick={() => void latex.bind()}
-                disabled={state.busy || latex.running() || !state.main || state.root !== state.project?.root}
-              >
-                {language.t("latex.bind")}
-              </Button>
+              <div class="flex flex-wrap items-center gap-2">
+                <label>
+                  {language.t("latex.driver")}{" "}
+                  <select
+                    aria-label={language.t("latex.driver")}
+                    class="rounded border border-border-weak-base bg-background-base px-2 py-1"
+                    value={state.driver}
+                    onChange={(event) => latex.edit({ driver: event.currentTarget.value as LatexBinding["driver"] })}
+                  >
+                    <option value="auto">{language.t("latex.auto")}</option>
+                    <option value="tectonic">Tectonic</option>
+                    <option value="latexmk">latexmk</option>
+                  </select>
+                </label>
+                <label>
+                  {language.t("latex.program")}{" "}
+                  <select
+                    aria-label={language.t("latex.program")}
+                    class="rounded border border-border-weak-base bg-background-base px-2 py-1"
+                    value={state.program}
+                    onChange={(event) => latex.edit({ program: event.currentTarget.value as LatexBinding["program"] })}
+                  >
+                    <option value="auto">{language.t("latex.auto")}</option>
+                    <option value="pdflatex">pdfLaTeX</option>
+                    <option value="xelatex">XeLaTeX</option>
+                  </select>
+                </label>
+                <Button
+                  size="small"
+                  data-action="latex-bind"
+                  onClick={() => void latex.bind()}
+                  disabled={state.busy || latex.running() || !state.main || state.root !== state.project?.root}
+                >
+                  {language.t("latex.bind")}
+                </Button>
+              </div>
+              <Show when={state.project?.reason === "ambiguous"}>
+                <p class="text-text-weak">{language.t("latex.ambiguous")}</p>
+              </Show>
+              <Show when={state.project?.issue}>
+                <p class="text-text-weak">{state.project?.issue}</p>
+              </Show>
             </div>
-            <Show when={state.project?.reason === "ambiguous"}>
-              <p class="text-text-weak">{language.t("latex.ambiguous")}</p>
+          </Show>
+          <div class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-text-weak">
+            <span data-component="latex-preview-status" data-current={latex.current()}>
+              {!latex.artifact()
+                ? language.t("latex.empty")
+                : latex.outdated()
+                  ? language.t("latex.stale")
+                  : latex.verified()
+                    ? language.t("latex.current")
+                    : language.t("latex.unverified")}
+            </span>
+            <span data-component="latex-save-status">
+              {latex.conflicts().length
+                ? language.t("latex.paused")
+                : state.saving
+                  ? language.t("latex.saving")
+                  : latex.pending().length
+                    ? language.t("latex.unsaved", { count: latex.pending().length })
+                    : state.project?.binding
+                      ? language.t("latex.saved")
+                      : ""}
+            </span>
+            <Show when={state.queued}>
+              <span>{language.t("latex.queued")}</span>
             </Show>
-            <Show when={state.project?.issue}>
-              <p class="text-text-weak">{state.project?.issue}</p>
+            <Show when={state.project?.latest}>
+              <span data-component="latex-build-status">
+                {language.t(`latex.state.${state.project!.latest!.state}`)}
+              </span>
+            </Show>
+            <Show when={latex.artifact()?.completedAt}>
+              <time>{new Date(latex.artifact()!.completedAt!).toLocaleTimeString(language.intl())}</time>
             </Show>
           </div>
-        </Show>
-        <div class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-text-weak">
-          <span data-component="latex-preview-status" data-current={latex.current()}>
-            {!latex.artifact()
-              ? language.t("latex.empty")
-              : latex.outdated()
-                ? language.t("latex.stale")
-                : latex.verified()
-                  ? language.t("latex.current")
-                  : language.t("latex.unverified")}
-          </span>
-          <span data-component="latex-save-status">
-            {latex.conflicts().length
-              ? language.t("latex.paused")
-              : state.saving
-                ? language.t("latex.saving")
-                : latex.pending().length
-                  ? language.t("latex.unsaved", { count: latex.pending().length })
-                  : state.project?.binding
-                    ? language.t("latex.saved")
-                    : ""}
-          </span>
-          <Show when={state.queued}>
-            <span>{language.t("latex.queued")}</span>
-          </Show>
-          <Show when={state.project?.latest}>
-            <span data-component="latex-build-status">{language.t(`latex.state.${state.project!.latest!.state}`)}</span>
-          </Show>
-          <Show when={latex.artifact()?.completedAt}>
-            <time>{new Date(latex.artifact()!.completedAt!).toLocaleTimeString(language.intl())}</time>
-          </Show>
+          <label class="mt-1 flex items-center gap-2 text-text-weak">
+            <input
+              type="checkbox"
+              checked={state.downloads}
+              onChange={(event) => latex.downloads(event.currentTarget.checked)}
+              disabled={state.busy || latex.running()}
+            />
+            {language.t("latex.downloads")}
+          </label>
         </div>
-        <label class="mt-1 flex items-center gap-2 text-text-weak">
-          <input
-            type="checkbox"
-            checked={state.downloads}
-            onChange={(event) => latex.downloads(event.currentTarget.checked)}
-            disabled={state.busy || latex.running()}
-          />
-          {language.t("latex.downloads")}
-        </label>
         <Show when={state.status && !state.status.tools.some((tool) => tool.installed)}>
           <p class="mt-2 text-text-weak">{language.t("latex.unavailable")}</p>
         </Show>

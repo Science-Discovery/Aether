@@ -1871,6 +1871,12 @@ export const dict = {
     "Automatic installation is unavailable for this server platform. Use the manual installation guide.",
   "latex.automatic": "Auto save and compile",
   "latex.help": "Help",
+  "latex.collapse": "Collapse",
+  "latex.expand": "Expand",
+  "latex.settingsPending": "Unsaved project settings",
+  "latex.toolbar": "Expand and collapse the toolbar",
+  "latex.help.toolbar":
+    "Collapse hides version, export and setup controls while keeping save and build status and actions. Expand restores them. Your choice stays when switching files or chats; errors and conflicts remain visible.",
   "latex.help.title": "Writing with LaTeX",
   "latex.help.subtitle": "Edit source, compile, and read your PDF in one place.",
   "latex.help.quick": "Quick start",

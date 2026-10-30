@@ -36,6 +36,7 @@ import { useComments } from "@/context/comments"
 import { getSessionPrefetch, SESSION_PREFETCH_TTL } from "@/context/global-sync/session-prefetch"
 import { useGlobalSync } from "@/context/global-sync"
 import { useLanguage } from "@/context/language"
+import { useLatex } from "@/context/latex"
 import { useLayout } from "@/context/layout"
 import { usePrompt } from "@/context/prompt"
 import { ConversationQuoteProvider } from "@/context/conversation-quote"
@@ -48,6 +49,7 @@ import { QuickReadingFirstReadGate } from "@/components/quick-reading/quick-read
 import { QuickReadingModeProvider, useQuickReadingMode } from "@/context/quick-reading-mode"
 import { QuickReadingPanel } from "@/components/quick-reading/quick-reading-panel"
 import { LatexReadingToolbar } from "@/components/quick-reading/latex-reading-toolbar"
+import { source } from "@/components/latex-drafts"
 import { type FollowupDraft, sendFollowupDraft } from "@/components/prompt-input/submit"
 import { createSessionComposerState, SessionComposerRegion } from "@/pages/session/composer"
 import {
@@ -356,6 +358,7 @@ function SessionPageContent(props: SessionPageProps = {}) {
   const layout = useLayout()
   const local = useLocal()
   const file = useFile()
+  const latex = useLatex()
   const sync = useSync()
   const dialog = useDialog()
   const language = useLanguage()
@@ -640,6 +643,21 @@ function SessionPageContent(props: SessionPageProps = {}) {
   const activeTab = tabState.activeTab
   const activeFileTab = tabState.activeFileTab
   const quickReadingController = useQuickReadingController({})
+  const folded = createMemo(() => {
+    const tab = activeFileTab()
+    const path = tab ? file.pathFromTab(tab) : undefined
+    const project = latex.state.project
+    const document = quickReadingController.latex.document()
+    return (
+      latex.state.collapsed &&
+      !!path &&
+      source(path) &&
+      path === latex.state.path &&
+      !!project?.binding &&
+      document?.root === project.root &&
+      document.main === project.binding.main
+    )
+  })
   const revertMessageID = createMemo(() => info()?.revert?.messageID)
   const messages = createMemo(() => (params.id ? (sync.data.message[params.id] ?? []) : []))
   const messagesReady = createMemo(() => {
@@ -2619,7 +2637,11 @@ function SessionPageContent(props: SessionPageProps = {}) {
           style={{ order: "2" }}
           header={
             <Show when={quickReadingController.compiled() && desktopReviewOpen()}>
-              <LatexReadingToolbar reading={quickReadingController.latex} download={quickReadingController.download} />
+              <LatexReadingToolbar
+                reading={quickReadingController.latex}
+                download={quickReadingController.download}
+                collapsed={folded()}
+              />
             </Show>
           }
           widthOverride={effectiveSidePanelWidth()}

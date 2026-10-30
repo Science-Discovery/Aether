@@ -1167,6 +1167,12 @@ export const dict = {
   "latex.bind": "儲存專案設定",
   "latex.unverified": "預覽狀態尚未確認",
   "latex.help": "說明",
+  "latex.collapse": "收合",
+  "latex.expand": "展開",
+  "latex.settingsPending": "專案設定尚未儲存",
+  "latex.toolbar": "工具列展開與收合",
+  "latex.help.toolbar":
+    "點選「收合」可隱藏版本、匯出與低頻設定，保留儲存、編譯狀態與操作。點選「展開」還原；切換檔案或聊天會保留選擇，錯誤與衝突仍會顯示。",
   "latex.help.title": "LaTeX 寫作說明",
   "latex.help.subtitle": "在同一處編輯原始碼、編譯與閱讀 PDF。",
   "latex.help.quick": "快速上手",
