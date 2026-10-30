@@ -1,5 +1,6 @@
 import { StreamLanguage, type StreamParser } from "@codemirror/language"
 import { stex } from "@codemirror/legacy-modes/mode/stex"
+import { modern } from "./code-editor-latex-modern"
 
 // BibTeX has different entry/value delimiters from TeX. Keep its lexer separate;
 // bibliography validation belongs to the actual compiler, not the highlighter.
@@ -32,7 +33,10 @@ const bib: StreamParser<{ depth: number; quote: boolean; value: boolean }> = {
   },
 }
 
-export function latex(filename: string) {
-  if (/\.(tex|ltx|sty|cls)$/i.test(filename)) return StreamLanguage.define(stex)
-  if (/\.bib$/i.test(filename)) return StreamLanguage.define(bib)
+const tex = StreamLanguage.define(stex)
+const bibliography = StreamLanguage.define(bib)
+
+export function latex(filename: string, preset: "paper" | "vscode" = "paper") {
+  if (/\.(tex|ltx|sty|cls)$/i.test(filename)) return preset === "vscode" ? modern : tex
+  if (/\.bib$/i.test(filename)) return bibliography
 }

@@ -1,9 +1,11 @@
 import { HighlightStyle, syntaxHighlighting } from "@codemirror/language"
 import { EditorView } from "@codemirror/view"
 import { tags as t } from "@lezer/highlight"
+import { tokens } from "./code-editor-latex-modern"
 
 export type WritingStyle = {
   preset?: "paper" | "vscode"
+  typeface?: "aether" | "vscode"
   guides?: boolean
   brackets?: boolean
   dark: boolean
@@ -32,9 +34,19 @@ const highlight = HighlightStyle.define([
   { tag: t.invalid, textDecoration: "underline wavy var(--latex-error)" },
 ])
 
-// Map CodeMirror's existing TeX/BibTeX tokens to the Modern/Plus palette.
-// This is a visual preset, not a replacement TextMate language service.
+// Modern/Plus colors with Workshop-style TeX scopes; standard tags retain
+// the existing BibTeX highlighting without applying TeX command semantics.
 const studio = HighlightStyle.define([
+  { tag: tokens.preamble, color: "var(--latex-control)" },
+  { tag: tokens.command, color: "var(--latex-command)" },
+  { tag: [tokens.type, tokens.math], color: "var(--latex-type)" },
+  { tag: tokens.symbol, color: "var(--latex-keyword)" },
+  { tag: tokens.number, color: "var(--latex-number)" },
+  { tag: tokens.comment, color: "var(--latex-comment)" },
+  { tag: tokens.strong, color: "var(--latex-strong)", fontWeight: "bold" },
+  { tag: tokens.emphasis, color: "var(--latex-emphasis)", fontStyle: "italic" },
+  { tag: tokens.escape, color: "var(--latex-control)" },
+  { tag: tokens.bracket, color: "var(--latex-punctuation)" },
   { tag: [t.tagName, t.escape], color: "var(--latex-command)" },
   { tag: [t.keyword, t.attributeName], color: "var(--latex-keyword)" },
   { tag: t.meta, color: "var(--latex-control)" },
@@ -142,9 +154,15 @@ export function writing(opts: WritingStyle) {
           "--latex-control": opts.dark ? "#c586c0" : "#af00db",
           "--latex-type": opts.dark ? "#4ec9b0" : "#267f99",
           "--latex-number": opts.dark ? "#b5cea8" : "#098658",
+          "--latex-strong": opts.dark ? "#569cd6" : "#000080",
+          "--latex-emphasis": opts.dark ? "#c586c0" : "#800080",
         },
         ".cm-scroller": {
-          fontFamily: typography(opts.font),
+          fontFamily: typography(
+            vscode && opts.typeface !== "aether"
+              ? 'Consolas, Menlo, Monaco, "Liberation Mono", "DejaVu Sans Mono", monospace'
+              : opts.font,
+          ),
           fontSize: `${opts.size}px`,
           lineHeight: String({ compact: 1.5, normal: 1.7, wide: 1.9 }[opts.spacing]),
           overflow: "auto",
@@ -152,11 +170,11 @@ export function writing(opts: WritingStyle) {
           scrollbarColor: `${colors.border} transparent`,
         },
         ".cm-content": {
-          padding: "8px 0 160px",
+          padding: vscode ? "4px 0 160px" : "8px 0 160px",
           caretColor: colors.text,
           fontVariantLigatures: "none",
         },
-        ".cm-line": { padding: vscode ? "0 12px" : "0 16px" },
+        ".cm-line": { padding: vscode ? "0 10px" : "0 16px" },
         ".cm-gutters": {
           backgroundColor: colors.gutter,
           color: colors.muted,
@@ -168,8 +186,11 @@ export function writing(opts: WritingStyle) {
           color: vscode && !opts.dark ? "#171184" : colors.text,
           backgroundColor: vscode ? colors.gutter : colors.active,
         },
-        ".cm-activeLine": { backgroundColor: colors.active },
-        "&:not(.cm-focused) .cm-activeLine": { backgroundColor: "transparent" },
+        ".cm-activeLine": {
+          backgroundColor: vscode ? "transparent" : colors.active,
+          boxShadow: vscode ? `inset 0 0 0 1px ${colors.border}` : "none",
+        },
+        "&:not(.cm-focused) .cm-activeLine": { backgroundColor: "transparent", boxShadow: "none" },
         ".cm-cursor, .cm-dropCursor": { borderLeftColor: colors.text },
         ".cm-selectionBackground, &.cm-focused .cm-selectionBackground": { backgroundColor: colors.selection },
         ".cm-content ::selection, .cm-content::selection": { backgroundColor: colors.selection },
@@ -186,7 +207,7 @@ export function writing(opts: WritingStyle) {
           padding: vscode ? "0 3px" : "0 5px",
           margin: "0 4px",
         },
-        ".cm-latex-heading": { fontWeight: "600" },
+        ".cm-latex-heading": { fontWeight: vscode ? "400" : "600" },
         ".cm-latex-bracket-0, .cm-latex-bracket-0 span": { color: opts.dark ? "#ffd700" : "#0431fa" },
         ".cm-latex-bracket-1, .cm-latex-bracket-1 span": { color: opts.dark ? "#da70d6" : "#267326" },
         ".cm-latex-bracket-2, .cm-latex-bracket-2 span": { color: opts.dark ? "#179fff" : "#7b3814" },

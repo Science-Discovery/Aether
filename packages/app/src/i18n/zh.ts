@@ -1750,6 +1750,9 @@ export const dict = {
   "latex.appearance.preset": "编辑风格",
   "latex.appearance.preset.paper": "柔和写作",
   "latex.appearance.preset.vscode": "VS Code",
+  "latex.appearance.typeface": "编辑器字体",
+  "latex.appearance.typeface.vscode": "VS Code 默认字体",
+  "latex.appearance.typeface.aether": "跟随 Aether",
   "latex.appearance.guides": "缩进辅助线",
   "latex.appearance.brackets": "多层括号着色",
   "latex.appearance.mode": "明暗模式",
@@ -1763,6 +1766,8 @@ export const dict = {
   "latex.appearance.spacing.wide": "宽松 · 1.9",
   "latex.appearance.reset": "恢复默认",
   "latex.appearance.font": "沿用「外观」中选择的字体，并为中日韩文字提供字体回退。",
+  "latex.appearance.font.vscode":
+    "使用系统可用的 VS Code 默认等宽字体，并为中日韩文字提供无衬线字体回退，不额外下载字体。",
   "latex.source": "源码",
   "latex.preview": "PDF 预览",
   "latex.root": "工程目录",
@@ -1866,7 +1871,7 @@ export const dict = {
   "latex.help.refresh": "检查磁盘文件、工程设置和编译状态。手动模式下不会保存草稿；自动模式下发现修改可能触发编译。",
   "latex.help.settings": "调整编辑器外观、安装 Tectonic，或设置已经安装的 Tectonic、latexmk 可执行文件路径。",
   "latex.help.appearance":
-    "可选择「柔和写作」或「VS Code」，两者均支持跟随 Aether、浅色和深色。切换风格保留字体、字号与行距。VS Code 提供独立的「缩进辅助线」和「多层括号着色」开关，默认开启；辅助线只显示已有缩进，不重排源码。这些本地设置即时生效，不改变编译或 PDF。恢复默认会设为柔和写作、跟随 Aether、14 px、标准行距，并恢复 VS Code 的两个辅助开关。",
+    "可选择「柔和写作」或「VS Code」，两者均支持跟随 Aether、浅色和深色。柔和写作沿用 Aether 字体；VS Code 默认使用系统等宽字体，也可选择跟随 Aether。切换风格保留此字体选择、字号与行距。VS Code 提供独立的「缩进辅助线」和「多层括号着色」开关，默认开启；辅助线只显示已有缩进，不重排源码。这些本地设置即时生效，不改变编译或 PDF。恢复默认会设为柔和写作、跟随 Aether 明暗、14 px、标准行距，并恢复 VS Code 默认字体与两个辅助开关。",
   "latex.help.folding": "折叠源码",
   "latex.help.folding.description":
     "使用行号旁的箭头折叠章节、环境或参考文献条目。折叠只改变编辑器的显示，保存与编译仍使用完整源码。",

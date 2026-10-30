@@ -151,6 +151,7 @@ const appearance = () => ({
 })
 const style = () => ({
   preset: settings.latex.preset(),
+  typeface: settings.latex.typeface(),
   guides: settings.latex.guides(),
   brackets: settings.latex.brackets(),
 })
@@ -194,7 +195,8 @@ test("older local settings receive LaTeX appearance defaults without changing co
   mount()
   await tick()
   expect(appearance()).toEqual({ mode: "auto", size: 14, spacing: "normal" })
-  expect(style()).toEqual({ preset: "paper", guides: true, brackets: true })
+  expect(style()).toEqual({ preset: "paper", typeface: "vscode", guides: true, brackets: true })
+  expect(host.querySelector('[data-action="latex-appearance-typeface"]')).toBeNull()
   expect(toggle("guides")).toBeNull()
   expect(toggle("brackets")).toBeNull()
   expect(settings.appearance.fontSize()).toBe(18)
@@ -274,18 +276,22 @@ test("appearance is restored when settings reopen and setters keep font size val
 })
 
 test.each([
-  [null, { preset: "paper", guides: true, brackets: true }],
+  [null, { preset: "paper", typeface: "vscode", guides: true, brackets: true }],
   [
-    { preset: "unknown", guides: "false", brackets: 0 },
-    { preset: "paper", guides: true, brackets: true },
+    { preset: "unknown", typeface: "unknown", guides: "false", brackets: 0 },
+    { preset: "paper", typeface: "vscode", guides: true, brackets: true },
   ],
   [
     { preset: "vscode", guides: false, brackets: false },
-    { preset: "vscode", guides: false, brackets: false },
+    { preset: "vscode", typeface: "vscode", guides: false, brackets: false },
+  ],
+  [
+    { preset: "vscode", typeface: "aether" },
+    { preset: "vscode", typeface: "aether", guides: true, brackets: true },
   ],
   [
     { mode: "dark", size: 18, spacing: "wide" },
-    { preset: "paper", guides: true, brackets: true },
+    { preset: "paper", typeface: "vscode", guides: true, brackets: true },
   ],
 ])("validates persisted writing style %j", async (latex, expected) => {
   localStorage.setItem("settings.v3", JSON.stringify({ latex }))
@@ -295,7 +301,7 @@ test.each([
   expect(mocks.save).not.toHaveBeenCalled()
 })
 
-test("style switches preserve typography and aid choices across reopening and reset", async () => {
+test("style switches preserve font, typography and aid choices across reopening and reset", async () => {
   mount()
   await tick()
   const font = settings.appearance.font()
@@ -303,14 +309,18 @@ test("style switches preserve typography and aid choices across reopening and re
   select("size", "18")
   select("spacing", "wide")
   select("preset", "vscode")
-  expect(style()).toEqual({ preset: "vscode", guides: true, brackets: true })
+  expect(style()).toEqual({ preset: "vscode", typeface: "vscode", guides: true, brackets: true })
+  expect(host.textContent).toContain("No fonts are downloaded.")
+  select("typeface", "aether")
+  expect(host.textContent).toContain("Uses the font selected in Appearance")
   expect(toggle("guides").checked).toBe(true)
   expect(toggle("brackets").checked).toBe(true)
   toggle("guides").click()
-  expect(style()).toEqual({ preset: "vscode", guides: false, brackets: true })
+  expect(style()).toEqual({ preset: "vscode", typeface: "aether", guides: false, brackets: true })
   toggle("brackets").click()
-  expect(style()).toEqual({ preset: "vscode", guides: false, brackets: false })
+  expect(style()).toEqual({ preset: "vscode", typeface: "aether", guides: false, brackets: false })
   select("preset", "paper")
+  expect(host.querySelector('[data-action="latex-appearance-typeface"]')).toBeNull()
   expect(toggle("guides")).toBeNull()
   expect(toggle("brackets")).toBeNull()
   expect(appearance()).toEqual({ mode: "dark", size: 18, spacing: "wide" })
@@ -320,13 +330,14 @@ test("style switches preserve typography and aid choices across reopening and re
   dispose?.()
   mount()
   await tick()
-  expect(style()).toEqual({ preset: "paper", guides: false, brackets: false })
+  expect(style()).toEqual({ preset: "paper", typeface: "aether", guides: false, brackets: false })
   select("preset", "vscode")
+  expect(host.querySelector<HTMLSelectElement>('[data-action="latex-appearance-typeface"]')?.value).toBe("aether")
   expect(toggle("guides").checked).toBe(false)
   expect(toggle("brackets").checked).toBe(false)
   expect(appearance()).toEqual({ mode: "dark", size: 18, spacing: "wide" })
   button("appearance-reset").click()
-  expect(style()).toEqual({ preset: "paper", guides: true, brackets: true })
+  expect(style()).toEqual({ preset: "paper", typeface: "vscode", guides: true, brackets: true })
   expect(appearance()).toEqual({ mode: "auto", size: 14, spacing: "normal" })
   expect(settings.appearance.font()).toBe(font)
   expect(toggle("guides")).toBeNull()

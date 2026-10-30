@@ -1600,6 +1600,7 @@ export function FileTabContent(props: { tab: string; visible: boolean }) {
               manuscript(path() ?? "")
                 ? {
                     preset: settings.latex.preset(),
+                    typeface: settings.latex.typeface(),
                     guides: settings.latex.guides(),
                     brackets: settings.latex.brackets(),
                     dark: (settings.latex.mode() === "auto" ? theme.mode() : settings.latex.mode()) === "dark",

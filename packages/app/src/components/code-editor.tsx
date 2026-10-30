@@ -45,7 +45,7 @@ const customHighlightStyle = HighlightStyle.define([
   { tag: t.strikethrough, textDecoration: "line-through" },
 ])
 
-function getLanguageExtension(filename: string) {
+function getLanguageExtension(filename: string, preset?: WritingStyle["preset"]) {
   const ext = filename.split(".").pop()?.toLowerCase() ?? ""
   switch (ext) {
     case "py":
@@ -74,7 +74,7 @@ function getLanguageExtension(filename: string) {
     case "markdown":
       return markdown()
     default:
-      return latex(filename) ?? null
+      return latex(filename, preset) ?? null
   }
 }
 
@@ -100,6 +100,7 @@ export function CodeEditor(props: {
   const editableCompartment = new Compartment()
   const wrapCompartment = new Compartment()
   const style = new Compartment()
+  const syntax = new Compartment()
   const appearance = () => [
     writing(props.appearance ?? { dark: true, size: 14, spacing: "normal", font: "var(--font-family-mono)" }),
     assistance.of({
@@ -202,7 +203,7 @@ export function CodeEditor(props: {
   })
 
   onMount(() => {
-    const lang = getLanguageExtension(props.filename)
+    const lang = getLanguageExtension(props.filename, props.appearance?.preset)
 
     const extensions: Extension[] = [
       lineNumbers(),
@@ -214,6 +215,7 @@ export function CodeEditor(props: {
       closeBrackets(),
       keymap.of([...defaultKeymap, ...historyKeymap, ...closeBracketsKeymap, indentWithTab]),
       style.of(manuscript(props.filename) ? appearance() : [editorTheme, syntaxHighlighting(customHighlightStyle)]),
+      syntax.of(lang ?? []),
       ...(manuscript(props.filename)
         ? [drawSelection(), structure(props.filename), aids(props.filename), keymap.of(foldKeymap)]
         : []),
@@ -225,8 +227,6 @@ export function CodeEditor(props: {
         }
       }),
     ]
-
-    if (lang) extensions.push(lang)
 
     view = new EditorView({
       state: EditorState.create({
@@ -326,6 +326,14 @@ export function CodeEditor(props: {
     const cfg = appearance()
     if (!view || !manuscript(props.filename)) return
     view.dispatch({ effects: [style.reconfigure(cfg), view.scrollSnapshot()] })
+  })
+
+  createEffect(() => {
+    const preset = props.appearance?.preset
+    if (!view || !manuscript(props.filename)) return
+    const lang = latex(props.filename, preset) ?? []
+    if (syntax.get(view.state) === lang) return
+    view.dispatch({ effects: [syntax.reconfigure(lang), view.scrollSnapshot()] })
   })
 
   onCleanup(() => {

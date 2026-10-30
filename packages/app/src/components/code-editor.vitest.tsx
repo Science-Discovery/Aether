@@ -2,11 +2,12 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest"
 import { createStore } from "solid-js/store"
 import { render } from "solid-js/web"
 import { redo, undo, undoDepth } from "@codemirror/commands"
-import { foldCode, foldedRanges } from "@codemirror/language"
+import { foldCode, foldedRanges, language, syntaxTree } from "@codemirror/language"
 import { EditorView } from "@codemirror/view"
 import { CodeEditor } from "./code-editor"
 import type { WritingStyle } from "./code-editor-latex-theme"
 import { assistance } from "./code-editor-latex-decorations"
+import { modern } from "./code-editor-latex-modern"
 
 let host: HTMLDivElement
 let dispose: VoidFunction | undefined
@@ -92,6 +93,8 @@ test("appearance changes preserve the editor, document, selection, folds, and un
   })
 
   expect(editor.view.state.facet(assistance)).toEqual({ guides: true, brackets: true })
+  expect(editor.view.state.facet(language)).toBe(modern)
+  expect(foldedRanges(editor.view.state)).toBe(folds)
   editor.set("appearance", { guides: false, brackets: false })
   expect(editor.view.state.facet(assistance)).toEqual({ guides: false, brackets: false })
   editor.set("appearance", { preset: "paper" })
@@ -176,13 +179,57 @@ test.each([
   ["vscode", false, "#ffffff"],
 ] as const)("uses the %s palette (dark: %s) without replacing typography", (preset, dark, background) => {
   const editor = mount()
-  editor.set("appearance", { size: 17, spacing: "wide", preset, dark })
+  editor.set("appearance", { size: 17, spacing: "wide", preset, dark, typeface: "aether" })
   const css = styles(editor.view)
   expect(css).toContain(`background-color: ${background};`)
   expect(css).toContain("font-size: 17px;")
   expect(css).toContain("line-height: 1.9;")
   expect(css).toContain('font-family: "Fira Code", "Microsoft YaHei"')
   expect(editor.changes).toEqual([])
+})
+
+test("VS Code fonts are local and appearance-only changes retain the syntax tree", () => {
+  const editor = mount()
+  editor.set("appearance", { preset: "vscode" })
+  const tree = syntaxTree(editor.view.state)
+  const doc = editor.view.state.doc
+  expect(styles(editor.view)).toContain('font-family: Consolas, Menlo, Monaco, "Liberation Mono"')
+  expect(styles(editor.view)).toContain("font-size: 14px;")
+  expect(styles(editor.view)).toContain("line-height: 1.7;")
+  expect(editor.view.state.facet(language)).toBe(modern)
+
+  editor.set("appearance", { typeface: "aether", dark: false, size: 18, spacing: "wide" })
+  expect(styles(editor.view)).toContain('font-family: "Fira Code", "Microsoft YaHei"')
+  expect(syntaxTree(editor.view.state)).toBe(tree)
+  editor.set("appearance", { typeface: "vscode", guides: false, brackets: false })
+  expect(syntaxTree(editor.view.state)).toBe(tree)
+  editor.set("appearance", { preset: "paper" })
+  expect(styles(editor.view)).toContain('font-family: "Fira Code", "Microsoft YaHei"')
+  expect(editor.view.state.facet(language)).not.toBe(modern)
+  expect(editor.view.state.doc).toBe(doc)
+  expect(editor.changes).toEqual([])
+})
+
+test("VS Code command scopes replace the old one-color highlighting without changing headings", () => {
+  const editor = mount(
+    "main.tex",
+    String.raw`\documentclass{article}
+\usepackage{ctex}
+\section{中文}
+\textbf{强调}
+$x = \alpha + 2$`,
+  )
+  editor.set("appearance", { preset: "vscode", brackets: false })
+  const css = styles(editor.view)
+  const spans = Array.from(editor.dom.querySelectorAll(".cm-line span"))
+  const token = (text: string) => spans.find((node) => node.textContent === text)?.className
+  expect(token("\\documentclass")).toBeTruthy()
+  expect(token("\\documentclass")).toBe(token("\\usepackage"))
+  expect(token("\\documentclass")).not.toBe(token("\\section"))
+  expect(token("article")).toBeTruthy()
+  expect(token("article")).toBe(token("ctex"))
+  expect(css).toContain("color: var(--latex-strong); font-weight: bold;")
+  expect(css).toContain(".cm-latex-heading {font-weight: 400;}")
 })
 
 test("VS Code assists toggle immediately and retain bracket matching", () => {
