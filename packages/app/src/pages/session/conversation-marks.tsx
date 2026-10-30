@@ -92,23 +92,38 @@ export function ConversationMarks(props: {
     const geometry = (reference: Source) => {
       const ranges = conversationRanges(root, reference)
       const boxes = ranges.flatMap(({ range, container }) => {
-        let clip = bounds
-        let parent: HTMLElement | null = container
-        while (parent && parent !== viewport) {
-          const style = getComputedStyle(parent)
-          const rect = parent.getBoundingClientRect()
-          if ([style.overflowX, style.overflowY].some((value) => /^(auto|scroll|hidden|clip)$/.test(value)))
-            clip = intersect(clip, {
-              left: /^(auto|scroll|hidden|clip)$/.test(style.overflowX) ? rect.left : clip.left,
-              right: /^(auto|scroll|hidden|clip)$/.test(style.overflowX) ? rect.right : clip.right,
-              top: /^(auto|scroll|hidden|clip)$/.test(style.overflowY) ? rect.top : clip.top,
-              bottom: /^(auto|scroll|hidden|clip)$/.test(style.overflowY) ? rect.bottom : clip.bottom,
-            })
-          parent = parent.parentElement
+        const nodes: Node[] = []
+        const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT)
+        let node = walker.nextNode()
+        while (node) {
+          if (range.intersectsNode(node)) nodes.push(node)
+          node = walker.nextNode()
         }
-        return Array.from(range.getClientRects())
-          .filter((rect) => rect.width > 0 && rect.height > 0)
-          .map((rect) => ({ rect, clip: intersect(rect, clip) }))
+        return nodes.flatMap((node) => {
+          const segment = document.createRange()
+          segment.selectNodeContents(node)
+          if (range.compareBoundaryPoints(Range.START_TO_START, segment) > 0)
+            segment.setStart(range.startContainer, range.startOffset)
+          if (range.compareBoundaryPoints(Range.END_TO_END, segment) < 0)
+            segment.setEnd(range.endContainer, range.endOffset)
+          let clip = bounds
+          let parent = node.parentElement
+          while (parent && parent !== viewport) {
+            const style = getComputedStyle(parent)
+            const rect = parent.getBoundingClientRect()
+            if ([style.overflowX, style.overflowY].some((value) => /^(auto|scroll|hidden|clip)$/.test(value)))
+              clip = intersect(clip, {
+                left: /^(auto|scroll|hidden|clip)$/.test(style.overflowX) ? rect.left : clip.left,
+                right: /^(auto|scroll|hidden|clip)$/.test(style.overflowX) ? rect.right : clip.right,
+                top: /^(auto|scroll|hidden|clip)$/.test(style.overflowY) ? rect.top : clip.top,
+                bottom: /^(auto|scroll|hidden|clip)$/.test(style.overflowY) ? rect.bottom : clip.bottom,
+              })
+            parent = parent.parentElement
+          }
+          return Array.from(segment.getClientRects())
+            .filter((rect) => rect.width > 0 && rect.height > 0)
+            .map((rect) => ({ rect, clip: intersect(rect, clip) }))
+        })
       })
       const last = boxes.at(-1)
       return {

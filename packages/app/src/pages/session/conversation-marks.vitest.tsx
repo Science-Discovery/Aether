@@ -182,6 +182,35 @@ describe("temporary conversation reference marks", () => {
     await vi.waitFor(() => expect(view.marks()).toHaveLength(0))
   })
 
+  test.each(["pre", "table"])("clips selected text to its nested %s scroller", async (tag) => {
+    const view = mount()
+    await vi.waitFor(() => expect(view.marks()).toHaveLength(1))
+    view.bodies[0].innerHTML =
+      tag === "pre"
+        ? "<pre><span>alpha</span> beta</pre>"
+        : "<table><tbody><tr><td><span>alpha</span> beta</td></tr></tbody></table>"
+    const scroller = view.bodies[0].firstElementChild as HTMLElement
+    scroller.style.overflowX = "auto"
+    scroller.getBoundingClientRect = () => box(30, 70, 70, 40)
+    view.set("editing", source())
+    await vi.waitFor(() => expect(view.highlights()).toHaveLength(1))
+    expect((view.highlights()[0] as HTMLElement).style.left).toBe("30px")
+    expect((view.highlights()[0] as HTMLElement).style.width).toBe("20px")
+    expect(view.marks()).toHaveLength(1)
+
+    // The range remains inside the timeline, but horizontal scrolling clips it out of the code/table box.
+    view.position.left = -10
+    scroller.dispatchEvent(new Event("scroll"))
+    await vi.waitFor(() => expect(view.marks()).toHaveLength(0))
+    expect(view.highlights()).toHaveLength(0)
+
+    view.position.left = 40
+    scroller.dispatchEvent(new Event("scroll"))
+    await vi.waitFor(() => expect(view.marks()).toHaveLength(1))
+    expect((view.highlights()[0] as HTMLElement).style.left).toBe("40px")
+    expect((view.highlights()[0] as HTMLElement).style.width).toBe("30px")
+  })
+
   test("separates adjacent endpoint badges and keeps them within the viewport", () => {
     const bounds = { left: 0, top: 0, right: 180, bottom: 120 }
     const anchors = Array.from({ length: 5 }, () => ({ left: 155, top: 8, right: 179, bottom: 26, width: 20 }))
