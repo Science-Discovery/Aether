@@ -423,7 +423,7 @@
       ;[
         { action: "copy", path: "M8 8h12v12H8zM15 8V3H3v12h5" },
         { action: "translate", separator: true },
-        { action: "ask" },
+        { action: "ask", separator: true },
         {
           action: "highlight",
           path: "m9 11 6 6M21 6l-3-3-9 9v3l3 3h3zM9 15l-4 4v2h6l4-4M3 21h4",
