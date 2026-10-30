@@ -6,6 +6,7 @@ import { foldCode, foldedRanges } from "@codemirror/language"
 import { EditorView } from "@codemirror/view"
 import { CodeEditor } from "./code-editor"
 import type { WritingStyle } from "./code-editor-latex-theme"
+import { assistance } from "./code-editor-latex-decorations"
 
 let host: HTMLDivElement
 let dispose: VoidFunction | undefined
@@ -82,7 +83,18 @@ test("appearance changes preserve the editor, document, selection, folds, and un
   expect(undoDepth(editor.view.state)).toBe(1)
   expect(editor.changes).toEqual([doc.toString()])
 
-  editor.set("appearance", { dark: false, size: 18, spacing: "wide", font: '"JetBrains Mono", monospace' })
+  editor.set("appearance", {
+    preset: "vscode",
+    dark: false,
+    size: 18,
+    spacing: "wide",
+    font: '"JetBrains Mono", monospace',
+  })
+
+  expect(editor.view.state.facet(assistance)).toEqual({ guides: true, brackets: true })
+  editor.set("appearance", { guides: false, brackets: false })
+  expect(editor.view.state.facet(assistance)).toEqual({ guides: false, brackets: false })
+  editor.set("appearance", { preset: "paper" })
 
   expect(host.querySelector(".cm-editor")).toBe(editor.dom)
   expect(EditorView.findFromDOM(editor.dom)).toBe(editor.view)
@@ -149,10 +161,59 @@ test("ordinary source files keep their existing appearance when writing preferen
   expect(css).not.toContain("--latex-command:")
   expect(editor.view.dom.querySelector(".cm-selectionLayer")).toBeNull()
 
-  editor.set("appearance", { dark: false, size: 20, spacing: "wide", font: "Consolas, monospace" })
+  editor.set("appearance", { preset: "vscode", dark: false, size: 20, spacing: "wide", font: "Consolas, monospace" })
 
   expect(EditorView.findFromDOM(editor.dom)).toBe(editor.view)
   expect(editor.view.state).toBe(state)
   expect(styles(editor.view)).toBe(css)
   expect(editor.changes).toEqual([])
+})
+
+test.each([
+  ["paper", true, "#20252b"],
+  ["paper", false, "#fafbf9"],
+  ["vscode", true, "#1f1f1f"],
+  ["vscode", false, "#ffffff"],
+] as const)("uses the %s palette (dark: %s) without replacing typography", (preset, dark, background) => {
+  const editor = mount()
+  editor.set("appearance", { size: 17, spacing: "wide", preset, dark })
+  const css = styles(editor.view)
+  expect(css).toContain(`background-color: ${background};`)
+  expect(css).toContain("font-size: 17px;")
+  expect(css).toContain("line-height: 1.9;")
+  expect(css).toContain('font-family: "Fira Code", "Microsoft YaHei"')
+  expect(editor.changes).toEqual([])
+})
+
+test("VS Code assists toggle immediately and retain bracket matching", () => {
+  const editor = mount("main.tex", "{中文 [x + (y)]}\n    indented")
+  const text = editor.view.state.doc
+  expect(editor.dom.querySelector(".cm-latex-bracket-0")).toBeNull()
+  expect(editor.dom.querySelector(".cm-latex-indent")).toBeNull()
+  editor.set("appearance", { preset: "vscode" })
+  expect(editor.dom.querySelectorAll(".cm-latex-bracket-0")).toHaveLength(2)
+  expect(editor.dom.querySelectorAll(".cm-latex-bracket-1")).toHaveLength(2)
+  expect(editor.dom.querySelectorAll(".cm-latex-bracket-2")).toHaveLength(2)
+  expect(editor.dom.querySelector(".cm-latex-indent")).not.toBeNull()
+
+  editor.view.dispatch({ selection: { anchor: 1 } })
+  expect(editor.dom.querySelectorAll(".cm-matchingBracket")).toHaveLength(2)
+  editor.set("appearance", { brackets: false })
+  expect(editor.dom.querySelector(".cm-latex-bracket-0")).toBeNull()
+  expect(editor.dom.querySelector(".cm-latex-indent")).not.toBeNull()
+  expect(editor.dom.querySelectorAll(".cm-matchingBracket")).toHaveLength(2)
+  editor.set("appearance", { guides: false })
+  expect(editor.dom.querySelector(".cm-latex-indent")).toBeNull()
+  editor.set("appearance", { guides: true, brackets: true, preset: "paper" })
+  expect(editor.dom.querySelector(".cm-latex-bracket-0")).toBeNull()
+  expect(editor.dom.querySelector(".cm-latex-indent")).toBeNull()
+  expect(editor.view.state.doc).toBe(text)
+  expect(editor.changes).toEqual([])
+})
+
+test("BST files receive guides without TeX bracket decorations", () => {
+  const editor = mount("plain.bst", '    FUNCTION {test} { "Hello" }')
+  editor.set("appearance", { preset: "vscode" })
+  expect(editor.dom.querySelector(".cm-latex-indent")).not.toBeNull()
+  expect(editor.dom.querySelector(".cm-latex-bracket-0")).toBeNull()
 })

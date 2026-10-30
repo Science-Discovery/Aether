@@ -1167,6 +1167,11 @@ export const dict = {
   "latex.compilers": "編譯器",
   "latex.appearance": "編輯器外觀",
   "latex.appearance.help": "修改會立即套用至 LaTeX 原始碼檔案，並儲存在目前裝置。",
+  "latex.appearance.preset": "編輯風格",
+  "latex.appearance.preset.paper": "柔和寫作",
+  "latex.appearance.preset.vscode": "VS Code",
+  "latex.appearance.guides": "縮排輔助線",
+  "latex.appearance.brackets": "多層括號著色",
   "latex.appearance.mode": "明暗模式",
   "latex.appearance.mode.auto": "跟隨 Aether",
   "latex.appearance.mode.light": "淺色",
@@ -1223,7 +1228,7 @@ export const dict = {
   "latex.help.refresh": "檢查磁碟檔案、專案設定與編譯狀態。手動模式下不會儲存草稿；自動模式下發現修改可能觸發編譯。",
   "latex.help.settings": "調整編輯器外觀、安裝 Tectonic，或設定已安裝的 Tectonic、latexmk 執行檔路徑。",
   "latex.help.appearance":
-    "明暗模式可跟隨 Aether，也可獨立選擇淺色或深色；字級為 12–20 px，行距可選緊湊、標準或寬鬆。這些本地設定會立即套用至 LaTeX 原始碼檔案，不影響編譯或 PDF。字型沿用「外觀」中的選擇，並為中日韓文字提供備用字型。還原預設值會設為跟隨 Aether、14 px 和標準行距。",
+    "可選擇「柔和寫作」或「VS Code」，兩者皆支援跟隨 Aether、淺色和深色。切換風格會保留字型、字級與行距。VS Code 提供獨立的「縮排輔助線」和「多層括號著色」開關，預設開啟；輔助線只顯示既有縮排，不重排原始碼。這些本地設定立即生效，不影響編譯或 PDF。還原預設值會設為柔和寫作、跟隨 Aether、14 px、標準行距，並還原 VS Code 的兩個輔助開關。",
   "latex.help.folding": "摺疊原始碼",
   "latex.help.folding.description":
     "使用行號旁的箭頭摺疊章節、環境或參考文獻條目。摺疊只改變編輯器的顯示，儲存與編譯仍使用完整原始碼。",

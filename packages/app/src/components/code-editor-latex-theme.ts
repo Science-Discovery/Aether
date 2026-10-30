@@ -3,6 +3,9 @@ import { EditorView } from "@codemirror/view"
 import { tags as t } from "@lezer/highlight"
 
 export type WritingStyle = {
+  preset?: "paper" | "vscode"
+  guides?: boolean
+  brackets?: boolean
   dark: boolean
   size: number
   spacing: "compact" | "normal" | "wide"
@@ -29,8 +32,24 @@ const highlight = HighlightStyle.define([
   { tag: t.invalid, textDecoration: "underline wavy var(--latex-error)" },
 ])
 
+// Map CodeMirror's existing TeX/BibTeX tokens to the Modern/Plus palette.
+// This is a visual preset, not a replacement TextMate language service.
+const studio = HighlightStyle.define([
+  { tag: [t.tagName, t.escape], color: "var(--latex-command)" },
+  { tag: [t.keyword, t.attributeName], color: "var(--latex-keyword)" },
+  { tag: t.meta, color: "var(--latex-control)" },
+  { tag: t.atom, color: "var(--latex-type)" },
+  { tag: [t.labelName, t.propertyName, t.variableName, t.special(t.variableName)], color: "var(--latex-math)" },
+  { tag: t.string, color: "var(--latex-argument)" },
+  { tag: t.number, color: "var(--latex-number)" },
+  { tag: [t.operator, t.bracket, t.punctuation], color: "var(--latex-punctuation)" },
+  { tag: t.comment, color: "var(--latex-comment)" },
+  { tag: t.invalid, textDecoration: "underline wavy var(--latex-error)" },
+])
+
 export function writing(opts: WritingStyle) {
-  const colors = opts.dark
+  const vscode = opts.preset === "vscode"
+  const paper = opts.dark
     ? {
         background: "#20252b",
         gutter: "#1c2127",
@@ -65,6 +84,45 @@ export function writing(opts: WritingStyle) {
         search: "#f4e3ae",
         error: "#b3403b",
       }
+  // VS Code's Modern editor surfaces, with token colors inherited from Plus.
+  // https://github.com/microsoft/vscode/tree/main/extensions/theme-defaults/themes
+  const colors = !vscode
+    ? paper
+    : opts.dark
+      ? {
+          background: "#1f1f1f",
+          gutter: "#1f1f1f",
+          text: "#cccccc",
+          muted: "#6e7681",
+          border: "#2b2b2b",
+          active: "#292929",
+          selection: "#264f78",
+          command: "#dcdcaa",
+          math: "#9cdcfe",
+          argument: "#ce9178",
+          comment: "#6a9955",
+          punctuation: "#cccccc",
+          match: "#3a3d41",
+          search: "#6c4b0b",
+          error: "#f48771",
+        }
+      : {
+          background: "#ffffff",
+          gutter: "#ffffff",
+          text: "#3b3b3b",
+          muted: "#6e7681",
+          border: "#e5e5e5",
+          active: "#f3f3f3",
+          selection: "#add6ff",
+          command: "#795e26",
+          math: "#001080",
+          argument: "#a31515",
+          comment: "#008000",
+          punctuation: "#3b3b3b",
+          match: "#e5ebf1",
+          search: "#f8d776",
+          error: "#a1260d",
+        }
   return [
     EditorView.theme(
       {
@@ -79,6 +137,11 @@ export function writing(opts: WritingStyle) {
           "--latex-comment": colors.comment,
           "--latex-punctuation": colors.punctuation,
           "--latex-error": colors.error,
+          "--latex-guide": opts.dark ? "#404040" : "#d3d3d3",
+          "--latex-keyword": opts.dark ? "#569cd6" : "#0000ff",
+          "--latex-control": opts.dark ? "#c586c0" : "#af00db",
+          "--latex-type": opts.dark ? "#4ec9b0" : "#267f99",
+          "--latex-number": opts.dark ? "#b5cea8" : "#098658",
         },
         ".cm-scroller": {
           fontFamily: typography(opts.font),
@@ -93,15 +156,18 @@ export function writing(opts: WritingStyle) {
           caretColor: colors.text,
           fontVariantLigatures: "none",
         },
-        ".cm-line": { padding: "0 16px" },
+        ".cm-line": { padding: vscode ? "0 12px" : "0 16px" },
         ".cm-gutters": {
           backgroundColor: colors.gutter,
           color: colors.muted,
-          borderRight: `1px solid ${colors.border}`,
+          borderRight: vscode ? "1px solid transparent" : `1px solid ${colors.border}`,
         },
         ".cm-lineNumbers .cm-gutterElement": { minWidth: "2ch", padding: "0 8px 0 14px" },
         ".cm-foldGutter .cm-gutterElement": { padding: "0 4px", cursor: "pointer" },
-        ".cm-activeLineGutter": { color: colors.text, backgroundColor: colors.active },
+        ".cm-activeLineGutter": {
+          color: vscode && !opts.dark ? "#171184" : colors.text,
+          backgroundColor: vscode ? colors.gutter : colors.active,
+        },
         ".cm-activeLine": { backgroundColor: colors.active },
         "&:not(.cm-focused) .cm-activeLine": { backgroundColor: "transparent" },
         ".cm-cursor, .cm-dropCursor": { borderLeftColor: colors.text },
@@ -116,15 +182,18 @@ export function writing(opts: WritingStyle) {
           color: colors.muted,
           backgroundColor: colors.gutter,
           border: `1px solid ${colors.border}`,
-          borderRadius: "4px",
-          padding: "0 5px",
+          borderRadius: vscode ? "2px" : "4px",
+          padding: vscode ? "0 3px" : "0 5px",
           margin: "0 4px",
         },
         ".cm-latex-heading": { fontWeight: "600" },
+        ".cm-latex-bracket-0, .cm-latex-bracket-0 span": { color: opts.dark ? "#ffd700" : "#0431fa" },
+        ".cm-latex-bracket-1, .cm-latex-bracket-1 span": { color: opts.dark ? "#da70d6" : "#267326" },
+        ".cm-latex-bracket-2, .cm-latex-bracket-2 span": { color: opts.dark ? "#179fff" : "#7b3814" },
         ".cm-panels, .cm-tooltip": { color: colors.text, backgroundColor: colors.gutter },
       },
       { dark: opts.dark },
     ),
-    syntaxHighlighting(highlight),
+    syntaxHighlighting(vscode ? studio : highlight),
   ]
 }

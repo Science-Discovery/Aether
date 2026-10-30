@@ -1,72 +1,13 @@
 import { foldService } from "@codemirror/language"
 import { StateField, type Extension, type Text } from "@codemirror/state"
 import { Decoration, EditorView } from "@codemirror/view"
+import { comment, command, group, literal, space } from "./code-editor-latex-lexical"
 
 type Scope = { name: string; start: number; to?: number; parent?: Scope; valid: boolean }
 type Heading = { rank: number; start: number; to?: number; scope?: Scope; valid: boolean }
 
 const levels = ["part", "chapter", "section", "subsection", "subsubsection", "paragraph", "subparagraph"]
-const literal = /^(?:verbatim\*?|Verbatim\*?|BVerbatim|LVerbatim|lstlisting\*?|minted|comment|filecontents\*?)$/
 const heading = Decoration.mark({ class: "cm-latex-heading" })
-
-function comment(source: string, from: number) {
-  const end = source.indexOf("\n", from)
-  return end < 0 ? source.length : end
-}
-
-function space(source: string, from: number) {
-  while (from < source.length) {
-    if (/\s/.test(source[from])) {
-      from++
-      continue
-    }
-    if (source[from] !== "%") break
-    from = comment(source, from)
-  }
-  return from
-}
-
-function command(source: string, from: number) {
-  let end = from + 1
-  while (end < source.length && /[a-zA-Z@]/.test(source[end])) end++
-  if (end === from + 1) return { name: "", to: Math.min(from + 2, source.length) }
-  const name = source.slice(from + 1, end)
-  if (source[end] === "*") end++
-  if ((name !== "verb" && name !== "Verb") || !source[end] || /\s/.test(source[end])) return { name, to: end }
-  const line = comment(source, end)
-  const close = source.indexOf(source[end], end + 1)
-  return { name, to: close < 0 || close >= line ? line : close + 1 }
-}
-
-function group(source: string, from: number) {
-  if (source[from] !== "{" && source[from] !== "[") return
-  const stack = [source[from] === "{" ? "}" : "]"]
-  let pos = from + 1
-  while (pos < source.length) {
-    const char = source[pos]
-    if (char === "%") {
-      pos = comment(source, pos)
-      continue
-    }
-    if (char === "\\") {
-      pos = command(source, pos).to
-      continue
-    }
-    if (char === "{" || (char === "[" && stack.at(-1) === "]")) {
-      stack.push(char === "{" ? "}" : "]")
-      pos++
-      continue
-    }
-    if (char === stack.at(-1)) {
-      stack.pop()
-      if (!stack.length) return pos + 1
-      pos++
-      continue
-    }
-    if (char === "}") return
-    pos++
-  }
-}
 
 function entry(source: string, from: number) {
   const close = source[from] === "{" ? "}" : ")"

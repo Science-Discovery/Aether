@@ -1806,6 +1806,11 @@ export const dict = {
   "latex.compilers": "Compilers",
   "latex.appearance": "Editor appearance",
   "latex.appearance.help": "Changes apply immediately to LaTeX source files and are saved on this device.",
+  "latex.appearance.preset": "Editor style",
+  "latex.appearance.preset.paper": "Soft writing",
+  "latex.appearance.preset.vscode": "VS Code",
+  "latex.appearance.guides": "Indent guides",
+  "latex.appearance.brackets": "Bracket pair colors",
   "latex.appearance.mode": "Color mode",
   "latex.appearance.mode.auto": "Follow Aether",
   "latex.appearance.mode.light": "Light",
@@ -1933,7 +1938,7 @@ export const dict = {
   "latex.help.settings":
     "Adjust editor appearance, install Tectonic, or configure the paths to installed Tectonic and latexmk executables.",
   "latex.help.appearance":
-    "Choose Follow Aether, Light, or Dark, a font size from 12–20 px, and compact, normal, or wide line spacing. These local settings apply immediately to LaTeX source files without changing compilation or the PDF. The editor inherits your Appearance font with Chinese, Japanese, and Korean fallbacks. Restore defaults returns to Follow Aether, 14 px, and normal spacing.",
+    "Choose Soft writing or VS Code, with Follow Aether, Light, or Dark colors. Switching styles keeps your font, size and line spacing. VS Code offers independent indent guides and bracket pair colors; both are on by default. Guides show existing indentation without reformatting the source. These local settings apply immediately without changing compilation or the PDF. Restore defaults returns to Soft writing, Follow Aether, 14 px and normal spacing, with both aids enabled for VS Code.",
   "latex.help.folding": "Fold source",
   "latex.help.folding.description":
     "Use the arrows beside line numbers to fold sections, environments, or bibliography entries. Folding changes only the editor view; saving and compiling still use the complete source.",

@@ -1599,6 +1599,9 @@ export function FileTabContent(props: { tab: string; visible: boolean }) {
             appearance={
               manuscript(path() ?? "")
                 ? {
+                    preset: settings.latex.preset(),
+                    guides: settings.latex.guides(),
+                    brackets: settings.latex.brackets(),
                     dark: (settings.latex.mode() === "auto" ? theme.mode() : settings.latex.mode()) === "dark",
                     size: settings.latex.size(),
                     spacing: settings.latex.spacing(),

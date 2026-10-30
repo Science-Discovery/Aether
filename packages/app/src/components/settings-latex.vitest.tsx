@@ -149,6 +149,12 @@ const appearance = () => ({
   size: settings.latex.size(),
   spacing: settings.latex.spacing(),
 })
+const style = () => ({
+  preset: settings.latex.preset(),
+  guides: settings.latex.guides(),
+  brackets: settings.latex.brackets(),
+})
+const toggle = (name: string) => host.querySelector<HTMLInputElement>(`[data-action="latex-appearance-${name}"] input`)!
 
 beforeEach(() => {
   vi.useFakeTimers()
@@ -188,6 +194,9 @@ test("older local settings receive LaTeX appearance defaults without changing co
   mount()
   await tick()
   expect(appearance()).toEqual({ mode: "auto", size: 14, spacing: "normal" })
+  expect(style()).toEqual({ preset: "paper", guides: true, brackets: true })
+  expect(toggle("guides")).toBeNull()
+  expect(toggle("brackets")).toBeNull()
   expect(settings.appearance.fontSize()).toBe(18)
   expect(settings.general.autoSave()).toBe(false)
   expect(field().value).toBe("/custom/tectonic")
@@ -228,13 +237,13 @@ test("appearance updates persist immediately and restore defaults without saving
   select("size", "18")
   select("spacing", "wide")
   expect(appearance()).toEqual({ mode: "dark", size: 18, spacing: "wide" })
-  expect(JSON.parse(localStorage.getItem("settings.v3")!).latex).toEqual(appearance())
+  expect(JSON.parse(localStorage.getItem("settings.v3")!).latex).toEqual({ ...appearance(), ...style() })
   expect(mocks.save).not.toHaveBeenCalled()
   expect(field().value).toBe("/draft/tectonic")
   expect(state.config.latex.tectonic.path).toBe("/custom/tectonic")
   button("appearance-reset").click()
   expect(appearance()).toEqual({ mode: "auto", size: 14, spacing: "normal" })
-  expect(JSON.parse(localStorage.getItem("settings.v3")!).latex).toEqual(appearance())
+  expect(JSON.parse(localStorage.getItem("settings.v3")!).latex).toEqual({ ...appearance(), ...style() })
   expect(field().value).toBe("/draft/tectonic")
   expect(mocks.save).not.toHaveBeenCalled()
   button("save").click()
@@ -261,6 +270,66 @@ test("appearance is restored when settings reopen and setters keep font size val
   mount()
   await tick()
   expect(appearance()).toEqual({ mode: "light", size: 16, spacing: "compact" })
+  expect(mocks.save).not.toHaveBeenCalled()
+})
+
+test.each([
+  [null, { preset: "paper", guides: true, brackets: true }],
+  [
+    { preset: "unknown", guides: "false", brackets: 0 },
+    { preset: "paper", guides: true, brackets: true },
+  ],
+  [
+    { preset: "vscode", guides: false, brackets: false },
+    { preset: "vscode", guides: false, brackets: false },
+  ],
+  [
+    { mode: "dark", size: 18, spacing: "wide" },
+    { preset: "paper", guides: true, brackets: true },
+  ],
+])("validates persisted writing style %j", async (latex, expected) => {
+  localStorage.setItem("settings.v3", JSON.stringify({ latex }))
+  mount()
+  await tick()
+  expect(style()).toEqual(expected)
+  expect(mocks.save).not.toHaveBeenCalled()
+})
+
+test("style switches preserve typography and aid choices across reopening and reset", async () => {
+  mount()
+  await tick()
+  const font = settings.appearance.font()
+  select("mode", "dark")
+  select("size", "18")
+  select("spacing", "wide")
+  select("preset", "vscode")
+  expect(style()).toEqual({ preset: "vscode", guides: true, brackets: true })
+  expect(toggle("guides").checked).toBe(true)
+  expect(toggle("brackets").checked).toBe(true)
+  toggle("guides").click()
+  expect(style()).toEqual({ preset: "vscode", guides: false, brackets: true })
+  toggle("brackets").click()
+  expect(style()).toEqual({ preset: "vscode", guides: false, brackets: false })
+  select("preset", "paper")
+  expect(toggle("guides")).toBeNull()
+  expect(toggle("brackets")).toBeNull()
+  expect(appearance()).toEqual({ mode: "dark", size: 18, spacing: "wide" })
+  expect(settings.appearance.font()).toBe(font)
+  expect(JSON.parse(localStorage.getItem("settings.v3")!).latex).toEqual({ ...appearance(), ...style() })
+
+  dispose?.()
+  mount()
+  await tick()
+  expect(style()).toEqual({ preset: "paper", guides: false, brackets: false })
+  select("preset", "vscode")
+  expect(toggle("guides").checked).toBe(false)
+  expect(toggle("brackets").checked).toBe(false)
+  expect(appearance()).toEqual({ mode: "dark", size: 18, spacing: "wide" })
+  button("appearance-reset").click()
+  expect(style()).toEqual({ preset: "paper", guides: true, brackets: true })
+  expect(appearance()).toEqual({ mode: "auto", size: 14, spacing: "normal" })
+  expect(settings.appearance.font()).toBe(font)
+  expect(toggle("guides")).toBeNull()
   expect(mocks.save).not.toHaveBeenCalled()
 })
 

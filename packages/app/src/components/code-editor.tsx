@@ -19,6 +19,7 @@ import { json } from "@codemirror/lang-json"
 import { markdown } from "@codemirror/lang-markdown"
 import { latex } from "./code-editor-latex"
 import { structure } from "./code-editor-latex-structure"
+import { assistance, extensions as aids } from "./code-editor-latex-decorations"
 import { manuscript, writing, type WritingStyle } from "./code-editor-latex-theme"
 
 const customHighlightStyle = HighlightStyle.define([
@@ -99,8 +100,13 @@ export function CodeEditor(props: {
   const editableCompartment = new Compartment()
   const wrapCompartment = new Compartment()
   const style = new Compartment()
-  const appearance = () =>
-    writing(props.appearance ?? { dark: true, size: 14, spacing: "normal", font: "var(--font-family-mono)" })
+  const appearance = () => [
+    writing(props.appearance ?? { dark: true, size: 14, spacing: "normal", font: "var(--font-family-mono)" }),
+    assistance.of({
+      guides: props.appearance?.preset === "vscode" && props.appearance.guides !== false,
+      brackets: props.appearance?.preset === "vscode" && props.appearance.brackets !== false,
+    }),
+  ]
   const locate = () => {
     const target = props.location
     if (target?.nonce === undefined || !view) return
@@ -208,7 +214,9 @@ export function CodeEditor(props: {
       closeBrackets(),
       keymap.of([...defaultKeymap, ...historyKeymap, ...closeBracketsKeymap, indentWithTab]),
       style.of(manuscript(props.filename) ? appearance() : [editorTheme, syntaxHighlighting(customHighlightStyle)]),
-      ...(manuscript(props.filename) ? [drawSelection(), structure(props.filename), keymap.of(foldKeymap)] : []),
+      ...(manuscript(props.filename)
+        ? [drawSelection(), structure(props.filename), aids(props.filename), keymap.of(foldKeymap)]
+        : []),
       editableCompartment.of(EditorView.editable.of(!props.disabled)),
       wrapCompartment.of(props.wordWrap ? EditorView.lineWrapping : []),
       EditorView.updateListener.of((update) => {

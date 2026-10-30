@@ -19,6 +19,9 @@ export interface SoundSettings {
 }
 
 export type LatexAppearance = {
+  preset: "paper" | "vscode"
+  guides: boolean
+  brackets: boolean
   mode: "auto" | "light" | "dark"
   size: number
   spacing: "compact" | "normal" | "wide"
@@ -86,6 +89,9 @@ const defaultSettings: Settings = {
     font: "ibm-plex-mono",
   },
   latex: {
+    preset: "paper",
+    guides: true,
+    brackets: true,
     mode: "auto",
     size: 14,
     spacing: "normal",
@@ -144,6 +150,9 @@ function withFallback<T>(read: () => T | undefined, fallback: T) {
 
 function latex(value: Partial<LatexAppearance> | undefined): LatexAppearance {
   return {
+    preset: value?.preset === "vscode" ? value.preset : defaultSettings.latex.preset,
+    guides: typeof value?.guides === "boolean" ? value.guides : defaultSettings.latex.guides,
+    brackets: typeof value?.brackets === "boolean" ? value.brackets : defaultSettings.latex.brackets,
     mode: value?.mode === "light" || value?.mode === "dark" ? value.mode : defaultSettings.latex.mode,
     size:
       typeof value?.size === "number" && Number.isFinite(value.size)
@@ -279,9 +288,21 @@ export const { use: useSettings, provider: SettingsProvider } = createSimpleCont
         },
       },
       latex: {
+        preset: () => appearance().preset,
+        guides: () => appearance().guides,
+        brackets: () => appearance().brackets,
         mode: () => appearance().mode,
         size: () => appearance().size,
         spacing: () => appearance().spacing,
+        setPreset(value: LatexAppearance["preset"]) {
+          setStore("latex", latex({ ...appearance(), preset: value }))
+        },
+        setGuides(value: boolean) {
+          setStore("latex", latex({ ...appearance(), guides: value }))
+        },
+        setBrackets(value: boolean) {
+          setStore("latex", latex({ ...appearance(), brackets: value }))
+        },
         setMode(value: LatexAppearance["mode"]) {
           setStore("latex", latex({ ...appearance(), mode: value }))
         },
