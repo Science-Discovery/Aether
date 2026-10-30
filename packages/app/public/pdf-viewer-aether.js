@@ -26,6 +26,7 @@
   }
 
   let currentConfig = null
+  let requested = null
   let currentKey = ""
   let lastLocation = ""
   let restoreState = null
@@ -47,6 +48,21 @@
   let annotations = []
   let annotationEditor = null
   let annotationUndo = null
+  let annotated = false
+  let dirty = false
+  let revision = 0
+  let copying = false
+  let capturing = false
+  let switching = false
+  const painted = new Set()
+  let cover = null
+  let reported = false
+  let pending = null
+  let destination = null
+  let expiry = 0
+  let pointer = null
+  let notified = ""
+  let notifying = false
   const annotationColors = {
     yellow: "#f6cf35",
     red: "#ef5350",
@@ -212,7 +228,17 @@
   }
 
   function post(type, payload) {
-    window.parent?.postMessage({ channel: CHANNEL, type, ...(payload || {}) }, ORIGIN)
+    window.parent?.postMessage(
+      {
+        channel: CHANNEL,
+        type,
+        document: currentConfig?.document,
+        version: currentConfig?.version,
+        src: currentConfig?.src,
+        ...(payload || {}),
+      },
+      ORIGIN,
+    )
   }
 
   function mapScrollMode(name) {
@@ -360,6 +386,10 @@
           : "day"
     return {
       src: typeof input?.src === "string" ? input.src : "",
+      document: typeof input?.document === "string" ? input.document : undefined,
+      version: typeof input?.version === "string" ? input.version : undefined,
+      annotationPath: typeof input?.annotationPath === "string" ? input.annotationPath : undefined,
+      annotationBuild: typeof input?.annotationBuild === "string" ? input.annotationBuild : undefined,
       authHeader: typeof input?.authHeader === "string" && input.authHeader ? input.authHeader : undefined,
       mode,
       viewTheme,
@@ -378,12 +408,15 @@
         imageSelectionActions: !!input?.features?.imageSelectionActions,
         annotations: !!input?.features?.annotations,
         swapLayout: !!input?.features?.swapLayout,
+        sourceLocate: !!input?.features?.sourceLocate,
+        activity: !!input?.features?.activity,
       },
     }
   }
 
   function selectionActionsEnabled() {
     return !!(
+      !switching &&
       currentConfig &&
       currentConfig.features &&
       (currentConfig.features.textSelectionActions || currentConfig.features.annotations)
@@ -391,11 +424,11 @@
   }
 
   function imageSelectionActionsEnabled() {
-    return !!(currentConfig && currentConfig.features && currentConfig.features.imageSelectionActions)
+    return !!(!switching && currentConfig && currentConfig.features && currentConfig.features.imageSelectionActions)
   }
 
   function annotationsEnabled() {
-    return !!(currentConfig && currentConfig.features && currentConfig.features.annotations)
+    return !!(!switching && annotated && currentConfig && currentConfig.features && currentConfig.features.annotations)
   }
 
   function ensureSelectionUi() {
@@ -485,6 +518,7 @@
     if (!selectionMenu) return
     selectionMenu.hidden = true
     selectionState = null
+    activity()
   }
 
   function hideSelectionUi() {
@@ -495,10 +529,13 @@
   function clearTextSelection() {
     const selection = window.getSelection()
     selection?.removeAllRanges()
+    activity()
   }
 
   function emitAnnotations() {
-    post("annotationchange", { annotations: annotations })
+    dirty = true
+    activity()
+    post("annotationchange", { annotations: annotations, id: ++revision })
     renderAnnotations()
   }
 
@@ -529,7 +566,7 @@
   }
 
   async function handleSelectionAction(action) {
-    if (!selectionState) return
+    if (!selectionState || switching) return
 
     if (["highlight", "underline", "strikeout", "note"].includes(action)) {
       createAnnotation(action)
@@ -537,6 +574,8 @@
     }
 
     if (action === "copy") {
+      copying = true
+      activity()
       let imageCopyUnsupported = false
       try {
         if (selectionState.kind === "image") {
@@ -557,6 +596,8 @@
       } catch (_) {
         // Keep the native selection as fallback.
       }
+      copying = false
+      activity()
       if (imageCopyUnsupported) {
         hideSelectionMenu()
         showSelectionHint("Image copy not supported")
@@ -803,6 +844,7 @@
       pages: context.pages,
       rect: context.rect,
     }
+    activity()
     selectionMenu.querySelectorAll("[data-annotation]").forEach(function (button) {
       button.hidden = !annotationsEnabled()
     })
@@ -952,10 +994,12 @@
   function closeAnnotationEditor() {
     annotationEditor?.remove()
     annotationEditor = null
+    activity()
   }
 
   function showAnnotationUndo(item, index) {
     annotationUndo = { item: item, index: index }
+    activity()
     ensureSelectionUi()
     hideSelectionHint(true)
     selectionHint.textContent = "Annotation deleted"
@@ -967,6 +1011,7 @@
       annotations = annotations.slice()
       annotations.splice(annotationUndo.index, 0, annotationUndo.item)
       annotationUndo = null
+      activity()
       hideSelectionHint(true)
       emitAnnotations()
     })
@@ -975,6 +1020,7 @@
     selectionHintLockedUntil = Date.now() + 5000
     selectionHintTimer = window.setTimeout(function () {
       annotationUndo = null
+      activity()
       hideSelectionHint(true)
     }, 5000)
   }
@@ -1075,6 +1121,7 @@
     editor.style.left = Math.max(12, Math.min(window.innerWidth - box.width - 12, x)) + "px"
     editor.style.top = Math.max(12, Math.min(window.innerHeight - box.height - 12, y)) + "px"
     annotationEditor = editor
+    activity()
     if (item.type === "note") note.focus()
   }
 
@@ -1113,6 +1160,7 @@
   function setCaptureMode(next) {
     const enabled = !!next && imageSelectionActionsEnabled()
     captureModeActive = enabled
+    activity()
     document.body.classList.toggle("capture-mode-active", enabled)
 
     const button = document.getElementById("aetherCaptureRegion")
@@ -1255,7 +1303,12 @@
       bottom: Math.max(drag.start.y, point.y),
     }
 
-    const cropped = await cropImageFromSelection(drag.pageElement, rect)
+    capturing = true
+    activity()
+    const cropped = await cropImageFromSelection(drag.pageElement, rect).finally(function () {
+      capturing = false
+      activity()
+    })
     if (!cropped || !cropped.imageDataUrl) {
       showSelectionHint("Unable to capture region")
       setCaptureMode(false)
@@ -1449,6 +1502,11 @@
 
   function applyLocation(location) {
     if (typeof location !== "string" || !location) return
+    const total = window.PDFViewerApplication?.pdfDocument?.numPages
+    if (total)
+      location = location.replace(/(^|[&#])page=(\d+)/, function (_, prefix, page) {
+        return prefix + "page=" + Math.max(1, Math.min(total, Number(page)))
+      })
     suppressBroadcastUntil = Date.now() + 500
     window.PDFViewerApplication?.pdfLinkService?.setHash?.(location)
   }
@@ -1462,8 +1520,8 @@
       applyLocation(location)
       return
     }
-    if (config.page > 1) {
-      app.page = config.page
+    if (config.page >= 1) {
+      app.page = Math.max(1, Math.min(app.pdfDocument?.numPages || config.page, config.page))
     }
   }
 
@@ -1471,10 +1529,199 @@
     return src.replace(/([?&])(?:v|r)=[^&]*/g, "")
   }
 
-  function isReload(oldKey, key) {
-    const old = oldKey.split("|")
-    const next = key.split("|")
-    return old[1] === next[1] && old[2] === next[2] && docId(old[0]) === docId(next[0])
+  function identity(config) {
+    return config?.document || (config?.src ? docId(config.src) : "")
+  }
+
+  function key(config) {
+    return [config.src, config.authHeader || "", config.mode, config.document || "", config.version || ""].join("|")
+  }
+
+  function busy() {
+    return !!(
+      selectionState ||
+      annotationEditor ||
+      annotationUndo ||
+      captureDrag ||
+      captureModeActive ||
+      copying ||
+      capturing ||
+      dirty ||
+      window.getSelection()?.isCollapsed === false
+    )
+  }
+
+  function activity() {
+    if (notifying) return
+    notifying = true
+    Promise.resolve().then(function () {
+      notifying = false
+      if (!currentConfig?.features.activity) {
+        notified = ""
+        return
+      }
+      if (!reported) return
+      const value = busy() || switching
+      const next = JSON.stringify([currentConfig.document, currentConfig.version, currentConfig.src, value])
+      if (notified === next) return
+      notified = next
+      post("busychange", { busy: value })
+    })
+  }
+
+  function unmark() {
+    clearTimeout(expiry)
+    expiry = 0
+    destination = null
+    document.querySelectorAll(".aetherSourceHighlight").forEach(function (node) {
+      node.remove()
+    })
+  }
+
+  function highlight(align = false) {
+    document.querySelectorAll(".aetherSourceHighlight").forEach(function (node) {
+      node.remove()
+    })
+    if (
+      !destination ||
+      destination.document !== currentConfig?.document ||
+      destination.version !== currentConfig?.version
+    )
+      return
+    const page = document.querySelector(`.page[data-page-number="${destination.page}"]`)
+    const view = window.PDFViewerApplication?.pdfViewer?.getPageView?.(destination.page - 1)
+    if (!page || !view?.viewport) return
+    const box = pageContentRect(page)
+    const bounds = page.getBoundingClientRect()
+    if (!box.width || !box.height || !view.viewport.width || !view.viewport.height) return
+    const rect = destination.rect
+    const points = viewportQuad(view.viewport, [rect[0], rect[1], rect[2], rect[1], rect[0], rect[3], rect[2], rect[3]])
+    const xs = points.map(function (point) {
+      return (point[0] * box.width) / view.viewport.width
+    })
+    const ys = points.map(function (point) {
+      return (point[1] * box.height) / view.viewport.height
+    })
+    const container = viewerContainerElement()
+    if (align && container) {
+      const area = container.getBoundingClientRect()
+      const toolbar = document.getElementById("toolbarContainer")?.getBoundingClientRect()
+      if (area.height > 0) {
+        const padding = Math.min(16, area.height / 4)
+        const edge =
+          toolbar && toolbar.width && toolbar.height && toolbar.right > area.left && toolbar.left < area.right
+            ? Math.max(area.top, toolbar.bottom)
+            : area.top
+        const top = Math.min(area.bottom - padding, edge + padding)
+        const bottom = Math.max(top, area.bottom - padding)
+        const first = box.top + Math.min(...ys)
+        const last = box.top + Math.max(...ys)
+        const offset = first < top ? first - top : last > bottom ? Math.min(first - top, last - bottom) : 0
+        if (offset) container.scrollTop = Math.max(0, container.scrollTop + offset)
+      }
+      if (area.width > 0) {
+        const margin = Math.min(16, area.width / 4)
+        const left = area.left + margin
+        const right = area.right - margin
+        const start = box.left + Math.min(...xs)
+        const end = box.left + Math.max(...xs)
+        const shift = start < left ? start - left : end > right ? Math.min(start - left, end - right) : 0
+        if (shift) container.scrollLeft = Math.max(0, container.scrollLeft + shift)
+      }
+    }
+    const node = document.createElement("div")
+    node.className = "aetherSourceHighlight"
+    node.setAttribute("aria-hidden", "true")
+    node.style.cssText =
+      "position:absolute;pointer-events:none;z-index:6;border:2px solid #d69e00;background:rgba(255,210,70,.22);box-sizing:border-box;border-radius:2px"
+    Object.assign(node.style, {
+      left: `${box.left - bounds.left + Math.min(...xs)}px`,
+      top: `${box.top - bounds.top + Math.min(...ys)}px`,
+      width: `${Math.max(4, Math.max(...xs) - Math.min(...xs))}px`,
+      height: `${Math.max(4, Math.max(...ys) - Math.min(...ys))}px`,
+    })
+    page.appendChild(node)
+  }
+
+  function reveal(data) {
+    if (
+      !currentConfig?.document ||
+      !currentConfig?.version ||
+      data.document !== currentConfig.document ||
+      data.version !== currentConfig.version ||
+      data.src !== currentConfig.src ||
+      typeof data.id !== "string" ||
+      !data.id
+    )
+      return
+    const app = window.PDFViewerApplication
+    if (busy() || switching) {
+      post("locateunavailable", { id: data.id, reason: "busy" })
+      return
+    }
+    if (
+      !reported ||
+      !app?.pdfDocument ||
+      !app.pdfViewer?.scrollPageIntoView ||
+      !Number.isInteger(data.page) ||
+      data.page < 1 ||
+      data.page > app.pdfDocument.numPages ||
+      !Array.isArray(data.rect) ||
+      data.rect.length !== 4 ||
+      !data.rect.every(Number.isFinite) ||
+      data.rect[0] > data.rect[2] ||
+      data.rect[1] > data.rect[3]
+    ) {
+      post("locateunavailable", { id: data.id, reason: "unavailable" })
+      return
+    }
+    unmark()
+    destination = { document: data.document, version: data.version, page: data.page, rect: data.rect.slice() }
+    app.pdfHistory?.pushCurrentPosition()
+    app.pdfViewer.scrollPageIntoView({
+      pageNumber: data.page,
+      destArray: [null, { name: "XYZ" }, data.rect[0], data.rect[3], null],
+      ignoreDestinationZoom: true,
+    })
+    highlight(true)
+    const target = destination
+    requestAnimationFrame(function () {
+      if (destination === target && !busy()) highlight(true)
+    })
+    expiry = setTimeout(unmark, 2000)
+  }
+
+  function modified(event) {
+    const mac = /Mac|iPhone|iPad/.test(window.navigator?.platform || "")
+    return (
+      event.button === 0 &&
+      !event.altKey &&
+      !event.shiftKey &&
+      !event.getModifierState?.("AltGraph") &&
+      (mac ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey)
+    )
+  }
+
+  function point(event) {
+    if (!(event.target instanceof Element)) return
+    if (
+      event.target.closest(
+        "a,button,input,textarea,select,[contenteditable],.annotationLayer,.annotationEditorLayer,.aetherAnnotationLayer,#aetherAnnotationEditor,#aetherSelectionMenu,#aetherCaptureOverlay",
+      )
+    )
+      return
+    const page = closestPageElement(event.target)
+    const number = pageNumberFromElement(page)
+    const view = number ? window.PDFViewerApplication?.pdfViewer?.getPageView?.(number - 1) : null
+    if (!page || !number || !view?.viewport || !viewerContainerElement()?.contains(page)) return
+    const box = pageContentRect(page)
+    if (!box.width || !box.height) return
+    const x = ((event.clientX - box.left) * view.viewport.width) / box.width
+    const y = ((event.clientY - box.top) * view.viewport.height) / box.height
+    if (x < 0 || y < 0 || x > view.viewport.width || y > view.viewport.height) return
+    const result = view.viewport.convertToPdfPoint(x, y)
+    if (!result.every(Number.isFinite)) return
+    return { page: number, x: result[0], y: result[1] }
   }
 
   function captureState() {
@@ -1523,7 +1770,7 @@
     if (docStateTimer) return
     docStateTimer = setTimeout(function () {
       docStateTimer = undefined
-      const id = currentKey ? docId(currentKey.split("|")[0]) : undefined
+      const id = identity(currentConfig)
       saveDocState(id, captureState())
     }, 600)
   }
@@ -1573,6 +1820,127 @@
     forward.disabled = !(valid && state.uid < pdfHistory._maxUid)
   }
 
+  function visible() {
+    const viewer = window.PDFViewerApplication?.pdfViewer
+    const pages = viewer?._getVisiblePages?.().views
+    return pages?.length
+      ? pages.map(function (page) {
+          return page.id
+        })
+      : [viewer?.currentPageNumber || 1]
+  }
+
+  function uncover() {
+    if (!cover) return
+    clearTimeout(cover.timer)
+    cover.node.remove()
+    cover.container.inert = cover.inert
+    cover = null
+  }
+
+  // Keep only the currently visible pages, including their painted canvas pixels.
+  // PDF.js clears its page DOM in close(); this temporary cover bridges that gap.
+  function preserve() {
+    uncover()
+    const container = document.getElementById("viewerContainer")
+    const viewer = document.getElementById("viewer")
+    if (!container || !viewer) return
+    const rect = container.getBoundingClientRect()
+    if (!rect.width || !rect.height) return
+    const node = document.createElement("div")
+    node.className = viewer.className
+    node.dataset.aetherRefresh = ""
+    node.setAttribute("aria-hidden", "true")
+    node.inert = true
+    node.style.cssText = viewer.style.cssText
+    Object.assign(node.style, {
+      position: "fixed",
+      left: `${rect.left}px`,
+      top: `${rect.top}px`,
+      width: `${rect.width}px`,
+      height: `${rect.height}px`,
+      margin: "0",
+      padding: "0",
+      overflow: "hidden",
+      zIndex: "1000",
+      pointerEvents: "auto",
+      background: window.getComputedStyle(container).backgroundColor,
+    })
+    for (const id of visible()) {
+      const page = viewer.querySelector(`.page[data-page-number="${id}"]`)
+      if (!page) continue
+      const bounds = page.getBoundingClientRect()
+      const copy = page.cloneNode(true)
+      copy.removeAttribute("id")
+      copy.querySelectorAll("[id]").forEach(function (item) {
+        item.removeAttribute("id")
+      })
+      const originals = page.querySelectorAll("canvas")
+      copy.querySelectorAll("canvas").forEach(function (canvas, index) {
+        const original = originals[index]
+        if (original.width && original.height) canvas.getContext("2d")?.drawImage(original, 0, 0)
+      })
+      Object.assign(copy.style, {
+        position: "absolute",
+        left: `${bounds.left - rect.left}px`,
+        top: `${bounds.top - rect.top}px`,
+        margin: "0",
+        boxSizing: "border-box",
+        width: `${bounds.width}px`,
+        height: `${bounds.height}px`,
+      })
+      node.appendChild(copy)
+    }
+    if (!node.childElementCount) return
+    cover = { node, container, inert: container.inert, timer: 0 }
+    container.inert = true
+    document.body.appendChild(node)
+    cover.timer = setTimeout(function () {
+      paintError(new Error("PDF preview did not finish rendering. Please retry."))
+    }, 30000)
+  }
+
+  function paintError(error) {
+    if (!switching || !currentConfig) return
+    switching = false
+    uncover()
+    post("loaderror", {
+      src: currentConfig.src,
+      document: currentConfig.document,
+      version: currentConfig.version,
+      message: error instanceof Error ? error.message : String(error),
+    })
+  }
+
+  function announce() {
+    const viewer = window.PDFViewerApplication?.pdfViewer
+    if (
+      reported ||
+      !docSettled ||
+      !currentConfig ||
+      !visible().every(function (id) {
+        const page = viewer?.getPageView?.(id - 1)
+        return painted.has(id) && (!page || page.renderingState === 3)
+      })
+    )
+      return
+    reported = true
+    switching = false
+    uncover()
+    post("documentinfo", {
+      totalPages: window.PDFViewerApplication.pdfDocument.numPages,
+      source: {
+        src: currentConfig.src,
+        document: currentConfig.document,
+        version: currentConfig.version,
+        annotationPath: currentConfig.annotationPath,
+        annotationBuild: currentConfig.annotationBuild,
+      },
+    })
+    post("pagechange", { page: window.PDFViewerApplication.page })
+    activity()
+  }
+
   function bindEvents() {
     if (eventsBound) return
     eventsBound = true
@@ -1584,12 +1952,14 @@
 
     eventBus.on("pagechanging", function (evt) {
       if (!evt?.pageNumber) return
+      if (switching) return
       if (Date.now() < suppressBroadcastUntil) return
       hideSelectionUi()
       post("pagechange", { page: evt.pageNumber })
     })
 
     eventBus.on("updateviewarea", function (evt) {
+      if (switching) return
       syncHistoryButtons()
       const location = evt?.location?.pdfOpenParams
       if (typeof location === "string" && location) {
@@ -1609,7 +1979,6 @@
       syncHistoryButtons()
       const totalPages = Number(evt?.pagesCount || window.PDFViewerApplication?.pdfDocument?.numPages || 0)
       if (!Number.isFinite(totalPages) || totalPages <= 0) return
-      post("documentinfo", { totalPages })
       if (currentConfig) {
         requestAnimationFrame(function () {
           if (!currentConfig) return
@@ -1622,14 +1991,19 @@
             applyPosition(currentConfig)
           }
           docSettled = true
+          announce()
           renderAnnotations()
         })
       }
     })
 
-    eventBus.on("pagerendered", function () {
+    eventBus.on("pagerendered", function (evt) {
+      if (evt?.error && visible().includes(evt.pageNumber)) paintError(evt.error)
+      if (!evt?.error && !evt?.cssTransform) painted.add(evt.pageNumber)
       requestAnimationFrame(function () {
+        announce()
         renderAnnotations()
+        highlight()
         hideEmptyPdfPopups()
       })
     })
@@ -1792,8 +2166,71 @@
     }
 
     document.addEventListener("selectionchange", function () {
+      activity()
       scheduleSelectionUiUpdate()
     })
+    document.addEventListener(
+      "pointerdown",
+      function (event) {
+        pointer = null
+        if (
+          !currentConfig?.features.sourceLocate ||
+          !currentConfig.document ||
+          !currentConfig.version ||
+          captureModeActive ||
+          !modified(event)
+        )
+          return
+        const target = point(event)
+        if (!target) return
+        pointer = {
+          ...target,
+          document: currentConfig.document,
+          version: currentConfig.version,
+          src: currentConfig.src,
+          left: event.clientX,
+          top: event.clientY,
+        }
+        event.preventDefault()
+        event.stopImmediatePropagation()
+      },
+      true,
+    )
+    document.addEventListener(
+      "pointercancel",
+      function () {
+        pointer = null
+      },
+      true,
+    )
+    document.addEventListener(
+      "click",
+      function (event) {
+        const target = pointer
+        pointer = null
+        if (!target || !modified(event)) return
+        event.preventDefault()
+        event.stopImmediatePropagation()
+        if (Math.abs(target.left - event.clientX) > 4 || Math.abs(target.top - event.clientY) > 4) return
+        if (
+          target.document !== currentConfig?.document ||
+          target.version !== currentConfig?.version ||
+          target.src !== currentConfig?.src
+        )
+          return
+        if (!currentConfig.features.sourceLocate || captureModeActive) return
+        if (busy() || switching) {
+          post("locateunavailable", { reason: "busy" })
+          return
+        }
+        if (!reported) {
+          post("locateunavailable", { reason: "unavailable" })
+          return
+        }
+        post("sourcelocate", { page: target.page, x: target.x, y: target.y })
+      },
+      true,
+    )
     document.addEventListener("pointerup", function () {
       scheduleSelectionUiUpdate()
     })
@@ -1857,96 +2294,161 @@
 
   async function openDocument(config) {
     const app = window.PDFViewerApplication
-    if (!config.src) return
-
-    const key = [config.src, config.authHeader || "", config.mode].join("|")
-    if (currentKey === key) {
-      applyChrome(config)
-      if (app.pdfViewer) {
-        app.pdfViewer.scrollMode = mapScrollMode(config.scrollMode)
-        app.pdfViewer.spreadMode = 0
-      }
+    if (!config.src || key(config) !== key(requested) || currentKey === key(config)) return
+    if (pending && key(pending.config) !== key(config)) {
+      await pending.task.destroy()
+      pending = null
+    }
+    if (!pending) {
+      const task = window.pdfjsLib.getDocument({
+        url: config.src,
+        httpHeaders: config.authHeader ? { Authorization: config.authHeader } : undefined,
+        rangeChunkSize: RANGE_CHUNK_SIZE,
+        useWorkerFetch: false,
+        cMapUrl: C_MAP_URL,
+        cMapPacked: true,
+        standardFontDataUrl: STANDARD_FONT_DATA_URL,
+      })
+      const doc = await task.promise.catch(async function (error) {
+        await task.destroy()
+        throw error
+      })
+      // Validate the first and visible pages while the previous PDF is still usable.
+      // In particular, a failed refresh must not close the last successful build.
+      await Promise.all(
+        [1, Math.min(doc.numPages, app.page || config.page)]
+          .filter(function (page, index, pages) {
+            return pages.indexOf(page) === index
+          })
+          .map(async function (number) {
+            const page = await doc.getPage(number)
+            const viewport = page.getViewport({ scale: 0.25 })
+            const canvas = document.createElement("canvas")
+            canvas.width = Math.ceil(viewport.width)
+            canvas.height = Math.ceil(viewport.height)
+            await page.render({ canvasContext: canvas.getContext("2d"), viewport }).promise.finally(function () {
+              canvas.width = 0
+              canvas.height = 0
+            })
+          }),
+      ).catch(async function (error) {
+        await task.destroy()
+        throw error
+      })
+      pending = { task, doc, config }
+    }
+    if (key(config) !== key(requested)) {
+      await pending.task.destroy()
+      pending = null
+      return
+    }
+    if (busy()) {
+      schedule(200)
       return
     }
 
-    const reload = !!currentKey && isReload(currentKey, key)
-    if (!reload) {
-      restoreState = loadDocState(docId(config.src))
-    } else if (docSettled) {
-      restoreState = captureState() || restoreState
-    }
+    const saved = docSettled ? captureState() : restoreState
+    unmark()
+    pointer = null
+    saveDocState(identity(currentConfig), saved)
+    restoreState = identity(currentConfig) === identity(config) ? saved : loadDocState(identity(config))
+    const next = pending
+    pending = null
+    if (identity(currentConfig) === identity(config)) preserve()
+    switching = true
     docSettled = false
-    currentKey = key
+    await app.close().catch(async function (error) {
+      await next.task.destroy()
+      switching = false
+      uncover()
+      throw error
+    })
+    currentConfig = config
+    currentKey = key(config)
+    docSettled = false
+    painted.clear()
+    reported = false
+    lastLocation = ""
+    annotations = []
+    annotated = false
+    dirty = false
+    revision = 0
     hideViewerError()
-    sidebarState = {
-      initialized: false,
-      userClosed: true,
-    }
+    sidebarState = { initialized: false, userClosed: true }
     hideSelectionUi()
     applyChrome(config)
     closeSidebar(app)
 
-    if (app.pdfDocument) {
-      await app.close()
-      closeSidebar(app)
-    }
-
-    app.eventBus.on("documentloaded", function onDocumentLoaded() {
-      app.eventBus.off("documentloaded", onDocumentLoaded)
-      if (restoreState) {
-        applySettings(restoreState)
-      } else {
-        applyDocumentDefaults(config)
-      }
+    app.eventBus.on("documentloaded", function loaded() {
+      app.eventBus.off("documentloaded", loaded)
+      if (restoreState) applySettings(restoreState)
+      else applyDocumentDefaults(config)
       scheduleToolbarOverflowSync()
     })
-
-    const loadOpts = {
-      url: config.src,
-      httpHeaders: config.authHeader ? { Authorization: config.authHeader } : undefined,
-      rangeChunkSize: RANGE_CHUNK_SIZE,
-      useWorkerFetch: false,
-      cMapUrl: C_MAP_URL,
-      cMapPacked: true,
-      standardFontDataUrl: STANDARD_FONT_DATA_URL,
-    }
-
-    const doc = await window.pdfjsLib.getDocument(loadOpts).promise
+    const doc = next.doc
     if (doc?._pdfInfo) {
-      doc._pdfInfo.fingerprints = [config.src]
+      doc._pdfInfo.fingerprints = [identity(config)]
     }
+    app.pdfLoadingTask = next.task
     await app.load(doc)
   }
 
+  function schedule(delay) {
+    if (reloadTimer) return
+    reloadTimer = setTimeout(function () {
+      reloadTimer = 0
+      if (requested) void applyConfig(requested)
+    }, delay)
+  }
+
   async function applyConfig(nextConfig) {
-    currentConfig = sanitizeConfig(nextConfig)
-    applyChrome(currentConfig)
-    const key = [currentConfig.src, currentConfig.authHeader || "", currentConfig.mode].join("|")
-    if (currentKey && currentKey !== key && isReload(currentKey, key)) {
+    const config = sanitizeConfig(nextConfig)
+    requested = config
+    if (currentKey === key(config)) {
+      if (pending && key(pending.config) !== currentKey) {
+        const task = pending.task
+        pending = null
+        await task.destroy()
+      }
+      currentConfig = config
+      applyChrome(config)
+      activity()
+      return
+    }
+    if (busy() || switching) {
+      schedule(200)
+      return
+    }
+    if (
+      currentKey &&
+      identity(currentConfig) === identity(config) &&
+      !(currentConfig.version && config.version && currentConfig.version !== config.version)
+    ) {
       const wait = RELOAD_MIN_INTERVAL - (Date.now() - reloadAt)
       if (wait > 0) {
-        if (!reloadTimer) {
-          const from = currentKey
-          reloadTimer = setTimeout(function () {
-            reloadTimer = 0
-            if (currentKey === from) void applyConfig(currentConfig)
-          }, wait)
-        }
+        schedule(wait)
         return
       }
     }
     reloadAt = Date.now()
     openChain = openChain
       .then(function () {
-        return openDocument(currentConfig)
+        return openDocument(config)
       })
       .catch(function (error) {
         console.error("[aether-pdf-viewer] failed to open document", {
-          config: currentConfig,
+          config,
           error,
         })
-        showViewerError(error)
+        switching = false
+        uncover()
+        if (window.PDFViewerApplication?.pdfDocument)
+          showSelectionHint("PDF refresh failed. The previous version is still open.", 5000)
+        else showViewerError(error)
         post("loaderror", {
+          src: config.src,
+          document: config.document,
+          version: config.version,
           message: error instanceof Error ? error.message : String(error || "Unknown PDF viewer error"),
         })
       })
@@ -1957,6 +2459,7 @@
     "message",
     async function (event) {
       if (event.data?.channel !== CHANNEL) return
+      if (event.source !== window.parent) return
       if (!IS_FILE_PROTOCOL && event.origin !== ORIGIN) return
 
       if (event.data.type === "config") {
@@ -1964,9 +2467,15 @@
         return
       }
 
+      if (event.data.type === "reveal") {
+        reveal(event.data)
+        return
+      }
+
       if (event.data.type === "navigate") {
         const page = Number(event.data.page)
         if (!Number.isFinite(page) || page < 1) return
+        if (event.data.document !== currentConfig?.document || event.data.version !== currentConfig?.version) return
         currentConfig = { ...(currentConfig || sanitizeConfig({})), page: Math.round(page) }
         if (window.PDFViewerApplication?.pdfDocument) {
           suppressBroadcastUntil = Date.now() + 500
@@ -1975,7 +2484,7 @@
             app.pdfHistory?.pushCurrentPosition()
             app.pdfHistory?.pushPage(app.page)
           }
-          app.page = Math.round(page)
+          app.page = Math.min(app.pdfDocument.numPages, Math.round(page))
         }
         return
       }
@@ -1983,6 +2492,7 @@
       if (event.data.type === "location") {
         const location = typeof event.data.location === "string" ? event.data.location : ""
         if (!location) return
+        if (event.data.document !== currentConfig?.document || event.data.version !== currentConfig?.version) return
         currentConfig = { ...(currentConfig || sanitizeConfig({})), location }
         applyLocation(location)
         return
@@ -1994,8 +2504,58 @@
       }
 
       if (event.data.type === "annotations") {
+        if (
+          event.data.src !== currentConfig?.src ||
+          event.data.version !== currentConfig?.version ||
+          event.data.document !== currentConfig?.document ||
+          dirty
+        )
+          return
         annotations = Array.isArray(event.data.annotations) ? event.data.annotations : []
+        annotated = true
         renderAnnotations()
+        return
+      }
+
+      if (event.data.type === "annotationstatus") {
+        if (
+          event.data.src !== currentConfig?.src ||
+          event.data.version !== currentConfig?.version ||
+          event.data.document !== currentConfig?.document ||
+          event.data.id !== revision
+        )
+          return
+        if (event.data.ok) {
+          dirty = false
+          activity()
+          document.getElementById("aetherAnnotationError")?.remove()
+          return
+        }
+        document.getElementById("aetherAnnotationError")?.remove()
+        const alert = document.createElement("div")
+        alert.id = "aetherAnnotationError"
+        alert.style.cssText =
+          "position:fixed;bottom:12px;left:12px;right:12px;z-index:9999;padding:12px;background:var(--surface-raised-base,#222);color:var(--text-strong,#fff);border:1px solid currentColor;border-radius:6px"
+        alert.textContent = "Annotations were not saved. PDF refresh is paused. "
+        alert.addEventListener("pointerdown", function (event) {
+          event.stopPropagation()
+        })
+        const retry = document.createElement("button")
+        retry.textContent = "Retry"
+        retry.addEventListener("click", emitAnnotations)
+        alert.appendChild(retry)
+        const reload = document.createElement("button")
+        reload.textContent = "Reload saved annotations"
+        reload.addEventListener("click", function () {
+          if (!window.confirm("Discard unsaved annotation changes and load the saved annotations?")) return
+          dirty = false
+          activity()
+          annotated = false
+          alert.remove()
+          post("reloadannotations")
+        })
+        alert.appendChild(reload)
+        document.body.appendChild(alert)
       }
     },
     false,

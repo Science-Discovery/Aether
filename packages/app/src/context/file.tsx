@@ -5,6 +5,7 @@ import { createSimpleContext } from "@opencode-ai/ui/context"
 import { showToast } from "@opencode-ai/ui/toast"
 import { useParams } from "@solidjs/router"
 import { getFilename } from "@opencode-ai/util/path"
+import { checksum } from "@opencode-ai/util/encode"
 import { useSDK } from "./sdk"
 import { useSync } from "./sync"
 import { useLanguage } from "@/context/language"
@@ -317,6 +318,7 @@ export const { use: useFile, provider: FileProvider } = createSimpleContext({
 
     const viewCache = createFileViewCache()
     const view = createMemo(() => viewCache.load(scope(), undefined))
+    const [target, setTarget] = createStore({ scope: "", path: "", line: 1, column: 1, nonce: 0 })
 
     const ensure = (file: string) => {
       if (!file) return
@@ -644,6 +646,29 @@ export const { use: useFile, provider: FileProvider } = createSimpleContext({
       setIsEditing,
       draft,
       draftBase,
+      drafts: () => view().drafts(),
+      capture: () => {
+        const directory = scope()
+        const buffer = view()
+        return {
+          drafts: buffer.drafts,
+          saved: (input: string, content: string) => batch(() => {
+            if (buffer.draft(input) !== undefined) buffer.setDraftBase(input, checksum(content) ?? "")
+            if (scope() !== directory) return
+            // A closed file can still have cached pre-save content. Update it
+            // atomically with the base, without replacing any editor draft.
+            ensure(input)
+            inflight.claim(`${directory}\n${input}`)
+            setLoaded(input, { content: { type: "text", content } })
+            touchFileContent(input, approxBytes({ type: "text", content }))
+            evictContent(new Set([input]))
+          }),
+        }
+      },
+      location: (input: string) => target.scope === scope() && target.path === path.normalize(input) ? target : undefined,
+      locate: (input: string, line: number, column = 1) => setTarget({
+        scope: scope(), path: path.normalize(input), line, column, nonce: target.nonce + 1,
+      }),
       setDraft,
       setDraftBase,
       clearDraftMeta,

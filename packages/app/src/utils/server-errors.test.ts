@@ -90,6 +90,21 @@ describe("formatServerError", () => {
     expect(formatServerError("Failed to connect to server", language.t)).toBe("Failed to connect to server")
   })
 
+  test("surfaces LaTeX HTTP errors parsed by the SDK", () => {
+    const error: unknown = JSON.parse(
+      '{"error":"The LaTeX project exceeds 256 MiB. Choose a smaller project directory."}',
+    )
+    expect(formatServerError(error, language.t)).toBe(
+      "The LaTeX project exceeds 256 MiB. Choose a smaller project directory.",
+    )
+  })
+
+  test("handles plain server messages without stringifying unrelated payloads", () => {
+    expect(formatServerError({ message: "  Source file is missing.  " }, language.t)).toBe("Source file is missing.")
+    expect(formatServerError({ error: { code: 413 } }, language.t)).toBe("Erro desconhecido")
+    expect(formatServerError({ error: "   " }, language.t, "Try again")).toBe("Try again")
+  })
+
   test("uses translated unknown fallback", () => {
     expect(formatServerError(0, language.t)).toBe("Erro desconhecido")
   })

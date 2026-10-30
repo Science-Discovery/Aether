@@ -1,13 +1,22 @@
-import type { Component } from "solid-js"
+import type { Component, JSX } from "solid-js"
 import { Show } from "solid-js"
 import { ResizeHandle } from "@opencode-ai/ui/resize-handle"
-import { PdfViewerShell } from "@/components/pdf-viewer-shell-official"
+import { PdfViewerShell, type PdfViewerShellProps } from "@/components/pdf-viewer-shell-official"
 import { createSizing, type Sizing } from "@/pages/session/helpers"
 
 export const QuickReadingPanel: Component<{
   url: string
   authHeader?: string
-  annotationPath: string
+  annotationPath?: string
+  annotationBuild?: string
+  document?: string
+  version?: string
+  onVersionChange?: (version: string) => void
+  reveal?: PdfViewerShellProps["reveal"]
+  onSourceLocate?: PdfViewerShellProps["onSourceLocate"]
+  onLocateUnavailable?: PdfViewerShellProps["onLocateUnavailable"]
+  onBusyChange?: PdfViewerShellProps["onBusyChange"]
+  header?: JSX.Element
   width: number
   minWidth: number
   maxWidth: number
@@ -17,13 +26,8 @@ export const QuickReadingPanel: Component<{
   onPageChange?: (page: number) => void
   onLocationChange?: (location: string) => void
   onDocumentInfo?: (info: { totalPages: number }) => void
-  onTextSelectionAction?: (input: {
-    action: "copy" | "translate" | "ask"
-    startPage: number
-    endPage: number
-    text: string
-  }) => void
-  onImageSelectionAction?: (input: { action: "copy" | "translate" | "ask"; page: number; imageDataUrl: string }) => void
+  onTextSelectionAction?: PdfViewerShellProps["onTextSelectionAction"]
+  onImageSelectionAction?: PdfViewerShellProps["onImageSelectionAction"]
   onSwapLayout?: () => void
   onExitQuickReading?: () => void
   onStartFirstRead?: () => void
@@ -43,26 +47,37 @@ export const QuickReadingPanel: Component<{
           "border-l border-border-base": props.layoutSwapped,
         }}
       >
+        {props.header}
         <div class="min-h-0 flex-1">
-          <PdfViewerShell
-            src={props.url}
-            annotationPath={props.annotationPath}
-            authHeader={props.authHeader}
-            mode="full"
-            class="size-full"
-            page={props.page}
-            location={props.location}
-            layoutSwapped={props.layoutSwapped}
-            onPageChange={props.onPageChange}
-            onLocationChange={props.onLocationChange}
-            onDocumentInfo={props.onDocumentInfo}
-            onTextSelectionAction={props.onTextSelectionAction}
-            onImageSelectionAction={props.onImageSelectionAction}
-            onExitQuickReading={props.onExitQuickReading}
-            onStartFirstRead={props.onStartFirstRead}
-            onSwapLayout={props.onSwapLayout}
-            onOpenSettings={props.onOpenSettings}
-          />
+          <Show when={props.url}>
+            <PdfViewerShell
+              src={props.url}
+              annotationPath={props.annotationPath}
+              annotationBuild={props.annotationBuild}
+              document={props.document}
+              version={props.version}
+              onVersionChange={props.onVersionChange}
+              reveal={props.reveal}
+              onSourceLocate={props.onSourceLocate}
+              onLocateUnavailable={props.onLocateUnavailable}
+              onBusyChange={props.onBusyChange}
+              authHeader={props.authHeader}
+              mode="full"
+              class="size-full"
+              page={props.page}
+              location={props.location}
+              layoutSwapped={props.layoutSwapped}
+              onPageChange={props.onPageChange}
+              onLocationChange={props.onLocationChange}
+              onDocumentInfo={props.onDocumentInfo}
+              onTextSelectionAction={props.onTextSelectionAction}
+              onImageSelectionAction={props.onImageSelectionAction}
+              onExitQuickReading={props.onExitQuickReading}
+              onStartFirstRead={props.onStartFirstRead}
+              onSwapLayout={props.onSwapLayout}
+              onOpenSettings={props.onOpenSettings}
+            />
+          </Show>
         </div>
       </div>
 

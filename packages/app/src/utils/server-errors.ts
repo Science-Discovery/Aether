@@ -135,6 +135,15 @@ export function formatServerError(error: unknown, translate?: Translator, fallba
       )
   }
   if (error instanceof Error && error.message) return parseNetworkErrorMessage(error.message, translate)
+  if (typeof error === "object" && error !== null) {
+    const msg =
+      "error" in error && typeof error.error === "string"
+        ? error.error.trim()
+        : "message" in error && typeof error.message === "string"
+          ? error.message.trim()
+          : undefined
+    if (msg) return parseNetworkErrorMessage(msg, translate)
+  }
   if (typeof error === "string" && error) return parseNetworkErrorMessage(error, translate)
   if (fallback) return fallback
   return tr(translate, "error.chain.unknown", "Unknown error")
