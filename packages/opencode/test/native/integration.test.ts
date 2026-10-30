@@ -33,12 +33,16 @@ describe("native engine integration", () => {
           "cannot be changed",
         )
         const native = await Session.create({ engine: { type: "codex", model: "research" } })
+        const fork = await Session.fork({ sessionID: native.id })
+        expect(fork.id).not.toBe(native.id)
+        expect(fork.engine).toEqual(native.engine)
+        expect(fork.parentID).toBeUndefined()
+        expect(await Session.messages({ sessionID: fork.id })).toEqual([])
         await Session.setEngine({
           sessionID: native.id,
           engine: { type: "codex", model: "research", thread: "thread-1" },
         })
         expect((await Session.get(native.id)).engine).toEqual({ type: "codex", model: "research", thread: "thread-1" })
-        await expect(Session.fork({ sessionID: native.id })).rejects.toThrow("NativeSessionUnsupported")
         await expect(SessionRevert.revert({ sessionID: native.id, messageID: MessageID.ascending() })).rejects.toThrow(
           "NativeSessionUnsupported",
         )

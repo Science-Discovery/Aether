@@ -200,7 +200,7 @@ test("knowledge tools use only session-selected bases and never expose embedding
       },
     })
   } finally {
-    server.stop(true)
+    await server.stop(true)
     setKnowledgeConfig(null)
     await Instance.disposeDirectory(dir.path)
   }
@@ -208,14 +208,17 @@ test("knowledge tools use only session-selected bases and never expose embedding
 
 test("embedding cancellation does not fall back or retry the aborted request", async () => {
   const arrivals = Promise.withResolvers<void>()
+  const release = Promise.withResolvers<void>()
   const requests: string[] = []
   const server = Bun.serve({
     hostname: "127.0.0.1",
     port: 0,
-    fetch: (request) => {
+    fetch: async (request) => {
       requests.push(request.url)
+      await request.text()
       arrivals.resolve()
-      return new Promise<Response>(() => {})
+      await release.promise
+      return Response.json({ data: [{ index: 0, embedding: [1, 0] }] })
     },
   })
   try {
@@ -229,7 +232,8 @@ test("embedding cancellation does not fall back or retry the aborted request", a
     await expect(new CustomEmbedder(opts).embed(["query"], controller.signal)).rejects.toThrow("test cancelled")
     expect(requests).toHaveLength(1)
   } finally {
-    server.stop(true)
+    release.resolve()
+    await server.stop(true)
   }
 })
 
