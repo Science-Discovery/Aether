@@ -203,11 +203,63 @@ export namespace PdfAnnotations {
     )
   }
 
+  function position(box: number[], quads: number[][], rotation: number, occupied: number[][]) {
+    const width = rotation % 180 ? box[3] - box[1] : box[2] - box[0]
+    const height = rotation % 180 ? box[2] - box[0] : box[3] - box[1]
+    const size = Math.min(20, width, height)
+    const view = (x: number, y: number) => {
+      if (rotation === 90) return [y - box[1], x - box[0]]
+      if (rotation === 180) return [box[2] - x, y - box[1]]
+      if (rotation === 270) return [box[3] - y, box[2] - x]
+      return [x - box[0], box[3] - y]
+    }
+    const points = quads.map((quad) => [0, 2, 4, 6].flatMap((index) => view(quad[index], quad[index + 1])))
+    const area = bounds(points)
+    const first = bounds([points[0]])
+    const xs = [area[2] + 3, area[0] - size - 3, first[0], 0, width - size]
+    const ys = [
+      first[1],
+      area[1] - size - 3,
+      area[3] + 3,
+      0,
+      height - size,
+      ...occupied.flatMap((rect) => [rect[1], rect[3] + 3, rect[1] - size - 3]),
+    ]
+    const candidates = xs
+      .flatMap((x) => ys.map((y) => [x, y, x + size, y + size]))
+      .filter((rect) => rect[0] >= 0 && rect[1] >= 0 && rect[2] <= width && rect[3] <= height)
+    const overlap = (rect: number[]) =>
+      [area, ...occupied].reduce(
+        (sum, part) =>
+          sum +
+          Math.max(0, Math.min(rect[2], part[2]) - Math.max(rect[0], part[0])) *
+            Math.max(0, Math.min(rect[3], part[3]) - Math.max(rect[1], part[1])),
+        0,
+      )
+    // Prefer space outside the whole selection, including longer subsequent lines.
+    // A completely covered page has no empty spot: keep the marker in bounds.
+    const rect =
+      candidates.find((rect) => !overlap(rect)) ??
+      candidates.reduce((best, rect) => (overlap(rect) < overlap(best) ? rect : best))
+    const anchor =
+      rotation === 90
+        ? [box[0] + rect[1], box[1] + rect[0]]
+        : rotation === 180
+          ? [box[2] - rect[0], box[1] + rect[1]]
+          : rotation === 270
+            ? [box[2] - rect[1], box[3] - rect[0]]
+            : [box[0] + rect[0], box[3] - rect[1]]
+    occupied.push(rect)
+    // NoRotate Text annotations pivot around Rect's PDF upper-left corner.
+    return [anchor[0], anchor[1] - size, anchor[0] + size, anchor[1]]
+  }
+
   export async function exportPdf(input: string) {
     const abs = resolve(input)
     const stored = await read(abs)
     if (stored.status === "stale") throw new Error("PDF changed after annotations were created")
     const pdf = await PDFDocument.load(await Bun.file(abs).arrayBuffer())
+    const occupied = new Map<number, number[][]>()
     for (const item of stored.data.annotations) {
       const pages = item.pages.flatMap((page) => {
         if (page.page > pdf.getPageCount()) return []
@@ -270,19 +322,15 @@ export namespace PdfAnnotations {
         page.target.node.addAnnot(pdf.context.register(annot))
         if (item.type !== "note" || page !== pages[0]) continue
 
-        const size = Math.min(20, page.box[2] - page.box[0], page.box[3] - page.box[1])
-        const anchor = bounds([page.quads[0]])
         const rotation = ((page.target.getRotation().angle % 360) + 360) % 360
-        // Text annotations stay upright and pivot around Rect's upper-left corner.
-        const left = rotation === 180 || rotation === 270
-        const up = rotation === 90 || rotation === 180
-        const x = Math.max(page.box[0] + (left ? size : 0), Math.min(page.box[2] - (left ? 0 : size), anchor[2] + 3))
-        const y = Math.max(page.box[1] + (up ? 0 : size), Math.min(page.box[3] - (up ? size : 0), anchor[3]))
+        const markers = occupied.get(page.page) ?? []
+        occupied.set(page.page, markers)
+        const location = position(page.box, page.quads, rotation, markers)
         const note = pdf.context.obj({
           Type: "Annot",
           Subtype: "Text",
           P: page.target.ref,
-          Rect: [x, y - size, x + size, y],
+          Rect: location,
           Name: "Note",
           Open: false,
           F: 28,
@@ -303,8 +351,8 @@ export namespace PdfAnnotations {
         const ref = pdf.context.register(note)
         const width = Math.min(240, page.box[2] - page.box[0])
         const height = Math.min(120, page.box[3] - page.box[1])
-        const px = Math.max(page.box[0], Math.min(page.box[2] - width, x + size))
-        const py = Math.max(page.box[1], Math.min(page.box[3] - height, y - height))
+        const px = Math.max(page.box[0], Math.min(page.box[2] - width, location[2]))
+        const py = Math.max(page.box[1], Math.min(page.box[3] - height, location[3] - height))
         const popup = pdf.context.register(
           pdf.context.obj({
             Type: "Annot",
@@ -316,7 +364,9 @@ export namespace PdfAnnotations {
           }),
         )
         note.set(PDFName.of("Popup"), popup)
-        page.target.node.addAnnot(ref)
+        // PDFium stops at the first annotation Rect under the pointer, even when
+        // that annotation has no popup. Keep notes ahead of large highlight boxes.
+        page.target.node.Annots()?.insert(0, ref)
         page.target.node.addAnnot(popup)
       }
     }
