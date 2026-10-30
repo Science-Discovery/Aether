@@ -802,6 +802,16 @@ export function SessionSidePanel(props: {
                   onCleanup(() => observer.disconnect())
                 }}
               >
+                <Show when={reviewTab()}>
+                  <Tabs.Trigger value="review">
+                    <div class="flex items-center gap-1.5">
+                      <div>{language.t("session.tab.review")}</div>
+                      <Show when={props.hasReview()}>
+                        <div>{props.reviewCount()}</div>
+                      </Show>
+                    </div>
+                  </Tabs.Trigger>
+                </Show>
                 <Show when={contextOpen()}>
                   <Tabs.Trigger
                     value="context"
@@ -899,16 +909,6 @@ export function SessionSidePanel(props: {
                     </DropdownMenu.Portal>
                   </DropdownMenu>
                 </div>
-                <Show when={reviewTab()}>
-                  <Tabs.Trigger value="review">
-                    <div class="flex items-center gap-1.5">
-                      <div>{language.t("session.tab.review")}</div>
-                      <Show when={props.hasReview()}>
-                        <div>{props.reviewCount()}</div>
-                      </Show>
-                    </div>
-                  </Tabs.Trigger>
-                </Show>
               </Tabs.List>
             </Tabs>
             <DragOverlay>

@@ -41,7 +41,7 @@ function overlay(theme: Partial<TitlebarTheme> = {}) {
   return {
     color: "#00000000",
     symbolColor: mode === "dark" ? "white" : "black",
-    height: 40,
+    height: 28,
   }
 }
 

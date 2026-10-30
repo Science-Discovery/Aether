@@ -52,7 +52,8 @@ export function Titlebar() {
   const windows = createMemo(() => platform.platform === "desktop" && platform.os === "windows")
   const web = createMemo(() => platform.platform === "web")
   const zoom = () => platform.webviewZoom?.() ?? 1
-  const minHeight = () => (mac() ? `${28 / zoom()}px` : undefined)
+  // Native window controls do not shrink with the web content.
+  const minHeight = () => (mac() || (windows() && !tauriApi()) ? `${28 / zoom()}px` : undefined)
   const sidebarTitle = () => language.t(layout.sidebar.opened() ? "command.sidebar.close" : "command.sidebar.open")
 
   const [history, setHistory] = createStore({
