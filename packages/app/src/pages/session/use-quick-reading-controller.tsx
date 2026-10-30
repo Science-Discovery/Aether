@@ -1,4 +1,6 @@
 import { createEffect, createMemo, createSignal } from "solid-js"
+import { useNavigate } from "@solidjs/router"
+import { base64Encode } from "@opencode-ai/util/encode"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { showToast } from "@opencode-ai/ui/toast"
 import { DialogQuickReadingSettings } from "@/components/quick-reading/dialog-quick-reading-settings"
@@ -15,6 +17,9 @@ import { useSessionLayout } from "@/pages/session/session-layout"
 import { Identifier } from "@/utils/id"
 import { createReadingQuoteMetadata, summarizeReadingQuoteText } from "@/utils/comment-note"
 import { formatServerError } from "@/utils/server-errors"
+import { useLatexReading } from "./use-latex-reading"
+import { source } from "@/utils/pdf-source"
+import { usePlatform } from "@/context/platform"
 
 type Options = Record<string, never>
 
@@ -29,10 +34,55 @@ export function useQuickReadingController(_options: Options) {
   const sdk = useSDK()
   const server = useServer()
   const sync = useSync()
+  const navigate = useNavigate()
+  const platform = usePlatform()
+  const latex = useLatexReading()
   const { params, view, reading } = useSessionLayout()
   const [firstReadOpen, setFirstReadOpen] = createSignal(false)
 
   const quickReadingPdfPath = createMemo(() => reading().pdfPath())
+  const compiled = createMemo(() => !!latex.document())
+  let creating: Promise<string | undefined> | undefined
+  const session = () => {
+    if (params.id) return Promise.resolve(params.id)
+    if (creating) return creating
+    creating = sdk.client.session
+      .create({}, { throwOnError: true })
+      .then((result) => {
+        if (!result.data) return
+        navigate(`/${base64Encode(sdk.directory)}/session/${result.data.id}`)
+        return result.data.id
+      })
+      .catch((cause) => {
+        showToast({
+          variant: "error",
+          title: language.t("common.requestFailed"),
+          description: formatServerError(cause, language.t),
+        })
+        return undefined
+      })
+      .finally(() => {
+        creating = undefined
+      })
+    return creating
+  }
+  const capture = async (version?: string, document?: string) => {
+    if (!compiled()) return { source: undefined }
+    const quote = document === latex.key() ? latex.capture(version) : undefined
+    if (!quote) return
+    const result = await latex.reference(quote).then(
+      () => true,
+      (cause: unknown) => {
+        showToast({
+          variant: "error",
+          title: language.t("common.requestFailed"),
+          description: formatServerError(cause, language.t),
+        })
+        return false
+      },
+    )
+    return result ? { source: quote } : undefined
+  }
 
   const closeQuickReading = () => {
     setFirstReadOpen(false)
@@ -49,8 +99,7 @@ export function useQuickReadingController(_options: Options) {
     })
   }
 
-  const validateSendContext = () => {
-    const sessionID = params.id
+  const validateSendContext = (sessionID = params.id) => {
     const currentModel = local.model.current()
     const currentAgent = local.agent.current()
     if (!sessionID || !currentModel || !currentAgent) {
@@ -74,11 +123,12 @@ export function useQuickReadingController(_options: Options) {
   }
 
   const sendQuickReadingTranslate = async (input: {
+    sessionID: string
     page: number
     extraTextParts: FollowupDraft["extraTextParts"]
     attachments?: FollowupDraft["attachments"]
   }) => {
-    const sendContext = validateSendContext()
+    const sendContext = validateSendContext(input.sessionID)
     if (!sendContext) return
 
     const draft: FollowupDraft = {
@@ -114,14 +164,19 @@ export function useQuickReadingController(_options: Options) {
     startPage: number
     endPage: number
     text: string
+    version?: string
+    document?: string
   }) => {
     const text = input.text.trim()
     if (!text) return
     const binding = quickReading.store.binding
     if (!binding) return
+    if (input.action === "copy") return
+    const captured = await capture(input.version, input.document)
+    if (!captured) return
+    const sessionID = await session()
+    if (!sessionID) return
     if (input.action === "ask") {
-      const sessionID = params.id
-      if (!sessionID) return
       quickReading.setPendingQuestion({
         kind: "text-question",
         sessionID,
@@ -131,6 +186,7 @@ export function useQuickReadingController(_options: Options) {
         endPage: input.endPage,
         text,
         createdAt: Date.now(),
+        source: captured.source,
       })
       focusPromptInput()
       return
@@ -142,6 +198,7 @@ export function useQuickReadingController(_options: Options) {
     const label =
       input.endPage > input.startPage ? `pages ${input.startPage}-${input.endPage}` : `page ${input.startPage}`
     await sendQuickReadingTranslate({
+      sessionID,
       page: input.startPage,
       extraTextParts: [
         {
@@ -165,6 +222,7 @@ export function useQuickReadingController(_options: Options) {
             endPage: input.endPage,
             summary: summarizeReadingQuoteText(text),
             fullText: text,
+            source: captured.source,
           }),
         },
       ],
@@ -175,13 +233,18 @@ export function useQuickReadingController(_options: Options) {
     action: "copy" | "translate" | "ask"
     page: number
     imageDataUrl: string
+    version?: string
+    document?: string
   }) => {
     if (!input.imageDataUrl) return
     const binding = quickReading.store.binding
     if (!binding) return
+    if (input.action === "copy") return
+    const captured = await capture(input.version, input.document)
+    if (!captured) return
+    const sessionID = await session()
+    if (!sessionID) return
     if (input.action === "ask") {
-      const sessionID = params.id
-      if (!sessionID) return
       quickReading.setPendingQuestion({
         kind: "image-question",
         sessionID,
@@ -191,6 +254,7 @@ export function useQuickReadingController(_options: Options) {
         text: `Captured region from ${binding.pdfFileName}, page ${input.page}`,
         imageDataUrl: input.imageDataUrl,
         createdAt: Date.now(),
+        source: captured.source,
       })
       focusPromptInput()
       return
@@ -200,6 +264,7 @@ export function useQuickReadingController(_options: Options) {
 
     const settings = quickReading.store.snapshot.settings
     await sendQuickReadingTranslate({
+      sessionID,
       page: input.page,
       attachments: [
         {
@@ -217,16 +282,30 @@ export function useQuickReadingController(_options: Options) {
           text: `${settings.translatePrompt}\n\n[Selected image]\nPlease translate the content shown in the attached image.`,
           synthetic: true,
         },
+        {
+          text: "",
+          synthetic: true,
+          ignored: true,
+          metadata: createReadingQuoteMetadata({
+            mode: "quick",
+            action: "translate",
+            contentType: "image",
+            pdfFileName: binding.pdfFileName,
+            startPage: input.page,
+            summary: `Page ${input.page}`,
+            source: captured.source,
+          }),
+        },
       ],
     })
   }
 
   createEffect(() => {
-    const sessionID = params.id
+    const sessionID = params.id ?? ""
     const active = reading().active()
     const pdfPath = reading().pdfPath()
     const pdfFileName = reading().pdfFileName()
-    if (!sessionID || !active || !pdfPath || !pdfFileName) {
+    if (!active || !pdfPath || !pdfFileName) {
       if (quickReading.store.binding) quickReading.unbind()
       return
     }
@@ -252,6 +331,7 @@ export function useQuickReadingController(_options: Options) {
   const pdfUrl = createMemo(() => {
     const boundPath = quickReadingPdfPath()
     if (!boundPath) return ""
+    if (source(boundPath)?.kind === "latex") return latex.url()
     return `${sdk.url}/file/raw?path=${encodeURIComponent(boundPath)}&directory=${encodeURIComponent(sdk.directory)}`
   })
   const authHeader = createMemo(() => {
@@ -280,6 +360,37 @@ export function useQuickReadingController(_options: Options) {
   const totalPages = createMemo(() => quickReading.store.snapshot.totalPages)
 
   return {
+    latex,
+    compiled,
+    document: () => (compiled() ? latex.key() : undefined),
+    version: () => (compiled() ? latex.state.ready : undefined),
+    annotationPath: () => (compiled() ? undefined : quickReadingPdfPath()),
+    download: async () => {
+      const quote = latex.capture()
+      if (!quote) return
+      const response = await fetch(
+        `${sdk.url}/latex/build/${encodeURIComponent(quote.build)}/pdf?directory=${encodeURIComponent(sdk.directory)}`,
+        {
+          headers: authHeader() ? { Authorization: authHeader()! } : {},
+        },
+      )
+      if (!response.ok) throw new Error(`PDF download failed (${response.status})`)
+      const blob = await response.blob()
+      const name = quote.main
+        .split(/[\\/]/)
+        .pop()!
+        .replace(/\.tex$/i, ".pdf")
+      if (platform.saveFileDialog) {
+        await platform.saveFileDialog({ name, data: await blob.arrayBuffer() })
+        return
+      }
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement("a")
+      link.href = url
+      link.download = name
+      link.click()
+      setTimeout(() => URL.revokeObjectURL(url), 1000)
+    },
     quickReading,
     pdfPath: quickReadingPdfPath,
     active,

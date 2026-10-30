@@ -160,8 +160,14 @@ export namespace PdfAnnotations {
     const abs = resolve(input)
     const stored = await read(abs)
     if (stored.status === "stale") throw new Error("PDF changed after annotations were created")
-    const pdf = await PDFDocument.load(await Bun.file(abs).arrayBuffer())
-    for (const item of stored.data.annotations) {
+    return render(await Bun.file(abs).arrayBuffer(), stored.data.annotations)
+  }
+
+  // The caller owns source authorization. File exports keep their workspace
+  // boundary above; immutable build exports validate their build and checksum.
+  export async function render(bytes: ArrayBuffer | Uint8Array, annotations: Item[]) {
+    const pdf = await PDFDocument.load(bytes)
+    for (const item of annotations) {
       for (const page of item.pages) {
         if (page.page > pdf.getPageCount()) continue
         const target = pdf.getPage(page.page - 1)
@@ -172,8 +178,7 @@ export namespace PdfAnnotations {
         const color = item.type === "note" ? colors.yellow : colors[item.color]
         const annot = pdf.context.obj({
           Type: "Annot",
-          Subtype:
-            item.type === "underline" ? "Underline" : item.type === "strikeout" ? "StrikeOut" : "Highlight",
+          Subtype: item.type === "underline" ? "Underline" : item.type === "strikeout" ? "StrikeOut" : "Highlight",
           Rect: [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)],
           QuadPoints: points,
           C: [...color],

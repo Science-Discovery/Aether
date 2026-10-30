@@ -38,6 +38,13 @@ async function edit(page: Page, content: string) {
   await expect(editor).toContainText(content.trim().split("\n")[0])
 }
 
+async function preview(page: Page) {
+  const toolbar = page.locator('[data-component="latex-reading-toolbar"]:visible')
+  await expect(toolbar).toBeVisible()
+  await expect(page.locator('[data-component="latex-workspace"]:visible iframe')).toHaveCount(0)
+  await expect(toolbar.locator("..").frameLocator('iframe[title="PDF Viewer"]').locator(".page").first()).toBeVisible()
+}
+
 async function setup(directory: string) {
   await Promise.all([
     writeFile(path.join(directory, "main.tex"), main),
@@ -50,7 +57,10 @@ test.describe("LaTeX workspace with a real compiler", () => {
   test.skip(!executable, "Set AETHER_E2E_TECTONIC to run against an installed Tectonic compiler")
   test.setTimeout(120_000)
 
-  test("saves a closed bibliography draft and previews the multi-file paper", async ({ page, project }, info) => {
+  test("automatically saves a closed bibliography draft and previews it in the independent reading pane", async ({
+    page,
+    project,
+  }, info) => {
     await page.setViewportSize({ width: 1920, height: 1080 })
     await project.open({
       setup,
@@ -62,7 +72,12 @@ test.describe("LaTeX workspace with a real compiler", () => {
     const tree = page.getByRole("button", { name: "Close file tree", exact: true })
     if (await tree.isVisible()) await tree.click()
     await page.locator('[data-action="latex-bind"]:visible').click()
-    await expect(page.locator('[data-action="latex-compile"]:visible')).toBeEnabled()
+    await expect(page.getByRole("checkbox", { name: "Auto compile", exact: true })).toBeChecked()
+    await expect(page.locator('[data-component="latex-build-status"]:visible')).toHaveText("Succeeded", {
+      timeout: 60_000,
+    })
+    const previous = (await project.sdk.latex.project({ path: "main.tex" })).data?.lastSuccessful?.id
+    await preview(page)
     await open(page, "refs.bib")
     await edit(page, bibliography.replace("Original title", "Edited bibliography title"))
     const tab = page.getByRole("tab").filter({ hasText: "refs" }).first()
@@ -70,20 +85,21 @@ test.describe("LaTeX workspace with a real compiler", () => {
     await wrapper.hover()
     await wrapper.getByRole("button", { name: /close tab/i }).click()
     await page.getByRole("tab").filter({ hasText: "main" }).first().click()
-    await page.locator('[data-action="latex-compile"]:visible').click()
-    await expect(page.locator('[data-component="latex-build-status"]:visible')).toHaveText("Succeeded", {
-      timeout: 60_000,
-    })
     await expect
       .poll(() => readFile(path.join(project.directory, "refs.bib"), "utf8"))
       .toContain("Edited bibliography title")
+    await expect
+      .poll(async () => (await project.sdk.latex.project({ path: "main.tex" })).data?.lastSuccessful?.id, {
+        timeout: 60_000,
+      })
+      .not.toBe(previous)
+    await expect(page.locator('[data-component="latex-build-status"]:visible')).toHaveText("Succeeded")
+    await expect(page.locator('[data-component="latex-save-status"]:visible')).toHaveText("Changes saved")
     await expect(page.locator('[data-component="latex-preview-status"]:visible')).toHaveAttribute(
       "data-current",
       "true",
     )
-    const preview = page.getByRole("button", { name: "PDF preview", exact: true })
-    if (await preview.isVisible()) await preview.click()
-    await expect(page.frameLocator('iframe[title="PDF Viewer"]:visible').locator(".page").first()).toBeVisible()
+    await preview(page)
     await page.screenshot({ path: info.outputPath("latex-compiled-bibliography.png"), fullPage: true })
     await info.attach("Compiled multi-file paper", {
       path: info.outputPath("latex-compiled-bibliography.png"),
@@ -108,15 +124,14 @@ test.describe("LaTeX workspace with a real compiler", () => {
     })
     await open(page, "main.tex")
     await page.locator('[data-action="latex-bind"]:visible').click()
-    await page.locator('[data-action="latex-compile"]:visible').click()
     await expect(page.locator('[data-component="latex-build-status"]:visible')).toHaveText("Succeeded", {
       timeout: 60_000,
     })
     const previous = (await project.sdk.latex.project({ path: "main.tex" })).data?.lastSuccessful?.id
     expect(previous).toBeTruthy()
+    await preview(page)
     await open(page, "section.tex")
     await edit(page, "First line.\n\\undefinedaethercommand\n")
-    await page.locator('[data-action="latex-compile"]:visible').click()
     await expect(page.locator('[data-component="latex-build-status"]:visible')).toHaveText("Failed", {
       timeout: 60_000,
     })
@@ -125,6 +140,7 @@ test.describe("LaTeX workspace with a real compiler", () => {
       "false",
     )
     expect((await project.sdk.latex.project({ path: "section.tex" })).data?.lastSuccessful?.id).toBe(previous)
+    await preview(page)
     const diagnostic = page
       .locator('[data-component="latex-diagnostics"]:visible button')
       .filter({ hasText: "section.tex:2" })
@@ -150,17 +166,31 @@ test.describe("LaTeX workspace with a real compiler", () => {
       },
     })
     await open(page, "main.tex")
+    await page.getByRole("checkbox", { name: "Auto compile", exact: true }).uncheck()
     await page.locator('[data-action="latex-bind"]:visible').click()
+    let injected = false
+    await page.route("**/file/content*", async (route) => {
+      if (injected || route.request().method() !== "PUT") return route.continue()
+      const body = route.request().postDataJSON() as { path?: string }
+      if (body.path !== "refs.bib") return route.continue()
+      injected = true
+      // Write between the editor's base capture and the real server's CAS check.
+      await writeFile(
+        path.join(project.directory, "refs.bib"),
+        bibliography.replace("Original title", "External title"),
+      )
+      await route.continue()
+    })
     await open(page, "refs.bib")
     await edit(page, bibliography.replace("Original title", "My unsaved title"))
     const tab = page.getByRole("tab").filter({ hasText: "refs" }).first()
     const wrapper = page.locator('[data-slot="tabs-trigger-wrapper"]').filter({ has: tab })
     await wrapper.hover()
     await wrapper.getByRole("button", { name: /close tab/i }).click()
-    await writeFile(path.join(project.directory, "refs.bib"), bibliography.replace("Original title", "External title"))
     await page.getByRole("tab").filter({ hasText: "main" }).first().click()
-    await page.locator('[data-action="latex-compile"]:visible').click()
     await expect(page.locator('[data-component="latex-workspace"]:visible [role="alert"]')).toContainText("refs.bib")
+    await expect(page.locator('[data-action="latex-compile"]:visible')).toBeDisabled()
+    await expect(page.locator('[data-component="latex-save-status"]:visible')).toHaveText("Automatic saving paused")
     expect((await project.sdk.latex.project({ path: "main.tex" })).data?.latest).toBeUndefined()
     expect(await readFile(path.join(project.directory, "refs.bib"), "utf8")).toContain("External title")
     await open(page, "refs.bib")
@@ -195,6 +225,7 @@ test.describe("LaTeX workspace with a real compiler", () => {
       },
     })
     await open(page, "main.tex")
+    await page.getByRole("checkbox", { name: "Auto compile", exact: true }).uncheck()
     await expect(page.locator('[data-action="latex-compile"]:visible')).toBeDisabled()
     await page.getByLabel("Main document", { exact: true }).fill("other.tex")
     await page.locator('[data-action="latex-bind"]:visible').click()

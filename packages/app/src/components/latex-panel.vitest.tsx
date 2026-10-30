@@ -5,6 +5,9 @@ import type { JSX } from "solid-js"
 import type { LatexBuild, LatexProject, LatexStatus } from "@opencode-ai/sdk/v2"
 import { dict } from "@/i18n/en"
 import { LatexPanel } from "./latex-panel"
+import { LatexProvider, useLatex } from "@/context/latex"
+import { checksum } from "@opencode-ai/util/encode"
+import type { LatexDraft } from "./latex-drafts"
 
 const mocks = vi.hoisted(() => ({
   project: vi.fn<(input: { root?: string; path?: string }) => Promise<{ data: LatexProject }>>(),
@@ -13,7 +16,9 @@ const mocks = vi.hoisted(() => ({
   bind: vi.fn<() => Promise<{ data: LatexProject }>>(),
   build: vi.fn<() => Promise<{ data: LatexBuild }>>(),
   stop: vi.fn(),
+  write: vi.fn<(input: { path: string; content: string; expectedChecksum?: string }) => Promise<unknown>>(),
 }))
+const [buffer, setBuffer] = createStore({ drafts: [] as LatexDraft[], disk: {} as Record<string, string> })
 const [state, setState] = createStore({
   server: "http://first-server",
   directory: "/workspace",
@@ -28,15 +33,26 @@ vi.mock("@/context/sdk", () => ({
     get directory() {
       return state.directory
     },
-    client: { latex: mocks },
+    client: { latex: mocks, file: { write: mocks.write } },
     event: { on: () => mocks.stop },
   }),
 }))
 vi.mock("@/context/file", () => ({
   useFile: () => ({
-    drafts: () => [],
+    drafts: () => buffer.drafts,
     ready: () => true,
-    capture: () => ({ drafts: () => [], saved: () => undefined }),
+    draft: (path: string) => buffer.drafts.find((draft) => draft.path === path)?.content,
+    draftBase: (path: string) => buffer.drafts.find((draft) => draft.path === path)?.base,
+    setDraft: (path: string, content: string) =>
+      setBuffer("drafts", (draft) => draft.path === path, "content", content),
+    setDraftBase: (path: string, base: string) => setBuffer("drafts", (draft) => draft.path === path, "base", base),
+    load: async () => undefined,
+    get: (path: string) => ({ content: { type: "text", content: buffer.disk[path] ?? "" } }),
+    capture: () => ({
+      drafts: () => buffer.drafts,
+      saved: (path: string, content: string) =>
+        setBuffer("drafts", (draft) => draft.path === path, "base", checksum(content) ?? ""),
+    }),
   }),
 }))
 vi.mock("@/context/language", () => ({
@@ -96,12 +112,20 @@ const bound = (): LatexProject => {
 }
 let host: HTMLDivElement
 let dispose: VoidFunction | undefined
+let latex: ReturnType<typeof useLatex>
+const Probe = () => {
+  latex = useLatex()
+  return null
+}
 const mount = () => {
   dispose = render(
     () => (
-      <LatexPanel enabled active={state.active} path={state.path} onNavigate={() => undefined}>
-        <div>Source editor</div>
-      </LatexPanel>
+      <LatexProvider>
+        <Probe />
+        <LatexPanel enabled active={state.active} path={state.path} onNavigate={() => undefined}>
+          <div>Source editor</div>
+        </LatexPanel>
+      </LatexProvider>
     ),
     host,
   )
@@ -122,10 +146,14 @@ beforeEach(() => {
   vi.resetAllMocks()
   vi.spyOn(document, "hidden", "get").mockReturnValue(false)
   setState({ server: "http://first-server", directory: "/workspace", path: "main.tex", active: true })
+  setBuffer({ drafts: [], disk: {} })
   mocks.project.mockResolvedValue({ data: project() })
   mocks.refresh.mockResolvedValue({ data: project() })
   mocks.status.mockResolvedValue({ data: { tools: [{ driver: "tectonic", installed: true }] } })
   mocks.bind.mockResolvedValue({ data: project() })
+  mocks.write.mockImplementation(async (input) => {
+    setBuffer("disk", input.path, input.content)
+  })
   host = document.createElement("div")
   document.body.append(host)
 })
@@ -239,7 +267,8 @@ test("cached PDF metadata is not current while scanning or after a scan failure"
   mocks.refresh.mockReturnValueOnce(pending.promise)
   mount()
   await tick()
-  expect(host.querySelector('[data-testid="pdf"]')).not.toBeNull()
+  expect(latex.pdf()?.build.id).toBe("build-1")
+  expect(host.querySelector('[data-testid="pdf"]')).toBeNull()
   expect(current()).toBe("false")
   pending.reject(new Error("Source scan failed"))
   await tick()
@@ -297,21 +326,294 @@ test("a superseded scan failure cannot replace a successful retry", async () => 
   expect(field("main").value).toBe("main.tex")
 })
 
-test.each(["server", "directory", "path"] as const)(
-  "late responses cannot modify a different %s scope",
-  async (key) => {
-    const pending = Promise.withResolvers<{ data: LatexProject }>()
-    mocks.refresh.mockReturnValueOnce(pending.promise)
-    mount()
-    await tick()
-    mocks.project.mockResolvedValue({ data: project({ root: "second", main: "second.tex" }) })
-    mocks.refresh.mockResolvedValue({ data: project({ root: "second", main: "second.tex" }) })
-    setState(key, "second")
-    await tick()
-    pending.reject(new Error("Old server failure"))
-    await tick()
-    expect(field("root").value).toBe("second")
-    expect(field("main").value).toBe("second.tex")
-    expect(host.querySelector('[role="alert"]')).toBeNull()
-  },
-)
+test.each(["server", "directory"] as const)("late responses cannot modify a different %s scope", async (key) => {
+  const pending = Promise.withResolvers<{ data: LatexProject }>()
+  mocks.refresh.mockReturnValueOnce(pending.promise)
+  mount()
+  await tick()
+  mocks.project.mockResolvedValue({ data: project({ root: "second", main: "second.tex" }) })
+  mocks.refresh.mockResolvedValue({ data: project({ root: "second", main: "second.tex" }) })
+  setState(key, "second")
+  await tick()
+  pending.reject(new Error("Old server failure"))
+  await tick()
+  expect(field("root").value).toBe("second")
+  expect(field("main").value).toBe("second.tex")
+  expect(host.querySelector('[role="alert"]')).toBeNull()
+})
+
+test("autosave waits for a typing pause and IME completion across source tabs", async () => {
+  mocks.project.mockResolvedValue({ data: bound() })
+  mocks.refresh.mockResolvedValue({ data: bound() })
+  mount()
+  await tick()
+  latex.automatic(false)
+  setBuffer("drafts", [
+    { path: "main.tex", content: "初", base: "" },
+    { path: "notes.md", content: "private draft", base: "" },
+  ])
+  latex.composing("main.tex", true)
+  await vi.advanceTimersByTimeAsync(2000)
+  expect(mocks.write).not.toHaveBeenCalled()
+  setBuffer("drafts", 0, "content", "初稿")
+  latex.composing("main.tex", false)
+  await vi.advanceTimersByTimeAsync(999)
+  expect(mocks.write).not.toHaveBeenCalled()
+  setState("path", "refs.bib")
+  await vi.advanceTimersByTimeAsync(1)
+  expect(mocks.write).toHaveBeenCalledExactlyOnceWith(
+    { path: "main.tex", content: "初稿", expectedChecksum: "" },
+    { throwOnError: true },
+  )
+  expect(buffer.drafts[0].base).toBe(checksum("初稿"))
+  expect(buffer.drafts[1].base).toBe("")
+  expect(latex.state.path).toBe("refs.bib")
+  expect(mocks.build).not.toHaveBeenCalled()
+})
+
+test("new input during an in-flight save stays dirty and is saved in the next pass", async () => {
+  const original = "before"
+  setBuffer("disk", "main.tex", original)
+  const project = () => ({
+    ...bound(),
+    editors: [{ path: "main.tex", checksum: checksum(buffer.disk["main.tex"]) ?? "" }],
+  })
+  mocks.project.mockImplementation(async () => ({ data: project() }))
+  mocks.refresh.mockImplementation(async () => ({ data: project() }))
+  const write = Promise.withResolvers<unknown>()
+  mocks.write.mockReturnValueOnce(write.promise)
+  mount()
+  await tick()
+  latex.automatic(false)
+  setBuffer("drafts", [{ path: "main.tex", content: "first", base: checksum(original) }])
+  await vi.advanceTimersByTimeAsync(1000)
+  setBuffer("drafts", 0, "content", "latest")
+  setBuffer("disk", "main.tex", "first")
+  write.resolve(undefined)
+  await tick()
+  expect(buffer.drafts[0].base).toBe(checksum("first"))
+  expect(latex.pending()[0].content).toBe("latest")
+  expect(latex.state.project?.editors[0].checksum).toBe(checksum("first"))
+  expect(latex.conflicts()).toHaveLength(0)
+  await vi.advanceTimersByTimeAsync(1000)
+  expect(mocks.write).toHaveBeenCalledTimes(2)
+  expect(mocks.write).toHaveBeenLastCalledWith(
+    { path: "main.tex", content: "latest", expectedChecksum: checksum("first") },
+    { throwOnError: true },
+  )
+  expect(buffer.drafts[0].base).toBe(checksum("latest"))
+})
+
+test("a running build only queues the latest saved source revision", async () => {
+  let disk = bound()
+  mocks.project.mockImplementation(async () => ({ data: structuredClone(disk) }))
+  mocks.refresh.mockImplementation(async () => ({ data: structuredClone(disk) }))
+  mocks.write.mockImplementation(async (input) => {
+    setBuffer("disk", input.path, input.content)
+    disk = { ...disk, freshness: { state: "fresh", sourceRevision: input.content } }
+  })
+  mocks.build.mockImplementation(async () => {
+    const build = {
+      ...disk.latest!,
+      id: `build-${mocks.build.mock.calls.length + 1}`,
+      state: "running" as const,
+      sourceRevision: disk.freshness.sourceRevision,
+    }
+    disk = { ...disk, latest: build }
+    return { data: build }
+  })
+  mount()
+  await tick()
+  setBuffer("drafts", [{ path: "main.tex", content: "v2", base: "" }])
+  await vi.advanceTimersByTimeAsync(1000)
+  expect(mocks.build).toHaveBeenCalledTimes(1)
+  setBuffer("drafts", 0, "content", "v3")
+  await vi.advanceTimersByTimeAsync(1000)
+  setBuffer("drafts", 0, "content", "v4")
+  await vi.advanceTimersByTimeAsync(1000)
+  expect(mocks.build).toHaveBeenCalledTimes(1)
+  expect(latex.state.queued).toBe(true)
+  disk = { ...disk, latest: { ...disk.latest!, state: "succeeded" } }
+  await vi.advanceTimersByTimeAsync(3000)
+  expect(mocks.build).toHaveBeenCalledTimes(2)
+  expect(mocks.build).toHaveBeenLastCalledWith(
+    expect.objectContaining({ sourceRevision: "v4", allowDownloads: false }),
+    { throwOnError: true },
+  )
+})
+
+test("conflicts pause autosave and compare resolution uses the displayed disk checksum", async () => {
+  mocks.project.mockResolvedValue({ data: bound() })
+  mocks.refresh.mockResolvedValue({ data: bound() })
+  mocks.write.mockRejectedValueOnce({
+    error: "conflict",
+    currentChecksum: checksum("external"),
+    currentContent: "external",
+  })
+  mount()
+  await tick()
+  latex.automatic(false)
+  setBuffer({ drafts: [{ path: "main.tex", content: "my draft", base: "" }], disk: { "main.tex": "external" } })
+  await vi.advanceTimersByTimeAsync(1000)
+  expect(latex.conflicts()).toHaveLength(1)
+  await vi.advanceTimersByTimeAsync(5000)
+  expect(mocks.write).toHaveBeenCalledTimes(1)
+  const snapshot = await latex.compare("main.tex")
+  expect(snapshot?.disk).toBe("external")
+  expect(await latex.resolve(snapshot!, "draft")).toBe(true)
+  expect(mocks.write).toHaveBeenLastCalledWith(
+    { path: "main.tex", content: "my draft", expectedChecksum: checksum("external") },
+    { throwOnError: true },
+  )
+  expect(latex.conflicts()).toHaveLength(0)
+})
+
+test("an external edit cannot be discarded after the comparison becomes stale", async () => {
+  mocks.project.mockResolvedValue({ data: bound() })
+  mocks.refresh.mockResolvedValue({ data: bound() })
+  mount()
+  await tick()
+  latex.automatic(false)
+  setBuffer({ drafts: [{ path: "main.tex", content: "my draft", base: "" }], disk: { "main.tex": "external" } })
+  const snapshot = await latex.compare("main.tex")
+  setBuffer("disk", "main.tex", "newer external")
+  expect(await latex.resolve(snapshot!, "disk")).toBe(false)
+  expect(buffer.drafts[0].content).toBe("my draft")
+  expect(mocks.write).not.toHaveBeenCalled()
+})
+
+test("switching project folders flushes the previous draft before discovery", async () => {
+  const first = { ...bound(), root: "first", binding: { ...bound().binding!, root: "first" } }
+  setState("path", "first/main.tex")
+  mocks.project.mockResolvedValue({ data: first })
+  mocks.refresh.mockResolvedValue({ data: first })
+  mount()
+  await tick()
+  latex.automatic(false)
+  setBuffer("drafts", [{ path: "first/main.tex", content: "unsaved", base: "" }])
+  const saved = Promise.withResolvers<unknown>()
+  mocks.write.mockReturnValueOnce(saved.promise)
+  setState("path", "second/main.tex")
+  await tick()
+  expect(mocks.project).toHaveBeenCalledTimes(1)
+  mocks.project.mockResolvedValue({ data: project({ root: "second", main: "main.tex" }) })
+  saved.resolve(undefined)
+  await tick()
+  expect(buffer.drafts[0].base).toBe(checksum("unsaved"))
+  expect(mocks.project).toHaveBeenLastCalledWith({ path: "second/main.tex", root: undefined }, { throwOnError: true })
+})
+
+test("new edits recover from a compiler start error without repeated automatic retries", async () => {
+  mocks.project.mockResolvedValue({ data: bound() })
+  mocks.refresh.mockResolvedValue({ data: { ...bound(), freshness: { state: "fresh", sourceRevision: "v2" } } })
+  mocks.build.mockRejectedValueOnce(new Error("Compiler could not start"))
+  mount()
+  await tick()
+  await vi.advanceTimersByTimeAsync(1000)
+  expect(latex.state.error).toContain("Compiler could not start")
+  await vi.advanceTimersByTimeAsync(3000)
+  expect(mocks.build).toHaveBeenCalledTimes(1)
+  mocks.refresh.mockResolvedValue({ data: { ...bound(), freshness: { state: "fresh", sourceRevision: "v3" } } })
+  mocks.build.mockResolvedValue({ data: { ...bound().latest!, sourceRevision: "v3", state: "running" } })
+  setBuffer("drafts", [{ path: "main.tex", content: "fixed", base: "" }])
+  await vi.advanceTimersByTimeAsync(1000)
+  expect(mocks.build).toHaveBeenCalledTimes(2)
+  expect(latex.state.error).toBe("")
+})
+
+test("PDF identity survives rebuilds without requesting the closed reading pane again", async () => {
+  mocks.project.mockResolvedValue({ data: bound() })
+  mocks.refresh.mockResolvedValue({ data: bound() })
+  mount()
+  await tick()
+  const preview = latex.state.preview
+  const key = latex.pdf()?.key
+  const build = { ...bound().latest!, id: "new-pdf" }
+  mocks.project.mockResolvedValue({ data: { ...bound(), latest: build, lastSuccessful: build } })
+  mocks.refresh.mockResolvedValue({ data: { ...bound(), latest: build, lastSuccessful: build } })
+  await latex.refresh()
+  expect(latex.pdf()?.key).toBe(key)
+  expect(latex.pdf()?.build.id).toBe("new-pdf")
+  expect(latex.state.preview).toBe(preview)
+  latex.show()
+  expect(latex.state.preview).toBe(preview + 1)
+})
+
+test("a comparison opened in another workspace cannot write into the current workspace", async () => {
+  mocks.project.mockResolvedValue({ data: bound() })
+  mocks.refresh.mockResolvedValue({ data: bound() })
+  mount()
+  await tick()
+  latex.automatic(false)
+  setBuffer({ drafts: [{ path: "main.tex", content: "draft", base: "" }], disk: { "main.tex": "saved" } })
+  const snapshot = await latex.compare("main.tex")
+  setState("directory", "/other-workspace")
+  await tick()
+  expect(await latex.resolve(snapshot!, "draft")).toBe(false)
+  expect(mocks.write).not.toHaveBeenCalled()
+})
+
+test("opening a nested project uses its nearest binding instead of the parent project", async () => {
+  const child = { ...bound(), root: "paper", binding: { ...bound().binding!, root: "paper", revision: "child" } }
+  mocks.project.mockImplementation(async (input) => ({
+    data: input.root === "paper" || input.path?.startsWith("paper/") ? child : bound(),
+  }))
+  mocks.refresh.mockImplementation(async (input) => ({ data: input.root === "paper" ? child : bound() }))
+  mount()
+  await tick()
+  latex.automatic(false)
+  setState("path", "paper/main.tex")
+  await tick()
+  expect(mocks.project).toHaveBeenCalledWith({ path: "paper/main.tex" }, { throwOnError: true })
+  expect(latex.state.project?.root).toBe("paper")
+  expect(latex.state.project?.binding?.revision).toBe("child")
+  setState("path", "main.tex")
+  await tick()
+  expect(latex.state.project?.root).toBe(".")
+  expect(latex.state.project?.binding?.revision).toBe("binding-1")
+})
+
+test("an older nested-project discovery cannot replace the latest selected file", async () => {
+  const delayed = Promise.withResolvers<{ data: LatexProject }>()
+  mocks.project.mockResolvedValue({ data: bound() })
+  mocks.refresh.mockResolvedValue({ data: bound() })
+  mount()
+  await tick()
+  mocks.project.mockReturnValueOnce(delayed.promise)
+  setState("path", "paper/main.tex")
+  await tick()
+  setState("path", "refs.bib")
+  await tick()
+  delayed.resolve({
+    data: { ...bound(), root: "paper", binding: { ...bound().binding!, root: "paper", revision: "child" } },
+  })
+  await tick()
+  expect(latex.state.path).toBe("refs.bib")
+  expect(latex.state.project?.root).toBe(".")
+  expect(latex.state.project?.binding?.revision).toBe("binding-1")
+})
+
+test("automatic builds do not consume permission intended for an explicit build", async () => {
+  mocks.project.mockResolvedValue({ data: bound() })
+  mocks.refresh.mockResolvedValue({ data: bound() })
+  mocks.build.mockRejectedValue(new Error("Missing packages"))
+  mount()
+  await tick()
+  latex.downloads(true)
+  mocks.refresh.mockResolvedValue({ data: { ...bound(), freshness: { state: "fresh", sourceRevision: "changed" } } })
+  setBuffer("drafts", [{ path: "main.tex", content: "changed", base: "" }])
+  await vi.advanceTimersByTimeAsync(1000)
+  expect(mocks.build).toHaveBeenLastCalledWith(expect.objectContaining({ allowDownloads: false }), {
+    throwOnError: true,
+  })
+  expect(latex.state.downloads).toBe(true)
+  await latex.compile()
+  expect(mocks.build).toHaveBeenLastCalledWith(expect.objectContaining({ allowDownloads: true }), {
+    throwOnError: true,
+  })
+  expect(latex.state.downloads).toBe(false)
+  await latex.compile()
+  expect(mocks.build).toHaveBeenLastCalledWith(expect.objectContaining({ allowDownloads: false }), {
+    throwOnError: true,
+  })
+})

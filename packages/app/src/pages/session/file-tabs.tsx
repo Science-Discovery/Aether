@@ -1,4 +1,4 @@
-import { createEffect, createMemo, createSignal, Match, on, onCleanup, Show, Switch } from "solid-js"
+import { batch, createEffect, createMemo, createSignal, Match, on, onCleanup, Show, Switch } from "solid-js"
 import { createStore } from "solid-js/store"
 import { Dynamic } from "solid-js/web"
 import { Button } from "@opencode-ai/ui/button"
@@ -17,6 +17,8 @@ import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { Markdown } from "@opencode-ai/ui/markdown"
 import { CodeEditor } from "@/components/code-editor"
 import { LatexPanel } from "@/components/latex-panel"
+import { source } from "@/components/latex-drafts"
+import { useLatex } from "@/context/latex"
 import { PdfViewerShell } from "@/components/pdf-viewer-shell-official"
 import {
   registerOpenFileCallback,
@@ -85,6 +87,7 @@ function FileCommentMenu(props: {
 
 export function FileTabContent(props: { tab: string; visible: boolean }) {
   const file = useFile()
+  const project = useLatex()
   const comments = useComments()
   const globalSync = useGlobalSync()
   const language = useLanguage()
@@ -199,11 +202,13 @@ export function FileTabContent(props: { tab: string; visible: boolean }) {
       switchAnchorText = extractPreviewAnchor(scroll, contents())
     }
     const next = contents()
-    setEditContent(next)
-    file.setDraftBase(p, checksum(next) ?? "")
-    setIsStale(false)
-    setNeedsConfirm(false)
-    setIsEditing(true)
+    batch(() => {
+      setEditContent(next)
+      file.setDraftBase(p, checksum(next) ?? "")
+      setIsStale(false)
+      setNeedsConfirm(false)
+      setIsEditing(true)
+    })
   }
 
   const discardDraft = () => {
@@ -282,6 +287,10 @@ export function FileTabContent(props: { tab: string; visible: boolean }) {
   const saveEditing = async () => {
     const p = path()
     if (!p) return
+    if (latex() && project.state.project?.binding) {
+      await project.save()
+      return
+    }
     if (needsConfirm()) {
       dialog.show(() => <DialogDraftConflict onAccept={() => void acceptConflict(p)} onDiscard={discardDraft} />)
       return
@@ -349,7 +358,19 @@ export function FileTabContent(props: { tab: string; visible: boolean }) {
   }
 
   const path = createMemo(() => file.pathFromTab(props.tab))
-  const latex = createMemo(() => /\.(tex|bib)$/i.test(path() ?? ""))
+  const latex = createMemo(() => source(path() ?? ""))
+  createEffect(
+    on(
+      () => project.state.resolved.nonce,
+      () => {
+        if (project.state.resolved.path !== path() || !latex()) return
+        setEditContentSignal(project.state.resolved.content)
+        setIsStale(false)
+        setNeedsConfirm(false)
+        setIsEditing(true)
+      },
+    ),
+  )
   const navigate = async (target: string, line: number) => {
     const tab = file.tab(target)
     tabs().open(tab)
@@ -1403,13 +1424,15 @@ export function FileTabContent(props: { tab: string; visible: boolean }) {
     )
   }
 
-  createEffect(on(
-    () => [path(), state()?.loaded, file.location(path() ?? "")?.nonce, file.ready()] as const,
-    ([p, loaded, nonce, ready]) => {
-      if (!p || !loaded || !ready || isStale() || isEditing() || !isTextFile()) return
-      if (latex() || nonce !== undefined) startEditing()
-    },
-  ))
+  createEffect(
+    on(
+      () => [path(), state()?.loaded, file.location(path() ?? "")?.nonce, file.ready()] as const,
+      ([p, loaded, nonce, ready]) => {
+        if (!p || !loaded || !ready || isStale() || isEditing() || !isTextFile()) return
+        if (latex() || nonce !== undefined) startEditing()
+      },
+    ),
+  )
 
   return (
     <Tabs.Content
@@ -1461,63 +1484,82 @@ export function FileTabContent(props: { tab: string; visible: boolean }) {
                 />
               </Tooltip>
             </Show>
-            <Show
-              when={isEditing() && isTextFile()}
-              fallback={
-                <Show when={isTextFile() && !isStale()}>
-                  <IconButton
-                    icon="pencil-line"
-                    variant="ghost"
-                    size="small"
-                    aria-label={language.t("common.edit")}
-                    onClick={startEditing}
-                  />
-                </Show>
-              }
-            >
-              <IconButton
-                icon="close"
-                variant="ghost"
-                size="small"
-                aria-label={language.t("common.cancel")}
-                onClick={cancelEditing}
-                disabled={isSaving()}
-              />
-              <IconButton
-                icon="check"
-                variant="ghost"
-                size="small"
-                aria-label={language.t("common.save")}
-                onClick={saveEditing}
-                disabled={isSaving()}
-              />
+            <Show when={!latex() || !project.state.project?.binding}>
+              <Show
+                when={isEditing() && isTextFile()}
+                fallback={
+                  <Show when={isTextFile() && !isStale()}>
+                    <IconButton
+                      icon="pencil-line"
+                      variant="ghost"
+                      size="small"
+                      aria-label={language.t("common.edit")}
+                      onClick={startEditing}
+                    />
+                  </Show>
+                }
+              >
+                <IconButton
+                  icon="close"
+                  variant="ghost"
+                  size="small"
+                  aria-label={language.t("common.cancel")}
+                  onClick={cancelEditing}
+                  disabled={isSaving()}
+                />
+                <IconButton
+                  icon="check"
+                  variant="ghost"
+                  size="small"
+                  aria-label={language.t("common.save")}
+                  onClick={saveEditing}
+                  disabled={isSaving()}
+                />
+              </Show>
             </Show>
           </div>
         </div>
       </Show>
-      <LatexPanel enabled={latex()} active={props.visible && activeFileTab() === props.tab} path={path() ?? ""} auth={pdfAuthHeader()} onNavigate={(target, line) => void navigate(target, line)}>
-      <Show
-        when={isEditing()}
-        fallback={
-          <Show
-            when={isPDF()}
-            fallback={
-              <ScrollView
-                class="h-full min-h-0 flex-1"
-                viewportRef={(el: HTMLDivElement) => {
-                  scroll = el
-                  if (switchAnchorText !== null || switchScrollRatio !== null) {
-                    const anchor = switchAnchorText
-                    const ratio = switchScrollRatio ?? 0
-                    switchAnchorText = null
-                    switchScrollRatio = null
-                    scrollPreviewToAnchor(el, anchor, ratio)
-                  } else {
-                    restoreScroll()
-                  }
-                }}
-                onScroll={handleScroll as any}
-              >
+      <LatexPanel
+        enabled={latex()}
+        active={props.visible && activeFileTab() === props.tab}
+        path={path() ?? ""}
+        auth={pdfAuthHeader()}
+        onNavigate={(target, line) => void navigate(target, line)}
+      >
+        <Show
+          when={isEditing()}
+          fallback={
+            <Show
+              when={isPDF()}
+              fallback={
+                <ScrollView
+                  class="h-full min-h-0 flex-1"
+                  viewportRef={(el: HTMLDivElement) => {
+                    scroll = el
+                    if (switchAnchorText !== null || switchScrollRatio !== null) {
+                      const anchor = switchAnchorText
+                      const ratio = switchScrollRatio ?? 0
+                      switchAnchorText = null
+                      switchScrollRatio = null
+                      scrollPreviewToAnchor(el, anchor, ratio)
+                    } else {
+                      restoreScroll()
+                    }
+                  }}
+                  onScroll={handleScroll as any}
+                >
+                  <Switch>
+                    <Match when={state()?.loaded}>{renderFile(contents())}</Match>
+                    <Match when={state()?.loading}>
+                      <div class="px-6 py-4 text-text-weak">{language.t("common.loading")}...</div>
+                    </Match>
+                    <Match when={state()?.error}>{(err) => <div class="px-6 py-4 text-text-weak">{err()}</div>}</Match>
+                  </Switch>
+                </ScrollView>
+              }
+            >
+              <div class="h-full min-h-0 flex-1 overflow-hidden">
                 <Switch>
                   <Match when={state()?.loaded}>{renderFile(contents())}</Match>
                   <Match when={state()?.loading}>
@@ -1525,38 +1567,27 @@ export function FileTabContent(props: { tab: string; visible: boolean }) {
                   </Match>
                   <Match when={state()?.error}>{(err) => <div class="px-6 py-4 text-text-weak">{err()}</div>}</Match>
                 </Switch>
-              </ScrollView>
-            }
-          >
-            <div class="h-full min-h-0 flex-1 overflow-hidden">
-              <Switch>
-                <Match when={state()?.loaded}>{renderFile(contents())}</Match>
-                <Match when={state()?.loading}>
-                  <div class="px-6 py-4 text-text-weak">{language.t("common.loading")}...</div>
-                </Match>
-                <Match when={state()?.error}>{(err) => <div class="px-6 py-4 text-text-weak">{err()}</div>}</Match>
-              </Switch>
-            </div>
-          </Show>
-        }
-      >
-        <CodeEditor
-          content={editContent()}
-          filename={path() ?? ""}
-          location={file.location(path() ?? "")}
-          onChange={setEditContent}
-          disabled={isSaving()}
-          wordWrap={wordWrap()}
-          initialScroll={switchAnchorText === null && switchScrollRatio === null ? editorScroll() : undefined}
-          initialAnchorText={switchAnchorText ?? undefined}
-          initialScrollRatio={switchScrollRatio ?? 0}
-          onScroll={setEditorScroll}
-          onUnmount={(centerText, ratio) => {
-            switchAnchorText = centerText || null
-            switchScrollRatio = ratio
-          }}
-        />
-      </Show>
+              </div>
+            </Show>
+          }
+        >
+          <CodeEditor
+            content={editContent()}
+            filename={path() ?? ""}
+            location={file.location(path() ?? "")}
+            onChange={setEditContent}
+            disabled={isSaving()}
+            wordWrap={wordWrap()}
+            initialScroll={switchAnchorText === null && switchScrollRatio === null ? editorScroll() : undefined}
+            initialAnchorText={switchAnchorText ?? undefined}
+            initialScrollRatio={switchScrollRatio ?? 0}
+            onScroll={setEditorScroll}
+            onUnmount={(centerText, ratio) => {
+              switchAnchorText = centerText || null
+              switchScrollRatio = ratio
+            }}
+          />
+        </Show>
       </LatexPanel>
       <Show when={ask.open}>
         <button

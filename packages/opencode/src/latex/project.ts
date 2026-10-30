@@ -142,8 +142,13 @@ export namespace LatexProject {
     return files.sort()
   }
 
-  export async function candidates(root: Root) {
-    const files = (await entries(root)).filter((file) => file.toLowerCase().endsWith(".tex"))
+  export async function candidates(root: Root, shallow = false) {
+    const files = shallow
+      ? (await fs.readdir(root.path, { withFileTypes: true }))
+          .filter((item) => item.isFile() && item.name.toLowerCase().endsWith(".tex"))
+          .map((item) => item.name)
+          .sort()
+      : (await entries(root)).filter((file) => file.toLowerCase().endsWith(".tex"))
     if (files.length > 500)
       throw new LatexSchema.Error(413, "Select a smaller LaTeX project directory or bind its main document explicitly.")
     const found: string[] = []

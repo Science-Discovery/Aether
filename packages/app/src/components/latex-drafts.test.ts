@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { checksum } from "@opencode-ai/util/encode"
-import { contains, dirty, save, type LatexDraft } from "./latex-drafts"
+import { contains, dirty, save, source, type LatexDraft } from "./latex-drafts"
 
 describe("LaTeX project drafts", () => {
   test("keeps sibling projects outside the selected root", () => {
@@ -9,6 +9,24 @@ describe("LaTeX project drafts", () => {
     expect(contains("papers\\a", "papers/a/refs.bib")).toBe(true)
     expect(contains(".", "main.tex")).toBe(true)
     expect(dirty({ path: "empty.tex", content: "", base: "" })).toBe(false)
+  })
+
+  test("limits automatic project saves to LaTeX source files", async () => {
+    const drafts = ["main.tex", "refs.bib", "style.sty", "class.cls", "style.bst", "notes.md", "analysis.py"].map(
+      (path) => ({ path, content: "edited", base: "" }),
+    )
+    const writes: string[] = []
+    await save({
+      root: ".",
+      drafts: () => drafts,
+      write: async (draft) => {
+        writes.push(draft.path)
+      },
+      saved: () => undefined,
+    })
+    expect(writes).toEqual(["main.tex", "refs.bib", "style.sty", "class.cls", "style.bst"])
+    expect(source("PAPER.TEX")).toBe(true)
+    expect(source("paper.tex.bak")).toBe(false)
   })
 
   test("saves closed-tab drafts and retains input typed during a save", async () => {

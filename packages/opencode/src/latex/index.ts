@@ -11,6 +11,8 @@ import { Instance } from "@/project/instance"
 import { LatexSchema } from "./schema"
 import { LatexProject } from "./project"
 import { LatexCompiler } from "./compiler"
+import { PdfAnnotations } from "../pdf-annotations"
+import { Lock } from "../util/lock"
 
 export { LatexSchema } from "./schema"
 
@@ -31,6 +33,14 @@ export namespace Latex {
     pdfSize: z.number().optional(),
   })
   type Stored = z.infer<typeof stored>
+  const review = z.object({
+    owner: z.string(),
+    key: z.string(),
+    revision: z.string(),
+    data: PdfAnnotations.File,
+    references: z.string().array(),
+    leases: z.record(z.string().uuid(), z.number()),
+  })
   type Job = {
     root: LatexProject.Root
     data: Stored
@@ -86,6 +96,8 @@ export namespace Latex {
   const project = (root: LatexProject.Root) => path.join(home(root), "projects", `${root.key}.json`)
   const document = (root: LatexProject.Root, id: string) => path.join(home(root), "builds", `${id}.json`)
   const artifact = (root: LatexProject.Root, id: string) => path.join(home(root), "artifacts", `${id}.pdf`)
+  const annotation = (root: LatexProject.Root, id: string) => path.join(home(root), "annotations", `${id}.json`)
+  const mutex = (root: LatexProject.Root) => `latex-artifacts:${root.owner}`
   const identifier = z.string().uuid()
   const waiting = (build: LatexSchema.Build) => build.state === "preparing" || build.state === "running"
 
@@ -199,15 +211,51 @@ export namespace Latex {
     const base = await LatexProject.root(input.root ?? ".")
     if (input.path && !LatexProject.contains(base.workspace, path.resolve(base.workspace, input.path)))
       throw new LatexSchema.Error(400, "The document escapes this workspace.")
-    // Prefer the nearest explicitly bound ancestor when opening a chapter.
+    // Bindings override discovery. Afterwards inspect only nearby directory
+    // entries, so unrelated workspace files never enter the initial scan.
     if (!input.root && input.path) {
-      const full = path.resolve(base.workspace, input.path)
+      const full = await LatexProject.file(base, path.relative(base.path, path.resolve(base.workspace, input.path)))
       let directory = path.dirname(full)
       while (LatexProject.contains(base.workspace, directory)) {
         const root = await LatexProject.root(directory)
         if (await binding(root)) return view(root, current, input.path)
         if (directory === base.workspace) break
         directory = path.dirname(directory)
+      }
+      const magic =
+        path.extname(full).toLowerCase() === ".tex"
+          ? await LatexProject.magic(base, path.relative(base.path, full))
+          : undefined
+      if (magic) {
+        const main = path.resolve(base.path, magic)
+        let common = path.dirname(main)
+        while (!LatexProject.contains(common, full)) common = path.dirname(common)
+        const root = await LatexProject.root(common)
+        return view(root, current, input.path)
+      }
+      directory = path.dirname(full)
+      while (LatexProject.contains(base.workspace, directory)) {
+        const root = await LatexProject.root(directory)
+        const candidates = await LatexProject.candidates(root, true)
+        if (candidates.length)
+          return {
+            root: root.root,
+            main: candidates.length === 1 ? candidates[0] : undefined,
+            candidates,
+            reason: candidates.length === 1 ? ("single" as const) : ("ambiguous" as const),
+            freshness: { state: "unknown" as const },
+            editors: [],
+          }
+        if (directory === base.workspace) break
+        directory = path.dirname(directory)
+      }
+      const root = await LatexProject.root(path.dirname(full))
+      return {
+        root: root.root,
+        candidates: [],
+        reason: "missing" as const,
+        freshness: { state: "unknown" as const },
+        editors: [],
       }
     }
     return view(base, current, input.path)
@@ -311,7 +359,7 @@ export namespace Latex {
       if (current.closed) throw new LatexSchema.Error(409, "This workspace is closing.")
       current.checked.delete(root.key)
       current.jobs.set(id, job)
-      job.done = execute(job, saved.binding, input, current).finally(() => {
+      job.done = execute(job, saved.binding, input, current).finally(async () => {
         job.settled = true
         if (!job.blocked) {
           active.delete(root.path)
@@ -321,6 +369,7 @@ export namespace Latex {
           if (current.jobs.size <= 20) break
           if (item.settled && !item.blocked) current.jobs.delete(id)
         }
+        if (!job.blocked) await cleanup({ root: root.root }).catch(() => undefined)
       })
       return structuredClone(data.build)
     } catch (error) {
@@ -455,9 +504,8 @@ export namespace Latex {
     return get(id)
   }
 
-  export async function pdf(id: string) {
-    const root = await LatexProject.root()
-    const data = await loaded(root, id, await state())
+  async function published(root: LatexProject.Root, id: string, current: State) {
+    const data = await loaded(root, id, current)
     if (data.build.state !== "succeeded" || !data.build.pdf || !data.pdfHash || !data.pdfSize)
       throw new LatexSchema.Error(404, "This build has no successfully published PDF.")
     const file = artifact(root, id)
@@ -467,6 +515,190 @@ export namespace Latex {
     const bytes = await fs.readFile(file)
     if (LatexProject.hash(bytes) !== data.pdfHash)
       throw new LatexSchema.Error(409, "The compiled PDF changed after publication.")
-    return { bytes, hash: data.pdfHash }
+    return { bytes, hash: data.pdfHash, data }
+  }
+
+  export async function pdf(id: string) {
+    const root = await LatexProject.root()
+    using lock = await Lock.read(mutex(root))
+    const result = await published(root, id, await state())
+    return { bytes: result.bytes, hash: result.hash }
+  }
+
+  async function notes(root: LatexProject.Root, data: Stored) {
+    const file = annotation(root, data.build.id)
+    const value: unknown = await Bun.file(file)
+      .json()
+      .catch((err: NodeJS.ErrnoException) => {
+        if (err.code === "ENOENT") return undefined
+        throw new LatexSchema.Error(409, "The saved build annotations cannot be read.")
+      })
+    const source = { path: `latex-build:${data.build.id}`, fingerprint: data.pdfHash! }
+    if (value === undefined)
+      return {
+        owner: data.owner,
+        key: data.key,
+        revision: "0",
+        data: { version: "1.2" as const, source, annotations: [] as PdfAnnotations.Item[] },
+        references: [] as string[],
+        leases: {} as { [token: string]: number },
+      }
+    const parsed = review.safeParse(value)
+    if (
+      !parsed.success ||
+      parsed.data.owner !== data.owner ||
+      parsed.data.key !== data.key ||
+      parsed.data.data.source.path !== source.path ||
+      parsed.data.data.source.fingerprint !== source.fingerprint
+    )
+      throw new LatexSchema.Error(409, "The saved build annotations do not match this PDF.")
+    return parsed.data
+  }
+
+  async function records(root: LatexProject.Root, current: State) {
+    const files = await fs.readdir(path.join(home(root), "builds")).catch((err: NodeJS.ErrnoException) => {
+      if (err.code === "ENOENT") return [] as string[]
+      throw err
+    })
+    const rows = await Promise.all(
+      files
+        .filter((file) => file.endsWith(".json") && identifier.safeParse(file.slice(0, -5)).success)
+        .map(async (file) => {
+          const parsed = stored.safeParse(
+            await Bun.file(path.join(home(root), "builds", file))
+              .json()
+              .catch(() => undefined),
+          )
+          if (
+            !parsed.success ||
+            parsed.data.owner !== root.owner ||
+            parsed.data.key !== root.key ||
+            parsed.data.build.id !== file.slice(0, -5)
+          )
+            return
+          const data = parsed.data
+          const active = current.jobs.get(data.build.id)
+          return { data, active: !!active && (!active.settled || active.blocked) }
+        }),
+    )
+    return rows
+      .filter((row) => row !== undefined)
+      .sort((a, b) => b.data.build.createdAt - a.data.build.createdAt || b.data.build.id.localeCompare(a.data.build.id))
+  }
+
+  async function versions(root: LatexProject.Root, current: State) {
+    const rows = await records(root, current)
+    return Promise.all(
+      rows
+        .filter(({ data, active }) => !active && data.build.state === "succeeded" && data.build.pdf && data.pdfHash)
+        .map(async ({ data }) => {
+          const value = await notes(root, data)
+          return {
+            build: data.build,
+            pdfHash: data.pdfHash!,
+            annotationCount: value.data.annotations.length,
+            referenced: value.references.length > 0,
+            viewing: Object.values(value.leases).some((until) => until > Date.now()),
+          }
+        }),
+    )
+  }
+
+  export async function list(input: { root: string }) {
+    const root = await LatexProject.root(input.root)
+    using lock = await Lock.read(mutex(root))
+    return versions(root, await state())
+  }
+
+  export async function annotations(id: string) {
+    const root = await LatexProject.root()
+    using lock = await Lock.read(mutex(root))
+    const result = await published(root, id, await state())
+    const value = await notes(root, result.data)
+    return { status: "ready" as const, data: value.data, revision: value.revision }
+  }
+
+  export async function annotate(id: string, input: { data: PdfAnnotations.File; revision: string }) {
+    const root = await LatexProject.root()
+    using lock = await Lock.write(mutex(root))
+    const result = await published(root, id, await state())
+    const value = await notes(root, result.data)
+    if (input.revision !== value.revision)
+      throw new LatexSchema.Error(409, "Annotations changed. Reload before saving.")
+    const data = PdfAnnotations.File.parse(input.data)
+    if (data.source.path !== value.data.source.path || data.source.fingerprint !== result.hash)
+      throw new LatexSchema.Error(409, "These annotations belong to a different PDF build.")
+    const next = { ...value, data, revision: crypto.randomUUID() }
+    await write(annotation(root, id), next)
+    return { status: "ready" as const, data: next.data, revision: next.revision }
+  }
+
+  export async function exportAnnotations(id: string) {
+    const root = await LatexProject.root()
+    using lock = await Lock.read(mutex(root))
+    const result = await published(root, id, await state())
+    return PdfAnnotations.render(result.bytes, (await notes(root, result.data)).data.annotations)
+  }
+
+  export async function lease(id: string, token?: string) {
+    const root = await LatexProject.root()
+    using lock = await Lock.write(mutex(root))
+    const data = (await published(root, id, await state())).data
+    const value = await notes(root, data)
+    const key = token ? identifier.parse(token) : crypto.randomUUID()
+    const expiresAt = Date.now() + 90_000
+    const leases = Object.fromEntries(Object.entries(value.leases).filter(([, until]) => until > Date.now()))
+    if (!leases[key] && Object.keys(leases).length >= 64)
+      throw new LatexSchema.Error(409, "Too many active viewers for this PDF build.")
+    await write(annotation(root, id), { ...value, leases: { ...leases, [key]: expiresAt } })
+    return { token: key, expiresAt }
+  }
+
+  export async function release(id: string, token: string) {
+    const root = await LatexProject.root()
+    using lock = await Lock.write(mutex(root))
+    const value = await notes(root, (await published(root, id, await state())).data)
+    const leases = Object.fromEntries(
+      Object.entries(value.leases).filter(([key, until]) => key !== token && until > Date.now()),
+    )
+    await write(annotation(root, id), { ...value, leases })
+    return true
+  }
+
+  export async function reference(id: string, reference: string) {
+    const root = await LatexProject.root()
+    using lock = await Lock.write(mutex(root))
+    const value = await notes(root, (await published(root, id, await state())).data)
+    if (value.references.includes(reference)) return true
+    await write(annotation(root, id), { ...value, references: [...value.references, reference] })
+    return true
+  }
+
+  export async function cleanup(input: { root: string }) {
+    const root = await LatexProject.root(input.root)
+    const current = await state()
+    using lock = await Lock.write(mutex(root))
+    const saved = await binding(root)
+    const rows = await records(root, current)
+    const all = await versions(root, current)
+    const ordinary = all.filter((row) => !row.annotationCount && !row.referenced && !row.viewing)
+    const keep = new Set([saved?.latest, saved?.lastSuccessful, ...ordinary.slice(0, 3).map((row) => row.build.id)])
+    const expired = new Set(ordinary.filter((row) => !keep.has(row.build.id)).map((row) => row.build.id))
+    for (const row of rows
+      .filter(({ data, active }) => !active && ["failed", "cancelled"].includes(data.build.state))
+      .slice(20)) {
+      if (!keep.has(row.data.build.id)) expired.add(row.data.build.id)
+    }
+    const removed: string[] = []
+    for (const id of expired) {
+      // All targets are fixed UUID children of this workspace's artifact store.
+      await fs.rm(artifact(root, id), { force: true })
+      await fs.rm(path.join(home(root), "manifests", `${id}.json`), { force: true })
+      await fs.rm(annotation(root, id), { force: true })
+      await fs.rm(document(root, id), { force: true })
+      current.jobs.delete(id)
+      removed.push(id)
+    }
+    return { removed, versions: all.filter((row) => !expired.has(row.build.id)) }
   }
 }

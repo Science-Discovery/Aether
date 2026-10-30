@@ -8,6 +8,51 @@ import { Latex } from "../../src/latex"
 import { tmpdir } from "../fixture/fixture"
 
 describe("LaTeX saved project", () => {
+  test("discovers nearby mains without scanning unrelated workspace files", async () => {
+    await using dir = await tmpdir()
+    await Bun.write(path.join(dir.path, "paper", "main.tex"), "\\documentclass{article}")
+    await Bun.write(path.join(dir.path, "paper", "sections", "part.tex"), "Chapter")
+    await Bun.write(path.join(dir.path, "other", "main.tex"), "\\documentclass{article}")
+    const huge = await fs.open(path.join(dir.path, "unrelated.bin"), "w")
+    await huge.truncate(LatexProject.limit + 1)
+    await huge.close()
+    await Instance.provide({
+      directory: dir.path,
+      fn: async () => {
+        const project = await Latex.inspect({ path: "paper/sections/part.tex" })
+        expect(project.root).toBe("paper")
+        expect(project.main).toBe("main.tex")
+        expect(project.reason).toBe("single")
+        expect((await Latex.refresh({ root: project.root, editors: [] })).freshness.state).toBe("stale")
+        await Bun.write(path.join(dir.path, "paper", "alternate.tex"), "\\documentclass{book}")
+        expect((await Latex.inspect({ path: "paper/sections/part.tex" })).reason).toBe("ambiguous")
+        await Bun.write(path.join(dir.path, "paper", "sections", "part.tex"), "% !TeX root = ../main.tex\nChapter")
+        const magic = await Latex.inspect({ path: "paper/sections/part.tex" })
+        expect(magic.root).toBe("paper")
+        expect(magic.main).toBe("main.tex")
+        expect(magic.reason).toBe("magic")
+        await Instance.dispose()
+      },
+    })
+  })
+
+  test("missing nearby mains stay local and root comments keep workspace boundaries", async () => {
+    await using dir = await tmpdir()
+    await Bun.write(path.join(dir.path, "notes", "part.tex"), "No main")
+    await Bun.write(path.join(dir.path, "other", "main.tex"), "\\documentclass{article}")
+    await Instance.provide({
+      directory: dir.path,
+      fn: async () => {
+        const project = await Latex.inspect({ path: "notes/part.tex" })
+        expect(project.root).toBe("notes")
+        expect(project.reason).toBe("missing")
+        await Bun.write(path.join(dir.path, "notes", "part.tex"), "% !TeX root = ../../outside.tex")
+        await expect(Latex.inspect({ path: "notes/part.tex" })).rejects.toThrow("escapes")
+        await Instance.dispose()
+      },
+    })
+  })
+
   test("resolves explicit bindings, ambiguous mains and safe root comments", async () => {
     await using dir = await tmpdir()
     await fs.mkdir(path.join(dir.path, "paper", "sections"), { recursive: true })

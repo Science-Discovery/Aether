@@ -26,6 +26,7 @@
   }
 
   let currentConfig = null
+  let requested = null
   let currentKey = ""
   let lastLocation = ""
   let restoreState = null
@@ -47,6 +48,15 @@
   let annotations = []
   let annotationEditor = null
   let annotationUndo = null
+  let annotated = false
+  let dirty = false
+  let revision = 0
+  let copying = false
+  let capturing = false
+  let switching = false
+  let rendered = false
+  let reported = false
+  let pending = null
   const annotationColors = {
     yellow: "#f6cf35",
     red: "#ef5350",
@@ -212,7 +222,17 @@
   }
 
   function post(type, payload) {
-    window.parent?.postMessage({ channel: CHANNEL, type, ...(payload || {}) }, ORIGIN)
+    window.parent?.postMessage(
+      {
+        channel: CHANNEL,
+        type,
+        document: currentConfig?.document,
+        version: currentConfig?.version,
+        src: currentConfig?.src,
+        ...(payload || {}),
+      },
+      ORIGIN,
+    )
   }
 
   function mapScrollMode(name) {
@@ -360,6 +380,10 @@
           : "day"
     return {
       src: typeof input?.src === "string" ? input.src : "",
+      document: typeof input?.document === "string" ? input.document : undefined,
+      version: typeof input?.version === "string" ? input.version : undefined,
+      annotationPath: typeof input?.annotationPath === "string" ? input.annotationPath : undefined,
+      annotationBuild: typeof input?.annotationBuild === "string" ? input.annotationBuild : undefined,
       authHeader: typeof input?.authHeader === "string" && input.authHeader ? input.authHeader : undefined,
       mode,
       viewTheme,
@@ -384,6 +408,7 @@
 
   function selectionActionsEnabled() {
     return !!(
+      !switching &&
       currentConfig &&
       currentConfig.features &&
       (currentConfig.features.textSelectionActions || currentConfig.features.annotations)
@@ -391,11 +416,11 @@
   }
 
   function imageSelectionActionsEnabled() {
-    return !!(currentConfig && currentConfig.features && currentConfig.features.imageSelectionActions)
+    return !!(!switching && currentConfig && currentConfig.features && currentConfig.features.imageSelectionActions)
   }
 
   function annotationsEnabled() {
-    return !!(currentConfig && currentConfig.features && currentConfig.features.annotations)
+    return !!(!switching && annotated && currentConfig && currentConfig.features && currentConfig.features.annotations)
   }
 
   function ensureSelectionUi() {
@@ -498,7 +523,8 @@
   }
 
   function emitAnnotations() {
-    post("annotationchange", { annotations: annotations })
+    dirty = true
+    post("annotationchange", { annotations: annotations, id: ++revision })
     renderAnnotations()
   }
 
@@ -529,7 +555,7 @@
   }
 
   async function handleSelectionAction(action) {
-    if (!selectionState) return
+    if (!selectionState || switching) return
 
     if (["highlight", "underline", "strikeout", "note"].includes(action)) {
       createAnnotation(action)
@@ -537,6 +563,7 @@
     }
 
     if (action === "copy") {
+      copying = true
       let imageCopyUnsupported = false
       try {
         if (selectionState.kind === "image") {
@@ -557,6 +584,7 @@
       } catch (_) {
         // Keep the native selection as fallback.
       }
+      copying = false
       if (imageCopyUnsupported) {
         hideSelectionMenu()
         showSelectionHint("Image copy not supported")
@@ -1255,7 +1283,10 @@
       bottom: Math.max(drag.start.y, point.y),
     }
 
-    const cropped = await cropImageFromSelection(drag.pageElement, rect)
+    capturing = true
+    const cropped = await cropImageFromSelection(drag.pageElement, rect).finally(function () {
+      capturing = false
+    })
     if (!cropped || !cropped.imageDataUrl) {
       showSelectionHint("Unable to capture region")
       setCaptureMode(false)
@@ -1449,6 +1480,11 @@
 
   function applyLocation(location) {
     if (typeof location !== "string" || !location) return
+    const total = window.PDFViewerApplication?.pdfDocument?.numPages
+    if (total)
+      location = location.replace(/(^|[&#])page=(\d+)/, function (_, prefix, page) {
+        return prefix + "page=" + Math.max(1, Math.min(total, Number(page)))
+      })
     suppressBroadcastUntil = Date.now() + 500
     window.PDFViewerApplication?.pdfLinkService?.setHash?.(location)
   }
@@ -1462,8 +1498,8 @@
       applyLocation(location)
       return
     }
-    if (config.page > 1) {
-      app.page = config.page
+    if (config.page >= 1) {
+      app.page = Math.max(1, Math.min(app.pdfDocument?.numPages || config.page, config.page))
     }
   }
 
@@ -1471,10 +1507,26 @@
     return src.replace(/([?&])(?:v|r)=[^&]*/g, "")
   }
 
-  function isReload(oldKey, key) {
-    const old = oldKey.split("|")
-    const next = key.split("|")
-    return old[1] === next[1] && old[2] === next[2] && docId(old[0]) === docId(next[0])
+  function identity(config) {
+    return config?.document || (config?.src ? docId(config.src) : "")
+  }
+
+  function key(config) {
+    return [config.src, config.authHeader || "", config.mode, config.document || "", config.version || ""].join("|")
+  }
+
+  function busy() {
+    return !!(
+      selectionState ||
+      annotationEditor ||
+      annotationUndo ||
+      captureDrag ||
+      captureModeActive ||
+      copying ||
+      capturing ||
+      dirty ||
+      window.getSelection()?.isCollapsed === false
+    )
   }
 
   function captureState() {
@@ -1523,7 +1575,7 @@
     if (docStateTimer) return
     docStateTimer = setTimeout(function () {
       docStateTimer = undefined
-      const id = currentKey ? docId(currentKey.split("|")[0]) : undefined
+      const id = identity(currentConfig)
       saveDocState(id, captureState())
     }, 600)
   }
@@ -1573,6 +1625,23 @@
     forward.disabled = !(valid && state.uid < pdfHistory._maxUid)
   }
 
+  function announce() {
+    if (reported || !rendered || !docSettled || !currentConfig) return
+    reported = true
+    switching = false
+    post("documentinfo", {
+      totalPages: window.PDFViewerApplication.pdfDocument.numPages,
+      source: {
+        src: currentConfig.src,
+        document: currentConfig.document,
+        version: currentConfig.version,
+        annotationPath: currentConfig.annotationPath,
+        annotationBuild: currentConfig.annotationBuild,
+      },
+    })
+    post("pagechange", { page: window.PDFViewerApplication.page })
+  }
+
   function bindEvents() {
     if (eventsBound) return
     eventsBound = true
@@ -1584,12 +1653,14 @@
 
     eventBus.on("pagechanging", function (evt) {
       if (!evt?.pageNumber) return
+      if (switching) return
       if (Date.now() < suppressBroadcastUntil) return
       hideSelectionUi()
       post("pagechange", { page: evt.pageNumber })
     })
 
     eventBus.on("updateviewarea", function (evt) {
+      if (switching) return
       syncHistoryButtons()
       const location = evt?.location?.pdfOpenParams
       if (typeof location === "string" && location) {
@@ -1609,7 +1680,6 @@
       syncHistoryButtons()
       const totalPages = Number(evt?.pagesCount || window.PDFViewerApplication?.pdfDocument?.numPages || 0)
       if (!Number.isFinite(totalPages) || totalPages <= 0) return
-      post("documentinfo", { totalPages })
       if (currentConfig) {
         requestAnimationFrame(function () {
           if (!currentConfig) return
@@ -1622,12 +1692,15 @@
             applyPosition(currentConfig)
           }
           docSettled = true
+          announce()
           renderAnnotations()
         })
       }
     })
 
-    eventBus.on("pagerendered", function () {
+    eventBus.on("pagerendered", function (evt) {
+      if (!evt?.error) rendered = true
+      announce()
       requestAnimationFrame(function () {
         renderAnnotations()
         hideEmptyPdfPopups()
@@ -1857,96 +1930,151 @@
 
   async function openDocument(config) {
     const app = window.PDFViewerApplication
-    if (!config.src) return
-
-    const key = [config.src, config.authHeader || "", config.mode].join("|")
-    if (currentKey === key) {
-      applyChrome(config)
-      if (app.pdfViewer) {
-        app.pdfViewer.scrollMode = mapScrollMode(config.scrollMode)
-        app.pdfViewer.spreadMode = 0
-      }
+    if (!config.src || key(config) !== key(requested) || currentKey === key(config)) return
+    if (pending && key(pending.config) !== key(config)) {
+      await pending.task.destroy()
+      pending = null
+    }
+    if (!pending) {
+      const task = window.pdfjsLib.getDocument({
+        url: config.src,
+        httpHeaders: config.authHeader ? { Authorization: config.authHeader } : undefined,
+        rangeChunkSize: RANGE_CHUNK_SIZE,
+        useWorkerFetch: false,
+        cMapUrl: C_MAP_URL,
+        cMapPacked: true,
+        standardFontDataUrl: STANDARD_FONT_DATA_URL,
+      })
+      const doc = await task.promise.catch(async function (error) {
+        await task.destroy()
+        throw error
+      })
+      // Validate the first and visible pages while the previous PDF is still usable.
+      // In particular, a failed refresh must not close the last successful build.
+      await Promise.all(
+        [1, Math.min(doc.numPages, app.page || config.page)]
+          .filter(function (page, index, pages) {
+            return pages.indexOf(page) === index
+          })
+          .map(async function (number) {
+            const page = await doc.getPage(number)
+            const viewport = page.getViewport({ scale: 0.25 })
+            const canvas = document.createElement("canvas")
+            canvas.width = Math.ceil(viewport.width)
+            canvas.height = Math.ceil(viewport.height)
+            await page.render({ canvasContext: canvas.getContext("2d"), viewport }).promise.finally(function () {
+              canvas.width = 0
+              canvas.height = 0
+            })
+          }),
+      ).catch(async function (error) {
+        await task.destroy()
+        throw error
+      })
+      pending = { task, doc, config }
+    }
+    if (key(config) !== key(requested)) {
+      await pending.task.destroy()
+      pending = null
+      return
+    }
+    if (busy()) {
+      schedule(200)
       return
     }
 
-    const reload = !!currentKey && isReload(currentKey, key)
-    if (!reload) {
-      restoreState = loadDocState(docId(config.src))
-    } else if (docSettled) {
-      restoreState = captureState() || restoreState
-    }
+    const saved = docSettled ? captureState() : restoreState
+    saveDocState(identity(currentConfig), saved)
+    restoreState = identity(currentConfig) === identity(config) ? saved : loadDocState(identity(config))
+    const next = pending
+    pending = null
+    switching = true
     docSettled = false
-    currentKey = key
+    await app.close().catch(async function (error) {
+      await next.task.destroy()
+      switching = false
+      throw error
+    })
+    currentConfig = config
+    currentKey = key(config)
+    docSettled = false
+    rendered = false
+    reported = false
+    lastLocation = ""
+    annotations = []
+    annotated = false
+    dirty = false
+    revision = 0
     hideViewerError()
-    sidebarState = {
-      initialized: false,
-      userClosed: true,
-    }
+    sidebarState = { initialized: false, userClosed: true }
     hideSelectionUi()
     applyChrome(config)
     closeSidebar(app)
 
-    if (app.pdfDocument) {
-      await app.close()
-      closeSidebar(app)
-    }
-
-    app.eventBus.on("documentloaded", function onDocumentLoaded() {
-      app.eventBus.off("documentloaded", onDocumentLoaded)
-      if (restoreState) {
-        applySettings(restoreState)
-      } else {
-        applyDocumentDefaults(config)
-      }
+    app.eventBus.on("documentloaded", function loaded() {
+      app.eventBus.off("documentloaded", loaded)
+      if (restoreState) applySettings(restoreState)
+      else applyDocumentDefaults(config)
       scheduleToolbarOverflowSync()
     })
-
-    const loadOpts = {
-      url: config.src,
-      httpHeaders: config.authHeader ? { Authorization: config.authHeader } : undefined,
-      rangeChunkSize: RANGE_CHUNK_SIZE,
-      useWorkerFetch: false,
-      cMapUrl: C_MAP_URL,
-      cMapPacked: true,
-      standardFontDataUrl: STANDARD_FONT_DATA_URL,
-    }
-
-    const doc = await window.pdfjsLib.getDocument(loadOpts).promise
+    const doc = next.doc
     if (doc?._pdfInfo) {
-      doc._pdfInfo.fingerprints = [config.src]
+      doc._pdfInfo.fingerprints = [identity(config)]
     }
+    app.pdfLoadingTask = next.task
     await app.load(doc)
   }
 
+  function schedule(delay) {
+    if (reloadTimer) return
+    reloadTimer = setTimeout(function () {
+      reloadTimer = 0
+      if (requested) void applyConfig(requested)
+    }, delay)
+  }
+
   async function applyConfig(nextConfig) {
-    currentConfig = sanitizeConfig(nextConfig)
-    applyChrome(currentConfig)
-    const key = [currentConfig.src, currentConfig.authHeader || "", currentConfig.mode].join("|")
-    if (currentKey && currentKey !== key && isReload(currentKey, key)) {
+    const config = sanitizeConfig(nextConfig)
+    requested = config
+    if (currentKey === key(config)) {
+      if (pending && key(pending.config) !== currentKey) {
+        const task = pending.task
+        pending = null
+        await task.destroy()
+      }
+      currentConfig = config
+      applyChrome(config)
+      return
+    }
+    if (busy() || switching) {
+      schedule(200)
+      return
+    }
+    if (currentKey && identity(currentConfig) === identity(config)) {
       const wait = RELOAD_MIN_INTERVAL - (Date.now() - reloadAt)
       if (wait > 0) {
-        if (!reloadTimer) {
-          const from = currentKey
-          reloadTimer = setTimeout(function () {
-            reloadTimer = 0
-            if (currentKey === from) void applyConfig(currentConfig)
-          }, wait)
-        }
+        schedule(wait)
         return
       }
     }
     reloadAt = Date.now()
     openChain = openChain
       .then(function () {
-        return openDocument(currentConfig)
+        return openDocument(config)
       })
       .catch(function (error) {
         console.error("[aether-pdf-viewer] failed to open document", {
-          config: currentConfig,
+          config,
           error,
         })
-        showViewerError(error)
+        switching = false
+        if (window.PDFViewerApplication?.pdfDocument)
+          showSelectionHint("PDF refresh failed. The previous version is still open.", 5000)
+        else showViewerError(error)
         post("loaderror", {
+          src: config.src,
+          document: config.document,
+          version: config.version,
           message: error instanceof Error ? error.message : String(error || "Unknown PDF viewer error"),
         })
       })
@@ -1957,6 +2085,7 @@
     "message",
     async function (event) {
       if (event.data?.channel !== CHANNEL) return
+      if (event.source !== window.parent) return
       if (!IS_FILE_PROTOCOL && event.origin !== ORIGIN) return
 
       if (event.data.type === "config") {
@@ -1967,6 +2096,7 @@
       if (event.data.type === "navigate") {
         const page = Number(event.data.page)
         if (!Number.isFinite(page) || page < 1) return
+        if (event.data.document !== currentConfig?.document || event.data.version !== currentConfig?.version) return
         currentConfig = { ...(currentConfig || sanitizeConfig({})), page: Math.round(page) }
         if (window.PDFViewerApplication?.pdfDocument) {
           suppressBroadcastUntil = Date.now() + 500
@@ -1975,7 +2105,7 @@
             app.pdfHistory?.pushCurrentPosition()
             app.pdfHistory?.pushPage(app.page)
           }
-          app.page = Math.round(page)
+          app.page = Math.min(app.pdfDocument.numPages, Math.round(page))
         }
         return
       }
@@ -1983,6 +2113,7 @@
       if (event.data.type === "location") {
         const location = typeof event.data.location === "string" ? event.data.location : ""
         if (!location) return
+        if (event.data.document !== currentConfig?.document || event.data.version !== currentConfig?.version) return
         currentConfig = { ...(currentConfig || sanitizeConfig({})), location }
         applyLocation(location)
         return
@@ -1994,8 +2125,56 @@
       }
 
       if (event.data.type === "annotations") {
+        if (
+          event.data.src !== currentConfig?.src ||
+          event.data.version !== currentConfig?.version ||
+          event.data.document !== currentConfig?.document ||
+          dirty
+        )
+          return
         annotations = Array.isArray(event.data.annotations) ? event.data.annotations : []
+        annotated = true
         renderAnnotations()
+        return
+      }
+
+      if (event.data.type === "annotationstatus") {
+        if (
+          event.data.src !== currentConfig?.src ||
+          event.data.version !== currentConfig?.version ||
+          event.data.document !== currentConfig?.document ||
+          event.data.id !== revision
+        )
+          return
+        if (event.data.ok) {
+          dirty = false
+          document.getElementById("aetherAnnotationError")?.remove()
+          return
+        }
+        document.getElementById("aetherAnnotationError")?.remove()
+        const alert = document.createElement("div")
+        alert.id = "aetherAnnotationError"
+        alert.style.cssText =
+          "position:fixed;bottom:12px;left:12px;right:12px;z-index:9999;padding:12px;background:var(--surface-raised-base,#222);color:var(--text-strong,#fff);border:1px solid currentColor;border-radius:6px"
+        alert.textContent = "Annotations were not saved. PDF refresh is paused. "
+        alert.addEventListener("pointerdown", function (event) {
+          event.stopPropagation()
+        })
+        const retry = document.createElement("button")
+        retry.textContent = "Retry"
+        retry.addEventListener("click", emitAnnotations)
+        alert.appendChild(retry)
+        const reload = document.createElement("button")
+        reload.textContent = "Reload saved annotations"
+        reload.addEventListener("click", function () {
+          if (!window.confirm("Discard unsaved annotation changes and load the saved annotations?")) return
+          dirty = false
+          annotated = false
+          alert.remove()
+          post("reloadannotations")
+        })
+        alert.appendChild(reload)
+        document.body.appendChild(alert)
       }
     },
     false,

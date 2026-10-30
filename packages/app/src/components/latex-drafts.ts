@@ -2,6 +2,10 @@ import { checksum } from "@opencode-ai/util/encode"
 
 export type LatexDraft = { path: string; content: string; base?: string }
 
+export function source(path: string) {
+  return /\.(tex|bib|sty|cls|bst)$/i.test(path)
+}
+
 export function contains(root: string, path: string) {
   const normalize = (value: string) => value.replaceAll("\\", "/").replace(/^\.\//, "").replace(/\/$/, "")
   const dir = normalize(root)
@@ -23,7 +27,7 @@ export async function save(input: {
 }) {
   const drafts = input
     .drafts()
-    .filter((draft) => contains(input.root, draft.path) && dirty(draft))
+    .filter((draft) => source(draft.path) && contains(input.root, draft.path) && dirty(draft))
     .map((draft) => ({ ...draft }))
   const errors: { path: string; error: unknown }[] = []
   for (const draft of drafts) {
@@ -41,5 +45,8 @@ export async function save(input: {
     }
     input.saved(draft, checksum(draft.content) ?? "")
   }
-  return { errors, pending: input.drafts().filter((draft) => contains(input.root, draft.path) && dirty(draft)) }
+  return {
+    errors,
+    pending: input.drafts().filter((draft) => source(draft.path) && contains(input.root, draft.path) && dirty(draft)),
+  }
 }

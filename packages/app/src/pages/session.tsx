@@ -47,6 +47,7 @@ import { useTerminal } from "@/context/terminal"
 import { QuickReadingFirstReadGate } from "@/components/quick-reading/quick-reading-first-read-gate"
 import { QuickReadingModeProvider, useQuickReadingMode } from "@/context/quick-reading-mode"
 import { QuickReadingPanel } from "@/components/quick-reading/quick-reading-panel"
+import { LatexReadingToolbar } from "@/components/quick-reading/latex-reading-toolbar"
 import { type FollowupDraft, sendFollowupDraft } from "@/components/prompt-input/submit"
 import { createSessionComposerState, SessionComposerRegion } from "@/pages/session/composer"
 import {
@@ -698,7 +699,16 @@ function SessionPageContent(props: SessionPageProps = {}) {
     return (
       <QuickReadingPanel
         url={quickReadingController.pdfUrl()}
-        annotationPath={quickReadingController.pdfPath()!}
+        annotationPath={quickReadingController.annotationPath()}
+        annotationBuild={quickReadingController.version()}
+        document={quickReadingController.document()}
+        version={quickReadingController.version()}
+        onVersionChange={quickReadingController.latex.displayed}
+        header={
+          <Show when={quickReadingController.compiled()}>
+            <LatexReadingToolbar reading={quickReadingController.latex} download={quickReadingController.download} />
+          </Show>
+        }
         authHeader={quickReadingController.authHeader()}
         width={readingPaneWidth()}
         minWidth={quickReadingLayout.pdfMinWidth()}
@@ -719,7 +729,7 @@ function SessionPageContent(props: SessionPageProps = {}) {
         onImageSelectionAction={quickReadingController.handleImageSelectionAction}
         onExitQuickReading={quickReadingController.closeQuickReading}
         onSwapLayout={quickReadingController.toggleLayoutSwapped}
-        onStartFirstRead={quickReadingController.openFirstRead}
+        onStartFirstRead={quickReadingController.compiled() ? undefined : quickReadingController.openFirstRead}
         onOpenSettings={quickReadingController.openSettings}
         onResizeWidth={quickReadingLayout.handleResizeWidth}
         resizeHandleEnabled={

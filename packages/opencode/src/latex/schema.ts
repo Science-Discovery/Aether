@@ -1,4 +1,5 @@
 import z from "zod"
+import { PdfAnnotations } from "../pdf-annotations"
 
 export namespace LatexSchema {
   export const Config = z.object({
@@ -60,6 +61,22 @@ export namespace LatexSchema {
     })
     .meta({ ref: "LatexBuild" })
   export type Build = z.infer<typeof Build>
+  export const Version = z
+    .object({
+      build: Build,
+      pdfHash: z.string(),
+      annotationCount: z.number().int().nonnegative(),
+      referenced: z.boolean(),
+      viewing: z.boolean(),
+    })
+    .meta({ ref: "LatexVersion" })
+  export const Annotations = z
+    .object({ status: z.literal("ready"), data: PdfAnnotations.File, revision: z.string() })
+    .meta({ ref: "LatexAnnotations" })
+  export const Lease = z.object({ token: z.string().uuid(), expiresAt: z.number() }).meta({ ref: "LatexLease" })
+  export const Cleanup = z
+    .object({ removed: z.string().array(), versions: Version.array() })
+    .meta({ ref: "LatexCleanup" })
   export const Freshness = z
     .object({
       state: z.enum(["fresh", "stale", "unknown"]),

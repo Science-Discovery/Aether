@@ -266,7 +266,9 @@ describe("LaTeX compiler lifecycle", () => {
     const spec = await Server.openapi()
     expect(spec.paths?.["/latex/project"]?.put?.operationId).toBe("latex.bind")
     expect(spec.paths?.["/latex/build/{id}/pdf"]?.get?.operationId).toBe("latex.pdf")
-    expect(Object.keys(spec.paths ?? {}).filter((key) => key.startsWith("/latex/"))).toHaveLength(7)
+    expect(spec.paths?.["/latex/versions"]?.get?.operationId).toBe("latex.versions")
+    expect(spec.paths?.["/latex/build/{id}/annotations"]?.put?.operationId).toBe("latex.annotate")
+    expect(spec.paths?.["/latex/build/{id}/lease"]?.post?.operationId).toBe("latex.lease")
   })
 
   test("configured executable is probed without compiling and explicit pdfLaTeX is not silently changed", async () => {

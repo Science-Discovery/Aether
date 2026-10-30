@@ -3,6 +3,7 @@ import { describeRoute, resolver, validator } from "hono-openapi"
 import z from "zod"
 import { Latex, LatexSchema } from "../../latex"
 import { LatexSetup } from "../../latex/setup"
+import { PdfAnnotations } from "../../pdf-annotations"
 import { lazy } from "../../util/lazy"
 
 const response = (schema: z.ZodType) => ({
@@ -99,6 +100,104 @@ export const LatexRoutes = lazy(() =>
       }),
       validator("json", LatexSchema.Start),
       async (c) => c.json(await Latex.start(c.req.valid("json")), 202),
+    )
+    .get(
+      "/versions",
+      describeRoute({
+        operationId: "latex.versions",
+        summary: "List immutable PDF builds and their retention state",
+        responses: { ...response(LatexSchema.Version.array()), ...failure },
+      }),
+      validator("query", z.object({ root: z.string() })),
+      async (c) => c.json(await Latex.list(c.req.valid("query"))),
+    )
+    .post(
+      "/versions/cleanup",
+      describeRoute({
+        operationId: "latex.cleanup",
+        summary: "Keep recent builds and all annotated, referenced or viewed PDFs",
+        responses: { ...response(LatexSchema.Cleanup), ...failure },
+      }),
+      validator("json", z.object({ root: z.string() })),
+      async (c) => c.json(await Latex.cleanup(c.req.valid("json"))),
+    )
+    .get(
+      "/build/:id/annotations",
+      describeRoute({
+        operationId: "latex.annotations",
+        summary: "Read annotations bound to this immutable PDF",
+        responses: { ...response(LatexSchema.Annotations), ...failure },
+      }),
+      validator("param", z.object({ id: z.string().uuid() })),
+      async (c) => c.json(await Latex.annotations(c.req.valid("param").id)),
+    )
+    .put(
+      "/build/:id/annotations",
+      describeRoute({
+        operationId: "latex.annotate",
+        summary: "Save build annotations without overwriting concurrent edits",
+        responses: { ...response(LatexSchema.Annotations), ...failure },
+      }),
+      validator("param", z.object({ id: z.string().uuid() })),
+      validator("json", z.object({ data: PdfAnnotations.File, revision: z.string() })),
+      async (c) => c.json(await Latex.annotate(c.req.valid("param").id, c.req.valid("json"))),
+    )
+    .post(
+      "/build/:id/annotations/export",
+      describeRoute({
+        operationId: "latex.exportAnnotations",
+        summary: "Export this PDF with its build-specific annotations",
+        responses: {
+          200: {
+            description: "Annotated PDF",
+            content: { "application/pdf": { schema: { type: "string", format: "binary" } } },
+          },
+          ...failure,
+        },
+      }),
+      validator("param", z.object({ id: z.string().uuid() })),
+      async (c) => {
+        const bytes = await Latex.exportAnnotations(c.req.valid("param").id)
+        return new Response(new Uint8Array(bytes), {
+          headers: {
+            "Content-Type": "application/pdf",
+            "Cache-Control": "no-store",
+            "X-Content-Type-Options": "nosniff",
+          },
+        })
+      },
+    )
+    .post(
+      "/build/:id/lease",
+      describeRoute({
+        operationId: "latex.lease",
+        summary: "Protect a viewed PDF for 90 seconds; renew while viewing",
+        responses: { ...response(LatexSchema.Lease), ...failure },
+      }),
+      validator("param", z.object({ id: z.string().uuid() })),
+      validator("json", z.object({ token: z.string().uuid().optional() })),
+      async (c) => c.json(await Latex.lease(c.req.valid("param").id, c.req.valid("json").token)),
+    )
+    .delete(
+      "/build/:id/lease/:token",
+      describeRoute({
+        operationId: "latex.release",
+        summary: "Release this viewer's temporary PDF protection",
+        responses: { ...response(z.boolean()), ...failure },
+      }),
+      validator("param", z.object({ id: z.string().uuid(), token: z.string().uuid() })),
+      async (c) => c.json(await Latex.release(c.req.valid("param").id, c.req.valid("param").token)),
+    )
+    .post(
+      "/build/:id/reference",
+      describeRoute({
+        operationId: "latex.reference",
+        summary: "Retain the immutable PDF used by a question",
+        responses: { ...response(z.boolean()), ...failure },
+      }),
+      validator("param", z.object({ id: z.string().uuid() })),
+      validator("json", z.object({ reference: z.string().min(1).max(256) })),
+      async (c) => c.json(await Latex.reference(c.req.valid("param").id, c.req.valid("json").reference)),
     )
     .get(
       "/build/:id",

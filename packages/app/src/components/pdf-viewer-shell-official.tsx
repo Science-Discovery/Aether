@@ -25,6 +25,10 @@ type PdfAnnotationFile = {
   annotations: PdfAnnotation[]
 }
 
+export type PdfVersion = { document?: string; version?: string; src?: string }
+type PdfSource = PdfVersion & { src: string; annotationPath?: string; annotationBuild?: string }
+type PdfAnnotations = { status: "ready" | "stale"; data: PdfAnnotationFile; revision?: string }
+
 const VIEW_THEME_KEY = "aether-pdf-theme"
 const LEGACY_NIGHT_MODE_KEY = "aether-pdf-night-mode"
 const viewThemeSubscribers = new Set<(value: PdfViewTheme) => void>()
@@ -78,6 +82,8 @@ function viewerMessageTargetOrigin() {
 
 export type PdfViewerShellProps = {
   src: string
+  document?: string
+  version?: string
   authHeader?: string
   mode: ViewerMode
   class?: string
@@ -86,9 +92,11 @@ export type PdfViewerShellProps = {
   location?: string
   layoutSwapped?: boolean
   annotationPath?: string
+  annotationBuild?: string
+  onVersionChange?: (version: string) => void
   onPageChange?: (page: number) => void
   onLocationChange?: (location: string) => void
-  onDocumentInfo?: (info: { totalPages: number }) => void
+  onDocumentInfo?: (info: { totalPages: number } & PdfVersion) => void
   onPdfToMarkdown?: () => void
   onOpenReadingMode?: () => void
   onExitQuickReading?: () => void
@@ -99,42 +107,49 @@ export type PdfViewerShellProps = {
     startPage: number
     endPage: number
     text: string
+    document?: string
+    version?: string
   }) => void
-  onImageSelectionAction?: (input: { action: "copy" | "translate" | "ask"; page: number; imageDataUrl: string }) => void
+  onImageSelectionAction?: (
+    input: { action: "copy" | "translate" | "ask"; page: number; imageDataUrl: string } & PdfVersion,
+  ) => void
   onSwapLayout?: () => void
 }
 
-type ViewerMessage =
-  | { channel: "aether-pdf-viewer"; type: "ready" }
-  | { channel: "aether-pdf-viewer"; type: "pagechange"; page: number }
-  | { channel: "aether-pdf-viewer"; type: "locationchange"; location: string }
-  | { channel: "aether-pdf-viewer"; type: "documentinfo"; totalPages: number }
-  | { channel: "aether-pdf-viewer"; type: "loaderror"; message?: string }
-  | { channel: "aether-pdf-viewer"; type: "pdf2md" }
-  | { channel: "aether-pdf-viewer"; type: "openreadingmode" }
-  | { channel: "aether-pdf-viewer"; type: "exitquickreading" }
-  | { channel: "aether-pdf-viewer"; type: "startfirstread" }
-  | { channel: "aether-pdf-viewer"; type: "opensettings" }
-  | {
-      channel: "aether-pdf-viewer"
-      type: "textselectionaction"
-      action: "copy" | "translate" | "ask"
-      startPage: number
-      endPage: number
-      text: string
-    }
-  | {
-      channel: "aether-pdf-viewer"
-      type: "imageselectionaction"
-      action: "copy" | "translate" | "ask"
-      page: number
-      imageDataUrl: string
-    }
-  | { channel: "aether-pdf-viewer"; type: "viewtheme"; theme: PdfViewTheme }
-  | { channel: "aether-pdf-viewer"; type: "swaplayout" }
-  | { channel: "aether-pdf-viewer"; type: "themechange" }
-  | { channel: "aether-pdf-viewer"; type: "annotationchange"; annotations: PdfAnnotation[] }
-  | { channel: "aether-pdf-viewer"; type: "exportannotations" }
+type ViewerMessage = PdfVersion &
+  (
+    | { channel: "aether-pdf-viewer"; type: "ready" }
+    | { channel: "aether-pdf-viewer"; type: "pagechange"; page: number }
+    | { channel: "aether-pdf-viewer"; type: "locationchange"; location: string }
+    | { channel: "aether-pdf-viewer"; type: "documentinfo"; totalPages: number; source: PdfSource }
+    | { channel: "aether-pdf-viewer"; type: "loaderror"; message?: string; src?: string }
+    | { channel: "aether-pdf-viewer"; type: "pdf2md" }
+    | { channel: "aether-pdf-viewer"; type: "openreadingmode" }
+    | { channel: "aether-pdf-viewer"; type: "exitquickreading" }
+    | { channel: "aether-pdf-viewer"; type: "startfirstread" }
+    | { channel: "aether-pdf-viewer"; type: "opensettings" }
+    | {
+        channel: "aether-pdf-viewer"
+        type: "textselectionaction"
+        action: "copy" | "translate" | "ask"
+        startPage: number
+        endPage: number
+        text: string
+      }
+    | {
+        channel: "aether-pdf-viewer"
+        type: "imageselectionaction"
+        action: "copy" | "translate" | "ask"
+        page: number
+        imageDataUrl: string
+      }
+    | { channel: "aether-pdf-viewer"; type: "viewtheme"; theme: PdfViewTheme }
+    | { channel: "aether-pdf-viewer"; type: "swaplayout" }
+    | { channel: "aether-pdf-viewer"; type: "themechange" }
+    | { channel: "aether-pdf-viewer"; type: "annotationchange"; annotations: PdfAnnotation[]; id: number }
+    | { channel: "aether-pdf-viewer"; type: "exportannotations" }
+    | { channel: "aether-pdf-viewer"; type: "reloadannotations" }
+  )
 
 export const PdfViewerShell: Component<PdfViewerShellProps> = (props) => {
   const sdk = useSDK()
@@ -150,6 +165,13 @@ export const PdfViewerShell: Component<PdfViewerShellProps> = (props) => {
   let saving = Promise.resolve()
   const [viewTheme, setViewTheme] = createSignal(props.viewTheme ?? sharedViewTheme)
   const [annotations, setAnnotations] = createSignal<PdfAnnotationFile>()
+  const [loaded, setLoaded] = createSignal<PdfSource>()
+  const [record, setRecord] = createSignal<{
+    source: PdfSource
+    revision?: string
+    pending: number
+    failed?: boolean
+  }>()
   // Bumped to force a viewer reload through its src dedupe after a failed load
   // (e.g. a fetch that raced a non-atomic write). One retry per src change.
   const [reloadKey, setReloadKey] = createSignal(0)
@@ -165,6 +187,10 @@ export const PdfViewerShell: Component<PdfViewerShellProps> = (props) => {
   })
   const config = createMemo(() => ({
     src: finalSrc(),
+    document: props.document,
+    version: props.version,
+    annotationPath: props.annotationPath,
+    annotationBuild: props.annotationBuild,
     authHeader: props.authHeader,
     mode: props.mode,
     viewTheme: props.viewTheme ?? viewTheme(),
@@ -177,7 +203,7 @@ export const PdfViewerShell: Component<PdfViewerShellProps> = (props) => {
       settings: !!props.onOpenSettings,
       textSelectionActions: !!props.onTextSelectionAction,
       imageSelectionActions: !!props.onImageSelectionAction,
-      annotations: !!props.annotationPath,
+      annotations: !!(props.annotationPath || props.annotationBuild),
       swapLayout: !!props.onSwapLayout,
     },
   }))
@@ -201,17 +227,33 @@ export const PdfViewerShell: Component<PdfViewerShellProps> = (props) => {
 
   const headers = () => (props.authHeader ? { Authorization: props.authHeader } : undefined)
 
+  const identity = (source: PdfSource) =>
+    source.annotationBuild ? `latex:${source.annotationBuild}` : source.annotationPath
+
+  const endpoint = (source: PdfSource, exportPdf = false) => {
+    const target = source.annotationBuild
+      ? url(`latex/build/${encodeURIComponent(source.annotationBuild)}/annotations${exportPdf ? "/export" : ""}`)
+      : url(`file/pdf-annotations${exportPdf ? "/export" : ""}`)
+    if (!exportPdf && source.annotationPath && !source.annotationBuild)
+      target.searchParams.set("path", source.annotationPath)
+    return target
+  }
+
+  const matches = (source: PdfVersion | undefined, message: PdfVersion) =>
+    !!source && source.version === message.version && source.document === message.document && source.src === message.src
+
   createEffect(() => {
-    const path = props.annotationPath
+    const source = loaded()
     const id = ++serial
     setAnnotations(undefined)
-    if (!path) return
-    const target = url("file/pdf-annotations")
-    target.searchParams.set("path", path)
-    void fetch(target, { headers: headers() })
+    setRecord(undefined)
+    if (!source || !identity(source)) return
+    const target = endpoint(source)
+    const auth = headers()
+    void fetch(target, { headers: auth })
       .then(async (res) => {
         if (!res.ok) throw new Error(`Failed to load PDF annotations (${res.status})`)
-        return res.json() as Promise<{ status: "ready" | "stale"; data: PdfAnnotationFile }>
+        return res.json() as Promise<PdfAnnotations>
       })
       .then((result) => {
         if (id !== serial) return
@@ -227,20 +269,24 @@ export const PdfViewerShell: Component<PdfViewerShellProps> = (props) => {
             return
           }
           const next = { ...result.data, annotations: [] }
-          void fetch(url("file/pdf-annotations"), {
+          void fetch(target, {
             method: "PUT",
-            headers: { "Content-Type": "application/json", ...headers() },
-            body: JSON.stringify({ path, data: next }),
+            headers: { "Content-Type": "application/json", ...auth },
+            body: JSON.stringify({ path: source.annotationPath, data: next }),
           })
             .then(async (res) => {
               if (!res.ok) throw new Error(`Failed to reset PDF annotations (${res.status})`)
-              if (id === serial) setAnnotations((await res.json()) as PdfAnnotationFile)
+              const data = (await res.json()) as PdfAnnotationFile
+              if (id !== serial) return
+              setRecord({ source, pending: 0 })
+              setAnnotations(data)
             })
             .catch((err) => {
               showToast({ variant: "error", title: "Failed to reset PDF annotations", description: String(err) })
             })
           return
         }
+        setRecord({ source, revision: result.revision, pending: 0 })
         setAnnotations(result.data)
       })
       .catch((err) => {
@@ -251,49 +297,99 @@ export const PdfViewerShell: Component<PdfViewerShellProps> = (props) => {
 
   createEffect(() => {
     const data = annotations()
-    if (!viewerReady() || !data) return
-    post({ channel: "aether-pdf-viewer", type: "annotations", annotations: data.annotations })
+    const source = record()?.source
+    if (!viewerReady() || !data || !source) return
+    post({ channel: "aether-pdf-viewer", type: "annotations", annotations: data.annotations, ...source })
   })
 
-  const persist = (items: PdfAnnotation[]) => {
-    const path = props.annotationPath
+  const persist = (message: Extract<ViewerMessage, { type: "annotationchange" }>) => {
+    const ctx = record()
     const data = annotations()
-    if (!path || !data) return
-    const next = { ...data, annotations: items }
+    if (!ctx || !data || !matches(ctx.source, message)) {
+      post({
+        channel: "aether-pdf-viewer",
+        type: "annotationstatus",
+        id: message.id,
+        document: message.document,
+        version: message.version,
+        src: message.src,
+        ok: false,
+      })
+      return
+    }
+    const next = { ...data, annotations: message.annotations }
+    const target = endpoint(ctx.source)
+    const auth = headers()
+    ctx.pending++
     setAnnotations(next)
-    window.dispatchEvent(new CustomEvent("aether:pdf-annotations", { detail: { channel, path, data: next } }))
     saving = saving
       .then(async () => {
-        const res = await fetch(url("file/pdf-annotations"), {
+        const res = await fetch(target, {
           method: "PUT",
-          headers: { "Content-Type": "application/json", ...headers() },
-          body: JSON.stringify({ path, data: next }),
+          headers: { "Content-Type": "application/json", ...auth },
+          body: JSON.stringify(
+            ctx.source.annotationBuild
+              ? { data: next, revision: ctx.revision }
+              : { path: ctx.source.annotationPath, data: next },
+          ),
         })
-        if (!res.ok) throw new Error(`Failed to save PDF annotations (${res.status})`)
-        setAnnotations((await res.json()) as PdfAnnotationFile)
+        if (!res.ok)
+          throw new Error(
+            res.status === 409
+              ? "Annotations changed in another view. Your edits are still open; reload saved annotations to resolve the conflict."
+              : `Failed to save PDF annotations (${res.status})`,
+          )
+        const result = (await res.json()) as PdfAnnotationFile | PdfAnnotations
+        const saved = "data" in result ? result.data : result
+        if ("revision" in result) ctx.revision = result.revision
+        ctx.failed = false
+        window.dispatchEvent(
+          new CustomEvent("aether:pdf-annotations", {
+            detail: { channel, path: identity(ctx.source), data: saved, revision: ctx.revision },
+          }),
+        )
+        post({ channel: "aether-pdf-viewer", type: "annotationstatus", id: message.id, ...ctx.source, ok: true })
       })
       .catch((err) => {
+        ctx.failed = true
         showToast({ variant: "error", title: "Failed to save PDF annotations", description: String(err) })
+        post({ channel: "aether-pdf-viewer", type: "annotationstatus", id: message.id, ...ctx.source, ok: false })
+      })
+      .finally(() => {
+        ctx.pending--
       })
   }
 
   const onAnnotations = (event: Event) => {
-    const detail = (event as CustomEvent<{ channel: string; path: string; data: PdfAnnotationFile }>).detail
-    if (!detail || detail.channel === channel || detail.path !== props.annotationPath) return
+    const detail = (event as CustomEvent<{ channel: string; path: string; data: PdfAnnotationFile; revision?: string }>)
+      .detail
+    const ctx = record()
+    if (
+      !ctx ||
+      ctx.pending ||
+      ctx.failed ||
+      !detail ||
+      detail.channel === channel ||
+      detail.path !== identity(ctx.source)
+    )
+      return
+    ctx.revision = detail.revision
     setAnnotations(detail.data)
-    if (viewerReady()) post({ channel: "aether-pdf-viewer", type: "annotations", annotations: detail.data.annotations })
   }
   window.addEventListener("aether:pdf-annotations", onAnnotations)
   onCleanup(() => window.removeEventListener("aether:pdf-annotations", onAnnotations))
 
   const exportPdf = async () => {
-    const path = props.annotationPath
-    if (!path) return
+    const ctx = record()
+    if (!ctx) return
+    const target = endpoint(ctx.source, true)
+    const auth = headers()
     await saving
-    const res = await fetch(url("file/pdf-annotations/export"), {
+    if (ctx.failed) throw new Error("Save annotations before exporting this PDF.")
+    const res = await fetch(target, {
       method: "POST",
-      headers: { "Content-Type": "application/json", ...headers() },
-      body: JSON.stringify({ path }),
+      headers: { "Content-Type": "application/json", ...auth },
+      body: JSON.stringify({ path: ctx.source.annotationPath }),
     })
     if (!res.ok) {
       const body = (await res.json().catch(() => undefined)) as { error?: string } | undefined
@@ -303,7 +399,7 @@ export const PdfViewerShell: Component<PdfViewerShellProps> = (props) => {
     const match = head?.match(/filename\*\s*=\s*UTF-8''([^;]+)/i)
     const name = match?.[1]
       ? decodeURIComponent(match[1])
-      : `${path
+      : `${(ctx.source.annotationPath ?? ctx.source.annotationBuild ?? "document")
           .split(/[\\/]/)
           .pop()
           ?.replace(/\.pdf$/i, "")}-annotated.pdf`
@@ -330,6 +426,8 @@ export const PdfViewerShell: Component<PdfViewerShellProps> = (props) => {
       channel: "aether-pdf-viewer",
       type: "navigate",
       page,
+      document: props.document,
+      version: props.version,
     })
   }
 
@@ -341,6 +439,8 @@ export const PdfViewerShell: Component<PdfViewerShellProps> = (props) => {
       channel: "aether-pdf-viewer",
       type: "location",
       location,
+      document: props.document,
+      version: props.version,
     })
   }
 
@@ -408,8 +508,6 @@ export const PdfViewerShell: Component<PdfViewerShellProps> = (props) => {
       lastReportedLocation = undefined
       lastConfigKey = ""
       sendConfig()
-      const data = annotations()
-      if (data) post({ channel: "aether-pdf-viewer", type: "annotations", annotations: data.annotations })
       return
     }
 
@@ -418,27 +516,38 @@ export const PdfViewerShell: Component<PdfViewerShellProps> = (props) => {
       // the src dedupe is enough to recover from a mid-write fetch. Bounded:
       // only one retry per src, so a genuinely broken file won't loop.
       const src = props.src
+      if (event.data.src && event.data.src !== finalSrc()) return
       if (retriedFor !== src) {
         retriedFor = src
-        retryTimer = setTimeout(() => setReloadKey((key) => key + 1), 5000)
+        retryTimer = setTimeout(() => {
+          if (src === props.src) setReloadKey((key) => key + 1)
+        }, 5000)
       }
       return
     }
 
     if (event.data.type === "pagechange") {
+      if (props.document ? event.data.document !== props.document : event.data.src !== finalSrc()) return
       lastReportedPage = event.data.page
       props.onPageChange?.(event.data.page)
       return
     }
 
     if (event.data.type === "locationchange") {
+      if (props.document ? event.data.document !== props.document : event.data.src !== finalSrc()) return
       lastReportedLocation = event.data.location
       props.onLocationChange?.(event.data.location)
       return
     }
 
     if (event.data.type === "documentinfo") {
-      props.onDocumentInfo?.({ totalPages: event.data.totalPages })
+      setLoaded(event.data.source)
+      if (event.data.version) props.onVersionChange?.(event.data.version)
+      props.onDocumentInfo?.({
+        totalPages: event.data.totalPages,
+        document: event.data.document,
+        version: event.data.version,
+      })
       return
     }
 
@@ -473,6 +582,8 @@ export const PdfViewerShell: Component<PdfViewerShellProps> = (props) => {
         startPage: event.data.startPage,
         endPage: event.data.endPage,
         text: event.data.text,
+        document: event.data.document,
+        version: event.data.version,
       })
       return
     }
@@ -482,6 +593,8 @@ export const PdfViewerShell: Component<PdfViewerShellProps> = (props) => {
         action: event.data.action,
         page: event.data.page,
         imageDataUrl: event.data.imageDataUrl,
+        document: event.data.document,
+        version: event.data.version,
       })
       return
     }
@@ -497,19 +610,28 @@ export const PdfViewerShell: Component<PdfViewerShellProps> = (props) => {
     }
 
     if (event.data.type === "annotationchange") {
-      persist(event.data.annotations)
+      persist(event.data)
       return
     }
 
     if (event.data.type === "exportannotations") {
+      if (!matches(loaded(), event.data)) return
       void exportPdf().catch((err) => {
         showToast({ variant: "error", title: "Failed to export annotated PDF", description: String(err) })
       })
+      return
+    }
+
+    if (event.data.type === "reloadannotations") {
+      const source = loaded()
+      if (!source || !matches(source, event.data)) return
+      setLoaded({ ...source })
     }
   }
 
   window.addEventListener("message", onMessage)
   onCleanup(() => {
+    serial++
     window.removeEventListener("message", onMessage)
     if (retryTimer) clearTimeout(retryTimer)
   })

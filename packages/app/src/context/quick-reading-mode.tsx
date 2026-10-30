@@ -2,6 +2,7 @@ import { createContext, createEffect, useContext, type ParentProps } from "solid
 import { createStore } from "solid-js/store"
 import { Persist, persisted } from "@/utils/persist"
 import { useSDK } from "@/context/sdk"
+import type { LatexQuote } from "@/utils/pdf-source"
 
 export type QuickReadingSettings = {
   translatePrompt: string
@@ -20,6 +21,7 @@ export type QuickReadingPendingQuestion =
       endPage: number
       text: string
       createdAt: number
+      source?: LatexQuote
     }
   | {
       kind: "image-question"
@@ -30,6 +32,7 @@ export type QuickReadingPendingQuestion =
       text: string
       imageDataUrl: string
       createdAt: number
+      source?: LatexQuote
     }
   | null
 
