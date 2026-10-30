@@ -574,40 +574,46 @@ export const { use: useLatex, provider: LatexProvider } = createSimpleContext({
       }
     }
     createEffect(
-      on(scope, () => {
-        epoch++
-        serial++
-        selection++
-        edits = 0
-        attempt = ""
-        target = undefined
-        clearTimeout(timer)
-        clearTimeout(watcher)
-        setState({
-          path: "",
-          project: undefined,
-          status: undefined,
-          root: "",
-          main: "",
-          driver: "auto",
-          program: "auto",
-          busy: false,
-          saving: false,
-          scanning: false,
-          error: "",
-          loadError: "",
-          configuring: false,
-          collapsed: false,
-          queued: false,
-          blocked: [],
-          composing: [],
-          downloads: false,
-          automatic: true,
-          cursors: {},
-          locating: { path: "", line: 1, column: 1, nonce: 0 },
-          reading: { root: "", main: "", updating: false, outdated: false },
-        })
-      }),
+      // Restored panels can open while Suspense releases effects. The store is
+      // already empty initially; only a later workspace change should reset it.
+      on(
+        scope,
+        () => {
+          epoch++
+          serial++
+          selection++
+          edits = 0
+          attempt = ""
+          target = undefined
+          clearTimeout(timer)
+          clearTimeout(watcher)
+          setState({
+            path: "",
+            project: undefined,
+            status: undefined,
+            root: "",
+            main: "",
+            driver: "auto",
+            program: "auto",
+            busy: false,
+            saving: false,
+            scanning: false,
+            error: "",
+            loadError: "",
+            configuring: false,
+            collapsed: false,
+            queued: false,
+            blocked: [],
+            composing: [],
+            downloads: false,
+            automatic: true,
+            cursors: {},
+            locating: { path: "", line: 1, column: 1, nonce: 0 },
+            reading: { root: "", main: "", updating: false, outdated: false },
+          })
+        },
+        { defer: true },
+      ),
     )
     createEffect(
       on(

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest"
 import { createStore } from "solid-js/store"
 import { render } from "solid-js/web"
-import type { JSX } from "solid-js"
+import { createResource, Show, Suspense, type JSX } from "solid-js"
 import type { LatexBuild, LatexProject, LatexStatus } from "@opencode-ai/sdk/v2"
 import { dict } from "@/i18n/en"
 import { LatexPanel } from "./latex-panel"
@@ -177,6 +177,47 @@ afterEach(() => {
   vi.useRealTimers()
   vi.restoreAllMocks()
 })
+
+test.each(["main.tex", "sections/intro.tex"])(
+  "restoring %s after a suspended workspace load preserves the discovered build",
+  async (path) => {
+    const pending = Promise.withResolvers<boolean>()
+    const ready = bound()
+    mocks.project.mockResolvedValue({ data: ready })
+    mocks.refresh.mockResolvedValue({ data: ready })
+    const Restore = () => {
+      const [loaded] = createResource(() => pending.promise)
+      return (
+        <Show when={loaded()}>
+          <LatexPanel enabled active path={path} onNavigate={() => undefined}>
+            <div>Restored source editor</div>
+          </LatexPanel>
+        </Show>
+      )
+    }
+    dispose = render(
+      () => (
+        <Suspense fallback={<div>Loading workspace</div>}>
+          <LatexProvider>
+            <Probe />
+            <Restore />
+          </LatexProvider>
+        </Suspense>
+      ),
+      host,
+    )
+    await tick()
+    expect(host.textContent).toBe("Loading workspace")
+    pending.resolve(true)
+    await tick()
+    expect(latex.state.path).toBe(path)
+    expect(latex.state.project?.binding?.main).toBe("main.tex")
+    expect(latex.pdf()?.build.id).toBe("build-1")
+    expect(mocks.project).toHaveBeenCalledTimes(1)
+    expect(mocks.project).toHaveBeenCalledWith({ path, root: undefined }, { throwOnError: true })
+    expect(host.textContent).not.toContain(dict["latex.empty"])
+  },
+)
 
 test("failed initial discovery exposes the project folder and can recover by opening a smaller root", async () => {
   mocks.project.mockRejectedValueOnce(new Error("Choose a smaller project directory."))
