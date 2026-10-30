@@ -57,6 +57,48 @@ function Workspace(props: Props) {
         <SettingsLatex />
       </Dialog>
     ))
+  const help = () =>
+    dialog.show(() => (
+      <Dialog title={language.t("latex.help.title")} size="large">
+        <div class="max-h-[65vh] overflow-auto px-5 pb-5 text-14-regular" data-component="latex-help">
+          <ol class="mb-5 list-decimal space-y-2 pl-5">
+            <For each={["latex.help.start", "latex.help.automatic", "latex.help.manual"] as const}>
+              {(key) => <li>{language.t(key)}</li>}
+            </For>
+          </ol>
+          <dl class="space-y-3">
+            <For
+              each={
+                [
+                  ["latex.project", "latex.help.project"],
+                  ["latex.refresh", "latex.help.refresh"],
+                  ["latex.settings", "latex.help.settings"],
+                  ["latex.preview", "latex.help.preview"],
+                  ["latex.root", "latex.help.root"],
+                  ["latex.open", "latex.help.open"],
+                  ["latex.main", "latex.help.main"],
+                  ["latex.driver", "latex.help.driver"],
+                  ["latex.program", "latex.help.program"],
+                  ["latex.bind", "latex.help.bind"],
+                  ["latex.downloads", "latex.help.downloads"],
+                  ["latex.preview.versions", "latex.help.versions"],
+                  ["latex.preview.export", "latex.help.export"],
+                  ["latex.help.diagnostics", "latex.help.errors"],
+                  ["latex.compare", "latex.help.conflict"],
+                ] as const
+              }
+            >
+              {(item) => (
+                <div>
+                  <dt class="font-medium text-text-strong">{language.t(item[0])}</dt>
+                  <dd class="mt-1 text-text-weak">{language.t(item[1])}</dd>
+                </div>
+              )}
+            </For>
+          </dl>
+        </div>
+      </Dialog>
+    ))
   const compare = async (path: string) => {
     setLocal("error", "")
     const snapshot = await latex.compare(path).catch((cause) => {
@@ -122,7 +164,12 @@ function Workspace(props: Props) {
     <div data-component="latex-workspace" class="flex min-h-0 flex-1 flex-col overflow-hidden">
       <div class="shrink-0 border-b border-border-weak-base px-3 pb-2 text-12-regular">
         <div class="flex flex-wrap items-center gap-2">
-          <Button size="small" variant="ghost" onClick={() => latex.configure(!state.configuring)}>
+          <Button
+            size="small"
+            variant="secondary"
+            aria-expanded={state.configuring}
+            onClick={() => latex.configure(!state.configuring)}
+          >
             {state.project?.binding?.main ?? language.t("latex.project")}
           </Button>
           <label class="flex items-center gap-2 text-text-weak">
@@ -142,18 +189,21 @@ function Workspace(props: Props) {
             {state.saving ? language.t("latex.saving") : language.t("latex.compile")}
           </Button>
           <Show when={latex.running()}>
-            <Button size="small" variant="ghost" onClick={() => void latex.cancel()}>
+            <Button size="small" variant="secondary" onClick={() => void latex.cancel()}>
               {language.t("common.cancel")}
             </Button>
           </Show>
-          <Button size="small" variant="ghost" onClick={() => void latex.refresh()} disabled={state.busy}>
+          <Button size="small" variant="secondary" onClick={() => void latex.refresh()} disabled={state.busy}>
             {language.t("latex.refresh")}
           </Button>
-          <Button size="small" variant="ghost" onClick={settings}>
+          <Button size="small" variant="secondary" onClick={settings}>
             {language.t("latex.settings")}
           </Button>
-          <Button size="small" variant="ghost" onClick={latex.show}>
+          <Button size="small" variant="secondary" onClick={latex.show}>
             {language.t("latex.preview")}
+          </Button>
+          <Button size="small" variant="secondary" data-action="latex-help" onClick={help}>
+            {language.t("latex.help")}
           </Button>
         </div>
         <Show when={state.configuring}>
@@ -247,11 +297,13 @@ function Workspace(props: Props) {
         </Show>
         <div class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-text-weak">
           <span data-component="latex-preview-status" data-current={latex.current()}>
-            {latex.current()
-              ? language.t("latex.current")
-              : latex.artifact()
+            {!latex.artifact()
+              ? language.t("latex.empty")
+              : latex.outdated()
                 ? language.t("latex.stale")
-                : language.t("latex.empty")}
+                : latex.verified()
+                  ? language.t("latex.current")
+                  : language.t("latex.unverified")}
           </span>
           <span data-component="latex-save-status">
             {latex.conflicts().length
@@ -301,7 +353,7 @@ function Workspace(props: Props) {
         </Show>
         <For each={latex.conflicts()}>
           {(draft) => (
-            <Button size="small" variant="ghost" onClick={() => void compare(draft.path)}>
+            <Button size="small" variant="secondary" onClick={() => void compare(draft.path)}>
               {language.t("latex.compare")} · {draft.path}
             </Button>
           )}

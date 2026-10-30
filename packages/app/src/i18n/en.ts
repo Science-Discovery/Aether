@@ -1799,7 +1799,7 @@ export const dict = {
   "draft.stale.discard": "Discard draft",
   "draft.stale.restore": "Restore old draft",
   "latex.project": "LaTeX project",
-  "latex.compile": "Compile now",
+  "latex.compile": "Save and compile",
   "latex.saving": "Saving project…",
   "latex.refresh": "Refresh",
   "latex.settings": "LaTeX compilers",
@@ -1812,10 +1812,11 @@ export const dict = {
   "latex.driver": "Compiler",
   "latex.program": "Engine",
   "latex.auto": "Automatic",
-  "latex.bind": "Use this main document",
+  "latex.bind": "Save project settings",
   "latex.ambiguous": "Several main documents were found. Choose the document for this project.",
   "latex.current": "PDF matches saved files",
   "latex.stale": "Previous PDF · not current",
+  "latex.unverified": "Preview status not yet confirmed",
   "latex.empty": "No compiled PDF yet",
   "latex.unsaved": "{{count}} unsaved file(s)",
   "latex.state.preparing": "Preparing",
@@ -1825,7 +1826,7 @@ export const dict = {
   "latex.state.cancelled": "Cancelled",
   "latex.downloads": "Allow Tectonic to download missing packages for this build",
   "latex.unavailable": "No compiler found. Set an installed Tectonic or latexmk executable in LaTeX compilers.",
-  "latex.emptyHelp": "Bind a main document, then save the project and compile to see its PDF here.",
+  "latex.emptyHelp": "Save the main document in project settings, then choose Save and compile to see its PDF here.",
   "latex.diagnostics": "Diagnostics and log ({{count}})",
   "latex.truncated": "The compiler log was truncated.",
   "latex.changed": "The project changed. Refresh before compiling again.",
@@ -1868,7 +1869,43 @@ export const dict = {
     "A custom Tectonic path is still configured. To use this installation, clear the Tectonic path above and save.",
   "latex.setup.unsupported":
     "Automatic installation is unavailable for this server platform. Use the manual installation guide.",
-  "latex.automatic": "Auto compile",
+  "latex.automatic": "Auto save and compile",
+  "latex.help": "Help",
+  "latex.help.title": "Writing with LaTeX",
+  "latex.help.start":
+    "Open a .tex file in the editor. Aether finds its project and main document; if a choice is needed, select the main document and save the project settings once.",
+  "latex.help.automatic":
+    "Auto save and compile is on by default. After about one second without typing, Aether saves changed source files and compiles the project. It waits until input-method composition is finished.",
+  "latex.help.manual":
+    "Turn off Auto save and compile to keep edits as unsaved drafts. Choose Save and compile, or press Ctrl+S (Cmd+S on macOS) in the source editor, to save the project's drafts and compile. Save before closing the page.",
+  "latex.help.project": "The main document's name is a button. Click it to expand or collapse project settings.",
+  "latex.help.refresh":
+    "Check files on disk, project settings and build status. This does not save drafts in manual mode. With automatic mode on, detected changes can trigger a build.",
+  "latex.help.settings": "Install Tectonic or configure the paths to installed Tectonic and latexmk executables.",
+  "latex.help.preview": "Open the project's PDF in the reading view. This button does not start a build.",
+  "latex.help.root":
+    "The folder containing this paper's source files, chapters, images and bibliography, relative to the workspace.",
+  "latex.help.open":
+    "Read the folder you entered and discover its settings and main documents. This does not create a folder.",
+  "latex.help.main":
+    "The .tex file that compiles the whole paper, relative to the project folder. Editing a chapter still builds from this document.",
+  "latex.help.driver":
+    "Choose Tectonic, latexmk, or automatic selection for this project. Installation is configured separately in LaTeX compilers.",
+  "latex.help.program":
+    "Choose the typesetting engine for latexmk. Leave this set to Automatic for Tectonic, which uses XeTeX.",
+  "latex.help.bind":
+    "Remember this project's main document, compiler and engine. After changing the folder, open it before saving these settings.",
+  "latex.help.downloads":
+    "If Tectonic needs missing packages, enable this and choose Save and compile. Permission applies only to that requested build, not subsequent automatic builds.",
+  "latex.help.versions":
+    "Follow the latest successful build or select a previous PDF. Annotations remain attached to their original build.",
+  "latex.help.export":
+    "Export the PDF currently displayed. If the source has newer changes, save and compile first to export those changes.",
+  "latex.help.diagnostics": "Diagnostics and log",
+  "latex.help.errors":
+    "Inspect compiler errors and warnings; click a source location to open it. A failed build keeps the last successful PDF available. Cancel stops the current build.",
+  "latex.help.conflict":
+    "If another program changes a file with unsaved edits, saving pauses. Compare the draft and saved file, then choose which content to keep before compiling again.",
   "latex.queued": "Latest changes queued",
   "latex.saved": "Changes saved",
   "latex.compare": "Compare changes",

@@ -287,8 +287,10 @@ export function FileTabContent(props: { tab: string; visible: boolean }) {
   const saveEditing = async () => {
     const p = path()
     if (!p) return
-    if (latex() && project.state.project?.binding) {
-      await project.save()
+    if (managed()) {
+      if (project.state.busy || project.running() || project.changed() || !file.ready() || project.conflicts().length)
+        return
+      await project.compile()
       return
     }
     if (needsConfirm()) {
@@ -359,6 +361,7 @@ export function FileTabContent(props: { tab: string; visible: boolean }) {
 
   const path = createMemo(() => file.pathFromTab(props.tab))
   const latex = createMemo(() => source(path() ?? ""))
+  const managed = createMemo(() => latex() && project.state.path === path() && !!project.state.project?.binding)
   createEffect(
     on(
       () => project.state.resolved.nonce,
@@ -1007,6 +1010,15 @@ export function FileTabContent(props: { tab: string; visible: boolean }) {
     const onKeyDown = (event: KeyboardEvent) => {
       if (activeFileTab() !== props.tab) return
       if (!(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey) return
+      if (event.key.toLowerCase() === "s") {
+        if (!props.visible || !managed() || !isEditing() || event.isComposing || event.repeat) return
+        if (!(event.target instanceof Element) || !event.target.closest(".cm-editor")) return
+        if (!tabRoot || !event.composedPath().includes(tabRoot)) return
+        event.preventDefault()
+        event.stopPropagation()
+        void saveEditing()
+        return
+      }
       if (event.key.toLowerCase() !== "f") return
 
       event.preventDefault()
@@ -1484,7 +1496,7 @@ export function FileTabContent(props: { tab: string; visible: boolean }) {
                 />
               </Tooltip>
             </Show>
-            <Show when={!latex() || !project.state.project?.binding}>
+            <Show when={!managed()}>
               <Show
                 when={isEditing() && isTextFile()}
                 fallback={

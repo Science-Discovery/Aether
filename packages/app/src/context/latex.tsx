@@ -65,6 +65,31 @@ export const { use: useLatex, provider: LatexProvider } = createSimpleContext({
     )
     const running = createMemo(() => ["preparing", "running"].includes(state.project?.latest?.state ?? ""))
     const artifact = createMemo(() => state.project?.lastSuccessful)
+    // A background scan is not evidence that the displayed build is outdated.
+    const outdated = createMemo(() => {
+      const project = state.project
+      const build = artifact()
+      return (
+        !!build &&
+        (pending().length > 0 ||
+          conflicts().length > 0 ||
+          project?.freshness.state === "stale" ||
+          (!!project?.binding && project.binding.revision !== build.bindingRevision) ||
+          (!!project?.freshness.sourceRevision && project.freshness.sourceRevision !== build.sourceRevision))
+      )
+    })
+    const verified = createMemo(() => {
+      const project = state.project
+      const build = artifact()
+      return (
+        !!build &&
+        !outdated() &&
+        !state.loadError &&
+        project?.freshness.state === "fresh" &&
+        project.binding?.revision === build.bindingRevision &&
+        project.freshness.sourceRevision === build.sourceRevision
+      )
+    })
     const current = createMemo(() => {
       const project = state.project
       const build = artifact()
@@ -109,6 +134,7 @@ export const { use: useLatex, provider: LatexProvider } = createSimpleContext({
     }
     const schedule = () => {
       clearTimeout(timer)
+      if (!state.automatic) return
       timer = setTimeout(() => void run(false), 1000)
     }
     const read = async (refresh = true, root = state.project?.root, form = false) => {
@@ -205,6 +231,7 @@ export const { use: useLatex, provider: LatexProvider } = createSimpleContext({
           batch(() => {
             buffer.saved(draft.path, draft.content)
             if (version !== epoch || state.project?.root !== root) return
+            setState("project", "freshness", "state", "stale")
             const index = state.project.editors.findIndex((item) => item.path === draft.path)
             if (index < 0) {
               setState("project", "editors", (items) => [...items, { path: draft.path, checksum: base }])
@@ -223,6 +250,7 @@ export const { use: useLatex, provider: LatexProvider } = createSimpleContext({
       return false
     }
     async function run(manual: boolean, compile = true) {
+      if (!manual && !state.automatic) return
       if (!state.project?.binding || !file.ready() || state.composing.length || conflicts().length) return
       if (state.busy) {
         setState("queued", true)
@@ -237,12 +265,15 @@ export const { use: useLatex, provider: LatexProvider } = createSimpleContext({
       setState({ busy: true, error: "", scanning: false })
       serial++
       try {
-        if (!(await flush()) || version !== epoch) return
+        const saved = await flush()
+        if (version !== epoch || (!saved && (!manual || state.error || conflicts().length))) return
         const project = (await client.latex.refresh({ root, editors: editors() }, { throwOnError: true })).data
         if (!project || version !== epoch) return
         assign(project)
         setState("loadError", "")
-        if (pending().length || state.composing.length || conflicts().length) {
+        // Explicit builds use what this save wrote. Later typing stays in the editor;
+        // automatic builds wait for the newest draft instead.
+        if (conflicts().length || (!manual && (pending().length || state.composing.length))) {
           schedule()
           return
         }
@@ -294,13 +325,13 @@ export const { use: useLatex, provider: LatexProvider } = createSimpleContext({
         setState("path", path)
         return
       }
-      // Finish the old project's save before changing the owner of the queue.
-      // If it conflicts, retain the target until that draft is resolved.
+      // Automatic mode finishes the old save first. Manual mode leaves its drafts
+      // in the file store so changing projects never silently writes them.
       if (state.busy) {
         target = { path, root }
         return
       }
-      if (pending().length || conflicts().length) {
+      if (state.automatic && (pending().length || conflicts().length)) {
         target = { path, root }
         await run(true, false)
         if (pending().length || conflicts().length) return
@@ -522,9 +553,9 @@ export const { use: useLatex, provider: LatexProvider } = createSimpleContext({
     )
     createEffect(
       on(
-        () => [state.busy, pending().length, conflicts().length, state.composing.length] as const,
-        ([busy, pending, conflicts, composing]) => {
-          if (!target || busy || pending || conflicts || composing) return
+        () => [state.busy, pending().length, conflicts().length, state.composing.length, state.automatic] as const,
+        ([busy, pending, conflicts, composing, automatic]) => {
+          if (!target || busy || composing || (automatic && (pending || conflicts))) return
           const next = target
           target = undefined
           void open(next.path, next.root)
@@ -590,6 +621,8 @@ export const { use: useLatex, provider: LatexProvider } = createSimpleContext({
       running,
       artifact,
       current,
+      outdated,
+      verified,
       changed,
       compile: () => run(true),
       save: () => run(true, false),
@@ -601,6 +634,8 @@ export const { use: useLatex, provider: LatexProvider } = createSimpleContext({
       downloads: (value: boolean) => setState("downloads", value),
       automatic: (value: boolean) => {
         setState("automatic", value)
+        clearTimeout(timer)
+        if (!value) setState("queued", false)
         if (value) schedule()
       },
       composing: (path: string, value: boolean) => {

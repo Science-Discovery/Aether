@@ -280,6 +280,184 @@ test("cached PDF metadata is not current while scanning or after a scan failure"
   expect(current()).toBe("true")
 })
 
+test("refocusing checks files silently and only marks a confirmed revision change outdated", async () => {
+  mocks.project.mockResolvedValue({ data: bound() })
+  mocks.refresh.mockResolvedValue({ data: bound() })
+  mount()
+  await tick()
+  latex.automatic(false)
+  const pending = Promise.withResolvers<{ data: LatexProject }>()
+  mocks.refresh.mockReturnValueOnce(pending.promise)
+  window.dispatchEvent(new Event("focus"))
+  await tick()
+  expect(latex.state.scanning).toBe(true)
+  expect(latex.current()).toBe(false)
+  expect(latex.verified()).toBe(true)
+  expect(latex.outdated()).toBe(false)
+  expect(host.querySelector('[data-component="latex-preview-status"]')?.textContent).toBe(dict["latex.current"])
+  pending.resolve({ data: bound() })
+  await tick()
+  expect(latex.outdated()).toBe(false)
+  expect(latex.current()).toBe(true)
+  expect(mocks.build).not.toHaveBeenCalled()
+  mocks.refresh.mockResolvedValueOnce({
+    data: { ...bound(), freshness: { state: "stale", sourceRevision: "source-2" } },
+  })
+  window.dispatchEvent(new Event("focus"))
+  await tick()
+  expect(latex.outdated()).toBe(true)
+  expect(latex.verified()).toBe(false)
+})
+
+test("a failed background check is unverified, not evidence of modified source", async () => {
+  mocks.project.mockResolvedValue({ data: bound() })
+  mocks.refresh.mockResolvedValue({ data: bound() })
+  mount()
+  await tick()
+  latex.automatic(false)
+  mocks.refresh.mockRejectedValueOnce(new Error("Cannot check files"))
+  await latex.refresh()
+  expect(latex.current()).toBe(false)
+  expect(latex.verified()).toBe(false)
+  expect(latex.outdated()).toBe(false)
+  expect(latex.state.loadError).toContain("Cannot check files")
+})
+
+test("manual mode keeps drafts until save and compile is explicitly requested", async () => {
+  mocks.project.mockResolvedValue({ data: bound() })
+  mocks.refresh.mockResolvedValue({ data: bound() })
+  mocks.build.mockResolvedValue({ data: { ...bound().latest!, id: "build-2", state: "running" } })
+  mount()
+  await tick()
+  setBuffer("drafts", [{ path: "main.tex", content: "manual draft", base: "" }])
+  latex.automatic(false)
+  await vi.advanceTimersByTimeAsync(2000)
+  window.dispatchEvent(new Event("focus"))
+  await vi.advanceTimersByTimeAsync(2000)
+  expect(mocks.write).not.toHaveBeenCalled()
+  expect(mocks.build).not.toHaveBeenCalled()
+  expect(latex.outdated()).toBe(true)
+  button("latex.compile").click()
+  await tick()
+  expect(mocks.write).toHaveBeenCalledExactlyOnceWith(
+    { path: "main.tex", content: "manual draft", expectedChecksum: "" },
+    { throwOnError: true },
+  )
+  expect(mocks.build).toHaveBeenCalledTimes(1)
+  expect(latex.pending()).toHaveLength(0)
+})
+
+test("re-enabling automatic mode saves drafts after the typing delay", async () => {
+  mocks.project.mockResolvedValue({ data: bound() })
+  mocks.refresh.mockResolvedValue({ data: bound() })
+  mount()
+  await tick()
+  latex.automatic(false)
+  setBuffer("drafts", [{ path: "main.tex", content: "draft", base: "" }])
+  await vi.advanceTimersByTimeAsync(2000)
+  expect(mocks.write).not.toHaveBeenCalled()
+  latex.automatic(true)
+  await vi.advanceTimersByTimeAsync(999)
+  expect(mocks.write).not.toHaveBeenCalled()
+  await vi.advanceTimersByTimeAsync(1)
+  expect(mocks.write).toHaveBeenCalledTimes(1)
+})
+
+test("manual save compiles its saved revision while later typing stays unsaved", async () => {
+  mocks.project.mockResolvedValue({ data: bound() })
+  mocks.refresh.mockResolvedValue({ data: bound() })
+  const pending = Promise.withResolvers<unknown>()
+  mocks.write.mockReturnValueOnce(pending.promise)
+  mocks.build.mockResolvedValue({ data: { ...bound().latest!, id: "build-2", state: "running" } })
+  mount()
+  await tick()
+  latex.automatic(false)
+  setBuffer("drafts", [{ path: "main.tex", content: "saved version", base: "" }])
+  const request = latex.compile()
+  setBuffer("drafts", 0, "content", "newer draft")
+  mocks.refresh.mockResolvedValue({
+    data: {
+      ...bound(),
+      freshness: { state: "stale", sourceRevision: "source-2" },
+      editors: [{ path: "main.tex", checksum: checksum("saved version")! }],
+    },
+  })
+  pending.resolve(undefined)
+  await request
+  await vi.advanceTimersByTimeAsync(2000)
+  expect(mocks.write).toHaveBeenCalledTimes(1)
+  expect(mocks.build).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ sourceRevision: "source-2" }), {
+    throwOnError: true,
+  })
+  expect(latex.pending()[0].content).toBe("newer draft")
+  expect(latex.pending()[0].base).toBe(checksum("saved version"))
+})
+
+test("turning off automation during a save retains newer typing without another write", async () => {
+  mocks.project.mockResolvedValue({ data: bound() })
+  mocks.refresh.mockResolvedValue({ data: bound() })
+  const pending = Promise.withResolvers<unknown>()
+  mocks.write.mockReturnValueOnce(pending.promise)
+  mount()
+  await tick()
+  setBuffer("drafts", [{ path: "main.tex", content: "first", base: "" }])
+  await vi.advanceTimersByTimeAsync(1000)
+  expect(mocks.write).toHaveBeenCalledTimes(1)
+  latex.automatic(false)
+  setBuffer("drafts", 0, "content", "newer")
+  pending.resolve(undefined)
+  await vi.advanceTimersByTimeAsync(3000)
+  expect(mocks.write).toHaveBeenCalledTimes(1)
+  expect(latex.pending()[0].content).toBe("newer")
+  expect(latex.pending()[0].base).toBe(checksum("first"))
+  expect(mocks.build).not.toHaveBeenCalled()
+})
+
+test("manual project switching retains unsaved drafts without writing them", async () => {
+  const first = { ...bound(), root: "first", binding: { ...bound().binding!, root: "first" } }
+  const second = { ...bound(), root: "second", binding: { ...bound().binding!, root: "second" } }
+  setState("path", "first/main.tex")
+  mocks.project.mockImplementation(async (input) => ({ data: input.path?.startsWith("second/") ? second : first }))
+  mocks.refresh.mockImplementation(async (input) => ({ data: input.root === "second" ? second : first }))
+  mount()
+  await tick()
+  latex.automatic(false)
+  setBuffer("drafts", [{ path: "first/main.tex", content: "unsaved", base: "" }])
+  setState("path", "second/main.tex")
+  await vi.advanceTimersByTimeAsync(2000)
+  expect(latex.state.project?.root).toBe("second")
+  setState("path", "first/main.tex")
+  await tick()
+  expect(latex.pending()[0].content).toBe("unsaved")
+  expect(latex.pending()[0].base).toBe("")
+  expect(mocks.write).not.toHaveBeenCalled()
+})
+
+test("disabling automation releases a project switch blocked by conflicting drafts", async () => {
+  const first = {
+    ...bound(),
+    root: "first",
+    binding: { ...bound().binding!, root: "first" },
+    editors: [{ path: "first/main.tex", checksum: checksum("external")! }],
+  }
+  const second = { ...bound(), root: "second", binding: { ...bound().binding!, root: "second" } }
+  setState("path", "first/main.tex")
+  mocks.project.mockImplementation(async (input) => ({ data: input.path?.startsWith("second/") ? second : first }))
+  mocks.refresh.mockImplementation(async (input) => ({ data: input.root === "second" ? second : first }))
+  mount()
+  await tick()
+  setBuffer("drafts", [{ path: "first/main.tex", content: "unsaved", base: "" }])
+  expect(latex.conflicts()).toHaveLength(1)
+  setState("path", "second/main.tex")
+  await tick()
+  expect(latex.state.project?.root).toBe("first")
+  latex.automatic(false)
+  await tick()
+  expect(latex.state.project?.root).toBe("second")
+  expect(buffer.drafts[0].content).toBe("unsaved")
+  expect(mocks.write).not.toHaveBeenCalled()
+})
+
 test("compilation supersedes a pending scan without blocking completion polling", async () => {
   const pending = Promise.withResolvers<{ data: LatexProject }>()
   mocks.project.mockResolvedValue({ data: bound() })
@@ -347,7 +525,6 @@ test("autosave waits for a typing pause and IME completion across source tabs", 
   mocks.refresh.mockResolvedValue({ data: bound() })
   mount()
   await tick()
-  latex.automatic(false)
   setBuffer("drafts", [
     { path: "main.tex", content: "初", base: "" },
     { path: "notes.md", content: "private draft", base: "" },
@@ -384,7 +561,6 @@ test("new input during an in-flight save stays dirty and is saved in the next pa
   mocks.write.mockReturnValueOnce(write.promise)
   mount()
   await tick()
-  latex.automatic(false)
   setBuffer("drafts", [{ path: "main.tex", content: "first", base: checksum(original) }])
   await vi.advanceTimersByTimeAsync(1000)
   setBuffer("drafts", 0, "content", "latest")
@@ -497,7 +673,6 @@ test("conflicts pause autosave and compare resolution uses the displayed disk ch
   })
   mount()
   await tick()
-  latex.automatic(false)
   setBuffer({ drafts: [{ path: "main.tex", content: "my draft", base: "" }], disk: { "main.tex": "external" } })
   await vi.advanceTimersByTimeAsync(1000)
   expect(latex.conflicts()).toHaveLength(1)
@@ -534,7 +709,6 @@ test("switching project folders flushes the previous draft before discovery", as
   mocks.refresh.mockResolvedValue({ data: first })
   mount()
   await tick()
-  latex.automatic(false)
   setBuffer("drafts", [{ path: "first/main.tex", content: "unsaved", base: "" }])
   const saved = Promise.withResolvers<unknown>()
   mocks.write.mockReturnValueOnce(saved.promise)

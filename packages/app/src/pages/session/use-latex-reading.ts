@@ -151,8 +151,10 @@ export function useLatexReading() {
     outdated: () => {
       const item = document()
       return (
-        state.displayed !== state.versions[0]?.build.id ||
-        (item?.root === latex.state.project?.root && !latex.current())
+        (!!state.displayed && !!state.versions[0] && state.displayed !== state.versions[0].build.id) ||
+        (item?.root === latex.state.project?.root &&
+          item?.main === latex.state.project?.binding?.main &&
+          latex.outdated())
       )
     },
     reference: async (quote: LatexQuote) => {

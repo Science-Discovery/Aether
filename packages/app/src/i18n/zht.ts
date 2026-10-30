@@ -1163,9 +1163,38 @@ export const dict = {
   "dialog.project.delete.cascadeHint": "刪除項目將永久刪除以上會話（包括已歸檔），且無法復原。",
   "dialog.project.delete.failed": "刪除項目失敗",
   "dialog.project.delete.sessionArchived": "已歸檔",
-  "latex.automatic": "自動編譯",
+  "latex.automatic": "自動儲存並編譯",
+  "latex.bind": "儲存專案設定",
+  "latex.unverified": "預覽狀態尚未確認",
+  "latex.help": "說明",
+  "latex.help.title": "LaTeX 寫作說明",
+  "latex.help.start":
+    "在編輯欄開啟 .tex 檔案，Aether 會辨識專案與主文件。需要選擇時，選好主文件並儲存專案設定，之後沿用此設定。",
+  "latex.help.automatic":
+    "預設開啟「自動儲存並編譯」。停止輸入約 1 秒後，自動儲存修改過的原始碼並編譯整篇論文；中文輸入法組字期間會等待輸入完成。",
+  "latex.help.manual":
+    "關閉「自動儲存並編譯」後，修改保留為未儲存草稿。點選「儲存並編譯」，或在原始碼編輯器按 Ctrl+S（macOS 為 Cmd+S），儲存專案草稿並編譯。關閉頁面前請先儲存。",
+  "latex.help.project": "主文件名稱是一個按鈕，點選可展開或收合專案設定。",
+  "latex.help.refresh": "檢查磁碟檔案、專案設定與編譯狀態。手動模式下不會儲存草稿；自動模式下發現修改可能觸發編譯。",
+  "latex.help.settings": "安裝 Tectonic，或設定已安裝的 Tectonic、latexmk 執行檔路徑。",
+  "latex.help.preview": "在閱讀檢視開啟專案的 PDF；這個按鈕不會重新編譯。",
+  "latex.help.root": "相對於工作區的論文資料夾，應包含原始碼、章節、圖片與參考文獻檔案。",
+  "latex.help.open": "讀取填入的資料夾，尋找專案設定與主文件候選；不會建立資料夾。",
+  "latex.help.main": "編譯整篇論文的 .tex 入口，路徑相對於專案目錄。即使正在編輯章節，也會從這個檔案編譯。",
+  "latex.help.driver": "為目前專案選擇 Tectonic、latexmk 或自動選擇。安裝與路徑設定在「LaTeX 編譯器」中完成。",
+  "latex.help.program": "選擇 latexmk 使用的排版引擎。Tectonic 使用 XeTeX，請保持「自動」。",
+  "latex.help.bind": "記住目前專案的主文件、編譯器與引擎。修改專案目錄後，先點選「開啟專案」再儲存這些設定。",
+  "latex.help.downloads":
+    "Tectonic 提示缺少資源套件時，可勾選此項後點選「儲存並編譯」。許可只用於這次手動編譯，不延續到之後的自動編譯。",
+  "latex.help.versions": "跟隨最新成功編譯，或選擇歷史 PDF。批註始終保留在原來的編譯版本上。",
+  "latex.help.export": "匯出閱讀檢視目前顯示的 PDF。如果原始碼已有新修改，先儲存並編譯，再匯出更新後的 PDF。",
+  "latex.help.diagnostics": "診斷與記錄",
+  "latex.help.errors":
+    "查看編譯錯誤與警告，點選原始碼位置可跳轉。編譯失敗時仍可閱讀上次成功的 PDF；「取消」可以停止目前編譯。",
+  "latex.help.conflict":
+    "其他程式修改了有未儲存草稿的檔案時，會暫停儲存。先比較草稿與磁碟內容，選擇保留哪一份，再繼續編譯。",
   "latex.queued": "等待編譯最新修改",
-  "latex.saved": "已自動儲存",
+  "latex.saved": "已儲存",
   "latex.compare": "比較並處理",
   "latex.disk": "磁碟版本",
   "latex.draft": "編輯器草稿",
@@ -1178,5 +1207,5 @@ export const dict = {
   "latex.preview.export": "匯出目前 PDF",
   "latex.preview.outdated": "目前預覽尚未包含最新原始碼修改，匯出的是正在顯示的 PDF。",
   "latex.preview.waiting": "新 PDF 正在載入，或等待目前選取範圍與批註操作結束。",
-  "latex.compile": "立即編譯",
+  "latex.compile": "儲存並編譯",
 } satisfies Partial<Record<Keys, string>>
