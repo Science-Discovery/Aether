@@ -25,6 +25,8 @@ const promoted: Array<{ directory: string; sessionID: string }> = []
 const sentShell: string[] = []
 const syncedDirectories: string[] = []
 const prompted: Array<Record<string, unknown>> = []
+const commands: Array<{ name: string }> = []
+const invoked: Array<Record<string, unknown>> = []
 const toasts: Array<{ title?: string }> = []
 
 let params: PromptScope = { dir: "/repo/main" }
@@ -92,7 +94,10 @@ const clientFor = (directory: string) => {
         if (failPrompt) throw failPrompt
         return { data: undefined }
       },
-      command: async () => ({ data: undefined }),
+      command: async (input: Record<string, unknown>) => {
+        invoked.push(input)
+        return { data: undefined }
+      },
       abort: async () => ({ data: undefined }),
     },
     worktree: {
@@ -231,7 +236,7 @@ beforeAll(async () => {
 
   mock.module("@/context/sync", () => ({
     useSync: () => ({
-      data: { command: [] },
+      data: { command: commands },
       session: {
         optimistic: {
           add: (value: {
@@ -328,6 +333,8 @@ beforeEach(() => {
   optimisticSeeded.length = 0
   promoted.length = 0
   prompted.length = 0
+  commands.length = 0
+  invoked.length = 0
   toasts.length = 0
   params = { dir: "/repo/main" }
   sentShell.length = 0
@@ -847,6 +854,36 @@ const pdf = (): Reference => ({
 })
 
 describe("Ask batch submission", () => {
+  test.each([false, true])("keeps custom commands on the requested queue path: %s", async (queued) => {
+    commands.push({ name: "custom" })
+    const queue: FollowupDraft[] = []
+    const submit = setup(queued ? (draft) => queue.push(draft) : undefined)
+    value()[0] = { type: "text", content: "/custom one two", start: 0, end: 15 }
+    await submit.handleSubmit(submitEvent())
+    expect(prompted).toHaveLength(0)
+    expect(queue).toHaveLength(queued ? 1 : 0)
+    expect(invoked).toEqual(
+      queued
+        ? []
+        : [
+            {
+              sessionID: "session-1",
+              command: "custom",
+              arguments: "one two",
+              agent: "agent",
+              model: "provider/model",
+              variant: undefined,
+              parts: [],
+            },
+          ],
+    )
+    if (queued) {
+      expect(queue[0].sessionID).toBe("session-1")
+      expect(queue[0].prompt).toEqual([{ type: "text", content: "/custom one two", start: 0, end: 15 }])
+    }
+    expect(value()[0]).toMatchObject({ content: "" })
+  })
+
   test("sends a per-reference question with an empty composer", async () => {
     const submit = setup()
     value()[0] = { type: "text", content: "", start: 0, end: 0 }

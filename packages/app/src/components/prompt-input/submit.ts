@@ -685,7 +685,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
         return
       }
 
-      if (!refs.length && !fileQuote && text.startsWith("/")) {
+      if (!queued && !refs.length && !fileQuote && text.startsWith("/")) {
         const [cmdName, ...args] = text.split(" ")
         const commandName = cmdName.slice(1)
         const customCommand = sync.data.command.find((c) => c.name === commandName)
