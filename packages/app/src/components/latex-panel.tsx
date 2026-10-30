@@ -317,34 +317,36 @@ function Workspace(props: Props) {
       <Show when={state.project?.latest}>
         {(build) => (
           <details
-            class="max-h-52 shrink-0 overflow-auto border-t border-border-weak-base px-3 py-2 text-12-regular"
+            class="shrink-0 border-t border-border-weak-base text-12-regular"
             open={build().state === "failed"}
             data-component="latex-diagnostics"
           >
-            <summary class="cursor-pointer text-text-weak">
+            <summary class="cursor-pointer px-3 py-2 text-text-weak">
               {language.t("latex.diagnostics", { count: build().diagnostics.length })}
             </summary>
-            <Show when={build().error}>
-              <p class="my-2">{build().error}</p>
-            </Show>
-            <For each={build().diagnostics}>
-              {(item) => (
-                <button
-                  class="my-1 block w-full text-left hover:underline disabled:no-underline"
-                  disabled={!item.path}
-                  onClick={() => {
-                    if (item.path) props.onNavigate(item.path, item.line ?? 1)
-                  }}
-                >
-                  {item.path ? `${item.path}:${item.line ?? 1} — ` : ""}
-                  {item.message}
-                </button>
-              )}
-            </For>
-            <pre class="mt-2 whitespace-pre-wrap break-words text-text-weak">{build().log}</pre>
-            <Show when={build().truncated}>
-              <p>{language.t("latex.truncated")}</p>
-            </Show>
+            <div class="max-h-44 overflow-auto px-3 pb-2" data-component="latex-diagnostics-content">
+              <Show when={build().error}>
+                <p class="my-2">{build().error}</p>
+              </Show>
+              <For each={build().diagnostics}>
+                {(item) => (
+                  <button
+                    class="my-1 block w-full text-left hover:underline disabled:no-underline"
+                    disabled={!item.path}
+                    onClick={() => {
+                      if (item.path) props.onNavigate(item.path, item.line ?? 1)
+                    }}
+                  >
+                    {item.path ? `${item.path}:${item.line ?? 1} — ` : ""}
+                    {item.message}
+                  </button>
+                )}
+              </For>
+              <pre class="mt-2 whitespace-pre-wrap break-words text-text-weak">{build().log}</pre>
+              <Show when={build().truncated}>
+                <p>{language.t("latex.truncated")}</p>
+              </Show>
+            </div>
           </details>
         )}
       </Show>
