@@ -8,18 +8,30 @@ export function LatexReadingToolbar(props: {
   reading: ReturnType<typeof useLatexReading>
   download: () => Promise<void>
   collapsed?: boolean
+  embedded?: boolean
 }) {
   const language = useLanguage()
-  const waiting = () => !!props.reading.state.ready && props.reading.state.displayed !== props.reading.state.ready
+  const status = () =>
+    props.reading.updating()
+      ? language.t("latex.preview.updating")
+      : props.reading.outdated()
+        ? language.t("latex.preview.stale")
+        : language.t("latex.preview")
   return (
-    <Show when={!props.collapsed || props.reading.outdated() || waiting() || props.reading.state.error}>
+    <Show when={!props.collapsed || props.reading.slow() || props.reading.state.error}>
       <div
         class="flex flex-col gap-1 border-b border-border-base px-3 py-2 text-12-regular"
         data-component="latex-reading-toolbar"
       >
         <Show when={!props.collapsed}>
           <div class="flex flex-wrap items-center gap-2">
-            <span class="shrink-0">{language.t("latex.preview")}</span>
+            <span
+              class="shrink-0"
+              classList={{ "w-28 truncate": !props.embedded }}
+              title={props.reading.outdated() ? language.t("latex.preview.outdated") : status()}
+            >
+              {props.embedded ? language.t("latex.preview") : status()}
+            </span>
             <select
               class="min-w-0 max-w-full flex-1 basis-40 rounded border border-border-base bg-surface-base px-2 py-1"
               aria-label={language.t("latex.preview.versions")}
@@ -42,7 +54,13 @@ export function LatexReadingToolbar(props: {
               size="small"
               variant="ghost"
               disabled={!props.reading.state.displayed}
+              title={props.reading.outdated() ? language.t("latex.preview.outdated") : undefined}
               onClick={() => {
+                if (props.reading.outdated())
+                  showToast({
+                    title: language.t("latex.preview.export"),
+                    description: language.t("latex.preview.outdated"),
+                  })
                 void props.download().catch((error: unknown) =>
                   showToast({
                     variant: "error",
@@ -56,12 +74,7 @@ export function LatexReadingToolbar(props: {
             </Button>
           </div>
         </Show>
-        <Show when={props.reading.outdated()}>
-          <p role="status" class="text-text-weak">
-            {language.t("latex.preview.outdated")}
-          </p>
-        </Show>
-        <Show when={waiting()}>
+        <Show when={props.reading.slow()}>
           <p role="status" class="text-text-weak">
             {language.t("latex.preview.waiting")}
           </p>

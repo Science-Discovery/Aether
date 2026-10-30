@@ -16,6 +16,7 @@ export function useLatexReading() {
     ready: "",
     displayed: "",
     error: "",
+    slow: false,
   })
   const document = createMemo(() => {
     const path = layout.reading().pdfPath()
@@ -61,7 +62,7 @@ export function useLatexReading() {
   createEffect(
     on(key, () => {
       serial++
-      setState({ versions: [], selected: "", ready: "", displayed: "", error: "" })
+      setState({ versions: [], selected: "", ready: "", displayed: "", error: "", slow: false })
       void refresh()
     }),
   )
@@ -80,6 +81,52 @@ export function useLatexReading() {
     onCleanup(() => clearInterval(timer))
   })
   const target = createMemo(() => state.selected || state.versions[0]?.build.id)
+  const updating = createMemo(() => !!target() && target() !== state.displayed)
+  const outdated = createMemo(() => {
+    if (!state.displayed) return false
+    const item = document()
+    const project = latex.state.project
+    const active = !!item && item.root === project?.root && item.main === project?.binding?.main
+    const displayed = state.versions.find((entry) => entry.build.id === state.displayed)?.build
+    if (!displayed) return state.versions.length > 0 || active
+    // The project can learn about a new source revision before the version list refreshes.
+    if (
+      active &&
+      (latex.outdated() ||
+        project?.binding?.revision !== displayed.bindingRevision ||
+        (!!project?.freshness.sourceRevision && project.freshness.sourceRevision !== displayed.sourceRevision))
+    )
+      return true
+    const different = (build: LatexVersion["build"] | undefined) =>
+      !!build &&
+      build.id !== displayed.id &&
+      (!build.sourceRevision ||
+        !displayed.sourceRevision ||
+        build.sourceRevision !== displayed.sourceRevision ||
+        build.bindingRevision !== displayed.bindingRevision)
+    // Rebuilding identical source creates another ID without making the visible PDF stale.
+    return different(state.versions[0]?.build) || (active && different(project?.lastSuccessful))
+  })
+  createEffect(
+    on(
+      () => [key(), target(), updating()] as const,
+      ([scope, id, pending]) => {
+        setState("slow", false)
+        if (!scope || !id || !pending) return
+        const timer = setTimeout(() => setState("slow", true), 2000)
+        onCleanup(() => clearTimeout(timer))
+      },
+    ),
+  )
+  createEffect(() => {
+    const item = document()
+    latex.reading({
+      root: item?.root ?? "",
+      main: item?.main ?? "",
+      updating: updating(),
+      outdated: outdated(),
+    })
+  })
   createEffect(() => {
     const id = target()
     if (!id) return
@@ -127,7 +174,10 @@ export function useLatexReading() {
       if (token) void client.latex.release({ id, token }).catch(() => undefined)
     })
   })
-  onCleanup(() => serial++)
+  onCleanup(() => {
+    serial++
+    latex.reading({ root: "", main: "", updating: false, outdated: false })
+  })
 
   const capture = (version?: string): LatexQuote | undefined => {
     const item = document()
@@ -141,6 +191,9 @@ export function useLatexReading() {
     key,
     refresh,
     target,
+    updating,
+    slow: () => state.slow,
+    outdated,
     capture,
     select: (id: string) => setState("selected", id),
     displayed: (id: string) => setState("displayed", id),
@@ -148,15 +201,6 @@ export function useLatexReading() {
       state.ready
         ? `${sdk.url}/latex/build/${encodeURIComponent(state.ready)}/pdf?directory=${encodeURIComponent(sdk.directory)}`
         : "",
-    outdated: () => {
-      const item = document()
-      return (
-        (!!state.displayed && !!state.versions[0] && state.displayed !== state.versions[0].build.id) ||
-        (item?.root === latex.state.project?.root &&
-          item?.main === latex.state.project?.binding?.main &&
-          latex.outdated())
-      )
-    },
     reference: async (quote: LatexQuote) => {
       await sdk.client.latex.reference({ id: quote.build, reference: crypto.randomUUID() }, { throwOnError: true })
     },

@@ -643,13 +643,12 @@ function SessionPageContent(props: SessionPageProps = {}) {
   const activeTab = tabState.activeTab
   const activeFileTab = tabState.activeFileTab
   const quickReadingController = useQuickReadingController({})
-  const folded = createMemo(() => {
+  const paired = createMemo(() => {
     const tab = activeFileTab()
     const path = tab ? file.pathFromTab(tab) : undefined
     const project = latex.state.project
     const document = quickReadingController.latex.document()
     return (
-      latex.state.collapsed &&
       !!path &&
       source(path) &&
       path === latex.state.path &&
@@ -2640,7 +2639,8 @@ function SessionPageContent(props: SessionPageProps = {}) {
               <LatexReadingToolbar
                 reading={quickReadingController.latex}
                 download={quickReadingController.download}
-                collapsed={folded()}
+                embedded={paired()}
+                collapsed={paired() && latex.state.collapsed}
               />
             </Show>
           }

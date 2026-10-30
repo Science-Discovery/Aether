@@ -1955,5 +1955,7 @@ export const dict = {
   "latex.preview.export": "Export displayed PDF",
   "latex.preview.outdated": "This preview does not include the latest source changes. Export uses the displayed PDF.",
   "latex.preview.waiting": "A new PDF is loading or waiting for the current selection and annotations to finish.",
+  "latex.preview.updating": "Updating PDF",
+  "latex.preview.stale": "PDF not up to date",
   "latex.checked": "Sources checked at {{time}}",
 }

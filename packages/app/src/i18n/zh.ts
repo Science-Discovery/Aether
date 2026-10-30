@@ -1876,5 +1876,7 @@ export const dict = {
   "latex.preview.export": "导出当前 PDF",
   "latex.preview.outdated": "当前预览尚未包含最新源码修改，导出的是正在显示的 PDF。",
   "latex.preview.waiting": "新 PDF 正在加载，或等待当前选区和批注操作结束。",
+  "latex.preview.updating": "正在更新 PDF",
+  "latex.preview.stale": "PDF 尚未更新",
   "latex.checked": "源码最后检查于 {{time}}",
 } satisfies Partial<Record<Keys, string>>

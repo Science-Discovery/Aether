@@ -352,6 +352,24 @@ test("folding retains its state across source tabs and does not stop autosave", 
   expect(latex.pending()).toHaveLength(0)
 })
 
+test("PDF replacement updates the existing compact status only for the matching project", async () => {
+  mocks.project.mockResolvedValue({ data: bound() })
+  mocks.refresh.mockResolvedValue({ data: bound() })
+  mount()
+  await tick()
+  latex.collapse(true)
+  const status = host.querySelector('[data-component="latex-compact-status"]')!
+  latex.reading({ root: ".", main: "main.tex", updating: true, outdated: true })
+  expect(status.textContent).toContain(dict["latex.preview.updating"])
+  expect(status.textContent).not.toContain(dict["latex.preview.stale"])
+  expect(host.querySelector('[data-component="latex-compact-status"]')).toBe(status)
+  latex.reading({ root: "another", main: "main.tex", updating: true, outdated: true })
+  expect(status.textContent).not.toContain(dict["latex.preview.updating"])
+  expect(status.textContent).not.toContain(dict["latex.preview.stale"])
+  latex.reading({ root: ".", main: "main.tex", updating: false, outdated: true })
+  expect(status.textContent).toContain(dict["latex.preview.stale"])
+})
+
 test("a new unbound project expands its required configuration", async () => {
   mocks.project.mockResolvedValue({ data: bound() })
   mocks.refresh.mockResolvedValue({ data: bound() })

@@ -72,6 +72,10 @@ function Workspace(props: Props) {
       </Dialog>
     ))
   const help = () => dialog.show(() => <DialogLatexHelp />)
+  const reading = () =>
+    state.reading.root === state.project?.root && state.reading.main === state.project?.binding?.main
+      ? state.reading
+      : undefined
   const status = () =>
     [
       latex.conflicts().length
@@ -87,9 +91,12 @@ function Workspace(props: Props) {
         ? language.t("latex.settingsPending")
         : state.queued
           ? language.t("latex.queued")
-          : state.project?.latest
-            ? language.t(`latex.state.${state.project.latest.state}`)
-            : "",
+          : reading()?.updating && !latex.running()
+            ? language.t("latex.preview.updating")
+            : state.project?.latest
+              ? language.t(`latex.state.${state.project.latest.state}`)
+              : "",
+      !reading()?.updating && (reading()?.outdated || latex.outdated()) ? language.t("latex.preview.stale") : "",
     ]
       .filter(Boolean)
       .join(" · ")
@@ -349,13 +356,15 @@ function Workspace(props: Props) {
           </Show>
           <div class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-text-weak">
             <span data-component="latex-preview-status" data-current={latex.current()}>
-              {!latex.artifact()
-                ? language.t("latex.empty")
-                : latex.outdated()
-                  ? language.t("latex.stale")
-                  : latex.verified()
-                    ? language.t("latex.current")
-                    : language.t("latex.unverified")}
+              {reading()?.updating
+                ? language.t("latex.preview.updating")
+                : !latex.artifact()
+                  ? language.t("latex.empty")
+                  : reading()?.outdated || latex.outdated()
+                    ? language.t("latex.stale")
+                    : latex.verified()
+                      ? language.t("latex.current")
+                      : language.t("latex.unverified")}
             </span>
             <span data-component="latex-save-status">
               {latex.conflicts().length

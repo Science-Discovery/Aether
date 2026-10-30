@@ -36,6 +36,7 @@ export const { use: useLatex, provider: LatexProvider } = createSimpleContext({
       downloads: false,
       queued: false,
       preview: 0,
+      reading: { root: "", main: "", updating: false, outdated: false },
       composing: [] as string[],
       blocked: [] as string[],
       resolved: { path: "", content: "", nonce: 0 },
@@ -600,6 +601,7 @@ export const { use: useLatex, provider: LatexProvider } = createSimpleContext({
           composing: [],
           downloads: false,
           automatic: true,
+          reading: { root: "", main: "", updating: false, outdated: false },
         })
       }),
     )
@@ -699,6 +701,7 @@ export const { use: useLatex, provider: LatexProvider } = createSimpleContext({
       save: () => run(true, false),
       persist: (path: string) => modify(path, "save"),
       discard: (path: string) => modify(path, "discard"),
+      reading: (value: typeof state.reading) => setState("reading", value),
       edit: (value: Partial<Pick<typeof state, "root" | "main" | "driver" | "program">>) => {
         edits++
         setState(value)
