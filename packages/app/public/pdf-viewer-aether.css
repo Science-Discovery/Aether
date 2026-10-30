@@ -493,7 +493,7 @@ body.aether-pdf-viewer #aetherAnnotationEditor {
   flex-direction: column;
   gap: 8px;
   box-sizing: border-box;
-  width: min(300px, calc(100vw - 24px));
+  width: min(440px, calc(100vw - 24px));
   max-height: calc(100vh - 24px);
   overflow: auto;
   padding: 10px;
@@ -509,10 +509,10 @@ body.aether-pdf-viewer #aetherAnnotationEditor {
 
 body.aether-pdf-viewer .aetherAnnotationEditorControls {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto 24px;
-  grid-template-areas: "type palette close";
+  grid-template-columns: minmax(0, 1fr) auto auto 24px;
+  grid-template-areas: "type palette actions close";
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   flex: none;
 }
 
@@ -526,12 +526,22 @@ body.aether-pdf-viewer .aetherAnnotationEditorTitle {
   margin: 0;
 }
 
+@media (width < 440px) {
+  body.aether-pdf-viewer .aetherAnnotationEditorControls {
+    grid-template-columns: minmax(0, 1fr) auto 24px;
+    grid-template-areas:
+      "type palette close"
+      "actions actions actions";
+  }
+}
+
 @media (width < 260px) {
   body.aether-pdf-viewer .aetherAnnotationEditorControls {
     grid-template-columns: minmax(0, 1fr) 24px;
     grid-template-areas:
       "type close"
-      "palette palette";
+      "palette palette"
+      "actions actions";
   }
 }
 
@@ -617,12 +627,16 @@ body.aether-pdf-viewer .aetherAnnotationPalette button.selected::before {
 }
 
 body.aether-pdf-viewer .aetherAnnotationEditorActions {
+  grid-area: actions;
   flex: none;
   justify-content: flex-end;
+  gap: 6px;
 }
 
 body.aether-pdf-viewer .aetherAnnotationEditorActions button {
   height: 28px;
+  flex: none;
+  white-space: nowrap;
 }
 
 body.aether-pdf-viewer #aetherAnnotationEditor .aetherAnnotationIcon,
@@ -648,7 +662,7 @@ body.aether-pdf-viewer #aetherAnnotationEditor .aetherAnnotationIcon {
   background: transparent;
 }
 
-body.aether-pdf-viewer #aetherAnnotationEditor .aetherAnnotationEditorControls .aetherAnnotationIcon {
+body.aether-pdf-viewer #aetherAnnotationEditor .aetherAnnotationEditorControls > .aetherAnnotationIcon {
   grid-area: close;
   width: 24px;
   height: 24px;

@@ -1397,7 +1397,6 @@
       palette.appendChild(button)
     })
     controls.appendChild(palette)
-    controls.appendChild(close)
     editor.appendChild(controls)
 
     const note = document.createElement("textarea")
@@ -1449,7 +1448,8 @@
     save.dataset.label = "annotationSave"
     save.className = "primary"
     actions.appendChild(save)
-    editor.appendChild(actions)
+    controls.appendChild(actions)
+    controls.appendChild(close)
 
     editor.addEventListener("submit", function (event) {
       event.preventDefault()
