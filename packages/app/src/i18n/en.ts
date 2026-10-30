@@ -1872,12 +1872,30 @@ export const dict = {
   "latex.automatic": "Auto save and compile",
   "latex.help": "Help",
   "latex.help.title": "Writing with LaTeX",
+  "latex.help.subtitle": "Edit source, compile, and read your PDF in one place.",
+  "latex.help.quick": "Quick start",
+  "latex.help.controls": "Everyday controls",
+  "latex.help.setup": "Project settings",
+  "latex.help.reading": "Preview and troubleshooting",
+  "latex.help.flow.open": "Open your source",
+  "latex.help.flow.write": "Write and compile",
+  "latex.help.flow.write.description":
+    "Edit text, equations and references in the editor. Builds always start from the main document.",
+  "latex.help.flow.read": "Read the PDF",
+  "latex.help.flow.read.description":
+    "After a successful build, the reading view updates automatically. Read, annotate, or export the result.",
+  "latex.help.modes": "Choose how to save",
+  "latex.help.mode.automatic": "Automatic mode",
+  "latex.help.mode.manual": "Manual mode",
+  "latex.help.default": "On by default",
+  "latex.help.shortcut": "Save and compile from the source editor",
+  "latex.help.reminder": "In manual mode, save your drafts before leaving the page.",
   "latex.help.start":
-    "Open a .tex file in the editor. Aether finds its project and main document; if a choice is needed, select the main document and save the project settings once.",
+    "Open a .tex file. Aether finds its project and main document. If several candidates appear, choose one and save the project settings.",
   "latex.help.automatic":
-    "Auto save and compile is on by default. After about one second without typing, Aether saves changed source files and compiles the project. It waits until input-method composition is finished.",
+    "After a pause of about one second, Aether saves the source and compiles the paper. It waits for input-method composition to finish.",
   "latex.help.manual":
-    "Turn off Auto save and compile to keep edits as unsaved drafts. Choose Save and compile, or press Ctrl+S (Cmd+S on macOS) in the source editor, to save the project's drafts and compile. Save before closing the page.",
+    "Turn off Auto save and compile to keep edits as drafts. Choose Save and compile when you are ready to save the project's drafts and build.",
   "latex.help.project": "The main document's name is a button. Click it to expand or collapse project settings.",
   "latex.help.refresh":
     "Check files on disk, project settings and build status. This does not save drafts in manual mode. With automatic mode on, detected changes can trigger a build.",

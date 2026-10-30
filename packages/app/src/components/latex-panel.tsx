@@ -10,6 +10,7 @@ import { useLatex } from "@/context/latex"
 import { useSDK } from "@/context/sdk"
 import { formatServerError } from "@/utils/server-errors"
 import { SettingsLatex } from "./settings-latex"
+import { DialogLatexHelp } from "./dialog-latex-help"
 
 type Props = {
   enabled: boolean
@@ -58,48 +59,7 @@ function Workspace(props: Props) {
         <SettingsLatex />
       </Dialog>
     ))
-  const help = () =>
-    dialog.show(() => (
-      <Dialog title={language.t("latex.help.title")} size="large">
-        <div class="max-h-[65vh] overflow-auto px-5 pb-5 text-14-regular" data-component="latex-help">
-          <ol class="mb-5 list-decimal space-y-2 pl-5">
-            <For each={["latex.help.start", "latex.help.automatic", "latex.help.manual"] as const}>
-              {(key) => <li>{language.t(key)}</li>}
-            </For>
-          </ol>
-          <dl class="space-y-3">
-            <For
-              each={
-                [
-                  ["latex.project", "latex.help.project"],
-                  ["latex.refresh", "latex.help.refresh"],
-                  ["latex.settings", "latex.help.settings"],
-                  ["latex.preview", "latex.help.preview"],
-                  ["latex.root", "latex.help.root"],
-                  ["latex.open", "latex.help.open"],
-                  ["latex.main", "latex.help.main"],
-                  ["latex.driver", "latex.help.driver"],
-                  ["latex.program", "latex.help.program"],
-                  ["latex.bind", "latex.help.bind"],
-                  ["latex.downloads", "latex.help.downloads"],
-                  ["latex.preview.versions", "latex.help.versions"],
-                  ["latex.preview.export", "latex.help.export"],
-                  ["latex.help.diagnostics", "latex.help.errors"],
-                  ["latex.compare", "latex.help.conflict"],
-                ] as const
-              }
-            >
-              {(item) => (
-                <div>
-                  <dt class="font-medium text-text-strong">{language.t(item[0])}</dt>
-                  <dd class="mt-1 text-text-weak">{language.t(item[1])}</dd>
-                </div>
-              )}
-            </For>
-          </dl>
-        </div>
-      </Dialog>
-    ))
+  const help = () => dialog.show(() => <DialogLatexHelp />)
   const compare = async (path: string) => {
     setLocal("error", "")
     const snapshot = await latex.compare(path).catch((cause) => {
