@@ -5,16 +5,12 @@ import {
   lineNumbers,
   highlightActiveLine,
   highlightActiveLineGutter,
+  drawSelection,
 } from "@codemirror/view"
-import { Compartment, EditorState } from "@codemirror/state"
+import { Compartment, EditorState, type Extension } from "@codemirror/state"
 import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands"
-import {
-  syntaxHighlighting,
-  bracketMatching,
-  foldGutter,
-  HighlightStyle,
-} from "@codemirror/language"
-import { tags as t } from "@lezer/highlight" 
+import { syntaxHighlighting, bracketMatching, foldGutter, foldKeymap, HighlightStyle } from "@codemirror/language"
+import { tags as t } from "@lezer/highlight"
 import { closeBrackets, closeBracketsKeymap } from "@codemirror/autocomplete"
 import { python } from "@codemirror/lang-python"
 import { javascript } from "@codemirror/lang-javascript"
@@ -22,6 +18,8 @@ import { css } from "@codemirror/lang-css"
 import { json } from "@codemirror/lang-json"
 import { markdown } from "@codemirror/lang-markdown"
 import { latex } from "./code-editor-latex"
+import { structure } from "./code-editor-latex-structure"
+import { manuscript, writing, type WritingStyle } from "./code-editor-latex-theme"
 
 const customHighlightStyle = HighlightStyle.define([
   { tag: t.keyword, color: "var(--syntax-keyword)" },
@@ -85,6 +83,7 @@ export function CodeEditor(props: {
   onChange: (value: string) => void
   disabled?: boolean
   wordWrap?: boolean
+  appearance?: WritingStyle
   location?: { line: number; column?: number; nonce: number }
   initialScroll?: { x: number; y: number }
   /** 进入编辑模式时从预览中提取的文本锚点，编辑器挂载后滚动到该文本 */
@@ -99,6 +98,9 @@ export function CodeEditor(props: {
   let view: EditorView | undefined
   const editableCompartment = new Compartment()
   const wrapCompartment = new Compartment()
+  const style = new Compartment()
+  const appearance = () =>
+    writing(props.appearance ?? { dark: true, size: 14, spacing: "normal", font: "var(--font-family-mono)" })
   const locate = () => {
     const target = props.location
     if (target?.nonce === undefined || !view) return
@@ -196,7 +198,7 @@ export function CodeEditor(props: {
   onMount(() => {
     const lang = getLanguageExtension(props.filename)
 
-    const extensions = [
+    const extensions: Extension[] = [
       lineNumbers(),
       highlightActiveLine(),
       highlightActiveLineGutter(),
@@ -204,9 +206,9 @@ export function CodeEditor(props: {
       foldGutter(),
       bracketMatching(),
       closeBrackets(),
-      syntaxHighlighting(customHighlightStyle),
       keymap.of([...defaultKeymap, ...historyKeymap, ...closeBracketsKeymap, indentWithTab]),
-      editorTheme,
+      style.of(manuscript(props.filename) ? appearance() : [editorTheme, syntaxHighlighting(customHighlightStyle)]),
+      ...(manuscript(props.filename) ? [drawSelection(), structure(props.filename), keymap.of(foldKeymap)] : []),
       editableCompartment.of(EditorView.editable.of(!props.disabled)),
       wrapCompartment.of(props.wordWrap ? EditorView.lineWrapping : []),
       EditorView.updateListener.of((update) => {
@@ -257,9 +259,10 @@ export function CodeEditor(props: {
 
     // 等内容渲染完毕后，滚动到对应位置
     if (
-      !props.location && (props.initialAnchorText ||
-      (props.initialScrollRatio != null && props.initialScrollRatio > 0) ||
-      props.initialScroll)
+      !props.location &&
+      (props.initialAnchorText ||
+        (props.initialScrollRatio != null && props.initialScrollRatio > 0) ||
+        props.initialScroll)
     ) {
       requestAnimationFrame(() => {
         if (!view) return
@@ -311,6 +314,12 @@ export function CodeEditor(props: {
     view.dispatch({ effects: wrapCompartment.reconfigure(props.wordWrap ? EditorView.lineWrapping : []) })
   })
 
+  createEffect(() => {
+    const cfg = appearance()
+    if (!view || !manuscript(props.filename)) return
+    view.dispatch({ effects: [style.reconfigure(cfg), view.scrollSnapshot()] })
+  })
+
   onCleanup(() => {
     if (props.onUnmount) {
       const scroller = container.querySelector(".cm-scroller") as HTMLElement | null
@@ -331,7 +340,10 @@ export function CodeEditor(props: {
           const r = lines[i].getBoundingClientRect()
           if (r.height === 0) continue
           const dist = Math.abs((r.top + r.bottom) / 2 - centerScreenY)
-          if (dist < bestDist) { bestDist = dist; bestIdx = i }
+          if (dist < bestDist) {
+            bestDist = dist
+            bestIdx = i
+          }
         }
         if (bestIdx < 0) return ""
 
@@ -357,5 +369,12 @@ export function CodeEditor(props: {
     view = undefined
   })
 
-  return <div ref={container} class="h-full min-h-0 flex-1 overflow-hidden" />
+  return (
+    <div
+      ref={container}
+      data-component="code-editor"
+      data-latex={manuscript(props.filename) || undefined}
+      class="h-full min-h-0 flex-1 overflow-hidden"
+    />
+  )
 }

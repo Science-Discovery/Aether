@@ -18,6 +18,12 @@ export interface SoundSettings {
   errors: string
 }
 
+export type LatexAppearance = {
+  mode: "auto" | "light" | "dark"
+  size: number
+  spacing: "compact" | "normal" | "wide"
+}
+
 export interface Settings {
   general: {
     autoSave: boolean
@@ -42,6 +48,7 @@ export interface Settings {
     fontSize: number
     font: string
   }
+  latex: LatexAppearance
   keybinds: Record<string, string>
   permissions: {
     autoApprove: boolean
@@ -77,6 +84,11 @@ const defaultSettings: Settings = {
   appearance: {
     fontSize: 14,
     font: "ibm-plex-mono",
+  },
+  latex: {
+    mode: "auto",
+    size: 14,
+    spacing: "normal",
   },
   keybinds: {},
   permissions: {
@@ -130,6 +142,17 @@ function withFallback<T>(read: () => T | undefined, fallback: T) {
   return createMemo(() => read() ?? fallback)
 }
 
+function latex(value: Partial<LatexAppearance> | undefined): LatexAppearance {
+  return {
+    mode: value?.mode === "light" || value?.mode === "dark" ? value.mode : defaultSettings.latex.mode,
+    size:
+      typeof value?.size === "number" && Number.isFinite(value.size)
+        ? Math.min(20, Math.max(12, Math.round(value.size)))
+        : defaultSettings.latex.size,
+    spacing: value?.spacing === "compact" || value?.spacing === "wide" ? value.spacing : defaultSettings.latex.spacing,
+  }
+}
+
 let font: Promise<typeof import("@opencode-ai/ui/font-loader")> | undefined
 
 function loadFont() {
@@ -140,7 +163,11 @@ function loadFont() {
 export const { use: useSettings, provider: SettingsProvider } = createSimpleContext({
   name: "Settings",
   init: () => {
-    const [store, setStore, _, ready] = persisted("settings.v3", createStore<Settings>(defaultSettings))
+    const [store, setStore, _, ready] = persisted(
+      "settings.v3",
+      createStore<Settings>(structuredClone(defaultSettings)),
+    )
+    const appearance = createMemo(() => latex(store.latex))
 
     createEffect(() => {
       if (typeof document === "undefined") return
@@ -249,6 +276,23 @@ export const { use: useSettings, provider: SettingsProvider } = createSimpleCont
         font: withFallback(() => store.appearance?.font, defaultSettings.appearance.font),
         setFont(value: string) {
           setStore("appearance", "font", value)
+        },
+      },
+      latex: {
+        mode: () => appearance().mode,
+        size: () => appearance().size,
+        spacing: () => appearance().spacing,
+        setMode(value: LatexAppearance["mode"]) {
+          setStore("latex", latex({ ...appearance(), mode: value }))
+        },
+        setSize(value: number) {
+          setStore("latex", latex({ ...appearance(), size: value }))
+        },
+        setSpacing(value: LatexAppearance["spacing"]) {
+          setStore("latex", latex({ ...appearance(), spacing: value }))
+        },
+        reset() {
+          setStore("latex", { ...defaultSettings.latex })
         },
       },
       keybinds: {

@@ -4,6 +4,8 @@ import { render } from "solid-js/web"
 import type { JSX } from "solid-js"
 import type { LatexSetup, LatexStatus } from "@opencode-ai/sdk/v2"
 import { dict } from "@/i18n/en"
+import { SettingsProvider, useSettings } from "@/context/settings"
+import { removePersisted } from "@/utils/persist"
 import { SettingsLatex } from "./settings-latex"
 
 const mocks = vi.hoisted(() => ({
@@ -26,7 +28,7 @@ vi.mock("@/context/language", () => ({
       (dict[key as keyof typeof dict] ?? key).replace(/\{\{(\w+)\}\}/g, (_, name: string) => values?.[name] ?? name),
   }),
 }))
-vi.mock("@/context/platform", () => ({ usePlatform: () => ({ openLink: mocks.open }) }))
+vi.mock("@/context/platform", () => ({ usePlatform: () => ({ platform: "web", openLink: mocks.open }) }))
 vi.mock("@/context/global-sync", () => ({
   useGlobalSync: () => ({
     data: state,
@@ -81,6 +83,28 @@ vi.mock("@opencode-ai/ui/text-field", () => ({
     />
   ),
 }))
+vi.mock("@opencode-ai/ui/select", () => ({
+  Select: <T,>(props: {
+    options: T[]
+    current?: T
+    value?: (value: T) => string
+    label?: (value: T) => string
+    onSelect?: (value: T | undefined) => void
+    triggerProps?: Record<string, string>
+    "data-action"?: string
+  }) => (
+    <select
+      value={String(props.current)}
+      aria-label={props.triggerProps?.["aria-label"]}
+      data-action={props["data-action"]}
+      onChange={(event) => props.onSelect?.(props.options.find((value) => String(value) === event.currentTarget.value))}
+    >
+      {props.options.map((value) => (
+        <option value={props.value?.(value) ?? String(value)}>{props.label?.(value) ?? String(value)}</option>
+      ))}
+    </select>
+  ),
+}))
 
 const setup = (value: Partial<LatexSetup> = {}) => ({
   data: {
@@ -93,8 +117,20 @@ const setup = (value: Partial<LatexSetup> = {}) => ({
 })
 let host: HTMLDivElement
 let dispose: VoidFunction | undefined
+let settings: ReturnType<typeof useSettings>
+function Content() {
+  settings = useSettings()
+  return <SettingsLatex />
+}
 const mount = () => {
-  dispose = render(() => <SettingsLatex />, host)
+  dispose = render(
+    () => (
+      <SettingsProvider>
+        <Content />
+      </SettingsProvider>
+    ),
+    host,
+  )
 }
 const tick = (time = 0) => vi.advanceTimersByTimeAsync(time)
 const button = (action: string) => host.querySelector<HTMLButtonElement>(`[data-action="latex-${action}"]`)!
@@ -103,10 +139,21 @@ const input = (value: string) => {
   field().value = value
   field().dispatchEvent(new Event("input", { bubbles: true }))
 }
+const select = (name: string, value: string) => {
+  const field = host.querySelector<HTMLSelectElement>(`[data-action="latex-appearance-${name}"]`)!
+  field.value = value
+  field.dispatchEvent(new Event("change", { bubbles: true }))
+}
+const appearance = () => ({
+  mode: settings.latex.mode(),
+  size: settings.latex.size(),
+  spacing: settings.latex.spacing(),
+})
 
 beforeEach(() => {
   vi.useFakeTimers()
   vi.resetAllMocks()
+  removePersisted({ key: "settings.v3" })
   setState({
     server: "http://first-server",
     ready: true,
@@ -130,8 +177,91 @@ afterEach(() => {
   dispose?.()
   dispose = undefined
   host.remove()
+  removePersisted({ key: "settings.v3" })
   vi.clearAllTimers()
   vi.useRealTimers()
+})
+
+test("older local settings receive LaTeX appearance defaults without changing compiler paths", async () => {
+  localStorage.setItem("settings.v3", JSON.stringify({ appearance: { fontSize: 18 }, general: { autoSave: false } }))
+  setState("config", "latex", "tectonic", "path", "/custom/tectonic")
+  mount()
+  await tick()
+  expect(appearance()).toEqual({ mode: "auto", size: 14, spacing: "normal" })
+  expect(settings.appearance.fontSize()).toBe(18)
+  expect(settings.general.autoSave()).toBe(false)
+  expect(field().value).toBe("/custom/tectonic")
+  expect(host.textContent).toContain("Editor appearance")
+  expect(host.textContent).toContain("Compilers")
+  expect(mocks.save).not.toHaveBeenCalled()
+})
+
+test.each([
+  [null, { mode: "auto", size: 14, spacing: "normal" }],
+  [
+    { mode: "sepia", size: "large", spacing: "huge" },
+    { mode: "auto", size: 14, spacing: "normal" },
+  ],
+  [
+    { mode: "dark", size: 1, spacing: "compact" },
+    { mode: "dark", size: 12, spacing: "compact" },
+  ],
+  [
+    { mode: "light", size: 99, spacing: "wide" },
+    { mode: "light", size: 20, spacing: "wide" },
+  ],
+  [{ size: 15.6 }, { mode: "auto", size: 16, spacing: "normal" }],
+])("validates persisted LaTeX appearance %j", async (latex, expected) => {
+  localStorage.setItem("settings.v3", JSON.stringify({ latex }))
+  mount()
+  await tick()
+  expect(appearance()).toEqual(expected)
+  expect(mocks.save).not.toHaveBeenCalled()
+})
+
+test("appearance updates persist immediately and restore defaults without saving compiler drafts", async () => {
+  setState("config", "latex", "tectonic", "path", "/custom/tectonic")
+  mount()
+  await tick()
+  input("/draft/tectonic")
+  select("mode", "dark")
+  select("size", "18")
+  select("spacing", "wide")
+  expect(appearance()).toEqual({ mode: "dark", size: 18, spacing: "wide" })
+  expect(JSON.parse(localStorage.getItem("settings.v3")!).latex).toEqual(appearance())
+  expect(mocks.save).not.toHaveBeenCalled()
+  expect(field().value).toBe("/draft/tectonic")
+  expect(state.config.latex.tectonic.path).toBe("/custom/tectonic")
+  button("appearance-reset").click()
+  expect(appearance()).toEqual({ mode: "auto", size: 14, spacing: "normal" })
+  expect(JSON.parse(localStorage.getItem("settings.v3")!).latex).toEqual(appearance())
+  expect(field().value).toBe("/draft/tectonic")
+  expect(mocks.save).not.toHaveBeenCalled()
+  button("save").click()
+  await tick()
+  expect(mocks.save).toHaveBeenCalledExactlyOnceWith({
+    latex: { tectonic: { path: "/draft/tectonic" }, latexmk: { path: "" } },
+  })
+  expect(appearance()).toEqual({ mode: "auto", size: 14, spacing: "normal" })
+})
+
+test("appearance is restored when settings reopen and setters keep font size valid", async () => {
+  mount()
+  await tick()
+  select("mode", "light")
+  select("spacing", "compact")
+  settings.latex.setSize(Infinity)
+  expect(settings.latex.size()).toBe(14)
+  settings.latex.setSize(22)
+  expect(settings.latex.size()).toBe(20)
+  settings.latex.setSize(10)
+  expect(settings.latex.size()).toBe(12)
+  settings.latex.setSize(16)
+  dispose?.()
+  mount()
+  await tick()
+  expect(appearance()).toEqual({ mode: "light", size: 16, spacing: "compact" })
+  expect(mocks.save).not.toHaveBeenCalled()
 })
 
 test("loads once when configuration is ready and does not poll an idle installer", async () => {

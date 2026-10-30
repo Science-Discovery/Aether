@@ -1802,7 +1802,21 @@ export const dict = {
   "latex.compile": "Save and compile",
   "latex.saving": "Saving project…",
   "latex.refresh": "Refresh",
-  "latex.settings": "LaTeX compilers",
+  "latex.settings": "LaTeX settings",
+  "latex.compilers": "Compilers",
+  "latex.appearance": "Editor appearance",
+  "latex.appearance.help": "Changes apply immediately to LaTeX source files and are saved on this device.",
+  "latex.appearance.mode": "Color mode",
+  "latex.appearance.mode.auto": "Follow Aether",
+  "latex.appearance.mode.light": "Light",
+  "latex.appearance.mode.dark": "Dark",
+  "latex.appearance.size": "Font size",
+  "latex.appearance.spacing": "Line spacing",
+  "latex.appearance.spacing.compact": "Compact · 1.5",
+  "latex.appearance.spacing.normal": "Normal · 1.7",
+  "latex.appearance.spacing.wide": "Wide · 1.9",
+  "latex.appearance.reset": "Restore defaults",
+  "latex.appearance.font": "Uses the font selected in Appearance, with Chinese, Japanese, and Korean font fallbacks.",
   "latex.source": "Source",
   "latex.preview": "PDF preview",
   "latex.root": "Project folder",
@@ -1825,7 +1839,7 @@ export const dict = {
   "latex.state.failed": "Failed",
   "latex.state.cancelled": "Cancelled",
   "latex.downloads": "Allow Tectonic to download missing packages for this build",
-  "latex.unavailable": "No compiler found. Set an installed Tectonic or latexmk executable in LaTeX compilers.",
+  "latex.unavailable": "No compiler found. Set an installed Tectonic or latexmk executable in LaTeX settings.",
   "latex.emptyHelp": "Save the main document in project settings, then choose Save and compile to see its PDF here.",
   "latex.diagnostics": "Diagnostics and log ({{count}})",
   "latex.truncated": "The compiler log was truncated.",
@@ -1916,7 +1930,13 @@ export const dict = {
   "latex.help.project": "The main document's name is a button. Click it to expand or collapse project settings.",
   "latex.help.refresh":
     "Check files on disk, project settings and build status. This does not save drafts in manual mode. With automatic mode on, detected changes can trigger a build.",
-  "latex.help.settings": "Install Tectonic or configure the paths to installed Tectonic and latexmk executables.",
+  "latex.help.settings":
+    "Adjust editor appearance, install Tectonic, or configure the paths to installed Tectonic and latexmk executables.",
+  "latex.help.appearance":
+    "Choose Follow Aether, Light, or Dark, a font size from 12–20 px, and compact, normal, or wide line spacing. These local settings apply immediately to LaTeX source files without changing compilation or the PDF. The editor inherits your Appearance font with Chinese, Japanese, and Korean fallbacks. Restore defaults returns to Follow Aether, 14 px, and normal spacing.",
+  "latex.help.folding": "Fold source",
+  "latex.help.folding.description":
+    "Use the arrows beside line numbers to fold sections, environments, or bibliography entries. Folding changes only the editor view; saving and compiling still use the complete source.",
   "latex.help.preview": "Open the project's PDF in the reading view. This button does not start a build.",
   "latex.help.root":
     "The folder containing this paper's source files, chapters, images and bibliography, relative to the workspace.",
@@ -1925,7 +1945,7 @@ export const dict = {
   "latex.help.main":
     "The .tex file that compiles the whole paper, relative to the project folder. Editing a chapter still builds from this document.",
   "latex.help.driver":
-    "Choose Tectonic, latexmk, or automatic selection for this project. Installation is configured separately in LaTeX compilers.",
+    "Choose Tectonic, latexmk, or automatic selection for this project. Installation is configured separately in LaTeX settings.",
   "latex.help.program":
     "Choose the typesetting engine for latexmk. Leave this set to Automatic for Tectonic, which uses XeTeX.",
   "latex.help.bind":

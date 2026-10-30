@@ -17,6 +17,8 @@ export function DialogLatexHelp() {
         ["latex.project", "latex.help.project"],
         ["latex.refresh", "latex.help.refresh"],
         ["latex.settings", "latex.help.settings"],
+        ["latex.appearance", "latex.help.appearance"],
+        ["latex.help.folding", "latex.help.folding.description"],
         ["latex.preview", "latex.help.preview"],
       ],
     },

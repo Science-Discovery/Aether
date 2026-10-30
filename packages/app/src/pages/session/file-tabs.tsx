@@ -16,9 +16,12 @@ import { showToast } from "@opencode-ai/ui/toast"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { Markdown } from "@opencode-ai/ui/markdown"
 import { CodeEditor } from "@/components/code-editor"
+import { manuscript } from "@/components/code-editor-latex-theme"
 import { LatexPanel } from "@/components/latex-panel"
 import { source } from "@/components/latex-drafts"
 import { useLatex } from "@/context/latex"
+import { useSettings, monoFontFamily } from "@/context/settings"
+import { useTheme } from "@opencode-ai/ui/theme/context"
 import { PdfViewerShell } from "@/components/pdf-viewer-shell-official"
 import {
   registerOpenFileCallback,
@@ -88,6 +91,8 @@ function FileCommentMenu(props: {
 export function FileTabContent(props: { tab: string; visible: boolean }) {
   const file = useFile()
   const project = useLatex()
+  const settings = useSettings()
+  const theme = useTheme()
   const comments = useComments()
   const globalSync = useGlobalSync()
   const language = useLanguage()
@@ -1591,6 +1596,16 @@ export function FileTabContent(props: { tab: string; visible: boolean }) {
           <CodeEditor
             content={editContent()}
             filename={path() ?? ""}
+            appearance={
+              manuscript(path() ?? "")
+                ? {
+                    dark: (settings.latex.mode() === "auto" ? theme.mode() : settings.latex.mode()) === "dark",
+                    size: settings.latex.size(),
+                    spacing: settings.latex.spacing(),
+                    font: monoFontFamily(settings.appearance.font()),
+                  }
+                : undefined
+            }
             location={file.location(path() ?? "")}
             onChange={setEditContent}
             disabled={isSaving()}
