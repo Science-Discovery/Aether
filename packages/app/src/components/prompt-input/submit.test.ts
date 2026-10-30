@@ -1,11 +1,14 @@
 import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test"
 import type { Prompt } from "@/context/prompt"
 import { readFileQuoteMetadata } from "@/utils/comment-note"
+import type { NativeEngine } from "@/utils/native"
+import type { NativeDraft } from "@/context/native-run"
 
 let createPromptSubmit: typeof import("./submit").createPromptSubmit
 
 const createdClients: string[] = []
 const createdSessions: string[] = []
+const engines: Array<NativeEngine | undefined> = []
 const setModes: Array<{ sessionID: string; directory: string; mode: string }> = []
 const optimistic: Array<{
   directory?: string
@@ -28,8 +31,16 @@ let params: { id?: string } = {}
 let selected = "/repo/worktree-a"
 let variant: string | undefined
 let failCreate: Error | undefined
+let failPrompt: Error | undefined
+let restored = 0
 let directoryAutoAccept = false
 let defaultMode: "off" | "safe" | "full" = "safe"
+let engine: NativeEngine | undefined
+let ready = true
+const commands: Array<{ name: string }> = []
+let invoked = 0
+let resets = 0
+let aborted = 0
 
 const promptValue: Prompt = [{ type: "text", content: "ls", start: 0, end: 2 }]
 
@@ -39,13 +50,15 @@ const clientFor = (directory: string) => {
   createdClients.push(directory)
   return {
     session: {
-      create: async (input: { id?: string }) => {
+      create: async (input: { id?: string; engine?: NativeEngine }) => {
         createdSessions.push(directory)
+        engines.push(input.engine)
         if (failCreate) throw failCreate
         return {
           data: {
             id: input?.id ?? `session-${createdSessions.length}`,
             title: `New session ${createdSessions.length}`,
+            engine: input.engine,
           },
         }
       },
@@ -56,10 +69,17 @@ const clientFor = (directory: string) => {
       prompt: async () => ({ data: undefined }),
       promptAsync: async (input: Record<string, unknown>) => {
         prompted.push(input)
+        if (failPrompt) throw failPrompt
         return { data: undefined }
       },
-      command: async () => ({ data: undefined }),
-      abort: async () => ({ data: undefined }),
+      command: async () => {
+        invoked++
+        return { data: undefined }
+      },
+      abort: async () => {
+        aborted++
+        return { data: undefined }
+      },
     },
     worktree: {
       create: async () => ({ data: { directory: `${directory}/new` } }),
@@ -92,6 +112,18 @@ beforeAll(async () => {
 
   mock.module("@/context/local", () => ({
     useLocal: () => ({
+      native: { engine: () => engine },
+      selection: () =>
+        ready
+          ? {
+              engine,
+              agent: engine ? "codex" : "agent",
+              model: engine
+                ? { providerID: "codex-native", modelID: engine.model! }
+                : { providerID: "provider", modelID: "model" },
+              variant: engine?.effort ?? variant,
+            }
+          : undefined,
       model: {
         current: () => ({ id: "model", provider: { id: "provider" } }),
         variant: { current: () => variant },
@@ -129,8 +161,12 @@ beforeAll(async () => {
     DEFAULT_PROMPT: [{ type: "text", content: "", start: 0, end: 0 }],
     usePrompt: () => ({
       current: () => promptValue,
-      reset: () => undefined,
-      set: () => undefined,
+      reset: () => {
+        resets++
+      },
+      set: () => {
+        restored++
+      },
       context: {
         add: () => undefined,
         remove: () => undefined,
@@ -159,7 +195,7 @@ beforeAll(async () => {
 
   mock.module("@/context/sync", () => ({
     useSync: () => ({
-      data: { command: [] },
+      data: { command: commands },
       session: {
         optimistic: {
           add: (value: {
@@ -183,6 +219,7 @@ beforeAll(async () => {
 
   mock.module("@/context/global-sync", () => ({
     useGlobalSync: () => ({
+      todo: { set: () => undefined },
       child: (directory: string) => {
         syncedDirectories.push(directory)
         storedSessions[directory] ??= []
@@ -248,6 +285,7 @@ beforeAll(async () => {
 beforeEach(() => {
   createdClients.length = 0
   createdSessions.length = 0
+  engines.length = 0
   setModes.length = 0
   optimistic.length = 0
   optimisticSeeded.length = 0
@@ -260,9 +298,331 @@ beforeEach(() => {
   selected = "/repo/worktree-a"
   variant = undefined
   failCreate = undefined
+  failPrompt = undefined
+  restored = 0
   directoryAutoAccept = false
   defaultMode = "safe"
+  engine = undefined
+  ready = true
+  commands.length = 0
+  invoked = 0
+  resets = 0
+  aborted = 0
+  promptValue.splice(0, promptValue.length, { type: "text", content: "ls", start: 0, end: 2 })
   for (const key of Object.keys(storedSessions)) delete storedSessions[key]
+})
+
+function nativeSubmit(overrides: Partial<Parameters<typeof createPromptSubmit>[0]> = {}) {
+  return createPromptSubmit({
+    info: () =>
+      params.id
+        ? {
+            id: params.id,
+            slug: "",
+            projectID: "project",
+            directory: "/repo/main",
+            title: "Native",
+            version: "",
+            time: { created: 0, updated: 0 },
+            engine,
+          }
+        : undefined,
+    imageAttachments: () => [],
+    commentCount: () => 0,
+    autoAccept: () => true,
+    mode: () => "normal",
+    working: () => false,
+    editor: () => undefined,
+    queueScroll: () => undefined,
+    promptLength: () => 2,
+    addToHistory: () => undefined,
+    resetHistoryNavigation: () => undefined,
+    setMode: () => undefined,
+    setPopover: () => undefined,
+    ...overrides,
+  })
+}
+
+describe("native prompt submission", () => {
+  test("preserves the draft without sending, enqueuing or aborting while a native revert is unresolved", async () => {
+    engine = { type: "codex", model: "native-model" }
+    params.id = "existing"
+    const sent: NativeDraft[] = []
+    const submit = nativeSubmit({
+      working: () => true,
+      blocked: () => true,
+      nativeSubmit: async (draft) => {
+        sent.push(draft)
+        return true
+      },
+    })
+    await submit.handleSubmit({ preventDefault: () => undefined } as Event)
+    expect(sent).toHaveLength(0)
+    expect(prompted).toHaveLength(0)
+    expect(aborted).toBe(0)
+    expect(resets).toBe(0)
+    expect(promptValue).toEqual([{ type: "text", content: "ls", start: 0, end: 2 }])
+  })
+  test("submits text during native execution without stopping or starting a second prompt", async () => {
+    engine = { type: "codex", model: "native-model" }
+    params.id = "existing"
+    const sent: NativeDraft[] = []
+    const submit = nativeSubmit({
+      working: () => true,
+      nativeSubmit: async (text) => {
+        sent.push(text)
+        return true
+      },
+    })
+    await submit.handleSubmit({ preventDefault: () => undefined } as Event)
+    expect(sent).toMatchObject([{ text: "ls", parts: [{ type: "text", text: "ls" }] }])
+    expect(aborted).toBe(0)
+    expect(prompted).toHaveLength(0)
+    expect(resets).toBe(1)
+  })
+
+  test("queues file attachments and references with the original message", async () => {
+    engine = { type: "codex", model: "native-model" }
+    params.id = "existing"
+    promptValue.push({ type: "file", path: "/paper.pdf", content: "@paper", start: 2, end: 8 })
+    const sent: NativeDraft[] = []
+    const submit = nativeSubmit({
+      working: () => true,
+      nativeSubmit: async (draft) => {
+        sent.push(draft)
+        return true
+      },
+    })
+    await submit.handleSubmit({ preventDefault: () => undefined } as Event)
+    expect(sent).toHaveLength(1)
+    expect(sent[0].parts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "file",
+          url: "file:///paper.pdf",
+          source: expect.objectContaining({ path: "/paper.pdf" }),
+        }),
+      ]),
+    )
+    expect(resets).toBe(1)
+    expect(prompted).toHaveLength(0)
+    expect(optimistic).toHaveLength(0)
+  })
+
+  test("queues a PDF screenshot and its research prompt while preserving the pending draft on failure", async () => {
+    engine = { type: "codex", model: "native-model" }
+    params.id = "existing"
+    promptValue.push({ type: "file", path: "notes.txt", content: "@notes", start: 2, end: 8 })
+    let cleared = 0
+    const sent: NativeDraft[] = []
+    const submit = nativeSubmit({
+      working: () => true,
+      nativeSubmit: async (draft) => {
+        sent.push(draft)
+        return false
+      },
+      quickReadingQuestion: () => ({
+        sessionID: "existing",
+        kind: "image-question",
+        page: 3,
+        text: "",
+        imageDataUrl: "data:image/png;base64,aGVsbG8=",
+        pdfFileName: "paper.pdf",
+      }),
+      quickReadingSettings: () => ({ questionPrompt: "{selected_content}\n{user_question}" }),
+      onQuickReadingQuestionClear: () => {
+        cleared++
+      },
+    })
+    await submit.handleSubmit({ preventDefault: () => undefined } as Event)
+    expect(sent).toHaveLength(1)
+    expect(sent[0]).toMatchObject({ text: "ls@notes" })
+    expect(sent[0].parts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ type: "file", mime: "image/png", filename: "pdf-region-page-3.png" }),
+        expect.objectContaining({ type: "file", url: "file:///repo/main/notes.txt" }),
+        expect.objectContaining({
+          type: "text",
+          synthetic: true,
+          text: expect.stringContaining("page 3 of paper.pdf"),
+        }),
+      ]),
+    )
+    expect(resets).toBe(0)
+    expect(cleared).toBe(0)
+    expect(prompted).toHaveLength(0)
+  })
+
+  test("restores a normal quoted draft and handles a rejected send without an unhandled promise", async () => {
+    engine = { type: "codex", model: "native-model" }
+    params.id = "existing"
+    failPrompt = new Error("send failed")
+    const submit = nativeSubmit({
+      fileQuoteQuestion: () => ({ sessionID: "existing", path: "paper.md", text: "quoted passage", summary: "quoted" }),
+    })
+    await submit.handleSubmit({ preventDefault: () => undefined } as Event)
+    await flush()
+    expect(restored).toBe(1)
+    expect(toasts.at(-1)?.title).toBe("prompt.toast.promptSendFailed.title")
+  })
+
+  test("resolves queued relative file references in the session directory", async () => {
+    engine = { type: "codex", model: "native-model" }
+    params.id = "existing"
+    promptValue.push({ type: "file", path: "paper.pdf", content: "@paper", start: 2, end: 8 })
+    const sent: NativeDraft[] = []
+    const submit = nativeSubmit({
+      working: () => true,
+      info: () => ({
+        id: "existing",
+        slug: "",
+        projectID: "project",
+        directory: "/repo/worktree-b",
+        title: "Native",
+        version: "",
+        time: { created: 0, updated: 0 },
+        engine,
+      }),
+      nativeSubmit: async (draft) => {
+        sent.push(draft)
+        return true
+      },
+    })
+    await submit.handleSubmit({ preventDefault: () => undefined } as Event)
+    expect(sent[0].parts).toEqual(
+      expect.arrayContaining([expect.objectContaining({ type: "file", url: "file:///repo/worktree-b/paper.pdf" })]),
+    )
+  })
+
+  test("does not clear another session or send twice while the same queue submission is pending", async () => {
+    engine = { type: "codex", model: "native-model" }
+    params.id = "existing"
+    const receipt = Promise.withResolvers<boolean>()
+    let count = 0
+    const submit = nativeSubmit({
+      working: () => true,
+      nativeSubmit: () => {
+        count++
+        return receipt.promise
+      },
+    })
+    const first = submit.handleSubmit({ preventDefault: () => undefined } as Event)
+    await submit.handleSubmit({ preventDefault: () => undefined } as Event)
+    expect(count).toBe(1)
+    params.id = "another"
+    receipt.resolve(true)
+    await first
+    expect(resets).toBe(0)
+    expect(prompted).toHaveLength(0)
+  })
+
+  test("preserves typing entered while an active-turn request is awaiting acknowledgement", async () => {
+    engine = { type: "codex", model: "native-model" }
+    params.id = "existing"
+    const pending = Promise.withResolvers<boolean>()
+    const submit = nativeSubmit({ working: () => true, nativeSubmit: () => pending.promise })
+    const sending = submit.handleSubmit({ preventDefault: () => undefined } as Event)
+    promptValue.splice(0, 1, { type: "text", content: "New instructions", start: 0, end: 16 })
+    pending.resolve(true)
+    await sending
+    expect(resets).toBe(0)
+    expect(promptValue[0]).toMatchObject({ content: "New instructions" })
+  })
+
+  test("keeps stop available while a supplementary message awaits acknowledgement", async () => {
+    engine = { type: "codex", model: "native-model" }
+    params.id = "existing"
+    const pending = Promise.withResolvers<boolean>()
+    const submit = nativeSubmit({ working: () => true, nativeSubmit: () => pending.promise })
+    const sending = submit.handleSubmit({ preventDefault: () => undefined } as Event)
+    await submit.abort()
+    expect(aborted).toBe(1)
+    expect(resets).toBe(0)
+    pending.resolve(false)
+    await sending
+    expect(resets).toBe(0)
+  })
+
+  test("keeps a rejected supplementary message and still stops the original Aether backend", async () => {
+    engine = { type: "codex", model: "native-model" }
+    params.id = "existing"
+    const submit = nativeSubmit({ working: () => true, nativeSubmit: async () => false })
+    await submit.handleSubmit({ preventDefault: () => undefined } as Event)
+    expect(resets).toBe(0)
+    expect(aborted).toBe(0)
+    engine = undefined
+    await submit.handleSubmit({ preventDefault: () => undefined } as Event)
+    await flush()
+    expect(aborted).toBe(1)
+  })
+
+  test("pins the engine at creation and sends native model settings without Aether auto approvals", async () => {
+    engine = { type: "codex", model: "native-model", effort: "high" }
+    const submit = nativeSubmit()
+    await submit.handleSubmit({ preventDefault: () => undefined } as Event)
+    await flush()
+    expect(engines).toEqual([engine])
+    expect(prompted).toHaveLength(1)
+    expect(prompted[0]).toMatchObject({
+      agent: "codex",
+      model: { providerID: "codex-native", modelID: "native-model" },
+      variant: "high",
+    })
+    expect(setModes).toEqual([])
+  })
+
+  test("does not run legacy slash commands in native conversations", async () => {
+    engine = { type: "codex", model: "native-model" }
+    commands.push({ name: "legacy" })
+    promptValue.splice(0, promptValue.length, { type: "text", content: "/legacy task", start: 0, end: 12 })
+    await nativeSubmit().handleSubmit({ preventDefault: () => undefined } as Event)
+    await flush()
+    expect(invoked).toBe(0)
+    expect(prompted).toHaveLength(1)
+    expect(prompted[0].parts).toEqual(expect.arrayContaining([expect.objectContaining({ text: "/legacy task" })]))
+  })
+
+  test("does not create a session when native discovery has not completed", async () => {
+    engine = { type: "codex" }
+    ready = false
+    await nativeSubmit().handleSubmit({ preventDefault: () => undefined } as Event)
+    expect(createdSessions).toEqual([])
+    expect(prompted).toEqual([])
+    expect(toasts).toHaveLength(1)
+  })
+
+  test("blocks a restored shell mode for native conversations", async () => {
+    engine = { type: "codex", model: "native-model" }
+    await nativeSubmit({ mode: () => "shell" }).handleSubmit({ preventDefault: () => undefined } as Event)
+    expect(createdSessions).toEqual([])
+    expect(sentShell).toEqual([])
+  })
+
+  test("captures the native engine and model in queued followups", async () => {
+    params = { id: "native-session" }
+    engine = { type: "codex", model: "native-model", effort: "high" }
+    const queue: import("./submit").FollowupDraft[] = []
+    const submit = nativeSubmit({
+      info: () => ({
+        id: "native-session",
+        slug: "",
+        projectID: "project",
+        directory: "/repo/main",
+        title: "Native",
+        version: "",
+        time: { created: 0, updated: 0 },
+        engine,
+      }),
+      shouldQueue: () => true,
+      onQueue: (draft) => queue.push(draft),
+    })
+    await submit.handleSubmit({ preventDefault: () => undefined } as Event)
+    engine = undefined
+    expect(queue).toHaveLength(1)
+    expect(queue[0].engine).toEqual({ type: "codex", model: "native-model", effort: "high" })
+    expect(queue[0].model).toEqual({ providerID: "codex-native", modelID: "native-model" })
+    expect(prompted).toEqual([])
+  })
 })
 
 describe("prompt submit worktree selection", () => {

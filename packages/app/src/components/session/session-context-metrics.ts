@@ -20,63 +20,96 @@ type Context = {
   providerLabel: string
   modelLabel: string
   limit: number | undefined
-  input: number
-  output: number
-  reasoning: number
-  cacheRead: number
-  cacheWrite: number
-  total: number
+  input: number | undefined
+  output: number | undefined
+  reasoning: number | undefined
+  cacheRead: number | undefined
+  cacheWrite: number | undefined
+  total: number | undefined
   usage: number | null
+  native: boolean
+  used?: number
 }
 
 type Metrics = {
-  totalCost: number
+  totalCost: number | null
+  native: boolean
+  providerLabel?: string
+  modelLabel?: string
+  updated?: number
   context: Context | undefined
 }
 
 const tokenTotal = (msg: AssistantMessage) => {
+  if (msg.providerID === "codex-native")
+    return msg.tokens.total ?? msg.tokens.input + msg.tokens.output + msg.tokens.cache.read + msg.tokens.cache.write
   return msg.tokens.input + msg.tokens.output + msg.tokens.reasoning + msg.tokens.cache.read + msg.tokens.cache.write
 }
 
-const lastAssistantWithTokens = (messages: Message[]) => {
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const msg = messages[i]
-    if (msg.role !== "assistant") continue
-    if (tokenTotal(msg) <= 0) continue
-    return msg
+const measured = (messages: Message[]) =>
+  messages.findLast(
+    (msg): msg is AssistantMessage =>
+      msg.role === "assistant" &&
+      (tokenTotal(msg) > 0 ||
+        (msg.providerID === "codex-native" &&
+          (msg.tokens.total !== undefined ||
+            (msg.nativeUsage?.input !== undefined &&
+              Number.isFinite(msg.nativeUsage.input) &&
+              msg.nativeUsage.input >= 0)))),
+  )
+
+const build = (messages: Message[] = [], providers: Provider[] = [], native = false): Metrics => {
+  const enabled = native || messages.some((msg) => msg.role === "assistant" && msg.providerID === "codex-native")
+  const totalCost = enabled ? null : messages.reduce((sum, msg) => sum + (msg.role === "assistant" ? msg.cost : 0), 0)
+  const message = measured(messages)
+  const latest = enabled ? messages.findLast((msg) => msg.role === "assistant") : message
+  const provider = enabled ? undefined : providers.find((item) => item.id === latest?.providerID)
+  const model = latest ? provider?.models[latest.modelID] : undefined
+  const metadata = {
+    providerLabel: enabled ? "Codex" : (provider?.name ?? latest?.providerID),
+    modelLabel:
+      latest?.modelID && (!enabled || latest.modelID !== "unknown") ? (model?.name ?? latest.modelID) : undefined,
+    updated: enabled
+      ? messages.reduce(
+          (time, msg) => Math.max(time, msg.time.created, msg.role === "assistant" ? (msg.time.completed ?? 0) : 0),
+          0,
+        ) || undefined
+      : latest?.time.created,
   }
-}
+  if (!message) return { totalCost, native: enabled, ...metadata, context: undefined }
 
-const build = (messages: Message[] = [], providers: Provider[] = []): Metrics => {
-  const totalCost = messages.reduce((sum, msg) => sum + (msg.role === "assistant" ? msg.cost : 0), 0)
-  const message = lastAssistantWithTokens(messages)
-  if (!message) return { totalCost, context: undefined }
-
-  const provider = providers.find((item) => item.id === message.providerID)
-  const model = provider?.models[message.modelID]
-  const limit = model?.limit.context
+  const evidence = message.nativeUsage
+  const capacity = enabled ? evidence?.contextWindow : model?.limit.context
+  const limit = capacity !== undefined && Number.isFinite(capacity) && capacity > 0 ? capacity : undefined
   const total = tokenTotal(message)
+  const known = !enabled || total > 0 || message.tokens.total !== undefined
+  const input = enabled ? evidence?.input : total
+  const used = input !== undefined && Number.isFinite(input) && input >= 0 ? input : undefined
 
   return {
     totalCost,
+    native: enabled,
+    ...metadata,
     context: {
       message,
       provider,
       model,
-      providerLabel: provider?.name ?? message.providerID,
+      providerLabel: enabled ? "Codex" : (provider?.name ?? message.providerID),
       modelLabel: model?.name ?? message.modelID,
       limit,
-      input: message.tokens.input,
-      output: message.tokens.output,
-      reasoning: message.tokens.reasoning,
-      cacheRead: message.tokens.cache.read,
-      cacheWrite: message.tokens.cache.write,
-      total,
-      usage: limit ? Math.round((total / limit) * 100) : null,
+      input: known ? message.tokens.input : undefined,
+      output: known ? message.tokens.output : undefined,
+      reasoning: known ? message.tokens.reasoning : undefined,
+      cacheRead: known ? message.tokens.cache.read : undefined,
+      cacheWrite: known ? message.tokens.cache.write : undefined,
+      total: known ? total : undefined,
+      native: enabled,
+      used,
+      usage: limit && used !== undefined ? Math.round((used / limit) * 100) : null,
     },
   }
 }
 
-export function getSessionContextMetrics(messages: Message[] = [], providers: Provider[] = []) {
-  return build(messages, providers)
+export function getSessionContextMetrics(messages: Message[] = [], providers: Provider[] = [], native = false) {
+  return build(messages, providers, native)
 }

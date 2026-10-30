@@ -73,6 +73,10 @@ import { cascade } from "@/pages/session/cascade"
 import { bounds, panes } from "@/pages/session/row-panes"
 import { useSessionCommands } from "@/pages/session/use-session-commands"
 import { useSessionHashScroll } from "@/pages/session/use-session-hash-scroll"
+import { useSessionFork } from "@/pages/session/use-session-fork"
+import { useNativeRevert } from "@/pages/session/use-native-revert"
+import { createNativeQuestions, type PendingQuestion } from "@/components/native-question-hint"
+import { nativeQuestionAnchor } from "@/components/native-question-events"
 import { Identifier } from "@/utils/id"
 import { extractPromptFromParts } from "@/utils/prompt"
 import { same } from "@/utils/same"
@@ -2082,25 +2086,10 @@ function SessionPageContent(props: SessionPageProps = {}) {
   const reverting = createMemo(() => revertMutation.isPending || restoreMutation.isPending)
   const restoring = createMemo(() => (restoreMutation.isPending ? restoreMutation.variables : undefined))
 
-  const fork = (input: { sessionID: string; messageID: string }) => {
-    const value = draft(input.messageID)
-    const dir = base64Encode(sdk.directory)
-    return sdk.client.session
-      .fork(input)
-      .then((result) => {
-        const next = result.data
-        if (!next) {
-          showToast({
-            variant: "error",
-            title: language.t("common.requestFailed"),
-          })
-          return
-        }
-        prompt.set(value, undefined, { dir, id: next.id })
-        navigate(`/${dir}/session/${next.id}`)
-      })
-      .catch(fail)
-  }
+  const branch = useSessionFork()
+  const rollback = useNativeRevert()
+  const fork = (input: { sessionID: string; messageID: string }) => branch(input, "fork")
+  const edit = (input: { sessionID: string; messageID: string }) => rollback.edit(input)
 
   const showBusy = (input?: { sessionID: string; messageID: string }) => {
     dialog.show(() => <DialogRevertConfirm reason="session-busy" onFork={input ? () => fork(input) : undefined} />)
@@ -2155,6 +2144,7 @@ function SessionPageContent(props: SessionPageProps = {}) {
   })
 
   const actions = { fork, revert }
+  const nativeActions = { response: fork, edit }
 
   createEffect(() => {
     const sessionID = params.id
@@ -2212,6 +2202,110 @@ function SessionPageContent(props: SessionPageProps = {}) {
     anchor,
     scheduleScrollState,
     consumePendingMessage: layout.pendingMessage.consume,
+  })
+
+  const questions = createNativeQuestions(
+    () => (info()?.engine?.type === "codex" ? params.id : undefined),
+    () => !!params.id && busy(params.id),
+  )
+  const [landing, setLanding] = createStore<{ session?: string; message?: string }>({})
+  createEffect(() => {
+    const state = location.state
+    if (!state || typeof state !== "object" || !("nativeFork" in state) || state.nativeFork !== params.id) return
+    if (landing.session === params.id || info()?.engine?.type !== "codex" || !messagesReady()) return
+    const last = visibleUserMessages().at(-1)
+    if (!last) return
+    setLanding({ session: params.id, message: last.id })
+    untrack(() => scrollToMessage(last, "auto"))
+  })
+  const revealed = (id: string) => {
+    if (landing.session === params.id && landing.message === id) setLanding("message", undefined)
+  }
+  const [question, setQuestion] = createStore<{ target?: PendingQuestion; session?: string }>({})
+  const destination = createMemo(() => {
+    const target = question.target
+    if (!target) return
+    const matches = (value: { thread: string; item: string }) =>
+      value.thread === target.question.thread && value.item === target.question.item
+    // Native synchronization can move a streamed item into another display turn.
+    const loaded = messages()
+      .flatMap((message) => {
+        if (message.role !== "assistant") return []
+        return (sync.data.part[message.id] ?? []).flatMap((part) =>
+          part.type === "text" && part.nativeQuestion && matches(part.nativeQuestion)
+            ? [{ messageID: message.id, parentID: message.parentID, partID: part.id, question: part.nativeQuestion }]
+            : [],
+        )
+      })
+      .at(-1)
+    return loaded ?? questions().find((item) => matches(item.question)) ?? target
+  })
+  const reveal = (item: PendingQuestion) => {
+    if (!params.id) return
+    autoScroll.pause()
+    setQuestion({ target: item, session: sessionKey() })
+  }
+  createEffect(
+    on(
+      () => [question.session, destination()?.parentID] as const,
+      ([scope, parent]) => {
+        if (scope === sessionKey() && parent) setUi("pendingMessage", parent)
+      },
+    ),
+  )
+  createEffect(
+    on(
+      () => question.target,
+      (target) => {
+        if (!target) return
+        const timeout = setTimeout(() => {
+          const parent = destination()?.parentID ?? target.parentID
+          setQuestion("target", undefined)
+          if (ui.pendingMessage === parent) setUi("pendingMessage", undefined)
+          showToast({ title: language.t("native.question.unavailable") })
+        }, 30_000)
+        onCleanup(() => clearTimeout(timeout))
+      },
+    ),
+  )
+  createEffect(() => {
+    const target = destination()
+    if (!target) return
+    if (question.session !== sessionKey()) {
+      setQuestion("target", undefined)
+      return
+    }
+    if (!messagesReady()) return
+    const message = visibleUserMessages().find((item) => item.id === target.parentID)
+    if (!message) {
+      // The latest index may arrive after a display-owner change. Keep the
+      // identity pending until it resolves or the existing bounded timer ends.
+      return
+    }
+    untrack(() => scrollToMessage(message, "auto"))
+    const root = scroller
+    if (!root) return
+    const focus = () => {
+      const row = document.getElementById(anchor(target.parentID))
+      const node = row?.querySelector<HTMLElement>(`#${nativeQuestionAnchor(params.id!, target.question)}`)
+      if (!node || !root.contains(node)) return false
+      node.scrollIntoView({ block: "center", behavior: "smooth" })
+      node.focus({ preventScroll: true })
+      setQuestion("target", undefined)
+      return true
+    }
+    const observer = new MutationObserver(focus)
+    observer.observe(root, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ["data-assistant-collapsed"],
+    })
+    const frame = requestAnimationFrame(focus)
+    onCleanup(() => {
+      observer.disconnect()
+      cancelAnimationFrame(frame)
+    })
   })
 
   onMount(() => {
@@ -2313,7 +2407,11 @@ function SessionPageContent(props: SessionPageProps = {}) {
                           loadingClass: "px-4 py-4 text-text-weak",
                           emptyClass: "h-full pb-64 -mt-4 flex flex-col items-center justify-center text-center gap-6",
                         })}
-                        actions={actions}
+                        actions={info()?.engine ? nativeActions : actions}
+                        reveal={
+                          destination()?.parentID ?? (landing.session === params.id ? landing.message : undefined)
+                        }
+                        onReveal={revealed}
                         scroll={ui.scroll}
                         onResumeScroll={resumeScroll}
                         setScrollRef={setScrollRef}
@@ -2351,6 +2449,8 @@ function SessionPageContent(props: SessionPageProps = {}) {
               </div>
 
               <SessionComposerRegion
+                rollback={rollback}
+                questions={{ session: params.id ?? "", items: questions(), busy: !!question.target, onOpen: reveal }}
                 state={composer}
                 ready={!store.deferRender && messagesReady()}
                 centered={centered()}
@@ -2495,7 +2595,9 @@ function SessionPageContent(props: SessionPageProps = {}) {
                         loadingClass: "px-4 py-4 text-text-weak",
                         emptyClass: "h-full pb-64 -mt-4 flex flex-col items-center justify-center text-center gap-6",
                       })}
-                      actions={actions}
+                      actions={info()?.engine ? nativeActions : actions}
+                      reveal={destination()?.parentID ?? (landing.session === params.id ? landing.message : undefined)}
+                      onReveal={revealed}
                       scroll={ui.scroll}
                       onResumeScroll={resumeScroll}
                       setScrollRef={setScrollRef}
@@ -2533,6 +2635,8 @@ function SessionPageContent(props: SessionPageProps = {}) {
             </div>
 
             <SessionComposerRegion
+              rollback={rollback}
+              questions={{ session: params.id ?? "", items: questions(), busy: !!question.target, onOpen: reveal }}
               state={composer}
               ready={!store.deferRender && messagesReady()}
               centered={centered()}

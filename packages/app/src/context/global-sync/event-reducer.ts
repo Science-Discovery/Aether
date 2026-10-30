@@ -16,6 +16,7 @@ import { trimSessions } from "./session-trim"
 import { dropSessionCaches, dropSessionStatus } from "./session-cache"
 import { isViewing, viewingIDs } from "./viewing"
 import { MessageOrder } from "@/utils/message-order"
+import * as Status from "./status"
 
 const SKIP_PARTS = new Set(["patch", "step-start", "step-finish"])
 
@@ -220,6 +221,7 @@ export function applyDirectoryEvent(input: {
     }
     case "session.status": {
       const props = event.properties as { sessionID: string; status: SessionStatus }
+      Status.touch(input.store, props.sessionID)
       input.setStore("session_status", props.sessionID, reconcile(props.status))
       break
     }

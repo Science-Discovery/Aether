@@ -8,6 +8,7 @@ import { useLanguage } from "@/context/language"
 import { useSDK } from "@/context/sdk"
 import { useServer } from "@/context/server"
 import { useSync } from "@/context/sync"
+import { useLocal } from "@/context/local"
 import { upsertSessionList } from "@/utils/session-store"
 
 export const DialogReadingMode: Component = () => {
@@ -18,6 +19,7 @@ export const DialogReadingMode: Component = () => {
   const sdk = useSDK()
   const server = useServer()
   const sync = useSync()
+  const local = useLocal()
   const autoFirstReadLabel = () =>
     language.locale() === "zh" || language.locale() === "zht"
       ? "关闭自动询问预读"
@@ -77,6 +79,11 @@ export const DialogReadingMode: Component = () => {
   const handleStart = async () => {
     const f = file()
     if (!f) return
+    const engine = local.native.selection()
+    if (!local.native.known() || (local.native.engine() && (!local.native.ready() || !engine))) {
+      setError(language.t("native.notReady"))
+      return
+    }
     setUploading(true)
     setError(null)
     setUploadProgress(f.size > WARN_SIZE ? `正在上传（${formatSize(f.size)}），请稍候...` : null)
@@ -92,6 +99,7 @@ export const DialogReadingMode: Component = () => {
 
       const form = new FormData()
       form.append("pdf", f)
+      if (engine) form.append("engine", JSON.stringify(engine))
       form.append(
         "settings",
         JSON.stringify({
@@ -132,6 +140,9 @@ export const DialogReadingMode: Component = () => {
   return (
     <Dialog title={language.t("reading.dialog.title")} size="large">
       <div class="flex flex-col gap-4 p-4 max-h-[70vh] overflow-y-auto">
+        <p class="text-sm text-text-weak">
+          {language.t("native.engine")}: {local.native.engine() ? "Codex" : "Aether"}
+        </p>
         <Show when={error()}>
           <div class="text-red-400 text-sm bg-surface-raised-base rounded p-2">{error()}</div>
         </Show>

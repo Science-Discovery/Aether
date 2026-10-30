@@ -16,6 +16,9 @@ import {
   projectSessionHref,
   hasProjectPermissions,
   latestRootSession,
+  backend,
+  grouped,
+  sortedRootSessions,
   workspaceKey,
 } from "./helpers"
 
@@ -221,6 +224,88 @@ describe("layout workspace helpers", () => {
     expect(errorMessage({ data: { message: "boom" } }, "fallback")).toBe("boom")
     expect(errorMessage(new Error("broken"), "fallback")).toBe("broken")
     expect(errorMessage("unknown", "fallback")).toBe("fallback")
+  })
+})
+
+describe("sidebar backend groups", () => {
+  test("promotes explicit native forks but keeps native subagents and Aether forks under their parent", () => {
+    const rows = [
+      session({ id: "source", directory: "/workspace", engine: { type: "codex" } }),
+      session({
+        id: "fork",
+        directory: "/workspace",
+        engine: { type: "codex" },
+        parentID: "source",
+        forkParentSessionID: "source",
+      }),
+      session({ id: "agent", directory: "/workspace", engine: { type: "codex" }, parentID: "source" }),
+      session({ id: "legacy", directory: "/workspace", parentID: "source", forkParentSessionID: "source" }),
+    ]
+    const roots = sortedRootSessions({ path: { directory: "/workspace" }, session: rows }, 120_000)
+    expect(roots.map((item) => item.id).sort()).toEqual(["fork", "source"])
+    expect(
+      grouped(rows)
+        .find((group) => group.type === "codex")
+        ?.sessions.map((item) => item.id),
+    ).toEqual(["source", "fork"])
+    expect(rows[1].parentID).toBe("source")
+  })
+
+  test("groups existing root order by engine without promoting children or mutating sessions", () => {
+    const rows = [
+      session({ id: "codex-new", directory: "/workspace", engine: { type: "codex" } }),
+      session({ id: "aether-new", directory: "/workspace" }),
+      session({ id: "codex-old", directory: "/workspace", engine: { type: "codex" } }),
+      session({ id: "aether-old", directory: "/workspace" }),
+      session({ id: "child", directory: "/workspace", parentID: "aether-new", engine: { type: "codex" } }),
+    ]
+    const groups = grouped(rows)
+    expect(groups.map((group) => [group.type, group.sessions.map((item) => item.id)])).toEqual([
+      ["aether", ["aether-new", "aether-old"]],
+      ["codex", ["codex-new", "codex-old"]],
+    ])
+    expect(groups[0].sessions[0]).toBe(rows[1])
+    expect(rows.map((item) => item.id)).toEqual(["codex-new", "aether-new", "codex-old", "aether-old", "child"])
+    expect(backend(rows[1])).toBe("aether")
+    expect(backend(rows[0])).toBe("codex")
+  })
+
+  test("keeps reading roots with their engine and respects workspace and archive filtering", () => {
+    const reading = session({
+      id: "reading",
+      directory: "/workspace",
+      engine: { type: "codex" },
+      readingMode: {
+        pdfFileName: "paper.pdf",
+        pdfStorePath: "/workspace/paper.pdf",
+        lastReadPage: 1,
+        annotationsPath: "",
+        source: { kind: "workspace-file", path: "paper.pdf" },
+        settings: {
+          translatePrompt: "",
+          questionPrompt: "",
+          firstReadPrompt: "",
+          contextPageRange: 1,
+          autoFirstRead: false,
+        },
+        firstReadCompleted: false,
+        firstReadDismissed: false,
+      },
+    })
+    const roots = sortedRootSessions(
+      {
+        path: { directory: "/workspace" },
+        session: [
+          reading,
+          session({ id: "preread", directory: "/workspace", parentID: reading.id }),
+          session({ id: "other", directory: "/other", engine: { type: "codex" } }),
+          session({ id: "archived", directory: "/workspace", time: { created: 1, updated: 2, archived: 3 } }),
+        ],
+      },
+      120_000,
+    )
+    expect(grouped(roots).flatMap((group) => group.sessions)).toEqual([reading])
+    expect(grouped([]).every((group) => group.sessions.length === 0)).toBe(true)
   })
 })
 

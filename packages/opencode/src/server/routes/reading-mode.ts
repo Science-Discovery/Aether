@@ -17,6 +17,7 @@ import { PDFDocument } from "pdf-lib"
 import { Filesystem } from "../../util/filesystem"
 import { Instance } from "../../project/instance"
 import { getDocumentProxy } from "unpdf"
+import { Native } from "../../native/schema"
 
 function sessionDir(id: string) {
   return path.join(Global.Path.data, "reading-mode", id)
@@ -163,12 +164,13 @@ async function buildPagePdfResponse(input: {
 }
 
 async function createReadingSession(input: {
+  engine?: z.infer<typeof Native.Input>
   pdfFileName: string
   settings: ReadingMode.Settings
   source: ReadingMode.Source
   writePdf: (targetPath: string) => Promise<void>
 }) {
-  const session = await Session.create({})
+  const session = await Session.create({ engine: input.engine })
   const dir = sessionDir(session.id)
   await fs.mkdir(dir, { recursive: true })
 
@@ -200,7 +202,7 @@ async function createReadingSession(input: {
   return Session.get(session.id)
 }
 
-async function findLatestReadingSessionByPath(sourcePath: string) {
+async function findLatestReadingSessionByPath(sourcePath: string, engine?: z.infer<typeof Native.Input>) {
   for (const session of Session.list({
     directory: Instance.directory,
     roots: true,
@@ -208,6 +210,7 @@ async function findLatestReadingSessionByPath(sourcePath: string) {
   })) {
     if (session.readingMode?.source.kind !== "workspace-file") continue
     if (session.readingMode.source.path !== sourcePath) continue
+    if (session.engine?.type !== engine?.type) continue
     return session
   }
   return undefined
@@ -237,10 +240,24 @@ export const ReadingModeRoutes = lazy(() =>
         const settingsInput = body["settings"] as string | undefined
         const settings = resolveReadingSettings(settingsInput)
 
+        const raw = body["engine"]
+        const parsed =
+          raw === undefined
+            ? { success: true as const, data: undefined }
+            : Native.Input.safeParse(
+                typeof raw === "string"
+                  ? await Promise.resolve()
+                      .then(() => JSON.parse(raw))
+                      .catch(() => null)
+                  : null,
+              )
+        if (!parsed.success) return c.json({ error: "Invalid native engine configuration" }, 400)
+
         const pdfFileName = file.name || "document.pdf"
         const buf = await file.arrayBuffer()
         const session = await createReadingSession({
           pdfFileName,
+          engine: parsed.data,
           settings,
           source: { kind: "upload" },
           writePdf: async (targetPath) => {
@@ -278,6 +295,7 @@ export const ReadingModeRoutes = lazy(() =>
             })
             .optional(),
           forceNew: z.boolean().optional(),
+          engine: Native.Input.optional(),
         }),
       ),
       async (c) => {
@@ -296,7 +314,7 @@ export const ReadingModeRoutes = lazy(() =>
         }
 
         if (!body.forceNew) {
-          const existing = await findLatestReadingSessionByPath(resolvedPath)
+          const existing = await findLatestReadingSessionByPath(resolvedPath, body.engine)
           if (existing) {
             return c.json({
               action: "existing" as const,
@@ -307,6 +325,7 @@ export const ReadingModeRoutes = lazy(() =>
 
         const session = await createReadingSession({
           pdfFileName: path.basename(resolvedPath),
+          engine: body.engine,
           settings: resolveReadingSettings(body.settings),
           source: {
             kind: "workspace-file",

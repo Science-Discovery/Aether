@@ -34,6 +34,9 @@ export function sanitizePrompt(value: unknown): Prompt {
     if (part.type === "agent" && typeof part.name === "string") {
       return [{ type: "agent", content: part.content, start, end, name: part.name }]
     }
+    if (part.type === "skill" && typeof part.name === "string" && typeof part.path === "string") {
+      return [{ type: "skill", content: part.content, start, end, name: part.name, path: part.path }]
+    }
     if (part.type !== "file" || typeof part.path !== "string") return []
     return [
       {

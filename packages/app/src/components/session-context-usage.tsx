@@ -50,10 +50,17 @@ export function SessionContextUsage(props: SessionContextUsageProps) {
       }),
   )
 
-  const metrics = createMemo(() => getSessionContextMetrics(messages(), sync.data.provider.all))
+  const metrics = createMemo(() =>
+    getSessionContextMetrics(
+      messages(),
+      sync.data.provider.all,
+      sync.session.get(params.id ?? "")?.engine?.type === "codex",
+    ),
+  )
   const context = createMemo(() => metrics().context)
   const cost = createMemo(() => {
-    return usd().format(metrics().totalCost)
+    const value = metrics().totalCost
+    return value === null ? language.t("native.usage.unknown") : usd().format(value)
   })
 
   const openContext = () => {
@@ -72,7 +79,20 @@ export function SessionContextUsage(props: SessionContextUsageProps) {
 
   const circle = () => (
     <div class="flex items-center justify-center">
-      <ProgressCircle size={16} strokeWidth={2} percentage={context()?.usage ?? 0} />
+      <Show
+        when={!metrics().native || context()?.usage != null}
+        fallback={
+          <span class="text-12-regular text-text-weak" aria-label={language.t("native.usage.unknown")}>
+            —
+          </span>
+        }
+      >
+        <ProgressCircle
+          size={16}
+          strokeWidth={2}
+          percentage={metrics().native ? Math.min(100, context()?.usage ?? 0) : (context()?.usage ?? 0)}
+        />
+      </Show>
     </div>
   )
 
@@ -82,19 +102,27 @@ export function SessionContextUsage(props: SessionContextUsageProps) {
         {(ctx) => (
           <>
             <div class="flex items-center gap-2">
-              <span class="text-text-invert-strong">{ctx().total.toLocaleString(language.intl())}</span>
+              <span class="text-text-invert-strong">
+                {ctx().total?.toLocaleString(language.intl()) ?? language.t("native.usage.unknown")}
+              </span>
               <span class="text-text-invert-base">{language.t("context.usage.tokens")}</span>
             </div>
             <div class="flex items-center gap-2">
-              <span class="text-text-invert-strong">{ctx().usage ?? 0}%</span>
-              <span class="text-text-invert-base">{language.t("context.usage.usage")}</span>
+              <span class="text-text-invert-strong">
+                {ctx().native && ctx().usage === null ? language.t("native.usage.unknown") : `${ctx().usage ?? 0}%`}
+              </span>
+              <span class="text-text-invert-base">
+                {language.t(ctx().native ? "native.usage.context" : "context.usage.usage")}
+              </span>
             </div>
           </>
         )}
       </Show>
       <div class="flex items-center gap-2">
         <span class="text-text-invert-strong">{cost()}</span>
-        <span class="text-text-invert-base">{language.t("context.usage.cost")}</span>
+        <span class="text-text-invert-base">
+          {language.t(metrics().native ? "native.usage.cost" : "context.usage.cost")}
+        </span>
       </div>
     </div>
   )

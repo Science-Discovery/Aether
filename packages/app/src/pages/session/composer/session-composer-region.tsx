@@ -19,6 +19,10 @@ import { SessionTodoDock } from "@/pages/session/composer/session-todo-dock"
 import { getSessionHandoff, setSessionHandoff } from "@/pages/session/handoff"
 import { useSessionKey } from "@/pages/session/session-layout"
 import { formatReadingPageRange } from "@/utils/comment-note"
+import { NativeQuestionHint, type PendingQuestion } from "@/components/native-question-hint"
+import { NativeRevertNotice, type useNativeRevert } from "@/pages/session/use-native-revert"
+import { NativeElicitationDock } from "@/components/native-elicitation"
+import { useSync } from "@/context/sync"
 
 export function SessionComposerRegion(props: {
   state: SessionComposerState
@@ -29,6 +33,8 @@ export function SessionComposerRegion(props: {
   onNewSessionWorktreeReset: () => void
   onSubmit: () => void
   onResponseSubmit: () => void
+  rollback?: ReturnType<typeof useNativeRevert>
+  questions?: { session: string; items: PendingQuestion[]; busy: boolean; onOpen: (item: PendingQuestion) => void }
   followup?: {
     queue: () => boolean
     items: { id: string; text: string }[]
@@ -55,6 +61,8 @@ export function SessionComposerRegion(props: {
   const readingMode = useMaybeReadingMode()
   const quickReadingMode = useMaybeQuickReadingMode()
   const route = useSessionKey()
+  const sync = useSync()
+  const native = createMemo(() => sync.data.session.find((item) => item.id === route.params.id)?.engine?.type === "codex")
   const quotes = createMemo(
     () => quote?.store.pendingQuestions.filter((item) => item.sessionID === route.params.id) ?? [],
   )
@@ -159,6 +167,9 @@ export function SessionComposerRegion(props: {
           "md:max-w-[2400px] md:mx-auto 2xl:max-w-[3000px]": props.centered,
         }}
       >
+        <Show when={props.questions}>{(questions) => <NativeQuestionHint {...questions()} />}</Show>
+        <NativeElicitationDock session={native() ? route.params.id : undefined} />
+        <Show when={props.rollback}>{(revert) => <NativeRevertNotice revert={revert()} />}</Show>
         <Show when={props.state.questionRequest()} keyed>
           {(request) => (
             <div>
@@ -358,6 +369,7 @@ export function SessionComposerRegion(props: {
                 )}
               </Show>
               <PromptInput
+                blocked={props.rollback?.blocked()}
                 ref={props.inputRef}
                 newSessionWorktree={props.newSessionWorktree}
                 onNewSessionWorktreeReset={props.onNewSessionWorktreeReset}

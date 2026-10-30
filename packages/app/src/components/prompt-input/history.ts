@@ -107,6 +107,7 @@ export function clonePromptParts(prompt: Prompt): Prompt {
     if (part.type === "text") return { ...part }
     if (part.type === "image") return { ...part }
     if (part.type === "agent") return { ...part }
+    if (part.type === "skill") return { ...part }
     return {
       ...part,
       selection: part.selection ? { ...part.selection } : undefined,
@@ -194,6 +195,14 @@ function isPromptEqual(promptA: PromptHistoryStoredEntry, promptB: PromptHistory
     const partB = entryB.prompt[i]
     if (partA.type !== partB.type) return false
     if (partA.type === "text" && partA.content !== (partB.type === "text" ? partB.content : "")) return false
+    if (
+      partA.type === "skill" &&
+      (partB.type !== "skill" ||
+        partA.name !== partB.name ||
+        partA.path !== partB.path ||
+        partA.content !== partB.content)
+    )
+      return false
     if (partA.type === "file") {
       if (partA.path !== (partB.type === "file" ? partB.path : "")) return false
       const a = partA.selection

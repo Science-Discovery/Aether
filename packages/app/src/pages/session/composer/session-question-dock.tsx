@@ -59,6 +59,7 @@ export const SessionQuestionDock: Component<{
   const input = createMemo(() => store.custom[store.tab] ?? "")
   const on = createMemo(() => store.customOn[store.tab] === true)
   const multi = createMemo(() => question()?.multiple === true)
+  const allowed = createMemo(() => question()?.custom !== false)
 
   const summary = createMemo(() => {
     const n = Math.min(store.tab + 1, total())
@@ -81,6 +82,7 @@ export const SessionQuestionDock: Component<{
   })
 
   const customUpdate = (value: string, selected: boolean = on()) => {
+    if (!allowed()) return
     const prev = input().trim()
     const next = value.trim()
 
@@ -283,7 +285,7 @@ export const SessionQuestionDock: Component<{
   }
 
   const customToggle = () => {
-    if (sending()) return
+    if (sending() || !allowed()) return
 
     if (!multi()) {
       setStore("customOn", store.tab, true)
@@ -306,7 +308,7 @@ export const SessionQuestionDock: Component<{
   }
 
   const customOpen = () => {
-    if (sending()) return
+    if (sending() || !allowed()) return
     if (!on()) setStore("customOn", store.tab, true)
     setStore("editing", true)
     customUpdate(input(), true)
@@ -494,17 +496,62 @@ export const SessionQuestionDock: Component<{
             }}
           </For>
 
-          <Show
-            when={store.editing}
-            fallback={
-              <button
+          <Show when={allowed()}>
+            <Show
+              when={store.editing}
+              fallback={
+                <button
+                  data-slot="question-option"
+                  data-custom="true"
+                  data-picked={on()}
+                  role={multi() ? "checkbox" : "radio"}
+                  aria-checked={on()}
+                  disabled={sending()}
+                  onClick={customOpen}
+                >
+                  <span
+                    data-slot="question-option-check"
+                    aria-hidden="true"
+                    onClick={(e) => {
+                      e.preventDefault()
+                      e.stopPropagation()
+                      customToggle()
+                    }}
+                  >
+                    <span data-slot="question-option-box" data-type={multi() ? "checkbox" : "radio"} data-picked={on()}>
+                      <Show when={multi()} fallback={<span data-slot="question-option-radio-dot" />}>
+                        <Icon name="check-small" size="small" />
+                      </Show>
+                    </span>
+                  </span>
+                  <span data-slot="question-option-main">
+                    <span data-slot="option-label">{language.t("ui.messagePart.option.typeOwnAnswer")}</span>
+                    <span data-slot="option-description">
+                      {input() || language.t("ui.question.custom.placeholder")}
+                    </span>
+                  </span>
+                </button>
+              }
+            >
+              <form
                 data-slot="question-option"
                 data-custom="true"
                 data-picked={on()}
                 role={multi() ? "checkbox" : "radio"}
                 aria-checked={on()}
-                disabled={sending()}
-                onClick={customOpen}
+                onMouseDown={(e) => {
+                  if (sending()) {
+                    e.preventDefault()
+                    return
+                  }
+                  if (e.target instanceof HTMLTextAreaElement) return
+                  const input = e.currentTarget.querySelector('[data-slot="question-custom-input"]')
+                  if (input instanceof HTMLTextAreaElement) input.focus()
+                }}
+                onSubmit={(e) => {
+                  e.preventDefault()
+                  commitCustom()
+                }}
               >
                 <span
                   data-slot="question-option-check"
@@ -523,79 +570,38 @@ export const SessionQuestionDock: Component<{
                 </span>
                 <span data-slot="question-option-main">
                   <span data-slot="option-label">{language.t("ui.messagePart.option.typeOwnAnswer")}</span>
-                  <span data-slot="option-description">{input() || language.t("ui.question.custom.placeholder")}</span>
-                </span>
-              </button>
-            }
-          >
-            <form
-              data-slot="question-option"
-              data-custom="true"
-              data-picked={on()}
-              role={multi() ? "checkbox" : "radio"}
-              aria-checked={on()}
-              onMouseDown={(e) => {
-                if (sending()) {
-                  e.preventDefault()
-                  return
-                }
-                if (e.target instanceof HTMLTextAreaElement) return
-                const input = e.currentTarget.querySelector('[data-slot="question-custom-input"]')
-                if (input instanceof HTMLTextAreaElement) input.focus()
-              }}
-              onSubmit={(e) => {
-                e.preventDefault()
-                commitCustom()
-              }}
-            >
-              <span
-                data-slot="question-option-check"
-                aria-hidden="true"
-                onClick={(e) => {
-                  e.preventDefault()
-                  e.stopPropagation()
-                  customToggle()
-                }}
-              >
-                <span data-slot="question-option-box" data-type={multi() ? "checkbox" : "radio"} data-picked={on()}>
-                  <Show when={multi()} fallback={<span data-slot="question-option-radio-dot" />}>
-                    <Icon name="check-small" size="small" />
-                  </Show>
-                </span>
-              </span>
-              <span data-slot="question-option-main">
-                <span data-slot="option-label">{language.t("ui.messagePart.option.typeOwnAnswer")}</span>
-                <textarea
-                  ref={(el) =>
-                    setTimeout(() => {
-                      el.focus()
-                      el.style.height = "0px"
-                      el.style.height = `${el.scrollHeight}px`
-                    }, 0)
-                  }
-                  data-slot="question-custom-input"
-                  placeholder={language.t("ui.question.custom.placeholder")}
-                  value={input()}
-                  rows={1}
-                  disabled={sending()}
-                  onKeyDown={(e) => {
-                    if (e.key === "Escape") {
-                      e.preventDefault()
-                      setStore("editing", false)
-                      return
+                  <textarea
+                    ref={(el) =>
+                      setTimeout(() => {
+                        el.focus()
+                        el.style.height = "0px"
+                        el.style.height = `${el.scrollHeight}px`
+                      }, 0)
                     }
-                    if (e.key !== "Enter" || e.shiftKey) return
-                    e.preventDefault()
-                    commitCustom()
-                  }}
-                  onInput={(e) => {
-                    customUpdate(e.currentTarget.value)
-                    e.currentTarget.style.height = "0px"
-                    e.currentTarget.style.height = `${e.currentTarget.scrollHeight}px`
-                  }}
-                />
-              </span>
-            </form>
+                    data-slot="question-custom-input"
+                    placeholder={language.t("ui.question.custom.placeholder")}
+                    value={input()}
+                    rows={1}
+                    disabled={sending()}
+                    onKeyDown={(e) => {
+                      if (e.key === "Escape") {
+                        e.preventDefault()
+                        setStore("editing", false)
+                        return
+                      }
+                      if (e.key !== "Enter" || e.shiftKey) return
+                      e.preventDefault()
+                      commitCustom()
+                    }}
+                    onInput={(e) => {
+                      customUpdate(e.currentTarget.value)
+                      e.currentTarget.style.height = "0px"
+                      e.currentTarget.style.height = `${e.currentTarget.scrollHeight}px`
+                    }}
+                  />
+                </span>
+              </form>
+            </Show>
           </Show>
         </div>
       </Show>

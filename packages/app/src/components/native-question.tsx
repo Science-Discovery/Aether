@@ -1,0 +1,244 @@
+import { createEffect, createMemo, For, Index, on, onCleanup, Show } from "solid-js"
+import { createStore, reconcile } from "solid-js/store"
+import type { Message, NativeQuestion, TextPart } from "@opencode-ai/sdk/v2"
+import { Button } from "@opencode-ai/ui/button"
+import { TextField } from "@opencode-ai/ui/text-field"
+import { useSDK } from "@/context/sdk"
+import { useLanguage } from "@/context/language"
+import { formatServerError } from "@/utils/server-errors"
+import { nativeQuestionAnchor, submittedNativeQuestion } from "./native-question-events"
+
+export function NativeQuestionCard(props: { part: TextPart; message: Message }) {
+  return (
+    <Show when={props.message.role === "assistant" && props.part.nativeQuestion}>
+      {(question) => <Question question={question()} session={props.part.sessionID} />}
+    </Show>
+  )
+}
+
+export function Question(props: {
+  question: NativeQuestion
+  session: string
+  send?: (answers?: string[]) => Promise<NativeQuestion>
+}) {
+  const sdk = useSDK()
+  const language = useLanguage()
+  const key = createMemo(
+    () => `${sdk.url}\n${sdk.directory}\n${props.session}\n${props.question.thread}\n${props.question.item}`,
+  )
+  const [store, setStore] = createStore<{
+    busy: boolean
+    error?: string
+    draft: string[]
+    sent?: string[]
+    skipped?: true
+    saved?: NativeQuestion
+  }>({ busy: false, draft: [] })
+  let revision = 0
+  let version = 0
+  let disposed = false
+  const source = createMemo(() => ({ json: JSON.stringify(props.question), state: props.question.state }), undefined, {
+    equals: (a, b) => a.json === b.json,
+  })
+  const question = createMemo(() => {
+    if (props.question.state === "answered") return props.question
+    return store.saved ?? props.question
+  })
+  const saved = () => question().answers ?? store.sent
+  const skipping = () => question().skipped ?? (question().state === "answered" ? false : !!store.skipped)
+  const locked = () => store.busy || !!saved() || skipping() || question().state !== "pending"
+  const answers = () => saved() ?? store.draft
+  const state = () =>
+    question().state === "answered"
+      ? skipping()
+        ? "skipped"
+        : "answered"
+      : store.error && (store.sent || store.skipped)
+        ? "uncertain"
+        : question().state
+  const complete = () =>
+    answers().length === question().questions.length &&
+    question().questions.every((_, index) => !!answers()[index]?.trim())
+  const reset = () => {
+    revision++
+    setStore({ busy: false, error: undefined, sent: undefined, skipped: undefined, saved: undefined })
+  }
+
+  createEffect(
+    on(key, () => {
+      revision++
+      setStore({ busy: false, error: undefined, draft: [], sent: undefined, skipped: undefined, saved: undefined })
+    }),
+  )
+  createEffect(
+    on(source, (value, previous) => {
+      version++
+      if (value.state === "pending") {
+        if (previous && previous.state !== "pending") reset()
+        return
+      }
+      if (store.saved?.state === "answered") return
+      setStore("error", undefined)
+      setStore("saved", reconcile({ ...props.question }))
+    }),
+  )
+  const events = sdk.event.listen((event) => {
+    const data = event.details
+    if (data.type !== "message.part.updated" || store.saved?.state !== "answered") return
+    const part = data.properties.part
+    if (part.sessionID !== props.session || part.type !== "text") return
+    const value = part.nativeQuestion
+    if (
+      !value ||
+      value.thread !== props.question.thread ||
+      value.item !== props.question.item ||
+      value.state !== "pending" ||
+      value.answers
+    )
+      return
+    // An authoritative pending event can repeat unchanged props after an
+    // answered HTTP receipt; ordinary equal-prop renders must keep that receipt.
+    reset()
+  })
+  onCleanup(() => {
+    disposed = true
+    revision++
+    events()
+  })
+
+  async function submit(skip = skipping()) {
+    if (disposed || store.busy || question().state === "answered" || (!skip && !complete())) return
+    const scope = key()
+    const run = ++revision
+    const stamp = version
+    const input = skip ? undefined : answers().map((answer) => answer.trim())
+    const client = sdk.client
+    setStore({ busy: true, error: undefined, sent: input, skipped: skip ? true : undefined })
+    submittedNativeQuestion({
+      url: sdk.url,
+      directory: sdk.directory,
+      session: props.session,
+      thread: question().thread,
+      item: question().item,
+    })
+    const target = { sessionID: props.session, itemID: question().item, threadID: question().thread }
+    await (
+      props.send
+        ? props.send(input).then((data) => ({ data }))
+        : skip
+          ? client.native.skipQuestion(target, { throwOnError: true })
+          : client.native.replyQuestion({ ...target, answers: input! }, { throwOnError: true })
+    )
+      .then((response) => {
+        if (disposed || run !== revision || scope !== key() || stamp !== version) return
+        if (!response.data) throw new Error(language.t("native.question.noResult"))
+        if (response.data.thread !== question().thread || response.data.item !== question().item)
+          throw new Error(language.t("native.question.noResult"))
+        if (props.question.state === "answered") return
+        setStore("saved", reconcile(response.data))
+      })
+      .catch((err: unknown) => {
+        if (disposed || run !== revision || scope !== key() || stamp !== version) return
+        const text = err && typeof err === "object" && "error" in err && typeof err.error === "string" ? err.error : err
+        setStore("error", formatServerError(text, language.t))
+      })
+      .finally(() => {
+        if (!disposed && run === revision && scope === key()) setStore("busy", false)
+      })
+  }
+
+  return (
+    <section
+      id={nativeQuestionAnchor(props.session, props.question)}
+      tabIndex={-1}
+      class="my-2 rounded-md border border-border-base bg-background-base p-3 flex flex-col gap-3"
+      data-component="native-question"
+      data-state={state()}
+      aria-label={language.t("native.question.title")}
+      aria-busy={store.busy}
+    >
+      <div class="flex flex-col gap-1">
+        <div class="text-14-medium text-text-strong">{language.t("native.question.title")}</div>
+        <p class="text-12-regular text-text-weak" role="status">
+          {language.t(`native.question.state.${state()}`)}
+        </p>
+      </div>
+      <Index each={question().questions}>
+        {(item, index) => (
+          <fieldset class="flex flex-col gap-2 min-w-0" disabled={locked()}>
+            <legend class="text-14-medium text-text-base mb-2 break-words">{item().title}</legend>
+            <Show when={!locked() && item().options?.length}>
+              <div class="flex flex-wrap gap-2" role="group" aria-label={item().title}>
+                <For each={item().options}>
+                  {(option) => (
+                    <Button
+                      type="button"
+                      size="small"
+                      variant={store.draft[index] === option ? "primary" : "secondary"}
+                      aria-pressed={store.draft[index] === option}
+                      onClick={() => setStore("draft", index, option)}
+                    >
+                      {option}
+                    </Button>
+                  )}
+                </For>
+              </div>
+            </Show>
+            <Show
+              when={!locked()}
+              fallback={
+                <div class="text-14-regular text-text-base whitespace-pre-wrap break-words">
+                  {skipping() ? language.t("native.question.unanswered") : answers()[index]}
+                </div>
+              }
+            >
+              <TextField
+                multiline
+                label={language.t("native.question.answer")}
+                hideLabel
+                aria-label={`${language.t("native.question.answer")}: ${item().title}`}
+                placeholder={language.t("native.question.placeholder")}
+                value={store.draft[index] ?? ""}
+                onChange={(value) => setStore("draft", index, value)}
+              />
+            </Show>
+          </fieldset>
+        )}
+      </Index>
+      <Show when={question().state !== "answered" && (store.error || question().error)}>
+        {(error) => (
+          <p role="alert" class="text-12-regular text-text-weak break-words">
+            {error()}
+          </p>
+        )}
+      </Show>
+      <Show when={question().state !== "answered"}>
+        <div class="flex flex-wrap gap-2">
+          <Button
+            type="button"
+            size="small"
+            disabled={store.busy || (!skipping() && !complete())}
+            onClick={() => void submit()}
+          >
+            {language.t(
+              store.busy
+                ? "native.question.submitting"
+                : state() === "sending" || state() === "uncertain"
+                  ? "native.question.check"
+                  : state() === "failed"
+                    ? skipping()
+                      ? "native.question.skip.retry"
+                      : "native.question.retry"
+                    : "native.question.submit",
+            )}
+          </Button>
+          <Show when={!locked()}>
+            <Button type="button" size="small" variant="ghost" onClick={() => void submit(true)}>
+              {language.t("native.question.skip")}
+            </Button>
+          </Show>
+        </div>
+      </Show>
+    </section>
+  )
+}

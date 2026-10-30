@@ -7,6 +7,7 @@ import type { SessionID, TreeID, MessageID, PartID } from "./schema"
 import type { WorkspaceID } from "../control-plane/schema"
 import { Timestamps } from "../storage/schema.sql"
 import type { ReadingMode } from "../reading-mode/types"
+import type { Native } from "../native/schema"
 
 type PartData = Omit<MessageV2.Part, "id" | "sessionID" | "messageID">
 type InfoData = Omit<MessageV2.Info, "id" | "sessionID">
@@ -33,6 +34,7 @@ export const SessionTable = sqliteTable(
     summary_diffs: text({ mode: "json" }).$type<Snapshot.FileDiff[]>(),
     revert: text({ mode: "json" }).$type<{ messageID: MessageID; partID?: PartID; snapshot?: string; diff?: string }>(),
     permission: text({ mode: "json" }).$type<Permission.Ruleset>(),
+    engine: text({ mode: "json" }).$type<Native.Engine>(),
     reading_mode: text({ mode: "json" }).$type<ReadingMode.SessionMeta>(),
     ...Timestamps,
     time_compacting: integer(),

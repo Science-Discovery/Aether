@@ -400,6 +400,7 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
         description: language.t("command.model.choose.description"),
         keybind: "mod+'",
         slash: "model",
+        disabled: !!local.native.engine(),
         onSelect: () => dialog.show(() => <DialogSelectModel model={local.model} />),
       }),
       mcpCommand({
@@ -408,6 +409,7 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
         description: language.t("command.mcp.toggle.description"),
         keybind: "mod+;",
         slash: "mcp",
+        disabled: !!local.native.engine(),
         onSelect: () => dialog.show(() => <DialogSelectMcp />),
       }),
       agentCommand({
@@ -416,6 +418,7 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
         description: language.t("command.agent.cycle.description"),
         keybind: "mod+.",
         slash: "agent",
+        disabled: !!local.native.engine(),
         onSelect: () => local.agent.move(1),
       }),
       agentCommand({
@@ -423,6 +426,7 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
         title: language.t("command.agent.cycle.reverse"),
         description: language.t("command.agent.cycle.reverse.description"),
         keybind: "shift+mod+.",
+        disabled: !!local.native.engine(),
         onSelect: () => local.agent.move(-1),
       }),
       modelCommand({
@@ -430,13 +434,14 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
         title: language.t("command.model.variant.cycle"),
         description: language.t("command.model.variant.cycle.description"),
         keybind: "shift+mod+d",
+        disabled: !!local.native.engine(),
         onSelect: () => local.model.variant.cycle(),
       }),
       permissionsCommand({
         id: "permissions.autoaccept",
         title: language.t(modeLabel[permission.effectiveMode(params.id, sdk.directory)]),
         keybind: "mod+shift+a",
-        disabled: false,
+        disabled: !!local.native.engine(),
         onSelect: () => {
           const prev = permission.effectiveMode(params.id, sdk.directory)
           const next = permission.cycleMode(params.id, sdk.directory)
@@ -453,7 +458,7 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
         title: language.t("command.session.undo"),
         description: language.t("command.session.undo.description"),
         slash: "undo",
-        disabled: !params.id || visibleUserMessages().length === 0,
+        disabled: !!local.native.engine() || !params.id || visibleUserMessages().length === 0,
         onSelect: async () => {
           const sessionID = params.id
           if (!sessionID) return
@@ -480,7 +485,7 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
         title: language.t("command.session.redo"),
         description: language.t("command.session.redo.description"),
         slash: "redo",
-        disabled: !params.id || !info()?.revert?.messageID,
+        disabled: !!local.native.engine() || !params.id || !info()?.revert?.messageID,
         onSelect: async () => {
           const sessionID = params.id
           if (!sessionID) return
@@ -508,7 +513,7 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
         title: language.t("command.session.compact"),
         description: language.t("command.session.compact.description"),
         slash: "compact",
-        disabled: !params.id || visibleUserMessages().length === 0,
+        disabled: !!local.native.engine() || !params.id || visibleUserMessages().length === 0,
         onSelect: async () => {
           const sessionID = params.id
           if (!sessionID) return

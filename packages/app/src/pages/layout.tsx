@@ -83,6 +83,7 @@ import {
   latestRootSession,
   projectSessionHref,
   sortedRootSessions,
+  grouped,
   workspaceKey,
 } from "./layout/helpers"
 import { dismissKeys, shouldNotify } from "./layout/request-alert"
@@ -876,7 +877,7 @@ export default function Layout(props: ParentProps) {
     for (const dir of dirs) {
       const [dirStore] = globalSync.child(dir, { bootstrap: true })
       const dirSessions = sortedRootSessions(dirStore, now)
-      result.push(...dirSessions)
+      result.push(...grouped(dirSessions).flatMap((group) => group.sessions))
     }
     return result
   })

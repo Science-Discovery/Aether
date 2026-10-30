@@ -189,6 +189,73 @@ import type {
   MemoryReflectResponses,
   MemorySearchResponses,
   MemoryStatusResponses,
+  MigrateImportErrors,
+  MigrateImportResponses,
+  MigrateSessionsErrors,
+  MigrateSessionsResponses,
+  MigrateSourcesResponses,
+  NativeAttachChatErrors,
+  NativeAttachChatResponses,
+  NativeCancelLoginResponses,
+  NativeCancelMcpLoginErrors,
+  NativeCancelMcpLoginResponses,
+  NativeChatsErrors,
+  NativeChatsResponses,
+  NativeCompactErrors,
+  NativeCompactResponses,
+  NativeCompactStatusResponses,
+  NativeDequeueErrors,
+  NativeDequeueResponses,
+  NativeElicitationsErrors,
+  NativeElicitationsResponses,
+  NativeEngineInput,
+  NativeEnqueueErrors,
+  NativeEnqueueResponses,
+  NativeFileInput,
+  NativeHistoryResponses,
+  NativeImageErrors,
+  NativeImageResponses,
+  NativeLoginErrors,
+  NativeLoginResponses,
+  NativeLoginStatusErrors,
+  NativeLoginStatusResponses,
+  NativeMcpLoginErrors,
+  NativeMcpLoginResponses,
+  NativeMcpLoginStatusErrors,
+  NativeMcpLoginStatusResponses,
+  NativeMcpResponses,
+  NativeMode,
+  NativeOpenTaskErrors,
+  NativeOpenTaskResponses,
+  NativePermission,
+  NativePrepareRevertErrors,
+  NativePrepareRevertResponses,
+  NativeQuestionsResponses,
+  NativeReleaseErrors,
+  NativeReleaseResponses,
+  NativeReplyElicitationErrors,
+  NativeReplyElicitationResponses,
+  NativeReplyQuestionErrors,
+  NativeReplyQuestionResponses,
+  NativeReplyTaskErrors,
+  NativeReplyTaskResponses,
+  NativeResumeQueueErrors,
+  NativeResumeQueueResponses,
+  NativeRevertErrors,
+  NativeRevertResponses,
+  NativeRevertStatusResponses,
+  NativeRuntimeResponses,
+  NativeSendQueuedErrors,
+  NativeSendQueuedResponses,
+  NativeSkillsResponses,
+  NativeSkipQuestionErrors,
+  NativeSkipQuestionResponses,
+  NativeStatusResponses,
+  NativeSteerResponses,
+  NativeTasksErrors,
+  NativeTasksResponses,
+  NativeTextInput,
+  NativeUsageResponses,
   OutputFormat,
   Part as Part2,
   PartDeleteErrors,
@@ -209,6 +276,8 @@ import type {
   ProjectDirectoriesResponses,
   ProjectInitGitResponses,
   ProjectListResponses,
+  ProjectOpenErrors,
+  ProjectOpenResponses,
   ProjectRecentResponses,
   ProjectSessionCountErrors,
   ProjectSessionCountResponses,
@@ -1071,6 +1140,51 @@ export class Project extends HeyApiClient {
       url: "/project/current",
       ...options,
       ...params,
+    })
+  }
+
+  /**
+   * Open a project directory
+   *
+   * Validate, register and boot a project directory. This is the explicit entry point for opening projects: arbitrary request-supplied directories never boot instances on their own.
+   */
+  public open<ThrowOnError extends boolean = false>(
+    parameters?: {
+      query_directory?: string
+      workspace?: string
+      body_directory?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            {
+              in: "query",
+              key: "query_directory",
+              map: "directory",
+            },
+            { in: "query", key: "workspace" },
+            {
+              in: "body",
+              key: "body_directory",
+              map: "directory",
+            },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<ProjectOpenResponses, ProjectOpenErrors, ThrowOnError>({
+      url: "/project/open",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
     })
   }
 
@@ -2549,6 +2663,7 @@ export class Session2 extends HeyApiClient {
       parentID?: string
       title?: string
       permission?: PermissionRuleset
+      engine?: NativeEngineInput
       workspaceID?: string
     },
     options?: Options<never, ThrowOnError>,
@@ -2564,6 +2679,7 @@ export class Session2 extends HeyApiClient {
             { in: "body", key: "parentID" },
             { in: "body", key: "title" },
             { in: "body", key: "permission" },
+            { in: "body", key: "engine" },
             { in: "body", key: "workspaceID" },
           ],
         },
@@ -2772,6 +2888,11 @@ export class Session2 extends HeyApiClient {
       directory?: string
       workspace?: string
       title?: string
+      engine?: {
+        type: "codex"
+        permission?: NativePermission
+        mode?: NativeMode
+      }
       time?: {
         archived?: number
       }
@@ -2787,6 +2908,7 @@ export class Session2 extends HeyApiClient {
             { in: "query", key: "directory" },
             { in: "query", key: "workspace" },
             { in: "body", key: "title" },
+            { in: "body", key: "engine" },
             { in: "body", key: "time" },
           ],
         },
@@ -3050,6 +3172,7 @@ export class Session2 extends HeyApiClient {
       directory?: string
       workspace?: string
       messageID?: string
+      after?: boolean
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -3062,6 +3185,7 @@ export class Session2 extends HeyApiClient {
             { in: "query", key: "directory" },
             { in: "query", key: "workspace" },
             { in: "body", key: "messageID" },
+            { in: "body", key: "after" },
           ],
         },
       ],
@@ -4275,6 +4399,1198 @@ export class Provider extends HeyApiClient {
   private _oauth?: Oauth
   get oauth(): Oauth {
     return (this._oauth ??= new Oauth({ client: this.client }))
+  }
+}
+
+export class Native extends HeyApiClient {
+  /**
+   * Read compaction progress or verify uncertain completion without another compact request
+   */
+  public compactStatus<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+      operationId?: string
+      refresh?: boolean
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "operationId" },
+            { in: "query", key: "refresh" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<NativeCompactStatusResponses, unknown, ThrowOnError>({
+      url: "/native/codex/{sessionID}/compact",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Compact native Codex context once and await completion
+   */
+  public compact<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+      id?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "id" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<NativeCompactResponses, NativeCompactErrors, ThrowOnError>({
+      url: "/native/codex/{sessionID}/compact",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * List saved Codex chats in the current project without resuming them
+   */
+  public chats<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      search?: string
+      cursor?: string
+      scope?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "search" },
+            { in: "query", key: "cursor" },
+            { in: "query", key: "scope" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<NativeChatsResponses, NativeChatsErrors, ThrowOnError>({
+      url: "/native/codex/chats",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Link an existing Codex chat to this Aether project without copying its native history
+   */
+  public attachChat<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      threadID?: string
+      scope?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "threadID" },
+            { in: "body", key: "scope" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<NativeAttachChatResponses, NativeAttachChatErrors, ThrowOnError>({
+      url: "/native/codex/chats/attach",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Read verified Codex child tasks and their questions
+   */
+  public tasks<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<NativeTasksResponses, NativeTasksErrors, ThrowOnError>({
+      url: "/native/codex/{sessionID}/tasks",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Answer or skip a question in its verified child thread
+   */
+  public replyTask<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+      threadID?: string
+      itemID?: string
+      answers?: Array<string>
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "threadID" },
+            { in: "body", key: "itemID" },
+            { in: "body", key: "answers" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<NativeReplyTaskResponses, NativeReplyTaskErrors, ThrowOnError>({
+      url: "/native/codex/{sessionID}/tasks/answer",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Open an idle child task as its own linked Aether chat
+   */
+  public openTask<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+      threadID?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "threadID" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<NativeOpenTaskResponses, NativeOpenTaskErrors, ThrowOnError>({
+      url: "/native/codex/{sessionID}/tasks/open",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Preview a completed Codex image item
+   */
+  public image<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      messageID: string
+      partID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "path", key: "messageID" },
+            { in: "path", key: "partID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<NativeImageResponses, NativeImageErrors, ThrowOnError>({
+      url: "/native/codex/{sessionID}/message/{messageID}/image/{partID}",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Read pending MCP forms on this conversation's execution connection
+   */
+  public elicitations<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<NativeElicitationsResponses, NativeElicitationsErrors, ThrowOnError>({
+      url: "/native/codex/{sessionID}/elicitations",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Accept, decline or cancel the originating MCP request
+   */
+  public replyElicitation<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+      id?: string
+      action?: "accept" | "decline" | "cancel"
+      content?: {
+        [key: string]: string | number | boolean | Array<string>
+      } | null
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "id" },
+            { in: "body", key: "action" },
+            { in: "body", key: "content" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      NativeReplyElicitationResponses,
+      NativeReplyElicitationErrors,
+      ThrowOnError
+    >({
+      url: "/native/codex/{sessionID}/elicitations/reply",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Release this idle Aether execution process for use by another Codex client
+   */
+  public release<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<NativeReleaseResponses, NativeReleaseErrors, ThrowOnError>({
+      url: "/native/codex/{sessionID}/release",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Start Codex-managed OAuth for a configured MCP service
+   */
+  public mcpLogin<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      id?: string
+      name?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "id" },
+            { in: "body", key: "name" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<NativeMcpLoginResponses, NativeMcpLoginErrors, ThrowOnError>({
+      url: "/native/codex/mcp/login",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Cancel only this MCP authorization connection
+   */
+  public cancelMcpLogin<ThrowOnError extends boolean = false>(
+    parameters: {
+      id: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "id" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).delete<
+      NativeCancelMcpLoginResponses,
+      NativeCancelMcpLoginErrors,
+      ThrowOnError
+    >({
+      url: "/native/codex/mcp/login/{id}",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Read the status of the same MCP authorization attempt
+   */
+  public mcpLoginStatus<ThrowOnError extends boolean = false>(
+    parameters: {
+      id: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "id" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<
+      NativeMcpLoginStatusResponses,
+      NativeMcpLoginStatusErrors,
+      ThrowOnError
+    >({
+      url: "/native/codex/mcp/login/{id}",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Read native Codex MCP services and tools
+   */
+  public mcp<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      sessionID?: string
+      refresh?: boolean
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "sessionID" },
+            { in: "query", key: "refresh" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<NativeMcpResponses, unknown, ThrowOnError>({
+      url: "/native/codex/mcp",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Start Codex-managed ChatGPT sign-in without running inference
+   */
+  public login<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      id?: string
+      method?: "browser" | "device"
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "id" },
+            { in: "body", key: "method" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<NativeLoginResponses, NativeLoginErrors, ThrowOnError>({
+      url: "/native/codex/login",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Cancel only the specified Codex sign-in attempt
+   */
+  public cancelLogin<ThrowOnError extends boolean = false>(
+    parameters: {
+      id: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "id" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).delete<NativeCancelLoginResponses, unknown, ThrowOnError>({
+      url: "/native/codex/login/{id}",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Read the status of a Codex sign-in attempt
+   */
+  public loginStatus<ThrowOnError extends boolean = false>(
+    parameters: {
+      id: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "id" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<NativeLoginStatusResponses, NativeLoginStatusErrors, ThrowOnError>({
+      url: "/native/codex/login/{id}",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Prepare an edit at a native Codex turn boundary without changing history
+   */
+  public prepareRevert<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+      messageID?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "messageID" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<NativePrepareRevertResponses, NativePrepareRevertErrors, ThrowOnError>(
+      {
+        url: "/native/codex/{sessionID}/revert/prepare",
+        ...options,
+        ...params,
+        headers: {
+          "Content-Type": "application/json",
+          ...options?.headers,
+          ...params.headers,
+        },
+      },
+    )
+  }
+
+  /**
+   * Read the durable status of a Codex history edit
+   */
+  public revertStatus<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+      operationId?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "operationId" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<NativeRevertStatusResponses, unknown, ThrowOnError>({
+      url: "/native/codex/{sessionID}/revert",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Apply or verify the same prepared Codex history edit without repeating a revert
+   */
+  public revert<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+      id?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "id" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<NativeRevertResponses, NativeRevertErrors, ThrowOnError>({
+      url: "/native/codex/{sessionID}/revert",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * List unanswered Codex questions across the saved conversation
+   */
+  public questions<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<NativeQuestionsResponses, unknown, ThrowOnError>({
+      url: "/native/codex/{sessionID}/questions",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Submit or inspect a durable answer to a Codex asynchronous question
+   */
+  public replyQuestion<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      itemID: string
+      directory?: string
+      workspace?: string
+      threadID?: string
+      answers?: Array<string>
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "path", key: "itemID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "threadID" },
+            { in: "body", key: "answers" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<NativeReplyQuestionResponses, NativeReplyQuestionErrors, ThrowOnError>(
+      {
+        url: "/native/codex/{sessionID}/questions/{itemID}/reply",
+        ...options,
+        ...params,
+        headers: {
+          "Content-Type": "application/json",
+          ...options?.headers,
+          ...params.headers,
+        },
+      },
+    )
+  }
+
+  /**
+   * Submit or inspect an explicit decision not to answer a Codex question group
+   */
+  public skipQuestion<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      itemID: string
+      directory?: string
+      workspace?: string
+      threadID?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "path", key: "itemID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "threadID" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<NativeSkipQuestionResponses, NativeSkipQuestionErrors, ThrowOnError>({
+      url: "/native/codex/{sessionID}/questions/{itemID}/skip",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * List enabled Codex skills for this project
+   */
+  public skills<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      refresh?: boolean
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "refresh" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<NativeSkillsResponses, unknown, ThrowOnError>({
+      url: "/native/codex/skills",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Read Codex account limits
+   */
+  public usage<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      refresh?: boolean
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "refresh" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<NativeUsageResponses, unknown, ThrowOnError>({
+      url: "/native/codex/usage",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Inspect the native Codex agent
+   *
+   * Discover Codex on the server and inspect its protocol, account status and model catalog without running inference.
+   */
+  public status<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      refresh?: boolean
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "refresh" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<NativeStatusResponses, unknown, ThrowOnError>({
+      url: "/native/codex",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Refresh Codex conversation history
+   *
+   * Read saved native history without resuming the thread. Incomplete reads preserve existing display records.
+   */
+  public history<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+      refresh?: boolean
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "refresh" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<NativeHistoryResponses, unknown, ThrowOnError>({
+      url: "/native/codex/{sessionID}/history",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Read the Aether-owned Codex run and pending queue
+   */
+  public runtime<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<NativeRuntimeResponses, unknown, ThrowOnError>({
+      url: "/native/codex/{sessionID}/runtime",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Append text to the current Aether-owned Codex turn
+   */
+  public steer<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+      messageID?: string
+      turnID?: string
+      text?: string
+      parts?: Array<NativeTextInput | NativeFileInput>
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "messageID" },
+            { in: "body", key: "turnID" },
+            { in: "body", key: "text" },
+            { in: "body", key: "parts" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<NativeSteerResponses, unknown, ThrowOnError>({
+      url: "/native/codex/{sessionID}/steer",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Queue a text message after the current Codex task
+   */
+  public enqueue<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+      messageID?: string
+      text?: string
+      parts?: Array<NativeTextInput | NativeFileInput>
+      model?: string
+      effort?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "messageID" },
+            { in: "body", key: "text" },
+            { in: "body", key: "parts" },
+            { in: "body", key: "model" },
+            { in: "body", key: "effort" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<NativeEnqueueResponses, NativeEnqueueErrors, ThrowOnError>({
+      url: "/native/codex/{sessionID}/queue",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Remove a queued message without resending it
+   */
+  public dequeue<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      messageID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "path", key: "messageID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).delete<NativeDequeueResponses, NativeDequeueErrors, ThrowOnError>({
+      url: "/native/codex/{sessionID}/queue/{messageID}",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Send a queued message into the current Codex turn
+   */
+  public sendQueued<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      messageID: string
+      directory?: string
+      workspace?: string
+      turnID?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "path", key: "messageID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "turnID" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<NativeSendQueuedResponses, NativeSendQueuedErrors, ThrowOnError>({
+      url: "/native/codex/{sessionID}/queue/{messageID}/send",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Resume pending Codex messages after reviewing a paused queue
+   */
+  public resumeQueue<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<NativeResumeQueueResponses, NativeResumeQueueErrors, ThrowOnError>({
+      url: "/native/codex/{sessionID}/queue/resume",
+      ...options,
+      ...params,
+    })
   }
 }
 
@@ -7492,6 +8808,145 @@ export class Memory extends HeyApiClient {
   }
 }
 
+export class Migrate extends HeyApiClient {
+  /**
+   * Detect importable AI apps
+   *
+   * Detect supported AI apps with local session data and return their session counts.
+   */
+  public sources<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<MigrateSourcesResponses, unknown, ThrowOnError>({
+      url: "/migrate/sources",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * List importable sessions
+   *
+   * List session metadata for one detected AI app without reading conversation bodies.
+   */
+  public sessions<ThrowOnError extends boolean = false>(
+    parameters: {
+      directory?: string
+      workspace?: string
+      source:
+        | "claude"
+        | "codex"
+        | "pi"
+        | "omp"
+        | "copilot"
+        | "opencode"
+        | "kilo"
+        | "qwen"
+        | "kimi"
+        | "vibe"
+        | "muse"
+        | "grok"
+        | "openhands"
+        | "qoder"
+        | "qodercn"
+        | "codebuddy"
+      limit?: number
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "source" },
+            { in: "query", key: "limit" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<MigrateSessionsResponses, MigrateSessionsErrors, ThrowOnError>({
+      url: "/migrate/sessions",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Import a session from another AI app
+   *
+   * Convert one source session and import it into the current Aether project.
+   */
+  public import<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      source?:
+        | "claude"
+        | "codex"
+        | "pi"
+        | "omp"
+        | "copilot"
+        | "opencode"
+        | "kilo"
+        | "qwen"
+        | "kimi"
+        | "vibe"
+        | "muse"
+        | "grok"
+        | "openhands"
+        | "qoder"
+        | "qodercn"
+        | "codebuddy"
+      sessionID?: string
+      parentSessionID?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "source" },
+            { in: "body", key: "sessionID" },
+            { in: "body", key: "parentSessionID" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<MigrateImportResponses, MigrateImportErrors, ThrowOnError>({
+      url: "/migrate/import",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+}
+
 export class Session3 extends HeyApiClient {
   /**
    * Clear wechat session
@@ -8108,6 +9563,7 @@ export class Session6 extends HeyApiClient {
         autoFirstRead?: boolean
       }
       forceNew?: boolean
+      engine?: NativeEngineInput
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -8121,6 +9577,7 @@ export class Session6 extends HeyApiClient {
             { in: "body", key: "path" },
             { in: "body", key: "settings" },
             { in: "body", key: "forceNew" },
+            { in: "body", key: "engine" },
           ],
         },
       ],
@@ -9071,6 +10528,11 @@ export class OpencodeClient extends HeyApiClient {
     return (this._provider ??= new Provider({ client: this.client }))
   }
 
+  private _native?: Native
+  get native(): Native {
+    return (this._native ??= new Native({ client: this.client }))
+  }
+
   private _database?: Database
   get database(): Database {
     return (this._database ??= new Database({ client: this.client }))
@@ -9114,6 +10576,11 @@ export class OpencodeClient extends HeyApiClient {
   private _memory?: Memory
   get memory(): Memory {
     return (this._memory ??= new Memory({ client: this.client }))
+  }
+
+  private _migrate?: Migrate
+  get migrate(): Migrate {
+    return (this._migrate ??= new Migrate({ client: this.client }))
   }
 
   private _wechat?: Wechat

@@ -157,6 +157,43 @@ describe("task session links", () => {
   })
 })
 
+describe("native Codex file changes", () => {
+  test.each([
+    { status: "running", source: "input" },
+    { status: "running", source: "metadata" },
+    { status: "completed", source: "input" },
+    { status: "completed", source: "metadata" },
+  ] as const)("shows reviewable diffs for $status from $source", async ({ status, source }) => {
+    const diff = "@@ -1 +1 @@\n-before\n+<script>window.untrusted = true</script>"
+    const changes = [{ path: "paper/main.tex", kind: { type: "update", move_path: "paper/revised.tex" }, diff }]
+    const state = {
+      input: source === "input" ? { changes } : {},
+      metadata: source === "metadata" ? { native: { changes } } : {},
+      title: "Codex file changes",
+    }
+    const { host, off } = mount({
+      id: "native-patch",
+      sessionID: "root",
+      messageID: "msg",
+      type: "tool",
+      callID: "patch",
+      tool: "codex.fileChange",
+      state:
+        status === "running"
+          ? { ...state, status, time: { start: 1 } }
+          : { ...state, status, output: JSON.stringify(changes), time: { start: 1, end: 2 } },
+    })
+    await vi.waitFor(() => expect(host.querySelector('[data-slot="codex-change-diff"]')?.textContent).toBe(diff))
+    const preview = host.querySelector('[data-component="codex-file-change"]')
+    expect(preview?.textContent).toContain("paper/main.tex")
+    expect(preview?.textContent).toContain("update")
+    expect(preview?.textContent).toContain("paper/revised.tex")
+    expect(preview?.querySelector("script")).toBeNull()
+    expect(preview?.closest('[data-slot="collapsible-content"]')?.hasAttribute("hidden")).toBe(false)
+    off()
+  })
+})
+
 const assistant = (id: string, error?: AssistantMessage["error"]): AssistantMessage => ({
   ...message(),
   id,
@@ -173,14 +210,18 @@ const textPart = (id: string, messageID: string, value: string): PartType =>
     time: { start: 1, end: 2 },
   }) as PartType
 
-function mountAssistant(messages: AssistantMessage[], parts: Record<string, PartType[]>) {
+function mountAssistant(
+  messages: AssistantMessage[],
+  parts: Record<string, PartType[]>,
+  extension?: Parameters<typeof DataProvider>[0]["textExtension"],
+) {
   const host = document.createElement("div")
   document.body.append(host)
   const data = store()
   data.part = parts
   const off = render(
     () => (
-      <DataProvider data={data} directory="/tmp">
+      <DataProvider data={data} directory="/tmp" textExtension={extension}>
         <MarkedProvider>
           <AssistantParts messages={messages} />
         </MarkedProvider>
@@ -190,6 +231,65 @@ function mountAssistant(messages: AssistantMessage[], parts: Record<string, Part
   )
   return { host, off }
 }
+
+describe("text extensions for native questions", () => {
+  test("renders a question-only assistant part through the app extension", () => {
+    const { host, off } = mountAssistant(
+      [assistant("answer")],
+      {
+        answer: [
+          {
+            id: "question",
+            sessionID: "root",
+            messageID: "answer",
+            type: "text",
+            text: "",
+            nativeQuestion: {
+              thread: "thread",
+              turn: "turn",
+              item: "question",
+              state: "pending",
+              questions: [{ title: "Choose" }],
+            },
+          },
+        ],
+      },
+      (props) => <div data-testid="question-extension">{props.part.nativeQuestion?.questions[0].title}</div>,
+    )
+    expect(host.querySelector('[data-testid="question-extension"]')?.textContent).toBe("Choose")
+    off()
+  })
+  test("avoids repeating question text but preserves additional explanation", async () => {
+    const part: PartType = {
+      id: "question",
+      sessionID: "root",
+      messageID: "answer",
+      type: "text",
+      text: "Choose\n- A\n- B",
+      nativeQuestion: {
+        thread: "thread",
+        turn: "turn",
+        item: "question",
+        state: "pending",
+        questions: [{ title: "Choose", options: ["A", "B"] }],
+      },
+    }
+    const first = mountAssistant([assistant("answer")], { answer: [part] }, () => <div>Question card</div>)
+    expect(first.host.querySelector('[data-slot="text-part-body"]')).toBeNull()
+    first.off()
+    const second = mountAssistant(
+      [assistant("answer")],
+      { answer: [{ ...part, text: "Here is why I am asking." }] },
+      () => <div>Question card</div>,
+    )
+    await vi.waitFor(() =>
+      expect(second.host.querySelector('[data-slot="text-part-body"]')?.textContent).toContain(
+        "Here is why I am asking.",
+      ),
+    )
+    second.off()
+  })
+})
 
 function textNode(root: ParentNode, value: string) {
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)

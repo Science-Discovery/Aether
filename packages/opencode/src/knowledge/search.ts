@@ -44,7 +44,8 @@ export class Retriever {
   }
 
   // 检索相关 chunks
-  async search(query: string, topK: number = 5): Promise<SearchResult[]> {
+  async search(query: string, topK: number = 5, signal?: AbortSignal): Promise<SearchResult[]> {
+    signal?.throwIfAborted()
     await this.loadEmbeddings()
 
     if (!this.embeddings || this.embeddings.length === 0) {
@@ -52,7 +53,8 @@ export class Retriever {
     }
 
     // 将查询向量化
-    const queryEmbeddings = await this.embedder.embed([query])
+    const queryEmbeddings = await this.embedder.embed([query], signal)
+    signal?.throwIfAborted()
     const queryVector = queryEmbeddings[0]
 
     const dimensions = this.index.config.embeddingDimensions
@@ -107,11 +109,7 @@ export class Retriever {
 }
 
 // 创建检索器
-export function createRetriever(
-  index: KnowledgeIndex,
-  dir: string,
-  embedder: Embedder,
-): Retriever {
+export function createRetriever(index: KnowledgeIndex, dir: string, embedder: Embedder): Retriever {
   return new Retriever({ index, dir, embedder })
 }
 
@@ -122,7 +120,8 @@ export async function quickSearch(
   dir: string,
   embedder: Embedder,
   topK: number = 5,
+  signal?: AbortSignal,
 ): Promise<SearchResult[]> {
   const retriever = createRetriever(index, dir, embedder)
-  return retriever.search(query, topK)
+  return retriever.search(query, topK, signal)
 }
