@@ -6,6 +6,14 @@ import { createStore, type SetStoreFunction } from "solid-js/store"
 import type { FileSelection } from "@/context/file"
 import { sanitizePromptState } from "@/context/prompt-persist"
 import { Persist, persisted } from "@/utils/persist"
+import {
+  addReference,
+  clearReferences,
+  cloneReferences,
+  restoreReferences,
+  updateReference,
+  type Reference,
+} from "@/utils/ask-reference"
 
 interface PartBase {
   content: string
@@ -50,6 +58,13 @@ export type FileContextItem = {
 }
 
 export type ContextItem = FileContextItem
+
+type State = {
+  prompt: Prompt
+  cursor?: number
+  context: { items: (ContextItem & { key: string })[] }
+  references: Reference[]
+}
 
 export const DEFAULT_PROMPT: Prompt = [{ type: "text", content: "", start: 0, end: 0 }]
 
@@ -121,15 +136,7 @@ function isCommentItem(item: ContextItem | (ContextItem & { key: string })) {
   return item.type === "file" && !!item.comment?.trim()
 }
 
-function createPromptActions(
-  setStore: SetStoreFunction<{
-    prompt: Prompt
-    cursor?: number
-    context: {
-      items: (ContextItem & { key: string })[]
-    }
-  }>,
-) {
+function createPromptActions(setStore: SetStoreFunction<State>) {
   return {
     set(prompt: Prompt, cursorPosition?: number) {
       const next = clonePrompt(prompt)
@@ -152,7 +159,7 @@ const MAX_PROMPT_SESSIONS = 20
 
 type PromptSession = ReturnType<typeof createPromptSession>
 
-type Scope = {
+export type PromptScope = {
   dir: string
   id?: string
 }
@@ -171,18 +178,13 @@ function createPromptSession(dir: string, id: string | undefined) {
       migrate: sanitizePromptState,
       sanitize: sanitizePromptState,
     },
-    createStore<{
-      prompt: Prompt
-      cursor?: number
-      context: {
-        items: (ContextItem & { key: string })[]
-      }
-    }>({
+    createStore<State>({
       prompt: clonePrompt(DEFAULT_PROMPT),
       cursor: undefined,
       context: {
         items: [],
       },
+      references: [],
     }),
   )
 
@@ -192,7 +194,25 @@ function createPromptSession(dir: string, id: string | undefined) {
     ready,
     current: createMemo(() => store.prompt),
     cursor: createMemo(() => store.cursor),
-    dirty: createMemo(() => !isPromptEqual(store.prompt, DEFAULT_PROMPT)),
+    dirty: createMemo(() => !isPromptEqual(store.prompt, DEFAULT_PROMPT) || store.references.length > 0),
+    references: {
+      items: () => cloneReferences(store.references),
+      add(ref: Reference) {
+        setStore("references", (refs) => addReference(refs, ref))
+      },
+      update(id: string, question: string) {
+        setStore("references", (refs) => updateReference(refs, id, question))
+      },
+      remove(id: string) {
+        setStore("references", (refs) => cloneReferences(refs.filter((ref) => ref.id !== id)))
+      },
+      replace(refs: readonly Reference[]) {
+        setStore("references", restoreReferences(refs))
+      },
+      clear(snapshot: readonly Reference[]) {
+        setStore("references", (refs) => clearReferences(refs, snapshot))
+      },
+    },
     context: {
       items: createMemo(() => store.context.items),
       add(item: ContextItem) {
@@ -279,24 +299,37 @@ export const { use: usePrompt, provider: PromptProvider } = createSimpleContext(
     }
 
     const session = createMemo(() => load(params.dir!, params.id))
-    const pick = (scope?: Scope) => (scope ? load(scope.dir, scope.id) : session())
+    const pick = (scope?: PromptScope) => (scope ? load(scope.dir, scope.id) : session())
 
     return {
       ready: () => session().ready(),
-      current: () => session().current(),
-      cursor: () => session().cursor(),
+      current: (scope?: PromptScope) => pick(scope).current(),
+      cursor: (scope?: PromptScope) => pick(scope).cursor(),
       dirty: () => session().dirty(),
-      context: {
-        items: () => session().context.items(),
-        add: (item: ContextItem) => session().context.add(item),
-        remove: (key: string) => session().context.remove(key),
-        removeComment: (path: string, commentID: string) => session().context.removeComment(path, commentID),
-        updateComment: (path: string, commentID: string, next: Partial<FileContextItem> & { comment?: string }) =>
-          session().context.updateComment(path, commentID, next),
-        replaceComments: (items: FileContextItem[]) => session().context.replaceComments(items),
+      references: {
+        items: (scope?: PromptScope) => pick(scope).references.items(),
+        add: (ref: Reference, scope?: PromptScope) => pick(scope).references.add(ref),
+        update: (id: string, question: string, scope?: PromptScope) => pick(scope).references.update(id, question),
+        remove: (id: string, scope?: PromptScope) => pick(scope).references.remove(id),
+        replace: (refs: readonly Reference[], scope?: PromptScope) => pick(scope).references.replace(refs),
+        clear: (snapshot: readonly Reference[], scope?: PromptScope) => pick(scope).references.clear(snapshot),
       },
-      set: (prompt: Prompt, cursorPosition?: number, scope?: Scope) => pick(scope).set(prompt, cursorPosition),
-      reset: (scope?: Scope) => pick(scope).reset(),
+      context: {
+        items: (scope?: PromptScope) => pick(scope).context.items(),
+        add: (item: ContextItem, scope?: PromptScope) => pick(scope).context.add(item),
+        remove: (key: string, scope?: PromptScope) => pick(scope).context.remove(key),
+        removeComment: (path: string, commentID: string, scope?: PromptScope) =>
+          pick(scope).context.removeComment(path, commentID),
+        updateComment: (
+          path: string,
+          commentID: string,
+          next: Partial<FileContextItem> & { comment?: string },
+          scope?: PromptScope,
+        ) => pick(scope).context.updateComment(path, commentID, next),
+        replaceComments: (items: FileContextItem[], scope?: PromptScope) => pick(scope).context.replaceComments(items),
+      },
+      set: (prompt: Prompt, cursorPosition?: number, scope?: PromptScope) => pick(scope).set(prompt, cursorPosition),
+      reset: (scope?: PromptScope) => pick(scope).reset(),
     }
   },
 })

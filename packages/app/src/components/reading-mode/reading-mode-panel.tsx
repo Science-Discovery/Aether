@@ -1,11 +1,13 @@
-﻿import { type Component, createEffect, createMemo, Show } from "solid-js"
+import { summarizeReadingQuoteText } from "@/utils/comment-note"
+import type { PdfTextSelection, PdfImageSelection } from "@/components/pdf-viewer-shell-official"
+import { type Component, createEffect, createMemo, Show } from "solid-js"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { showToast } from "@opencode-ai/ui/toast"
 import { ResizeHandle } from "@opencode-ai/ui/resize-handle"
 import { OfficialReadingPdfViewer } from "./reading-pdf-viewer-official"
 import { ReadingFirstReadGate } from "./reading-first-read-gate-pdf"
 import { DialogReadingModeSettings } from "@/components/dialog-reading-mode-settings"
-import { DEFAULT_PROMPT } from "@/context/prompt"
+import { DEFAULT_PROMPT, usePrompt } from "@/context/prompt"
 import { useGlobalSync } from "@/context/global-sync"
 import { useLanguage } from "@/context/language"
 import { useLocal } from "@/context/local"
@@ -28,6 +30,7 @@ export const ReadingModePanel: Component<{
   resizeHandleEnabled?: boolean
   sizing?: Sizing
 }> = (props) => {
+  const prompt = usePrompt()
   const rm = useReadingMode()
   const sdk = useSDK()
   const sync = useSync()
@@ -53,14 +56,6 @@ export const ReadingModePanel: Component<{
 
   const sessionMeta = createMemo(() => sync.session.get(props.sessionID)?.readingMode ?? rm.store.sessionMeta ?? null)
 
-  const focusPromptInput = () => {
-    requestAnimationFrame(() => {
-      const el = document.querySelector('[data-component="prompt-input"]')
-      if (!(el instanceof HTMLElement)) return
-      el.focus()
-    })
-  }
-
   const pageLabel = (startPage: number, endPage?: number) =>
     endPage && endPage > startPage ? `${startPage}-${endPage}` : `${startPage}`
 
@@ -79,24 +74,31 @@ export const ReadingModePanel: Component<{
   const translateImagePromptText = (prompt: string) =>
     `${prompt}\n\n[Selected image]\nPlease translate the content shown in the attached image.`
 
-  const handleTextSelectionAction = async (input: {
-    action: "copy" | "translate" | "ask"
-    startPage: number
-    endPage: number
-    text: string
-  }) => {
+  const handleTextSelectionAction = async (input: PdfTextSelection) => {
     const text = input.text.trim()
     if (!text) return
 
     if (input.action === "ask") {
-      rm.setPendingQuestion({
-        kind: "text-question",
+      const meta = sessionMeta()
+      if (!meta || input.question === undefined || !input.selection) return
+      prompt.references.add({
+        id: crypto.randomUUID(),
+        version: 1,
+        kind: "pdf",
+        question: input.question,
+        path: meta.pdfStorePath,
+        filename: meta.pdfFileName,
+        mode: "classic",
+        sourceSession: props.sessionID,
         startPage: input.startPage,
         endPage: input.endPage,
+        selection: input.selection,
+        content: "text",
         text,
-        createdAt: Date.now(),
+        summary: summarizeReadingQuoteText(text),
+        settings: { questionPrompt: meta.settings.questionPrompt, contextPageRange: meta.settings.contextPageRange },
+        totalPages: rm.store.totalPages,
       })
-      focusPromptInput()
       return
     }
 
@@ -125,14 +127,14 @@ export const ReadingModePanel: Component<{
         providerID: currentModel.provider.id,
         modelID: currentModel.id,
       },
-        variant,
-        extraTextParts: [
-          {
-            text: translateLabel(input.startPage, input.endPage),
-            ignored: true,
-          },
-          {
-            text: translatePromptText(meta.settings.translatePrompt, text),
+      variant,
+      extraTextParts: [
+        {
+          text: translateLabel(input.startPage, input.endPage),
+          ignored: true,
+        },
+        {
+          text: translatePromptText(meta.settings.translatePrompt, text),
           synthetic: true,
         },
       ],
@@ -154,25 +156,31 @@ export const ReadingModePanel: Component<{
     })
   }
 
-  const handleImageSelectionAction = async (input: {
-    action: "copy" | "translate" | "ask"
-    page: number
-    imageDataUrl: string
-  }) => {
+  const handleImageSelectionAction = async (input: PdfImageSelection) => {
     if (!input.imageDataUrl) return
 
     if (input.action === "ask") {
-      rm.setPendingQuestion({
-        kind: "image-question",
-        page: input.page,
-        text:
-          language.locale() === "zh" || language.locale() === "zht"
-            ? `\u6765\u81ea\u7b2c ${input.page} \u9875\u7684\u622a\u56fe\u9009\u533a`
-            : `Captured region from page ${input.page}`,
-        imageDataUrl: input.imageDataUrl,
-        createdAt: Date.now(),
+      const meta = sessionMeta()
+      if (!meta || input.question === undefined || !input.selection) return
+      prompt.references.add({
+        id: crypto.randomUUID(),
+        version: 1,
+        kind: "pdf",
+        question: input.question,
+        path: meta.pdfStorePath,
+        filename: meta.pdfFileName,
+        mode: "classic",
+        sourceSession: props.sessionID,
+        startPage: input.page,
+        endPage: input.page,
+        selection: input.selection,
+        content: "image",
+        image: input.imageDataUrl,
+        text: "",
+        summary: `${meta.pdfFileName} · ${input.page}`,
+        settings: { questionPrompt: meta.settings.questionPrompt, contextPageRange: meta.settings.contextPageRange },
+        totalPages: rm.store.totalPages,
       })
-      focusPromptInput()
       return
     }
 
@@ -254,6 +262,9 @@ export const ReadingModePanel: Component<{
         <div class="min-h-0 flex-1">
           <OfficialReadingPdfViewer
             url={pdfUrl()}
+            askScope={props.sessionID}
+            askPath={sessionMeta()?.pdfStorePath}
+            references={prompt.references.items()}
             layoutSwapped={props.layoutSwapped}
             onSwapLayout={props.onSwapLayout}
             onOpenSettings={handleOpenSettings}

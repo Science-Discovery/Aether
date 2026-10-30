@@ -1,3 +1,5 @@
+import type { Reference } from "@/utils/ask-reference"
+import type { PdfTextSelection, PdfImageSelection } from "@/components/pdf-viewer-shell-official"
 import { type Component, createMemo } from "solid-js"
 import { PdfViewerShell } from "@/components/pdf-viewer-shell-official"
 import { useReadingMode } from "@/context/reading-mode"
@@ -5,16 +7,14 @@ import { useServer } from "@/context/server"
 
 export const OfficialReadingPdfViewer: Component<{
   url: string
+  askScope: string
+  askPath?: string
+  references: readonly Reference[]
   layoutSwapped?: boolean
   onSwapLayout?: () => void
   onOpenSettings?: () => void
-  onTextSelectionAction?: (input: {
-    action: "copy" | "translate" | "ask"
-    startPage: number
-    endPage: number
-    text: string
-  }) => void
-  onImageSelectionAction?: (input: { action: "copy" | "translate" | "ask"; page: number; imageDataUrl: string }) => void
+  onTextSelectionAction?: (input: PdfTextSelection) => void
+  onImageSelectionAction?: (input: PdfImageSelection) => void
 }> = (props) => {
   const rm = useReadingMode()
   const server = useServer()
@@ -29,6 +29,9 @@ export const OfficialReadingPdfViewer: Component<{
   return (
     <PdfViewerShell
       src={props.url}
+      askScope={props.askScope}
+      askPath={props.askPath}
+      references={props.references}
       authHeader={authHeader()}
       mode="full"
       page={rm.store.currentPage}

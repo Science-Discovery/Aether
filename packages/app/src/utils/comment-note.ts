@@ -9,6 +9,12 @@ export type PromptComment = {
 }
 
 export type ReadingQuote = {
+  id?: string
+  question?: string
+  order?: number
+  path?: string
+  sourceSession?: string
+  selection?: string
   mode: "classic" | "quick"
   action: "ask" | "translate"
   contentType: "text" | "image"
@@ -69,6 +75,12 @@ export function formatReadingPageRange(input: { startPage: number; endPage?: num
 export function createReadingQuoteMetadata(input: ReadingQuote) {
   return {
     opencodeReadingQuote: {
+      id: input.id,
+      question: input.question,
+      order: input.order,
+      path: input.path,
+      sourceSession: input.sourceSession,
+      selection: input.selection,
       mode: input.mode,
       action: input.action,
       contentType: input.contentType,
@@ -136,6 +148,7 @@ export function readReadingQuoteMetadata(value: unknown) {
   const summary = (meta as { summary?: unknown }).summary
   const fullText = (meta as { fullText?: unknown }).fullText
   const imageDataUrl = (meta as { imageDataUrl?: unknown }).imageDataUrl
+  const extra = meta as Partial<ReadingQuote>
 
   if (mode !== "classic" && mode !== "quick") return
   if (action !== "ask" && action !== "translate") return
@@ -148,6 +161,12 @@ export function readReadingQuoteMetadata(value: unknown) {
     typeof rawEndPage === "number" && Number.isFinite(rawEndPage) && rawEndPage >= startPage ? rawEndPage : undefined
 
   return {
+    ...(typeof extra.id === "string" ? { id: extra.id } : {}),
+    ...(typeof extra.question === "string" ? { question: extra.question } : {}),
+    ...(Number.isInteger(extra.order) && extra.order! >= 0 ? { order: extra.order } : {}),
+    ...(typeof extra.path === "string" ? { path: extra.path } : {}),
+    ...(typeof extra.sourceSession === "string" ? { sourceSession: extra.sourceSession } : {}),
+    ...(typeof extra.selection === "string" ? { selection: extra.selection } : {}),
     mode,
     action,
     contentType,

@@ -1,10 +1,12 @@
-import { type Component, createEffect, createMemo, createSignal, onCleanup } from "solid-js"
+import { type Component, createEffect, createMemo, createSignal, onCleanup, Show } from "solid-js"
 import { href } from "@/base-path"
 import { useSDK } from "@/context/sdk"
 import { usePlatform } from "@/context/platform"
 import { useLanguage } from "@/context/language"
 import { showToast } from "@opencode-ai/ui/toast"
 import { queue } from "./pdf-annotation-save"
+import { AskEditor, type AskAnchor } from "./ask-editor"
+import type { Reference } from "@/utils/ask-reference"
 import "./pdf-viewer-shell.css"
 
 type ViewerMode = "full" | "compact"
@@ -80,6 +82,23 @@ function viewerMessageTargetOrigin() {
   return isFileProtocol() ? "*" : window.location.origin
 }
 
+export type PdfTextSelection = {
+  action: "copy" | "translate" | "ask"
+  startPage: number
+  endPage: number
+  text: string
+  selection?: string
+  question?: string
+}
+export type PdfImageSelection = {
+  action: "copy" | "translate" | "ask"
+  page: number
+  imageDataUrl: string
+  selection?: string
+  question?: string
+}
+type Selection = (PdfTextSelection | PdfImageSelection) & { document: string; selection: string; rect: AskAnchor }
+
 export type PdfViewerShellProps = {
   src: string
   authHeader?: string
@@ -90,6 +109,9 @@ export type PdfViewerShellProps = {
   location?: string
   layoutSwapped?: boolean
   annotationPath?: string
+  askScope?: string
+  askPath?: string
+  references?: readonly Reference[]
   onPageChange?: (page: number) => void
   onLocationChange?: (location: string) => void
   onDocumentInfo?: (info: { totalPages: number }) => void
@@ -98,13 +120,8 @@ export type PdfViewerShellProps = {
   onExitQuickReading?: () => void
   onStartFirstRead?: () => void
   onOpenSettings?: () => void
-  onTextSelectionAction?: (input: {
-    action: "copy" | "translate" | "ask"
-    startPage: number
-    endPage: number
-    text: string
-  }) => void
-  onImageSelectionAction?: (input: { action: "copy" | "translate" | "ask"; page: number; imageDataUrl: string }) => void
+  onTextSelectionAction?: (input: PdfTextSelection) => void
+  onImageSelectionAction?: (input: PdfImageSelection) => void
   onSwapLayout?: () => void
 }
 
@@ -122,6 +139,9 @@ type ViewerMessage =
   | {
       channel: "aether-pdf-viewer"
       type: "textselectionaction"
+      document: string
+      selection: string
+      rect: AskAnchor
       action: "copy" | "translate" | "ask"
       startPage: number
       endPage: number
@@ -130,10 +150,14 @@ type ViewerMessage =
   | {
       channel: "aether-pdf-viewer"
       type: "imageselectionaction"
+      document: string
+      selection: string
+      rect: AskAnchor
       action: "copy" | "translate" | "ask"
       page: number
       imageDataUrl: string
     }
+  | { channel: "aether-pdf-viewer"; type: "askcancel"; document: string }
   | { channel: "aether-pdf-viewer"; type: "viewtheme"; theme: PdfViewTheme }
   | { channel: "aether-pdf-viewer"; type: "swaplayout" }
   | { channel: "aether-pdf-viewer"; type: "themechange" }
@@ -154,6 +178,7 @@ export const PdfViewerShell: Component<PdfViewerShellProps> = (props) => {
   let serial = 0
   let draft: ReturnType<typeof queue<PdfAnnotationFile>> | undefined
   const [viewTheme, setViewTheme] = createSignal(props.viewTheme ?? sharedViewTheme)
+  const [ask, setAsk] = createSignal<Selection>()
   const [annotations, setAnnotations] = createSignal<PdfAnnotationFile>()
   const scope = () => JSON.stringify([sdk.url, sdk.directory, props.annotationPath])
   // Bumped to force a viewer reload through its src dedupe after a failed load
@@ -169,9 +194,11 @@ export const PdfViewerShell: Component<PdfViewerShellProps> = (props) => {
     const join = props.src.includes("?") ? "&" : "?"
     return `${props.src}${join}r=${key}`
   })
+  const selectionDocument = () => JSON.stringify([scope(), finalSrc(), props.askScope, props.askPath])
   const config = createMemo(() => ({
     src: finalSrc(),
     document: scope(),
+    selectionDocument: selectionDocument(),
     authHeader: props.authHeader,
     mode: props.mode,
     viewTheme: props.viewTheme ?? viewTheme(),
@@ -225,6 +252,50 @@ export const PdfViewerShell: Component<PdfViewerShellProps> = (props) => {
     const frame = iframeRef?.contentWindow
     if (!frame) return
     frame.postMessage(message, viewerMessageTargetOrigin())
+  }
+
+  const closeAsk = () => {
+    const item = ask()
+    setAsk(undefined)
+    if (item) post({ channel: "aether-pdf-viewer", type: "askclose", document: item.document })
+  }
+  createEffect(() => {
+    const key = selectionDocument()
+    const item = ask()
+    if (item && item.document !== key) closeAsk()
+  })
+  const previous = createMemo(() => {
+    const item = ask()
+    if (!item) return
+    return props.references?.find(
+      (ref) =>
+        ref.kind === "pdf" &&
+        ref.path === (props.askPath ?? props.annotationPath) &&
+        ref.selection === item.selection &&
+        ref.startPage === ("page" in item ? item.page : item.startPage) &&
+        ref.endPage === ("page" in item ? item.page : item.endPage) &&
+        ref.content === ("page" in item ? "image" : "text"),
+    )
+  })
+  const select = (item: Selection) => {
+    if (item.document !== selectionDocument()) return
+    if (item.action !== "ask") {
+      if ("page" in item) props.onImageSelectionAction?.(item)
+      else props.onTextSelectionAction?.(item)
+      return
+    }
+    if (!item.rect || !Object.values(item.rect).every(Number.isFinite)) return
+    const rect = iframeRef?.getBoundingClientRect()
+    if (!rect) return
+    setAsk({
+      ...item,
+      rect: {
+        top: item.rect.top + rect.top,
+        bottom: item.rect.bottom + rect.top,
+        left: item.rect.left + rect.left,
+        right: item.rect.right + rect.left,
+      },
+    })
   }
 
   const url = (pathname: string) => {
@@ -543,22 +614,12 @@ export const PdfViewerShell: Component<PdfViewerShellProps> = (props) => {
       return
     }
 
-    if (event.data.type === "textselectionaction") {
-      props.onTextSelectionAction?.({
-        action: event.data.action,
-        startPage: event.data.startPage,
-        endPage: event.data.endPage,
-        text: event.data.text,
-      })
+    if (event.data.type === "textselectionaction" || event.data.type === "imageselectionaction") {
+      select(event.data)
       return
     }
-
-    if (event.data.type === "imageselectionaction") {
-      props.onImageSelectionAction?.({
-        action: event.data.action,
-        page: event.data.page,
-        imageDataUrl: event.data.imageDataUrl,
-      })
+    if (event.data.type === "askcancel") {
+      if (event.data.document === ask()?.document) closeAsk()
       return
     }
 
@@ -590,10 +651,30 @@ export const PdfViewerShell: Component<PdfViewerShellProps> = (props) => {
   onCleanup(() => {
     window.removeEventListener("message", onMessage)
     if (retryTimer) clearTimeout(retryTimer)
+    closeAsk()
   })
 
   return (
     <div class={`pdf-viewer-shell ${props.class ?? ""}`}>
+      <Show when={ask()} keyed>
+        {(item) => (
+          <AskEditor
+            title={language.t("ask.editor.title")}
+            preview={"text" in item ? item.text : language.t("ask.editor.title")}
+            image={"imageDataUrl" in item ? item.imageDataUrl : undefined}
+            question={previous()?.question}
+            editing={!!previous()}
+            anchor={item.rect}
+            onCancel={closeAsk}
+            onSave={(question) => {
+              if (item.document !== selectionDocument()) return closeAsk()
+              if ("page" in item) props.onImageSelectionAction?.({ ...item, question })
+              else props.onTextSelectionAction?.({ ...item, question })
+              closeAsk()
+            }}
+          />
+        )}
+      </Show>
       <iframe ref={iframeRef} src={viewerSrc()} class="pdf-viewer-shell__frame" title="PDF Viewer" loading="eager" />
     </div>
   )

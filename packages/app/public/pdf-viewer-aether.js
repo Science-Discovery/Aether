@@ -45,6 +45,7 @@
   let selectionHintTimer = 0
   let selectionHintLockedUntil = 0
   let selectionState = null
+  let askSelection = null
   let annotations = []
   let annotationEditor = null
   let annotationUndo = null
@@ -108,6 +109,7 @@
   let captureBox = null
   let captureModeActive = false
   let captureDrag = null
+  let captureEpoch = 0
   let suppressBroadcastUntil = 0
 
   const ERROR_OVERLAY_ID = "aether-pdf-viewer-error-overlay"
@@ -389,6 +391,7 @@
     return {
       src: typeof input?.src === "string" ? input.src : "",
       document: typeof input?.document === "string" ? input.document : "",
+      selectionDocument: typeof input?.selectionDocument === "string" ? input.selectionDocument : "",
       authHeader: typeof input?.authHeader === "string" && input.authHeader ? input.authHeader : undefined,
       mode,
       viewTheme,
@@ -419,25 +422,59 @@
 
   function selectionActionsEnabled() {
     return !!(
-      currentConfig &&
+      pdfReady() &&
       currentConfig.features &&
       (currentConfig.features.textSelectionActions || currentConfig.features.annotations)
     )
   }
 
   function imageSelectionActionsEnabled() {
-    return !!(currentConfig && currentConfig.features && currentConfig.features.imageSelectionActions)
+    return !!(pdfReady() && currentConfig.features && currentConfig.features.imageSelectionActions)
   }
 
-  function annotationsEnabled() {
+  function pdfReady() {
     return !!(
       loaded &&
-      currentConfig?.features.annotations &&
+      currentConfig &&
       loaded.doc === window.PDFViewerApplication?.pdfDocument &&
       loaded.config.document === currentConfig.document &&
       loaded.config.src === currentConfig.src &&
       loaded.config.authHeader === currentConfig.authHeader
     )
+  }
+
+  function annotationsEnabled() {
+    return pdfReady() && !!currentConfig.features.annotations
+  }
+
+  function closeAsk(notify) {
+    if (!askSelection) return
+    const key = askSelection.document
+    askSelection = null
+    document.querySelectorAll(".aetherAskSelection").forEach((node) => node.remove())
+    if (notify) post("askcancel", { document: key })
+  }
+
+  function freezeAsk() {
+    const item = selectionState
+    const rects =
+      item.kind === "image"
+        ? [item.rect]
+        : Array.from(
+            window.getSelection()?.rangeCount ? window.getSelection().getRangeAt(0).getClientRects() : [item.rect],
+          )
+    askSelection = { document: currentConfig.selectionDocument }
+    rects.forEach((rect) => {
+      const node = document.createElement("div")
+      node.className = "aetherAskSelection"
+      Object.assign(node.style, {
+        left: rect.left + "px",
+        top: rect.top + "px",
+        width: rect.width + "px",
+        height: rect.height + "px",
+      })
+      document.body.appendChild(node)
+    })
   }
 
   function ensureSelectionUi() {
@@ -582,6 +619,7 @@
   }
 
   function hideSelectionUi() {
+    captureEpoch += 1
     hideSelectionMenu()
     hideSelectionHint(true)
   }
@@ -630,7 +668,7 @@
   }
 
   async function handleSelectionAction(action) {
-    if (!selectionState) return
+    if (!selectionState || !pdfReady()) return
 
     if (["highlight", "underline", "strikeout", "note"].includes(action)) {
       createAnnotation(action)
@@ -668,14 +706,35 @@
       return
     }
 
+    const rect = selectionState.rect
+    const meta = {
+      document: currentConfig.selectionDocument,
+      selection:
+        selectionState.selection ||
+        JSON.stringify(
+          selectionState.pages.map((page) => ({
+            page: page.page,
+            quads: page.quads.map((quad) => quad.map((n) => Math.round(n * 100) / 100)),
+          })),
+        ),
+      rect: {
+        top: rect.top,
+        left: rect.left,
+        right: rect.right ?? rect.left + rect.width,
+        bottom: rect.bottom ?? rect.top + rect.height,
+      },
+    }
+    if (action === "ask") freezeAsk()
     if (selectionState.kind === "image") {
       post("imageselectionaction", {
+        ...meta,
         action,
         page: selectionState.page,
         imageDataUrl: selectionState.imageDataUrl,
       })
     } else {
       post("textselectionaction", {
+        ...meta,
         action,
         startPage: selectionState.startPage,
         endPage: selectionState.endPage,
@@ -878,6 +937,7 @@
   }
 
   function updateSelectionUi() {
+    if (askSelection) return
     if (!selectionActionsEnabled()) {
       hideSelectionUi()
       return
@@ -1286,6 +1346,7 @@
   }
 
   function setCaptureMode(next) {
+    captureEpoch += 1
     const enabled = !!next && imageSelectionActionsEnabled()
     captureModeActive = enabled
     document.body.classList.toggle("capture-mode-active", enabled)
@@ -1409,6 +1470,10 @@
 
   async function finalizeCapture(event) {
     if (!captureDrag) return
+    if (!pdfReady()) {
+      setCaptureMode(false)
+      return
+    }
 
     const drag = captureDrag
     captureDrag = null
@@ -1430,7 +1495,19 @@
       bottom: Math.max(drag.start.y, point.y),
     }
 
+    const key = currentConfig?.selectionDocument
+    const epoch = captureEpoch
+    const box = drag.pageElement.getBoundingClientRect()
+    const viewport = window.PDFViewerApplication.pdfViewer.getPageView(drag.page - 1).viewport
+    const selection = JSON.stringify(
+      [
+        ...viewport.convertToPdfPoint(rect.left - box.left, rect.top - box.top),
+        ...viewport.convertToPdfPoint(rect.right - box.left, rect.bottom - box.top),
+      ].map((n) => Math.round(n * 100) / 100),
+    )
+    const anchor = { top: rect.top, left: rect.left, width: rect.right - rect.left, height: rect.bottom - rect.top }
     const cropped = await cropImageFromSelection(drag.pageElement, rect)
+    if (epoch !== captureEpoch || key !== currentConfig?.selectionDocument || !pdfReady()) return
     if (!cropped || !cropped.imageDataUrl) {
       showSelectionHint("Unable to capture region")
       setCaptureMode(false)
@@ -1444,12 +1521,8 @@
       page: drag.page,
       imageDataUrl: cropped.imageDataUrl,
       imageBlob: cropped.blob,
-      rect: {
-        top: rect.top,
-        left: rect.left,
-        width: rect.right - rect.left,
-        height: rect.bottom - rect.top,
-      },
+      selection,
+      rect: anchor,
     }
     selectionMenu.querySelectorAll("[data-annotation]").forEach(function (button) {
       button.hidden = true
@@ -1758,6 +1831,13 @@
 
     const app = window.PDFViewerApplication
     const eventBus = app.eventBus
+    ;["scalechanging", "rotationchanging"].forEach(function (name) {
+      eventBus.on(name, function () {
+        closeAsk(true)
+        hideSelectionUi()
+        if (captureModeActive) setCaptureMode(false)
+      })
+    })
 
     eventBus.on("pagechanging", function (evt) {
       if (!evt?.pageNumber) return
@@ -1988,6 +2068,7 @@
       scheduleSelectionUiUpdate()
     })
     document.addEventListener("pointerdown", function (event) {
+      closeAsk(true)
       if (captureModeActive) {
         if (selectionMenu?.contains(event.target)) return
         if (event.button !== 0) return
@@ -2025,10 +2106,14 @@
       void finalizeCapture(event)
     })
     document.getElementById("viewerContainer")?.addEventListener("scroll", function () {
+      closeAsk(true)
       hideSelectionUi()
       if (captureModeActive) setCaptureMode(false)
     })
     window.addEventListener("resize", function () {
+      closeAsk(true)
+      hideSelectionUi()
+      if (captureModeActive) setCaptureMode(false)
       scheduleToolbarOverflowSync()
       positionAnnotationEditor()
       if (!selectionState) return
@@ -2110,6 +2195,15 @@
   async function applyConfig(nextConfig) {
     const config = sanitizeConfig(nextConfig)
     const changed = config.document !== currentConfig?.document
+    if (
+      config.selectionDocument !== currentConfig?.selectionDocument ||
+      config.src !== currentConfig?.src ||
+      config.authHeader !== currentConfig?.authHeader
+    ) {
+      closeAsk(true)
+      hideSelectionUi()
+      clearTextSelection()
+    }
     if (changed || !config.features.annotations) annotations = []
     if (
       changed ||
@@ -2164,6 +2258,11 @@
 
       if (event.data.type === "config") {
         await applyConfig(event.data.config)
+        return
+      }
+
+      if (event.data.type === "askclose") {
+        if (event.data.document === askSelection?.document) closeAsk(false)
         return
       }
 

@@ -1,4 +1,4 @@
-import { For, batch, createEffect, createMemo, on, onCleanup, Show, Index, type JSX, createSignal } from "solid-js"
+import { For, createEffect, createMemo, on, onCleanup, Show, Index, type JSX, createSignal } from "solid-js"
 import { createWorkingState, type ChildrenSource } from "@/utils/working-state"
 import { childMapByParent } from "@/pages/layout/helpers"
 import { formatServerError } from "@/utils/server-errors"
@@ -23,10 +23,13 @@ import { Popover as KobaltePopover } from "@kobalte/core/popover"
 import { shouldMarkBoundaryGesture, normalizeWheelDelta } from "@/pages/session/message-gesture"
 import { createTurnCollapse } from "@/pages/session/message-collapse"
 import { resolveSelectionAnchorRect } from "@/pages/session/selection-anchor"
+import { conversationSelection } from "@/pages/session/conversation-selection"
 import { SessionContextUsage } from "@/components/session-context-usage"
 import { useI18n } from "@opencode-ai/ui/context"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
-import { useConversationQuote } from "@/context/conversation-quote"
+import { usePrompt } from "@/context/prompt"
+import { AskEditor, type AskEditorProps } from "@/components/ask-editor"
+import { type Reference } from "@/utils/ask-reference"
 import { useLayout } from "@/context/layout"
 import { useLanguage } from "@/context/language"
 import { useSessionKey } from "@/pages/session/session-layout"
@@ -41,12 +44,10 @@ import {
   parseCommentNote,
   readFileQuoteMetadata,
   readCommentMetadata,
-  readReadingQuoteMetadata,
   summarizeReadingQuoteText,
   type FileQuote,
-  type ReadingQuote,
 } from "@/utils/comment-note"
-import { readConversationQuoteMetadata, type ConversationQuote } from "@/utils/conversation-quote-metadata"
+import { readQuoteReferences, type QuoteReference } from "@/utils/conversation-quote-metadata"
 import { makeTimer } from "@solid-primitives/timer"
 import { createChatFind, ChatFindBar } from "@/pages/session/chat-find"
 import {
@@ -66,8 +67,6 @@ type MessageComment = {
   }
 }
 
-type MessageReadingQuote = ReadingQuote
-type MessageConversationQuote = ConversationQuote
 type MessageFileQuote = FileQuote
 
 const emptyMessages: MessageType[] = []
@@ -97,20 +96,6 @@ const messageComments = (parts: Part[]): MessageComment[] =>
     ]
   })
 
-const messageReadingQuotes = (parts: Part[]): MessageReadingQuote[] =>
-  parts.flatMap((part) => {
-    if (part.type !== "text" || !(part as TextPart).synthetic) return []
-    const next = readReadingQuoteMetadata(part.metadata)
-    return next && next.contentType === "text" ? [next] : []
-  })
-
-const messageConversationQuotes = (parts: Part[]): MessageConversationQuote[] =>
-  parts.flatMap((part) => {
-    if (part.type !== "text" || !(part as TextPart).synthetic) return []
-    const next = readConversationQuoteMetadata(part.metadata)
-    return next ? [next] : []
-  })
-
 const messageFileQuotes = (parts: Part[]): MessageFileQuote[] =>
   parts.flatMap((part) => {
     if (part.type !== "text" || !(part as TextPart).synthetic) return []
@@ -118,44 +103,39 @@ const messageFileQuotes = (parts: Part[]): MessageFileQuote[] =>
     return next ? [next] : []
   })
 
-function DialogReadingQuoteTextContent(props: { quote: MessageReadingQuote }) {
-  return (
-    <Dialog title="PDF Quote" class="w-[min(720px,calc(100vw-32px))] max-w-[calc(100vw-32px)]">
-      <div class="flex max-h-[70vh] min-w-0 w-full max-w-full flex-col gap-3 overflow-hidden p-4">
-        <div class="min-w-0 break-words text-14-medium text-text-strong">
-          {`${props.quote.pdfFileName} - p.${formatReadingPageRange(props.quote)} - ${props.quote.action === "ask" ? "Ask" : "Translate"}`}
-        </div>
-        <div class="text-12-regular text-text-weak">
-          {props.quote.action === "ask" ? "Quoted content used for Ask" : "Quoted content used for Translate"}
-        </div>
-        <div class="min-w-0 w-full max-w-full overflow-auto rounded-md border border-border-weak-base bg-background-stronger px-3 py-3">
-          <div class="min-w-0 w-full max-w-full whitespace-pre-wrap break-words text-13-regular text-text-strong [overflow-wrap:anywhere]">
-            {props.quote.fullText || props.quote.summary}
-          </div>
-        </div>
-      </div>
-    </Dialog>
-  )
-}
-
-function DialogConversationQuotesContent(props: { quotes: MessageConversationQuote[] }) {
+function DialogQuoteContent(props: { reference: QuoteReference }) {
+  const language = useLanguage()
+  const [failed, setFailed] = createSignal(false)
+  const image = () => (props.reference.kind === "pdf" ? props.reference.quote.imageDataUrl : undefined)
   return (
     <Dialog
-      title={props.quotes.length === 1 ? "AI Reply Quote" : "AI Reply Quotes"}
+      title={
+        props.reference.kind === "pdf" ? props.reference.quote.pdfFileName : language.t("ask.reference.conversation")
+      }
       class="w-[min(720px,calc(100vw-32px))] max-w-[calc(100vw-32px)]"
     >
-      <div class="max-h-[70vh] min-w-0 w-full max-w-full overflow-auto px-4 pb-4">
-        <div class="flex min-w-0 w-full max-w-full flex-col gap-3">
-          <Index each={props.quotes}>
-            {(item, index) => (
-              <div class="min-w-0 rounded-[6px] border border-border-weak-base bg-background-stronger p-3">
-                <div class="pb-2 text-11-medium uppercase text-text-weak">{`Quote ${index + 1}`}</div>
-                <div class="min-w-0 w-full max-w-full whitespace-pre-wrap break-words text-13-regular text-text-strong [overflow-wrap:anywhere]">
-                  {item().fullText}
-                </div>
-              </div>
-            )}
-          </Index>
+      <div class="flex max-h-[70vh] min-w-0 flex-col gap-3 overflow-auto p-4">
+        <Show when={props.reference.quote.question}>
+          <div class="whitespace-pre-wrap break-words text-13-medium text-text-strong">
+            <span class="text-text-weak">{language.t("ask.reference.question")}: </span>
+            {props.reference.quote.question}
+          </div>
+        </Show>
+        <Show when={props.reference.kind === "pdf" && props.reference.quote.contentType === "image"}>
+          <Show
+            when={image() && !failed()}
+            fallback={<div class="text-12-regular text-text-weak">{language.t("ask.reference.missingImage")}</div>}
+          >
+            <img
+              src={image()}
+              alt={props.reference.quote.summary}
+              class="max-h-[45vh] max-w-full object-contain"
+              onError={() => setFailed(true)}
+            />
+          </Show>
+        </Show>
+        <div class="min-w-0 whitespace-pre-wrap break-words rounded-md border border-border-weak-base bg-background-stronger px-3 py-3 text-13-regular text-text-strong [overflow-wrap:anywhere]">
+          {props.reference.quote.fullText || props.reference.quote.summary}
         </div>
       </div>
     </Dialog>
@@ -365,12 +345,19 @@ export function MessageTimeline(props: {
   const layout = useLayout()
   const language = useLanguage()
   const uiI18n = useI18n()
-  const quote = useConversationQuote()
+  const prompt = usePrompt()
+  const [editor, setEditor] = createSignal<{
+    reference: Reference
+    anchor: AskEditorProps["anchor"]
+    editing: boolean
+  }>()
   const { params, sessionKey } = useSessionKey()
   const platform = usePlatform()
   const [selection, setSelection] = createStore({
     open: false,
     sourceMessageID: "",
+    start: 0,
+    end: 0,
     text: "",
     summary: "",
     anchorTop: 0,
@@ -537,6 +524,8 @@ export function MessageTimeline(props: {
     setSelection({
       open: false,
       sourceMessageID: "",
+      start: 0,
+      end: 0,
       text: "",
       summary: "",
       anchorTop: 0,
@@ -560,8 +549,6 @@ export function MessageTimeline(props: {
       left: Math.min(rootWidth - width - 12, Math.max(12, left - rootLeft - width / 2)),
     })
   }
-
-  const parent = (node: Node | null) => (node instanceof Element ? node : (node?.parentElement ?? undefined))
 
   const rects = (input: { range: Range; container: HTMLElement }) => {
     const list: Array<{
@@ -607,27 +594,17 @@ export function MessageTimeline(props: {
   }
 
   const resolve = () => {
+    if (editor()) return
     const active = window.getSelection()
     if (!log || !active || active.rangeCount === 0 || active.isCollapsed) return
-    const text = active.toString().trim()
-    if (!text) return
-
-    const anchor = parent(active.anchorNode)
-    const focus = parent(active.focusNode)
-    const first = anchor?.closest('[data-slot="session-turn-assistant-content"]')
-    const last = focus?.closest('[data-slot="session-turn-assistant-content"]')
-    if (!(first instanceof HTMLElement) || first !== last) return
-    if (!log.contains(first)) return
-
-    const id = first.closest("[data-message-id]")?.getAttribute("data-message-id")
-    if (!id) return
-
     const range = active.getRangeAt(0)
+    const source = conversationSelection(log, range)
+    if (!source) return
     const rect = range.getBoundingClientRect()
     const target =
       resolveSelectionAnchorRect({
-        rects: rects({ range, container: first }),
-        containerWidth: first.getBoundingClientRect().width,
+        rects: source.containers.flatMap((container) => rects({ range, container })),
+        containerWidth: source.containers[0].getBoundingClientRect().width,
         fallbackRect: {
           top: rect.top,
           left: rect.left,
@@ -643,9 +620,11 @@ export function MessageTimeline(props: {
     const top = target.top
     setSelection({
       open: true,
-      sourceMessageID: id,
-      text,
-      summary: summarizeReadingQuoteText(text),
+      sourceMessageID: source.messageID,
+      start: source.start,
+      end: source.end,
+      text: source.text,
+      summary: summarizeReadingQuoteText(source.text),
       anchorTop: top,
       anchorLeft: left,
       top,
@@ -656,21 +635,45 @@ export function MessageTimeline(props: {
 
   const submit = () => {
     if (!selection.open || !params.id) return
-    const id = params.id
-    batch(() => {
-      quote.addPendingQuestion({
-        kind: "assistant-text-question",
-        sessionID: id,
-        sourceMessageID: selection.sourceMessageID,
+    const existing = prompt.references
+      .items()
+      .find(
+        (ref) =>
+          ref.kind === "conversation" &&
+          ref.messageID === selection.sourceMessageID &&
+          ref.start === selection.start &&
+          ref.end === selection.end,
+      )
+    const rect = ask?.getBoundingClientRect()
+    setEditor({
+      reference: existing ?? {
+        id: crypto.randomUUID(),
+        version: 1,
+        kind: "conversation",
+        question: "",
+        messageID: selection.sourceMessageID,
+        start: selection.start,
+        end: selection.end,
         text: selection.text,
         summary: selection.summary,
-        createdAt: Date.now(),
-      })
+      },
+      anchor: rect ?? {
+        top: selection.anchorTop,
+        bottom: selection.anchorTop,
+        left: selection.anchorLeft,
+        right: selection.anchorLeft,
+      },
+      editing: !!existing,
     })
-    window.getSelection()?.removeAllRanges()
     clear()
-    props.onFocusInput?.()
   }
+
+  createEffect(
+    on(sessionKey, () => {
+      clear()
+      setEditor(undefined)
+    }),
+  )
 
   createEffect(() => {
     if (props.mobileChanges) {
@@ -678,6 +681,7 @@ export function MessageTimeline(props: {
       return
     }
     const change = () => {
+      if (editor()) return
       const active = window.getSelection()
       if (!active || active.rangeCount === 0 || active.isCollapsed || !active.toString().trim()) clear()
     }
@@ -685,6 +689,7 @@ export function MessageTimeline(props: {
       queueMicrotask(() => resolve())
     }
     const down = (event: PointerEvent) => {
+      if (editor()) return
       const target = event.target instanceof Element ? event.target : undefined
       if (target?.closest('[data-component="conversation-quote-ask-button"]')) return
       clear()
@@ -1522,39 +1527,7 @@ export function MessageTimeline(props: {
                           c.selection?.endLine === b[i].selection?.endLine,
                       ),
                   })
-                  const readingQuotes = createMemo(() => messageReadingQuotes(sync.data.part[messageID] ?? []), [], {
-                    equals: (a, b) =>
-                      a.length === b.length &&
-                      a.every(
-                        (quote, i) =>
-                          quote.mode === b[i].mode &&
-                          quote.action === b[i].action &&
-                          quote.contentType === b[i].contentType &&
-                          quote.pdfFileName === b[i].pdfFileName &&
-                          quote.startPage === b[i].startPage &&
-                          quote.endPage === b[i].endPage &&
-                          quote.summary === b[i].summary &&
-                          quote.fullText === b[i].fullText &&
-                          quote.imageDataUrl === b[i].imageDataUrl,
-                      ),
-                  })
-                  const conversationQuotes = createMemo(
-                    () => messageConversationQuotes(sync.data.part[messageID] ?? []),
-                    [],
-                    {
-                      equals: (a, b) =>
-                        a.length === b.length &&
-                        a.every(
-                          (quote, i) =>
-                            quote.kind === b[i].kind &&
-                            quote.source === b[i].source &&
-                            quote.action === b[i].action &&
-                            quote.sourceMessageID === b[i].sourceMessageID &&
-                            quote.summary === b[i].summary &&
-                            quote.fullText === b[i].fullText,
-                        ),
-                    },
-                  )
+                  const references = createMemo(() => readQuoteReferences(sync.data.part[messageID] ?? []))
                   const fileQuotes = createMemo(() => messageFileQuotes(sync.data.part[messageID] ?? []), [], {
                     equals: (a, b) =>
                       a.length === b.length &&
@@ -1568,8 +1541,6 @@ export function MessageTimeline(props: {
                       ),
                   })
                   const commentCount = createMemo(() => comments().length)
-                  const readingQuoteCount = createMemo(() => readingQuotes().length)
-                  const conversationQuoteCount = createMemo(() => conversationQuotes().length)
                   const fileQuoteCount = createMemo(() => fileQuotes().length)
                   return (
                     <div
@@ -1585,14 +1556,7 @@ export function MessageTimeline(props: {
                         "contain-intrinsic-size": collapse.is(messageID) ? "auto 20px" : "auto 500px",
                       }}
                     >
-                      <Show
-                        when={
-                          commentCount() > 0 ||
-                          readingQuoteCount() > 0 ||
-                          conversationQuoteCount() > 0 ||
-                          fileQuoteCount() > 0
-                        }
-                      >
+                      <Show when={commentCount() > 0 || references().length > 0 || fileQuoteCount() > 0}>
                         <div class="w-full px-4 md:px-5 pb-2">
                           <div class="ml-auto max-w-[82%] min-w-0 overflow-x-auto no-scrollbar overscroll-x-contain">
                             <div class="flex w-max min-w-full justify-end gap-2">
@@ -1628,35 +1592,45 @@ export function MessageTimeline(props: {
                                   )
                                 }}
                               </Index>
-                              <Index each={readingQuotes()}>
-                                {(quoteAccessor: () => MessageReadingQuote) => {
-                                  const quote = createMemo(() => quoteAccessor())
+                              <Index each={references()}>
+                                {(ref, index) => {
+                                  const pdf = createMemo(() => {
+                                    const value = ref()
+                                    return value.kind === "pdf" ? value.quote : undefined
+                                  })
                                   return (
-                                    <Show when={quote()}>
-                                      {(q) => (
-                                        <button
-                                          type="button"
-                                          class="w-[260px] max-w-full shrink-0 rounded-[6px] border border-border-weak-base bg-background-stronger px-2.5 py-2 text-left transition hover:bg-background-base"
-                                          onClick={() => {
-                                            dialog.show(() => <DialogReadingQuoteTextContent quote={q()} />)
-                                          }}
-                                        >
-                                          <div class="flex items-center gap-1.5 min-w-0 text-11-medium text-text-strong">
-                                            <FileIcon
-                                              node={{ path: q().pdfFileName, type: "file" }}
-                                              class="size-3.5 shrink-0"
-                                            />
-                                            <span class="truncate">{q().pdfFileName}</span>
-                                          </div>
+                                    <button
+                                      type="button"
+                                      class="w-[260px] max-w-full shrink-0 rounded-[6px] border border-border-weak-base bg-background-stronger px-2.5 py-2 text-left transition hover:bg-background-base"
+                                      onClick={() => dialog.show(() => <DialogQuoteContent reference={ref()} />)}
+                                    >
+                                      <div class="text-11-medium text-text-weak">
+                                        {language.t("ask.reference.title", { number: ref().quote.order ?? index + 1 })}
+                                      </div>
+                                      <div class="pt-1 truncate text-12-medium text-text-strong">
+                                        {pdf()?.pdfFileName ?? language.t("ask.reference.conversation")}
+                                      </div>
+                                      <Show when={pdf()}>
+                                        {(value) => (
                                           <div class="pt-1 text-11-medium text-text-weak">
-                                            {`p.${formatReadingPageRange(q())} · ${q().action === "ask" ? "Ask" : "Translate"}`}
+                                            p.{formatReadingPageRange(value())} ·{" "}
+                                            {language.t(
+                                              value().action === "translate"
+                                                ? "pdf.selection.translate"
+                                                : "pdf.selection.ask",
+                                            )}
                                           </div>
-                                          <div class="pt-1 text-12-regular text-text-strong whitespace-pre-wrap break-words line-clamp-3">
-                                            {q().summary}
-                                          </div>
-                                        </button>
-                                      )}
-                                    </Show>
+                                        )}
+                                      </Show>
+                                      <div class="pt-1 line-clamp-3 whitespace-pre-wrap break-words text-12-regular text-text-strong">
+                                        {ref().quote.summary}
+                                      </div>
+                                      <Show when={ref().quote.question}>
+                                        <div class="mt-2 line-clamp-3 whitespace-pre-wrap break-words border-t border-border-weak-base pt-1 text-12-regular text-text-strong">
+                                          {ref().quote.question}
+                                        </div>
+                                      </Show>
+                                    </button>
                                   )
                                 }}
                               </Index>
@@ -1697,32 +1671,6 @@ export function MessageTimeline(props: {
                                   )
                                 }}
                               </Index>
-                              <Show when={conversationQuoteCount() > 0}>
-                                <button
-                                  type="button"
-                                  class="w-[320px] max-w-full shrink-0 rounded-[6px] border border-border-weak-base bg-background-stronger px-2.5 py-2 text-left transition hover:bg-background-base"
-                                  onClick={() => {
-                                    dialog.show(() => <DialogConversationQuotesContent quotes={conversationQuotes()} />)
-                                  }}
-                                >
-                                  <div class="pt-1 text-11-medium text-text-weak">
-                                    {conversationQuoteCount() === 1
-                                      ? "Ask"
-                                      : `Ask · ${conversationQuoteCount()} quotes`}
-                                  </div>
-                                  <div class="mt-2 flex max-h-[172px] flex-col gap-2 overflow-y-auto pr-1">
-                                    <Index each={conversationQuotes()}>
-                                      {(item) => (
-                                        <div class="rounded-[5px] border border-border-weak-base bg-background-base px-2 py-1.5">
-                                          <div class="text-12-regular text-text-strong whitespace-pre-wrap break-words line-clamp-3">
-                                            {item().summary}
-                                          </div>
-                                        </div>
-                                      )}
-                                    </Index>
-                                  </div>
-                                </button>
-                              </Show>
                             </div>
                           </div>
                         </div>
@@ -1752,6 +1700,24 @@ export function MessageTimeline(props: {
             </div>
           </div>
         </ScrollView>
+        <Show when={editor()} keyed>
+          {(value) => (
+            <AskEditor
+              title={language.t("ask.reference.conversation")}
+              preview={value.reference.text}
+              question={value.reference.question}
+              anchor={value.anchor}
+              editing={value.editing}
+              onCancel={() => setEditor(undefined)}
+              onSave={(question) => {
+                if (value.editing) prompt.references.update(value.reference.id, question)
+                else prompt.references.add({ ...value.reference, question })
+                setEditor(undefined)
+                window.getSelection()?.removeAllRanges()
+              }}
+            />
+          )}
+        </Show>
         <Show when={selection.open}>
           <button
             ref={ask}

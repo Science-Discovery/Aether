@@ -1,3 +1,6 @@
+import { usePrompt } from "@/context/prompt"
+import { useParams } from "@solidjs/router"
+import type { PdfTextSelection, PdfImageSelection } from "@/components/pdf-viewer-shell-official"
 import type { Component } from "solid-js"
 import { Show } from "solid-js"
 import { ResizeHandle } from "@opencode-ai/ui/resize-handle"
@@ -17,13 +20,8 @@ export const QuickReadingPanel: Component<{
   onPageChange?: (page: number) => void
   onLocationChange?: (location: string) => void
   onDocumentInfo?: (info: { totalPages: number }) => void
-  onTextSelectionAction?: (input: {
-    action: "copy" | "translate" | "ask"
-    startPage: number
-    endPage: number
-    text: string
-  }) => void
-  onImageSelectionAction?: (input: { action: "copy" | "translate" | "ask"; page: number; imageDataUrl: string }) => void
+  onTextSelectionAction?: (input: PdfTextSelection) => void
+  onImageSelectionAction?: (input: PdfImageSelection) => void
   onSwapLayout?: () => void
   onExitQuickReading?: () => void
   onStartFirstRead?: () => void
@@ -32,6 +30,8 @@ export const QuickReadingPanel: Component<{
   resizeHandleEnabled?: boolean
   sizing?: Sizing
 }> = (props) => {
+  const prompt = usePrompt()
+  const params = useParams()
   const size = props.sizing ?? createSizing()
 
   return (
@@ -46,6 +46,8 @@ export const QuickReadingPanel: Component<{
         <div class="min-h-0 flex-1">
           <PdfViewerShell
             src={props.url}
+            askScope={params.id}
+            references={prompt.references.items()}
             annotationPath={props.annotationPath}
             authHeader={props.authHeader}
             mode="full"

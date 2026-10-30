@@ -1,6 +1,7 @@
-import type { Prompt } from "@/context/prompt"
+import type { Prompt, PromptScope } from "@/context/prompt"
 import type { SelectedLineRange } from "@/context/file"
 import { sanitizePrompt } from "@/context/prompt-persist"
+import { cloneReferences, sanitizeReferences, type Reference } from "@/utils/ask-reference"
 
 const DEFAULT_PROMPT: Prompt = [{ type: "text", content: "", start: 0, end: 0 }]
 
@@ -19,9 +20,11 @@ export type PromptHistoryComment = {
 export type PromptHistoryEntry = {
   prompt: Prompt
   comments: PromptHistoryComment[]
+  references: Reference[]
+  scope?: PromptScope
 }
 
-export type PromptHistoryStoredEntry = Prompt | PromptHistoryEntry
+export type PromptHistoryStoredEntry = Prompt | (Omit<PromptHistoryEntry, "references"> & { references?: Reference[] })
 
 function record(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
@@ -29,6 +32,16 @@ function record(value: unknown): value is Record<string, unknown> {
 
 function content(prompt: unknown[]) {
   return prompt.some((part) => record(part) && typeof part.content === "string" && !!part.content.trim())
+}
+
+function scope(value: unknown): PromptScope | undefined {
+  if (!record(value) || typeof value.dir !== "string" || !value.dir) return
+  if (value.id !== undefined && typeof value.id !== "string") return
+  return { dir: value.dir, ...(typeof value.id === "string" ? { id: value.id } : {}) }
+}
+
+function scoped(a?: PromptScope, b?: PromptScope) {
+  return !!a && !!b && a.dir === b.dir && a.id === b.id
 }
 
 function selection(value: unknown): SelectedLineRange | undefined {
@@ -79,12 +92,16 @@ export function migratePromptHistory(value: unknown) {
 
     const next = sanitizePrompt(prompt)
     const notes = !legacy && record(entry) ? comments(entry.comments) : []
-    if (!content(next) && !notes.some((comment) => !!comment.comment.trim())) return []
+    const refs = !legacy && record(entry) ? sanitizeReferences(entry.references) : []
+    const target = !legacy && record(entry) ? scope(entry.scope) : undefined
+    if (!content(next) && !notes.some((comment) => !!comment.comment.trim()) && !refs.length) return []
 
     return [
       {
         prompt: next.length ? next : clonePromptParts(DEFAULT_PROMPT),
         comments: notes,
+        references: refs,
+        ...(target ? { scope: target } : {}),
       } satisfies PromptHistoryEntry,
     ]
   })
@@ -136,12 +153,15 @@ export function normalizePromptHistoryEntry(entry: PromptHistoryStoredEntry): Pr
     return {
       prompt: prompt.length ? prompt : clonePromptParts(DEFAULT_PROMPT),
       comments: [],
+      references: [],
     }
   }
   const prompt = clean(entry.prompt)
   return {
     prompt: prompt.length ? prompt : clonePromptParts(DEFAULT_PROMPT),
     comments: clonePromptHistoryComments(entry.comments),
+    references: sanitizeReferences(entry.references),
+    ...(entry.scope ? { scope: { ...entry.scope } } : {}),
   }
 }
 
@@ -154,6 +174,8 @@ export function prependHistoryEntry(
   prompt: Prompt,
   comments: PromptHistoryComment[] = [],
   max = MAX_HISTORY,
+  references: readonly Reference[] = [],
+  scope?: PromptScope,
 ) {
   const stored = clean(prompt)
   const text = stored
@@ -161,11 +183,14 @@ export function prependHistoryEntry(
     .join("")
     .trim()
   const hasComments = comments.some((comment) => !!comment.comment.trim())
-  if (!text && !hasComments) return entries
+  const refs = sanitizeReferences(references)
+  if (!text && !hasComments && !refs.length) return entries
 
   const entry = {
     prompt: stored.length ? stored : clonePromptParts(DEFAULT_PROMPT),
     comments: clonePromptHistoryComments(comments),
+    references: refs,
+    ...(scope ? { scope: { ...scope } } : {}),
   } satisfies PromptHistoryEntry
   const last = entries[0]
   if (last && isPromptEqual(last, entry)) return entries
@@ -188,6 +213,13 @@ function isCommentEqual(commentA: PromptHistoryComment, commentB: PromptHistoryC
 function isPromptEqual(promptA: PromptHistoryStoredEntry, promptB: PromptHistoryStoredEntry) {
   const entryA = normalizePromptHistoryEntry(promptA)
   const entryB = normalizePromptHistoryEntry(promptB)
+  if (entryA.references.length !== entryB.references.length) return false
+  if (entryA.references.length) {
+    if (!scoped(entryA.scope, entryB.scope)) return false
+    const refs = (entry: PromptHistoryEntry) =>
+      JSON.stringify(entry.references.map((ref) => ({ ...ref, id: undefined, version: undefined })))
+    if (refs(entryA) !== refs(entryB)) return false
+  }
   if (entryA.prompt.length !== entryB.prompt.length) return false
   for (let i = 0; i < entryA.prompt.length; i++) {
     const partA = entryA.prompt[i]
@@ -226,6 +258,8 @@ type HistoryNavInput = {
   historyIndex: number
   currentPrompt: Prompt
   currentComments: PromptHistoryComment[]
+  currentReferences?: readonly Reference[]
+  scope?: PromptScope
   savedPrompt: PromptHistoryEntry | null
 }
 
@@ -244,8 +278,18 @@ type HistoryNavResult =
     }
 
 export function navigatePromptHistory(input: HistoryNavInput): HistoryNavResult {
+  const entries = input.entries
+    .map(normalizePromptHistoryEntry)
+    .filter(
+      (entry) =>
+        !entry.references.length ||
+        scoped(entry.scope, input.scope) ||
+        content(entry.prompt) ||
+        entry.comments.some((comment) => !!comment.comment.trim()),
+    )
+    .map((entry) => ({ ...entry, references: scoped(entry.scope, input.scope) ? entry.references : [] }))
   if (input.direction === "up") {
-    if (input.entries.length === 0) {
+    if (entries.length === 0) {
       return {
         handled: false,
         historyIndex: input.historyIndex,
@@ -254,22 +298,24 @@ export function navigatePromptHistory(input: HistoryNavInput): HistoryNavResult 
     }
 
     if (input.historyIndex === -1) {
-      const entry = normalizePromptHistoryEntry(input.entries[0])
+      const entry = entries[0]!
       return {
         handled: true,
         historyIndex: 0,
         savedPrompt: {
           prompt: clonePromptParts(input.currentPrompt),
           comments: clonePromptHistoryComments(input.currentComments),
+          references: cloneReferences(input.currentReferences ?? []),
+          ...(input.scope ? { scope: { ...input.scope } } : {}),
         },
         entry,
         cursor: "start",
       }
     }
 
-    if (input.historyIndex < input.entries.length - 1) {
+    if (input.historyIndex < entries.length - 1) {
       const next = input.historyIndex + 1
-      const entry = normalizePromptHistoryEntry(input.entries[next])
+      const entry = entries[next]!
       return {
         handled: true,
         historyIndex: next,
@@ -288,7 +334,8 @@ export function navigatePromptHistory(input: HistoryNavInput): HistoryNavResult 
 
   if (input.historyIndex > 0) {
     const next = input.historyIndex - 1
-    const entry = normalizePromptHistoryEntry(input.entries[next])
+    const entry = entries[next]
+    if (!entry) return { handled: false, historyIndex: input.historyIndex, savedPrompt: input.savedPrompt }
     return {
       handled: true,
       historyIndex: next,
@@ -304,7 +351,12 @@ export function navigatePromptHistory(input: HistoryNavInput): HistoryNavResult 
         handled: true,
         historyIndex: -1,
         savedPrompt: null,
-        entry: input.savedPrompt,
+        entry: {
+          ...input.savedPrompt,
+          prompt: clonePromptParts(input.savedPrompt.prompt),
+          comments: clonePromptHistoryComments(input.savedPrompt.comments),
+          references: scoped(input.savedPrompt.scope, input.scope) ? cloneReferences(input.savedPrompt.references) : [],
+        },
         cursor: "end",
       }
     }
@@ -316,6 +368,7 @@ export function navigatePromptHistory(input: HistoryNavInput): HistoryNavResult 
       entry: {
         prompt: DEFAULT_PROMPT,
         comments: [],
+        references: [],
       },
       cursor: "end",
     }

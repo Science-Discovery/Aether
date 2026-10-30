@@ -1,8 +1,9 @@
+import type { PdfTextSelection, PdfImageSelection } from "@/components/pdf-viewer-shell-official"
 import { createEffect, createMemo, createSignal } from "solid-js"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { showToast } from "@opencode-ai/ui/toast"
 import { DialogQuickReadingSettings } from "@/components/quick-reading/dialog-quick-reading-settings"
-import { DEFAULT_PROMPT } from "@/context/prompt"
+import { DEFAULT_PROMPT, usePrompt } from "@/context/prompt"
 import { useGlobalSync } from "@/context/global-sync"
 import { useLanguage } from "@/context/language"
 import { useLocal } from "@/context/local"
@@ -21,6 +22,7 @@ type Options = Record<string, never>
 const isPdfPath = (path?: string) => !!path && path.split(".").pop()?.toLowerCase() === "pdf"
 
 export function useQuickReadingController(_options: Options) {
+  const prompt = usePrompt()
   const dialog = useDialog()
   const globalSync = useGlobalSync()
   const language = useLanguage()
@@ -39,14 +41,6 @@ export function useQuickReadingController(_options: Options) {
     quickReading.unbind()
     reading().close()
     if (!view().reviewPanel.opened()) view().reviewPanel.open()
-  }
-
-  const focusPromptInput = () => {
-    requestAnimationFrame(() => {
-      const el = document.querySelector('[data-component="prompt-input"]')
-      if (!(el instanceof HTMLElement)) return
-      el.focus()
-    })
   }
 
   const validateSendContext = () => {
@@ -109,12 +103,7 @@ export function useQuickReadingController(_options: Options) {
     })
   }
 
-  const handleTextSelectionAction = async (input: {
-    action: "copy" | "translate" | "ask"
-    startPage: number
-    endPage: number
-    text: string
-  }) => {
+  const handleTextSelectionAction = async (input: PdfTextSelection) => {
     const text = input.text.trim()
     if (!text) return
     const binding = quickReading.store.binding
@@ -122,17 +111,24 @@ export function useQuickReadingController(_options: Options) {
     if (input.action === "ask") {
       const sessionID = params.id
       if (!sessionID) return
-      quickReading.setPendingQuestion({
-        kind: "text-question",
-        sessionID,
-        pdfPath: binding.pdfPath,
-        pdfFileName: binding.pdfFileName,
+      if (input.question === undefined || !input.selection) return
+      prompt.references.add({
+        id: crypto.randomUUID(),
+        version: 1,
+        kind: "pdf",
+        question: input.question,
+        path: binding.pdfPath,
+        filename: binding.pdfFileName,
+        mode: "quick",
         startPage: input.startPage,
         endPage: input.endPage,
+        selection: input.selection,
+        content: "text",
         text,
-        createdAt: Date.now(),
+        summary: summarizeReadingQuoteText(text),
+        settings: { questionPrompt: quickReading.store.snapshot.settings.questionPrompt },
+        totalPages: quickReading.store.snapshot.totalPages,
       })
-      focusPromptInput()
       return
     }
 
@@ -171,28 +167,32 @@ export function useQuickReadingController(_options: Options) {
     })
   }
 
-  const handleImageSelectionAction = async (input: {
-    action: "copy" | "translate" | "ask"
-    page: number
-    imageDataUrl: string
-  }) => {
+  const handleImageSelectionAction = async (input: PdfImageSelection) => {
     if (!input.imageDataUrl) return
     const binding = quickReading.store.binding
     if (!binding) return
     if (input.action === "ask") {
       const sessionID = params.id
       if (!sessionID) return
-      quickReading.setPendingQuestion({
-        kind: "image-question",
-        sessionID,
-        pdfPath: binding.pdfPath,
-        pdfFileName: binding.pdfFileName,
-        page: input.page,
-        text: `Captured region from ${binding.pdfFileName}, page ${input.page}`,
-        imageDataUrl: input.imageDataUrl,
-        createdAt: Date.now(),
+      if (input.question === undefined || !input.selection) return
+      prompt.references.add({
+        id: crypto.randomUUID(),
+        version: 1,
+        kind: "pdf",
+        question: input.question,
+        path: binding.pdfPath,
+        filename: binding.pdfFileName,
+        mode: "quick",
+        startPage: input.page,
+        endPage: input.page,
+        selection: input.selection,
+        content: "image",
+        image: input.imageDataUrl,
+        text: "",
+        summary: `${binding.pdfFileName} · ${input.page}`,
+        settings: { questionPrompt: quickReading.store.snapshot.settings.questionPrompt },
+        totalPages: quickReading.store.snapshot.totalPages,
       })
-      focusPromptInput()
       return
     }
 

@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest"
 import { createStore } from "solid-js/store"
 import { render } from "solid-js/web"
-import { PdfViewerShell, type PdfAnnotation } from "./pdf-viewer-shell-official"
+import type { Reference } from "@/utils/ask-reference"
+import { PdfViewerShell, type PdfAnnotation, type PdfTextSelection } from "./pdf-viewer-shell-official"
 
 const state = vi.hoisted(() => ({
   directory: "",
@@ -21,7 +22,7 @@ vi.mock("@opencode-ai/ui/toast", () => ({
 type Message = {
   type: string
   document?: string
-  config?: { document: string; features: { annotations: boolean } }
+  config?: { document: string; selectionDocument: string; features: { annotations: boolean } }
   annotations?: PdfAnnotation[]
 }
 
@@ -77,11 +78,23 @@ function network(
   return { writes, exports }
 }
 
-async function mount(ready = true) {
-  const [props, set] = createStore({ path: "a.pdf" })
+async function mount(ready = true, callback?: (input: PdfTextSelection) => void, references: Reference[] = []) {
+  const [props, set] = createStore({ path: "a.pdf", session: "session-a" })
   const host = document.createElement("div")
   document.body.append(host)
-  const off = render(() => <PdfViewerShell src={`/raw/${props.path}`} annotationPath={props.path} mode="full" />, host)
+  const off = render(
+    () => (
+      <PdfViewerShell
+        src={`/raw/${props.path}`}
+        annotationPath={props.path}
+        askScope={props.session}
+        onTextSelectionAction={callback}
+        references={references}
+        mode="full"
+      />
+    ),
+    host,
+  )
   cleanups.push(() => {
     off()
     host.remove()
@@ -239,5 +252,91 @@ describe("PDF annotation persistence in the real viewer shell", () => {
     expect(viewer.messages.findLast((message) => message.type === "annotations")?.annotations?.[0].note).toBe(
       "new document",
     )
+  })
+})
+
+describe("PDF selection questions in the real viewer shell", () => {
+  test("loads the saved question only for the same PDF page and selection", async () => {
+    network()
+    const base = {
+      id: "image-1",
+      version: 1,
+      question: "First page question",
+      text: "",
+      summary: "Region",
+      kind: "pdf" as const,
+      mode: "quick" as const,
+      path: "a.pdf",
+      filename: "a.pdf",
+      startPage: 1,
+      endPage: 1,
+      selection: "same-rectangle",
+      content: "image" as const,
+      settings: { questionPrompt: "Answer" },
+    }
+    const viewer = await mount(true, undefined, [
+      base,
+      { ...base, id: "image-2", startPage: 2, endPage: 2, question: "Second page question" },
+    ])
+    const key = viewer.messages.findLast((item) => item.type === "config")!.config!.selectionDocument
+    viewer.send("imageselectionaction", {
+      document: key,
+      action: "ask",
+      selection: "same-rectangle",
+      page: 2,
+      imageDataUrl: "data:image/png;base64,AA==",
+      rect: { top: 10, left: 10, right: 120, bottom: 50 },
+    })
+    const input = document.querySelector<HTMLTextAreaElement>('[data-component="ask-editor"] textarea')!
+    expect(input.value).toBe("Second page question")
+    input.value = "Discard this edit"
+    input.dispatchEvent(new Event("input", { bubbles: true }))
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))
+    expect(document.querySelector('[data-component="ask-editor"]')).toBeNull()
+    expect(base.question).toBe("First page question")
+  })
+
+  test("opens a local editor, saves once, and rejects old document and session events", async () => {
+    network()
+    const save = vi.fn()
+    const viewer = await mount(true, save)
+    const key = () => viewer.messages.findLast((item) => item.type === "config")!.config!.selectionDocument
+    const data = () => ({
+      document: key(),
+      action: "ask",
+      selection: "page1-quad",
+      startPage: 1,
+      endPage: 1,
+      text: "Quoted text",
+      rect: { top: 10, left: 10, right: 120, bottom: 50 },
+    })
+    viewer.send("textselectionaction", data())
+    const editor = () => document.querySelector<HTMLFormElement>('[data-component="ask-editor"]')
+    await vi.waitFor(() => expect(editor()).not.toBeNull())
+    expect(save).not.toHaveBeenCalled()
+    const input = editor()!.querySelector("textarea")!
+    input.value = "Why?"
+    input.dispatchEvent(new Event("input", { bubbles: true }))
+    editor()!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }))
+    expect(save).toHaveBeenCalledOnce()
+    expect(save.mock.calls[0][0]).toMatchObject({ question: "Why?", selection: "page1-quad", text: "Quoted text" })
+    expect(editor()).toBeNull()
+    expect(viewer.messages.at(-1)?.type).toBe("askclose")
+
+    const old = data()
+    viewer.send("textselectionaction", old)
+    expect(editor()).not.toBeNull()
+    viewer.set("session", "session-b")
+    await vi.waitFor(() => expect(editor()).toBeNull())
+    viewer.send("textselectionaction", old)
+    expect(editor()).toBeNull()
+    viewer.send("textselectionaction", data())
+    expect(editor()).not.toBeNull()
+    const previous = data()
+    viewer.set("path", "b.pdf")
+    await vi.waitFor(() => expect(editor()).toBeNull())
+    viewer.send("textselectionaction", previous)
+    expect(editor()).toBeNull()
+    expect(save).toHaveBeenCalledOnce()
   })
 })

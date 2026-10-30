@@ -744,3 +744,12 @@ body.aether-pdf-viewer #aetherToolbarAuto::before {
 body.aether-pdf-viewer #aetherToolbarAuto.toggled::before {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='8' cy='8' r='7' fill='%23000' stroke='%23fff' stroke-width='1.4'/%3E%3Cpath d='M8 1a7 7 0 0 1 0 14 3.5 3.5 0 0 1 0-7 3.5 3.5 0 0 0 0-7z' fill='%23fff'/%3E%3Ccircle cx='8' cy='4.5' r='1.1' fill='%23fff'/%3E%3Ccircle cx='8' cy='11.5' r='1.1' fill='%23000'/%3E%3C/svg%3E");
 }
+
+.aetherAskSelection {
+  position: fixed;
+  z-index: 100;
+  pointer-events: none;
+  background: rgba(80, 130, 240, 0.24);
+  border: 1px solid rgba(80, 130, 240, 0.6);
+  box-sizing: border-box;
+}

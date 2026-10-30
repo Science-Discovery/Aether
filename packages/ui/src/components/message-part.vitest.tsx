@@ -202,6 +202,29 @@ function textNode(root: ParentNode, value: string) {
 const follows = (a: Node, b: Node) => !!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING)
 
 describe("assistant error placement", () => {
+  test("exposes actual assistant and text-part identities only on selectable bodies", async () => {
+    const parts = {
+      first: [textPart("one", "first", "First body"), textPart("two", "first", "Second body")],
+      second: [textPart("three", "second", "Third body")],
+    }
+    const { host, off } = mountAssistant([assistant("first"), assistant("second")], parts)
+    await vi.waitFor(() => expect(host.querySelectorAll("[data-assistant-part-id]")).toHaveLength(3))
+    expect(
+      Array.from(host.querySelectorAll<HTMLElement>("[data-assistant-part-id]")).map((node) => [
+        node.dataset.assistantMessageId,
+        node.dataset.assistantPartId,
+      ]),
+    ).toEqual([
+      ["first", "one"],
+      ["first", "two"],
+      ["second", "three"],
+    ])
+    expect(host.querySelector("[data-slot='text-part-copy-wrapper']")?.hasAttribute("data-assistant-message-id")).toBe(
+      false,
+    )
+    off()
+  })
+
   test("renders the error card at the errored message, before later recovery content", async () => {
     const parts = {
       m1: [textPart("p1", "m1", "before error")],
