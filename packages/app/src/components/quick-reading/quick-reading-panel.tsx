@@ -48,6 +48,7 @@ export const QuickReadingPanel: Component<{
             src={props.url}
             askScope={params.id}
             references={prompt.references.items()}
+            onReferenceEdit={(id, question) => prompt.references.update(id, question)}
             annotationPath={props.annotationPath}
             authHeader={props.authHeader}
             mode="full"

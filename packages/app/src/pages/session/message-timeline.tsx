@@ -24,6 +24,7 @@ import { shouldMarkBoundaryGesture, normalizeWheelDelta } from "@/pages/session/
 import { createTurnCollapse } from "@/pages/session/message-collapse"
 import { resolveSelectionAnchorRect } from "@/pages/session/selection-anchor"
 import { conversationSelection } from "@/pages/session/conversation-selection"
+import { ConversationMarks } from "@/pages/session/conversation-marks"
 import { MessageReferences } from "@/pages/session/message-references"
 import { SessionContextUsage } from "@/components/session-context-usage"
 import { useI18n } from "@opencode-ai/ui/context"
@@ -676,6 +677,11 @@ export function MessageTimeline(props: {
   )
 
   createEffect(() => {
+    const value = editor()
+    if (value?.editing && !prompt.references.items().some((ref) => ref.id === value.reference.id)) setEditor(undefined)
+  })
+
+  createEffect(() => {
     if (props.mobileChanges) {
       clear()
       return
@@ -692,6 +698,7 @@ export function MessageTimeline(props: {
       if (editor()) return
       const target = event.target instanceof Element ? event.target : undefined
       if (target?.closest('[data-component="conversation-quote-ask-button"]')) return
+      if (target?.closest('[data-component="conversation-reference-mark"]')) return
       clear()
     }
     const move = () => clear()
@@ -1670,6 +1677,16 @@ export function MessageTimeline(props: {
             </div>
           </div>
         </ScrollView>
+        <ConversationMarks
+          root={() => log}
+          viewport={() => root}
+          references={prompt.references.items()}
+          editing={editor()?.reference}
+          onSelect={(reference, anchor) => {
+            clear()
+            setEditor({ reference, anchor, editing: true })
+          }}
+        />
         <Show when={editor()} keyed>
           {(value) => (
             <AskEditor
@@ -1678,7 +1695,10 @@ export function MessageTimeline(props: {
               question={value.reference.question}
               anchor={value.anchor}
               editing={value.editing}
-              onCancel={() => setEditor(undefined)}
+              onCancel={() => {
+                setEditor(undefined)
+                window.getSelection()?.removeAllRanges()
+              }}
               onSave={(question) => {
                 if (value.editing) prompt.references.update(value.reference.id, question)
                 else prompt.references.add({ ...value.reference, question })

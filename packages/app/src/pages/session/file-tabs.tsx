@@ -534,6 +534,7 @@ export function FileTabContent(props: { tab: string }) {
         startPage: input.startPage,
         endPage: input.endPage,
         selection: input.selection,
+        fingerprint: input.fingerprint,
         content: "text",
         text,
         summary: summarizeReadingQuoteText(text),
@@ -594,6 +595,7 @@ export function FileTabContent(props: { tab: string }) {
         startPage: input.page,
         endPage: input.page,
         selection: input.selection,
+        fingerprint: input.fingerprint,
         content: "image",
         image: input.imageDataUrl,
         text: "",
@@ -1282,6 +1284,7 @@ export function FileTabContent(props: { tab: string }) {
             src={rawPreviewUrl()}
             askScope={params.id}
             references={prompt.references.items()}
+            onReferenceEdit={(id, question) => prompt.references.update(id, question)}
             annotationPath={currentPath}
             authHeader={pdfAuthHeader()}
             mode="full"

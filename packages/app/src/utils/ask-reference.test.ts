@@ -5,6 +5,7 @@ import {
   clearReferences,
   cloneReferences,
   missingImages,
+  pdfMarks,
   referenceKey,
   restoreReferences,
   sanitizeReferences,
@@ -44,6 +45,93 @@ const conversation = (): Extract<Reference, { kind: "conversation" }> => ({
 })
 
 describe("Ask references", () => {
+  test("persists real PDF identity and upgrades only a legacy reference at the exact same position", () => {
+    const original = pdf()
+    const upgraded = { ...original, id: "new", fingerprint: "actual-pdf" }
+    expect(sanitizeReferences([upgraded])[0]).toEqual(upgraded)
+    expect(addReference([original], upgraded)).toEqual([{ ...upgraded, id: original.id, version: 2 }])
+    expect(addReference([upgraded], { ...upgraded, id: "replacement-file", fingerprint: "other-pdf" })).toHaveLength(2)
+    expect(referenceKey(upgraded)).not.toBe(referenceKey(original))
+  })
+
+  test("keeps PDF modification fingerprints distinct when their original document identity is the same", () => {
+    const original = { ...pdf(), fingerprint: "original:revision-a", content: "image" as const, selection: "[1,2,3,4]" }
+    const changed = { ...original, id: "changed", fingerprint: "original:revision-b" }
+    const refs = sanitizeReferences([original, changed])
+    expect(refs).toHaveLength(2)
+    expect(addReference([original], changed)).toHaveLength(2)
+    expect(pdfMarks(refs, original.path, original.fingerprint).map((mark) => mark.id)).toEqual([original.id])
+    expect(pdfMarks(refs, changed.path, changed.fingerprint).map((mark) => mark.id)).toEqual([changed.id])
+    expect(pdfMarks(refs, original.path, "original")).toEqual([])
+  })
+
+  test("derives global PDF marker numbers with per-page geometry, fingerprint gating and no screenshot requirement", () => {
+    const quads = [[10, 20, 30, 20, 10, 40, 30, 40]]
+    const ref = {
+      ...pdf(),
+      fingerprint: "actual",
+      selection: JSON.stringify([
+        { page: 2, quads },
+        { page: 3, quads },
+      ]),
+    }
+    const image = {
+      ...ref,
+      id: "image",
+      content: "image" as const,
+      startPage: 2,
+      endPage: 2,
+      selection: "[10,20,30,40]",
+    }
+    const refs = [
+      conversation(),
+      ref,
+      { ...ref, id: "legacy", fingerprint: undefined },
+      image,
+      { ...ref, id: "replacement", fingerprint: "other" },
+      { ...ref, id: "wrong-path", path: "b.pdf" },
+    ]
+    expect(pdfMarks(refs, ref.path, "actual")).toEqual([
+      {
+        id: ref.id,
+        number: 2,
+        pages: [
+          { page: 2, quads },
+          { page: 3, quads },
+        ],
+      },
+      { id: image.id, number: 4, pages: [{ page: 2, quads }] },
+    ])
+    expect(pdfMarks(refs, ref.path, undefined)).toEqual([])
+    expect(pdfMarks(refs, undefined, "actual")).toEqual([])
+    expect(
+      pdfMarks(
+        [
+          { ...ref, selection: "broken" },
+          { ...image, selection: "[1,2,1,4]" },
+        ],
+        ref.path,
+        "actual",
+      ),
+    ).toEqual([])
+    expect(
+      pdfMarks(
+        [
+          {
+            ...ref,
+            selection: JSON.stringify([
+              { page: 1, quads },
+              { page: 2, quads: [[1, 2]] },
+            ]),
+          },
+        ],
+        ref.path,
+        "actual",
+      ),
+    ).toEqual([])
+    expect(refs[2]?.kind === "pdf" && refs[2].fingerprint).toBeUndefined()
+  })
+
   test("keys identify positions independently of questions and source text", () => {
     const first = conversation()
     expect(referenceKey(first)).toBe(referenceKey({ ...first, id: "new", text: "changed", question: "Why?" }))

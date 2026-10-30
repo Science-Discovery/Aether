@@ -23,6 +23,7 @@ export type Reference = Base &
         startPage: number
         endPage: number
         selection: string
+        fingerprint?: string
         content: "text" | "image"
         image?: string
         settings: {
@@ -35,7 +36,7 @@ export type Reference = Base &
 
 export function referenceKey(ref: Reference) {
   if (ref.kind === "conversation") return JSON.stringify([ref.kind, ref.messageID, ref.start, ref.end])
-  return JSON.stringify([ref.kind, ref.path, ref.startPage, ref.endPage, ref.selection, ref.content])
+  return JSON.stringify([ref.kind, ref.path, ref.startPage, ref.endPage, ref.selection, ref.content, ref.fingerprint])
 }
 
 export function cloneReferences(refs: readonly Reference[]): Reference[] {
@@ -88,6 +89,7 @@ export function sanitizeReferences(value: unknown): Reference[] {
         startPage: ref.startPage,
         endPage: ref.endPage,
         selection: ref.selection,
+        ...(typeof ref.fingerprint === "string" && ref.fingerprint ? { fingerprint: ref.fingerprint } : {}),
         content: ref.content,
         settings: {
           questionPrompt: ref.settings.questionPrompt,
@@ -118,7 +120,16 @@ export function missingImages(refs: readonly Reference[]) {
 
 export function addReference(refs: readonly Reference[], ref: Reference) {
   const key = referenceKey(ref)
-  const match = refs.find((item) => referenceKey(item) === key)
+  const match =
+    refs.find((item) => referenceKey(item) === key) ??
+    refs.find(
+      (item) =>
+        ref.kind === "pdf" &&
+        !!ref.fingerprint &&
+        item.kind === "pdf" &&
+        !item.fingerprint &&
+        referenceKey(item) === referenceKey({ ...ref, fingerprint: undefined }),
+    )
   if (!match) return cloneReferences([...refs, ref])
   return cloneReferences(
     refs.map((item) => (item.id === match.id ? { ...ref, id: item.id, version: item.version + 1 } : item)),
@@ -132,4 +143,55 @@ export function updateReference(refs: readonly Reference[], id: string, question
 export function clearReferences(refs: readonly Reference[], snapshot: readonly Reference[]) {
   const versions = new Map(snapshot.map((ref) => [ref.id, ref.version]))
   return cloneReferences(refs.filter((ref) => versions.get(ref.id) !== ref.version))
+}
+
+export type PdfMark = {
+  id: string
+  number: number
+  pages: { page: number; quads: number[][] }[]
+}
+
+export function pdfMarks(
+  refs: readonly Reference[],
+  path: string | undefined,
+  fingerprint: string | undefined,
+): PdfMark[] {
+  if (!path || !fingerprint) return []
+  return refs.flatMap((ref, index): PdfMark[] => {
+    if (ref.kind !== "pdf" || ref.path !== path || ref.fingerprint !== fingerprint) return []
+    let value: unknown
+    try {
+      value = JSON.parse(ref.selection)
+    } catch {
+      return []
+    }
+    const points = (value: unknown, size: number): value is number[] =>
+      Array.isArray(value) && value.length === size && value.every((n) => typeof n === "number" && Number.isFinite(n))
+    if (ref.content === "image") {
+      if (!points(value, 4)) return []
+      const [x, y, right, bottom] = value
+      if (x === right || y === bottom) return []
+      return [
+        {
+          id: ref.id,
+          number: index + 1,
+          pages: [{ page: ref.startPage, quads: [[x, y, right, y, x, bottom, right, bottom]] }],
+        },
+      ]
+    }
+    if (!Array.isArray(value)) return []
+    const pages = value.flatMap((part) => {
+      if (
+        !record(part) ||
+        !integer(part.page) ||
+        part.page < ref.startPage ||
+        part.page > ref.endPage ||
+        !Array.isArray(part.quads)
+      )
+        return []
+      const quads = part.quads.filter((quad): quad is number[] => points(quad, 8))
+      return quads.length ? [{ page: part.page, quads }] : []
+    })
+    return pages.length ? [{ id: ref.id, number: index + 1, pages }] : []
+  })
 }

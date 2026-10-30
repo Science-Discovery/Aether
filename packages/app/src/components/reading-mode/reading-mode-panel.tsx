@@ -93,6 +93,7 @@ export const ReadingModePanel: Component<{
         startPage: input.startPage,
         endPage: input.endPage,
         selection: input.selection,
+        fingerprint: input.fingerprint,
         content: "text",
         text,
         summary: summarizeReadingQuoteText(text),
@@ -174,6 +175,7 @@ export const ReadingModePanel: Component<{
         startPage: input.page,
         endPage: input.page,
         selection: input.selection,
+        fingerprint: input.fingerprint,
         content: "image",
         image: input.imageDataUrl,
         text: "",
@@ -265,6 +267,7 @@ export const ReadingModePanel: Component<{
             askScope={props.sessionID}
             askPath={sessionMeta()?.pdfStorePath}
             references={prompt.references.items()}
+            onReferenceEdit={(id, question) => prompt.references.update(id, question)}
             layoutSwapped={props.layoutSwapped}
             onSwapLayout={props.onSwapLayout}
             onOpenSettings={handleOpenSettings}

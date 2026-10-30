@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest"
 import { createStore } from "solid-js/store"
 import { render } from "solid-js/web"
-import type { Reference } from "@/utils/ask-reference"
+import { updateReference, type Reference, type PdfMark } from "@/utils/ask-reference"
 import { PdfViewerShell, type PdfAnnotation, type PdfTextSelection } from "./pdf-viewer-shell-official"
 
 const state = vi.hoisted(() => ({
@@ -24,6 +24,8 @@ type Message = {
   document?: string
   config?: { document: string; selectionDocument: string; features: { annotations: boolean } }
   annotations?: PdfAnnotation[]
+  fingerprint?: string
+  references?: PdfMark[]
 }
 
 const cleanups: Array<() => void> = []
@@ -78,8 +80,13 @@ function network(
   return { writes, exports }
 }
 
-async function mount(ready = true, callback?: (input: PdfTextSelection) => void, references: Reference[] = []) {
-  const [props, set] = createStore({ path: "a.pdf", session: "session-a" })
+async function mount(
+  ready = true,
+  callback?: (input: PdfTextSelection) => void,
+  references: Reference[] = [],
+  edit?: (id: string, question: string) => void,
+) {
+  const [props, set] = createStore({ path: "a.pdf", session: "session-a", references })
   const host = document.createElement("div")
   document.body.append(host)
   const off = render(
@@ -89,7 +96,8 @@ async function mount(ready = true, callback?: (input: PdfTextSelection) => void,
         annotationPath={props.path}
         askScope={props.session}
         onTextSelectionAction={callback}
-        references={references}
+        references={props.references}
+        onReferenceEdit={edit}
         mode="full"
       />
     ),
@@ -256,6 +264,116 @@ describe("PDF annotation persistence in the real viewer shell", () => {
 })
 
 describe("PDF selection questions in the real viewer shell", () => {
+  test("publishes globally numbered markers only for the actual PDF fingerprint without annotation writes", async () => {
+    const calls = network()
+    const ref: Reference = {
+      id: "current",
+      version: 1,
+      kind: "pdf",
+      question: "Why?",
+      text: "Text",
+      summary: "Text",
+      path: "a.pdf",
+      filename: "a.pdf",
+      mode: "quick",
+      startPage: 1,
+      endPage: 1,
+      content: "text",
+      fingerprint: "actual-a",
+      selection: JSON.stringify([{ page: 1, quads: [[1, 2, 3, 2, 1, 4, 3, 4]] }]),
+      settings: { questionPrompt: "Explain" },
+    }
+    const viewer = await mount(true, undefined, [
+      { ...ref, id: "other", path: "b.pdf" },
+      ref,
+      { ...ref, id: "old", fingerprint: undefined },
+      { ...ref, id: "replaced", fingerprint: "different-content" },
+    ])
+    const key = () => viewer.messages.findLast((item) => item.type === "config")!.config!.selectionDocument
+    const marks = () => viewer.messages.findLast((item) => item.type === "askreferences")!
+    expect(marks().references).toEqual([])
+    viewer.send("documentready", { document: "stale", fingerprint: "actual-a" })
+    expect(marks().references).toEqual([])
+    viewer.send("documentready", { document: key(), fingerprint: "actual-a" })
+    expect(marks().references?.map((item) => [item.id, item.number])).toEqual([["current", 2]])
+    const configs = viewer.messages.filter((item) => item.type === "config").length
+    viewer.set("references", [])
+    expect(marks().references).toEqual([])
+    expect(viewer.messages.filter((item) => item.type === "config")).toHaveLength(configs)
+    viewer.set("references", [ref])
+    expect(marks().references?.[0]?.number).toBe(1)
+    viewer.set("session", "session-b")
+    expect(marks().document).toBe(key())
+    expect(marks().references).toEqual([])
+    expect(calls.writes).toEqual([])
+    expect(calls.exports).toEqual([])
+  })
+
+  test.each([undefined, "data:image/png;base64,AA=="])(
+    "edits only a marker question with image %s and closes when the reference disappears",
+    async (image) => {
+      const calls = network()
+      const ref: Reference = {
+        id: "image",
+        version: 3,
+        kind: "pdf",
+        question: "Original",
+        text: "",
+        summary: "Region",
+        path: "a.pdf",
+        filename: "a.pdf",
+        mode: "classic",
+        sourceSession: "original-session",
+        startPage: 1,
+        endPage: 1,
+        content: "image",
+        image,
+        fingerprint: "actual-a",
+        selection: "[1,2,3,4]",
+        settings: { questionPrompt: "Frozen original prompt", contextPageRange: 2 },
+        totalPages: 12,
+      }
+      const add = vi.fn()
+      const edit = vi.fn((id: string, question: string) =>
+        viewer.set("references", updateReference([ref], id, question)),
+      )
+      const viewer = await mount(true, add, [ref], edit)
+      const key = () => viewer.messages.findLast((item) => item.type === "config")!.config!.selectionDocument
+      viewer.send("documentready", { document: key(), fingerprint: ref.fingerprint })
+      const data = {
+        document: key(),
+        fingerprint: ref.fingerprint,
+        id: ref.id,
+        rect: { left: 10, right: 32, top: 10, bottom: 32 },
+      }
+      const editor = () => document.querySelector<HTMLFormElement>('[data-component="ask-editor"]')
+      viewer.send("askreference", { ...data, fingerprint: "wrong" })
+      viewer.send("askreference", { ...data, id: "deleted" })
+      expect(editor()).toBeNull()
+      viewer.send("askreference", data)
+      const input = editor()!.querySelector("textarea")!
+      expect(input.value).toBe("Original")
+      input.value = "Edited question"
+      input.dispatchEvent(new Event("input", { bubbles: true }))
+      editor()!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }))
+      expect(edit).toHaveBeenCalledExactlyOnceWith(ref.id, "Edited question")
+      expect(add).not.toHaveBeenCalled()
+      expect(editor()).toBeNull()
+      viewer.send("askreference", data)
+      expect(editor()!.querySelector("textarea")!.value).toBe("Edited question")
+      viewer.set("references", [])
+      expect(editor()).toBeNull()
+      viewer.send("askreference", data)
+      expect(editor()).toBeNull()
+      expect(updateReference([ref], ref.id, "Edited question")[0]).toEqual({
+        ...ref,
+        version: 4,
+        question: "Edited question",
+      })
+      expect(calls.writes).toEqual([])
+    },
+  )
+
   test("loads the saved question only for the same PDF page and selection", async () => {
     network()
     const base = {

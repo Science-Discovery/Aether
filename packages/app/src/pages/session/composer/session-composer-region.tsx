@@ -55,6 +55,10 @@ export function SessionComposerRegion(props: {
   const references = createMemo(() => prompt.references.items())
   const [editor, setEditor] = createSignal<{ reference: Reference; anchor: AskEditorProps["anchor"] }>()
   createEffect(on(route.sessionKey, () => setEditor(undefined)))
+  createEffect(() => {
+    const current = editor()
+    if (current && !references().some((ref) => ref.id === current.reference.id)) setEditor(undefined)
+  })
   const fileQuoteQuestion = createMemo(() => {
     const pending = fileQuote?.store.question
     return pending?.sessionID === route.params.id ? pending : null

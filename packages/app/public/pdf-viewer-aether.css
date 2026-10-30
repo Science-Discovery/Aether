@@ -753,3 +753,54 @@ body.aether-pdf-viewer #aetherToolbarAuto.toggled::before {
   border: 1px solid rgba(80, 130, 240, 0.6);
   box-sizing: border-box;
 }
+
+.aetherAskLayer {
+  position: absolute;
+  z-index: 6;
+  pointer-events: none;
+}
+.aetherAskRegion {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  pointer-events: none;
+}
+.aetherAskRegion.active {
+  opacity: 1;
+}
+.aetherAskRegion polygon {
+  fill: rgba(75, 124, 235, 0.2);
+  stroke: rgba(75, 124, 235, 0.6);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+.aetherAskBadge {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid #386cd0;
+  border-radius: 50%;
+  background: #edf3ff;
+  color: #244d98;
+  font:
+    600 12px/1 system-ui,
+    sans-serif;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+  cursor: pointer;
+  pointer-events: auto;
+}
+.aetherAskBadge:hover,
+.aetherAskBadge:focus-visible {
+  background: #d7e5ff;
+  outline: 2px solid #6d9aed;
+  outline-offset: 1px;
+}
+body.aether-pdf-viewer[data-view-theme="night"] .aetherAskBadge {
+  background: #1f365c;
+  color: #e0eaff;
+  border-color: #86aaf0;
+}

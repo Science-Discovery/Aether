@@ -10,6 +10,7 @@ export const OfficialReadingPdfViewer: Component<{
   askScope: string
   askPath?: string
   references: readonly Reference[]
+  onReferenceEdit: (id: string, question: string) => void
   layoutSwapped?: boolean
   onSwapLayout?: () => void
   onOpenSettings?: () => void
@@ -32,6 +33,7 @@ export const OfficialReadingPdfViewer: Component<{
       askScope={props.askScope}
       askPath={props.askPath}
       references={props.references}
+      onReferenceEdit={props.onReferenceEdit}
       authHeader={authHeader()}
       mode="full"
       page={rm.store.currentPage}

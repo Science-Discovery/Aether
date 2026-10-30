@@ -46,6 +46,7 @@
   let selectionHintLockedUntil = 0
   let selectionState = null
   let askSelection = null
+  let askReferences = { document: "", fingerprint: "", items: [] }
   let annotations = []
   let annotationEditor = null
   let annotationUndo = null
@@ -452,6 +453,7 @@
     const key = askSelection.document
     askSelection = null
     document.querySelectorAll(".aetherAskSelection").forEach((node) => node.remove())
+    document.querySelectorAll(".aetherAskRegion.active").forEach((node) => node.classList.remove("active"))
     if (notify) post("askcancel", { document: key })
   }
 
@@ -474,6 +476,156 @@
         height: rect.height + "px",
       })
       document.body.appendChild(node)
+    })
+  }
+
+  function publishDocument() {
+    if (!pdfReady()) return
+    post("documentready", { document: currentConfig.selectionDocument, fingerprint: loaded.fingerprint })
+  }
+
+  function renderAskReferences() {
+    const focus = document.hasFocus() && document.activeElement?.closest?.(".aetherAskBadge")
+    const focused = focus && { id: focus.dataset.referenceId, page: focus.closest(".page")?.dataset.pageNumber }
+    document.querySelectorAll(".aetherAskLayer").forEach((node) => node.remove())
+    if (
+      !pdfReady() ||
+      askReferences.document !== currentConfig.selectionDocument ||
+      !loaded.fingerprint ||
+      askReferences.fingerprint !== loaded.fingerprint
+    )
+      return
+    const occupied = new Map()
+    const activate = (id, active) => {
+      document.querySelectorAll(".aetherAskRegion").forEach((node) => {
+        node.classList.toggle(
+          "active",
+          node.dataset.referenceId === askSelection?.reference || (active && node.dataset.referenceId === id),
+        )
+      })
+    }
+    askReferences.items.forEach(function (item) {
+      item.pages.forEach(function (part) {
+        const page = document.querySelector(`.page[data-page-number="${part.page}"]`)
+        const view = window.PDFViewerApplication.pdfViewer.getPageView(part.page - 1)
+        if (!page || !view?.viewport || !part.quads.length) return
+        const box = pageContentRect(page)
+        if (!box.width || !box.height) return
+        const bounds = page.getBoundingClientRect()
+        let layer = page.querySelector(".aetherAskLayer")
+        if (!layer) {
+          layer = document.createElement("div")
+          layer.className = "aetherAskLayer"
+          Object.assign(layer.style, {
+            left: box.left - bounds.left - page.clientLeft + "px",
+            top: box.top - bounds.top - page.clientTop + "px",
+            width: box.width + "px",
+            height: box.height + "px",
+          })
+          page.appendChild(layer)
+        }
+        const area = svg("svg")
+        area.classList.add("aetherAskRegion")
+        area.dataset.referenceId = item.id
+        area.classList.toggle("active", askSelection?.reference === item.id)
+        area.setAttribute("viewBox", `0 0 ${view.viewport.width} ${view.viewport.height}`)
+        area.setAttribute("preserveAspectRatio", "none")
+        const quads = part.quads.map((quad) => viewportQuad(view.viewport, quad))
+        quads.forEach((points) => {
+          const polygon = svg("polygon")
+          polygon.setAttribute(
+            "points",
+            [points[0], points[1], points[3], points[2]].map((point) => point.join(",")).join(" "),
+          )
+          area.appendChild(polygon)
+        })
+        layer.appendChild(area)
+        const points = quads[0]
+        const width = Math.min(Math.max(22, String(item.number).length * 7 + 10), box.width)
+        const height = Math.min(22, box.height)
+        const left = Math.max(
+          0,
+          Math.min(
+            box.width - width,
+            (Math.max(...points.map((point) => point[0])) * box.width) / view.viewport.width + 3,
+          ),
+        )
+        const top = Math.max(
+          0,
+          Math.min(
+            box.height - height,
+            (Math.min(...points.map((point) => point[1])) * box.height) / view.viewport.height - 3,
+          ),
+        )
+        const placed = occupied.get(part.page) || []
+        let position = { left, top }
+        let found = false
+        for (let column = 0; column <= Math.ceil(box.width / 26) && !found; column++) {
+          for (let row = 0; row <= Math.ceil(box.height / 26) && !found; row++) {
+            for (const y of row ? [top + row * 26, top - row * 26] : [top]) {
+              const x = left - column * 26
+              if (x < 0 || y < 0 || y + height > box.height) continue
+              if (
+                placed.some(
+                  (rect) =>
+                    x < rect.left + rect.width + 3 &&
+                    x + width + 3 > rect.left &&
+                    y < rect.top + rect.height + 3 &&
+                    y + height + 3 > rect.top,
+                )
+              )
+                continue
+              position = { left: x, top: y }
+              found = true
+              break
+            }
+          }
+        }
+        if (!found) return
+        placed.push({ ...position, width, height })
+        occupied.set(part.page, placed)
+        const badge = document.createElement("button")
+        badge.type = "button"
+        badge.className = "aetherAskBadge"
+        badge.dataset.referenceId = item.id
+        badge.textContent = String(item.number)
+        badge.setAttribute("aria-label", (currentConfig.labels.ask || "Ask AI") + " " + item.number)
+        Object.assign(badge.style, {
+          left: position.left + "px",
+          top: position.top + "px",
+          width: width + "px",
+          height: height + "px",
+        })
+        badge.addEventListener("pointerdown", (event) => event.stopPropagation())
+        badge.addEventListener("mouseenter", () => activate(item.id, true))
+        badge.addEventListener("mouseleave", () => activate(item.id, document.activeElement === badge))
+        badge.addEventListener("focus", () => activate(item.id, true))
+        badge.addEventListener("blur", () => activate(item.id, false))
+        const key = askReferences.document
+        const fingerprint = askReferences.fingerprint
+        badge.addEventListener("click", function (event) {
+          event.stopPropagation()
+          if (
+            !pdfReady() ||
+            key !== currentConfig.selectionDocument ||
+            fingerprint !== loaded.fingerprint ||
+            !askReferences.items.some((ref) => ref.id === item.id)
+          )
+            return
+          closeAsk(false)
+          askSelection = { document: key, reference: item.id }
+          activate(item.id, true)
+          const rect = badge.getBoundingClientRect()
+          post("askreference", {
+            document: key,
+            fingerprint,
+            id: item.id,
+            rect: { top: rect.top, left: rect.left, bottom: rect.bottom, right: rect.right },
+          })
+        })
+        layer.appendChild(badge)
+        if (focused?.id === item.id && focused.page === String(part.page)) badge.focus({ preventScroll: true })
+      })
     })
   }
 
@@ -709,6 +861,7 @@
     const rect = selectionState.rect
     const meta = {
       document: currentConfig.selectionDocument,
+      fingerprint: loaded.fingerprint,
       selection:
         selectionState.selection ||
         JSON.stringify(
@@ -1497,12 +1650,22 @@
 
     const key = currentConfig?.selectionDocument
     const epoch = captureEpoch
-    const box = drag.pageElement.getBoundingClientRect()
+    const box = pageContentRect(drag.pageElement)
+    rect.left = Math.max(rect.left, box.left)
+    rect.top = Math.max(rect.top, box.top)
+    rect.right = Math.min(rect.right, box.right)
+    rect.bottom = Math.min(rect.bottom, box.bottom)
     const viewport = window.PDFViewerApplication.pdfViewer.getPageView(drag.page - 1).viewport
     const selection = JSON.stringify(
       [
-        ...viewport.convertToPdfPoint(rect.left - box.left, rect.top - box.top),
-        ...viewport.convertToPdfPoint(rect.right - box.left, rect.bottom - box.top),
+        ...viewport.convertToPdfPoint(
+          ((rect.left - box.left) * viewport.width) / box.width,
+          ((rect.top - box.top) * viewport.height) / box.height,
+        ),
+        ...viewport.convertToPdfPoint(
+          ((rect.right - box.left) * viewport.width) / box.width,
+          ((rect.bottom - box.top) * viewport.height) / box.height,
+        ),
       ].map((n) => Math.round(n * 100) / 100),
     )
     const anchor = { top: rect.top, left: rect.left, width: rect.right - rect.left, height: rect.bottom - rect.top }
@@ -1538,6 +1701,7 @@
     document.body.dataset.viewTheme = config.viewTheme
     document.body.dataset.layoutSwapped = config.layoutSwapped ? "on" : "off"
     renderAnnotations()
+    renderAskReferences()
     const outerContainer = document.getElementById("outerContainer")
 
     const pdf2md = document.getElementById("aetherPdf2md")
@@ -1887,6 +2051,7 @@
     eventBus.on("pagerendered", function () {
       requestAnimationFrame(function () {
         renderAnnotations()
+        renderAskReferences()
         hideEmptyPdfPopups()
       })
     })
@@ -2127,8 +2292,9 @@
 
     const key = [config.src, config.authHeader || "", config.mode].join("|")
     if (currentKey === key) {
-      if (loaded && loaded.doc === app.pdfDocument) loaded = { doc: loaded.doc, config }
+      if (loaded && loaded.doc === app.pdfDocument) loaded = { ...loaded, config }
       applyChrome(config)
+      publishDocument()
       if (app.pdfViewer) {
         app.pdfViewer.scrollMode = mapScrollMode(config.scrollMode)
         app.pdfViewer.spreadMode = 0
@@ -2181,6 +2347,7 @@
     }
 
     const doc = await window.pdfjsLib.getDocument(loadOpts).promise
+    const fingerprint = doc.fingerprints?.filter(Boolean).join(":") || ""
     if (doc?._pdfInfo) {
       doc._pdfInfo.fingerprints = [config.src]
     }
@@ -2188,13 +2355,16 @@
     await app.pdfViewer.firstPagePromise
     hideSelectionUi()
     clearTextSelection()
-    loaded = { doc, config }
+    loaded = { doc, config, fingerprint }
     applyChrome(currentConfig)
+    publishDocument()
   }
 
   async function applyConfig(nextConfig) {
     const config = sanitizeConfig(nextConfig)
     const changed = config.document !== currentConfig?.document
+    if (config.selectionDocument !== currentConfig?.selectionDocument)
+      askReferences = { document: "", fingerprint: "", items: [] }
     if (
       config.selectionDocument !== currentConfig?.selectionDocument ||
       config.src !== currentConfig?.src ||
@@ -2258,6 +2428,33 @@
 
       if (event.data.type === "config") {
         await applyConfig(event.data.config)
+        return
+      }
+
+      if (event.data.type === "askreferences") {
+        if (event.source !== window.parent || event.data.document !== currentConfig?.selectionDocument) return
+        const items = Array.isArray(event.data.references) ? event.data.references : []
+        askReferences = {
+          document: event.data.document,
+          fingerprint: event.data.fingerprint,
+          items: items.filter(
+            (item) =>
+              typeof item?.id === "string" &&
+              Number.isSafeInteger(item.number) &&
+              item.number > 0 &&
+              Array.isArray(item.pages) &&
+              item.pages.every(
+                (part) =>
+                  Number.isSafeInteger(part?.page) &&
+                  part.page > 0 &&
+                  Array.isArray(part.quads) &&
+                  part.quads.every((quad) => Array.isArray(quad) && quad.length === 8 && quad.every(Number.isFinite)),
+              ),
+          ),
+        }
+        if (askSelection?.reference && !askReferences.items.some((item) => item.id === askSelection.reference))
+          closeAsk(true)
+        renderAskReferences()
         return
       }
 

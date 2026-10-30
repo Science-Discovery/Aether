@@ -6,7 +6,7 @@ import { useLanguage } from "@/context/language"
 import { showToast } from "@opencode-ai/ui/toast"
 import { queue } from "./pdf-annotation-save"
 import { AskEditor, type AskAnchor } from "./ask-editor"
-import type { Reference } from "@/utils/ask-reference"
+import { pdfMarks, type Reference } from "@/utils/ask-reference"
 import "./pdf-viewer-shell.css"
 
 type ViewerMode = "full" | "compact"
@@ -88,6 +88,7 @@ export type PdfTextSelection = {
   endPage: number
   text: string
   selection?: string
+  fingerprint?: string
   question?: string
 }
 export type PdfImageSelection = {
@@ -95,9 +96,15 @@ export type PdfImageSelection = {
   page: number
   imageDataUrl: string
   selection?: string
+  fingerprint?: string
   question?: string
 }
-type Selection = (PdfTextSelection | PdfImageSelection) & { document: string; selection: string; rect: AskAnchor }
+type Selection = (PdfTextSelection | PdfImageSelection) & {
+  document: string
+  selection: string
+  rect: AskAnchor
+  reference?: string
+}
 
 export type PdfViewerShellProps = {
   src: string
@@ -112,6 +119,7 @@ export type PdfViewerShellProps = {
   askScope?: string
   askPath?: string
   references?: readonly Reference[]
+  onReferenceEdit?: (id: string, question: string) => void
   onPageChange?: (page: number) => void
   onLocationChange?: (location: string) => void
   onDocumentInfo?: (info: { totalPages: number }) => void
@@ -130,6 +138,15 @@ type ViewerMessage =
   | { channel: "aether-pdf-viewer"; type: "pagechange"; page: number }
   | { channel: "aether-pdf-viewer"; type: "locationchange"; location: string }
   | { channel: "aether-pdf-viewer"; type: "documentinfo"; totalPages: number }
+  | { channel: "aether-pdf-viewer"; type: "documentready"; document: string; fingerprint: string }
+  | {
+      channel: "aether-pdf-viewer"
+      type: "askreference"
+      document: string
+      fingerprint: string
+      id: string
+      rect: AskAnchor
+    }
   | { channel: "aether-pdf-viewer"; type: "loaderror"; message?: string }
   | { channel: "aether-pdf-viewer"; type: "pdf2md" }
   | { channel: "aether-pdf-viewer"; type: "openreadingmode" }
@@ -141,6 +158,7 @@ type ViewerMessage =
       type: "textselectionaction"
       document: string
       selection: string
+      fingerprint?: string
       rect: AskAnchor
       action: "copy" | "translate" | "ask"
       startPage: number
@@ -152,6 +170,7 @@ type ViewerMessage =
       type: "imageselectionaction"
       document: string
       selection: string
+      fingerprint?: string
       rect: AskAnchor
       action: "copy" | "translate" | "ask"
       page: number
@@ -179,6 +198,7 @@ export const PdfViewerShell: Component<PdfViewerShellProps> = (props) => {
   let draft: ReturnType<typeof queue<PdfAnnotationFile>> | undefined
   const [viewTheme, setViewTheme] = createSignal(props.viewTheme ?? sharedViewTheme)
   const [ask, setAsk] = createSignal<Selection>()
+  const [identity, setIdentity] = createSignal<{ document: string; fingerprint: string }>()
   const [annotations, setAnnotations] = createSignal<PdfAnnotationFile>()
   const scope = () => JSON.stringify([sdk.url, sdk.directory, props.annotationPath])
   // Bumped to force a viewer reload through its src dedupe after a failed load
@@ -195,6 +215,7 @@ export const PdfViewerShell: Component<PdfViewerShellProps> = (props) => {
     return `${props.src}${join}r=${key}`
   })
   const selectionDocument = () => JSON.stringify([scope(), finalSrc(), props.askScope, props.askPath])
+  const fingerprint = () => (identity()?.document === selectionDocument() ? identity()?.fingerprint : undefined)
   const config = createMemo(() => ({
     src: finalSrc(),
     document: scope(),
@@ -262,7 +283,13 @@ export const PdfViewerShell: Component<PdfViewerShellProps> = (props) => {
   createEffect(() => {
     const key = selectionDocument()
     const item = ask()
-    if (item && item.document !== key) closeAsk()
+    if (
+      item &&
+      (item.document !== key ||
+        (item.fingerprint && item.fingerprint !== fingerprint()) ||
+        (item.reference && !props.references?.some((ref) => ref.id === item.reference)))
+    )
+      closeAsk()
   })
   const previous = createMemo(() => {
     const item = ask()
@@ -271,14 +298,15 @@ export const PdfViewerShell: Component<PdfViewerShellProps> = (props) => {
       (ref) =>
         ref.kind === "pdf" &&
         ref.path === (props.askPath ?? props.annotationPath) &&
-        ref.selection === item.selection &&
+        (item.reference ? ref.id === item.reference : ref.selection === item.selection) &&
+        (!ref.fingerprint || ref.fingerprint === item.fingerprint) &&
         ref.startPage === ("page" in item ? item.page : item.startPage) &&
         ref.endPage === ("page" in item ? item.page : item.endPage) &&
         ref.content === ("page" in item ? "image" : "text"),
     )
   })
   const select = (item: Selection) => {
-    if (item.document !== selectionDocument()) return
+    if (item.document !== selectionDocument() || (item.fingerprint && item.fingerprint !== fingerprint())) return
     if (item.action !== "ask") {
       if ("page" in item) props.onImageSelectionAction?.(item)
       else props.onTextSelectionAction?.(item)
@@ -297,6 +325,18 @@ export const PdfViewerShell: Component<PdfViewerShellProps> = (props) => {
       },
     })
   }
+
+  const sendMarks = () => {
+    if (!viewerReady()) return
+    post({
+      channel: "aether-pdf-viewer",
+      type: "askreferences",
+      document: selectionDocument(),
+      fingerprint: fingerprint(),
+      references: pdfMarks(props.references ?? [], props.askPath ?? props.annotationPath, fingerprint()),
+    })
+  }
+  createEffect(sendMarks)
 
   const url = (pathname: string) => {
     const url = new URL(pathname, `${sdk.url.replace(/\/+$/, "")}/`)
@@ -545,11 +585,13 @@ export const PdfViewerShell: Component<PdfViewerShellProps> = (props) => {
     if (!isFileProtocol() && event.origin !== window.location.origin) return
 
     if (event.data.type === "ready") {
+      setIdentity(undefined)
       setViewerReady(true)
       lastReportedPage = undefined
       lastReportedLocation = undefined
       lastConfigKey = ""
       sendConfig()
+      sendMarks()
       const data = annotations()
       post({
         channel: "aether-pdf-viewer",
@@ -557,6 +599,38 @@ export const PdfViewerShell: Component<PdfViewerShellProps> = (props) => {
         document: scope(),
         annotations: data?.annotations ?? [],
       })
+      return
+    }
+
+    if (event.data.type === "documentready") {
+      if (event.data.document !== selectionDocument()) return
+      setIdentity({ document: event.data.document, fingerprint: event.data.fingerprint })
+      return
+    }
+    if (event.data.type === "askreference") {
+      const item = event.data
+      if (item.document !== selectionDocument() || !item.fingerprint || item.fingerprint !== fingerprint()) return
+      const ref = props.references?.find(
+        (ref) =>
+          ref.id === item.id &&
+          ref.kind === "pdf" &&
+          ref.path === (props.askPath ?? props.annotationPath) &&
+          ref.fingerprint === item.fingerprint,
+      )
+      if (!ref || ref.kind !== "pdf" || !props.onReferenceEdit) return
+      const base = {
+        action: "ask" as const,
+        document: item.document,
+        selection: ref.selection,
+        fingerprint: item.fingerprint,
+        reference: ref.id,
+        rect: item.rect,
+      }
+      select(
+        ref.content === "image"
+          ? { ...base, page: ref.startPage, imageDataUrl: ref.image ?? "" }
+          : { ...base, startPage: ref.startPage, endPage: ref.endPage, text: ref.text },
+      )
       return
     }
 
@@ -667,7 +741,12 @@ export const PdfViewerShell: Component<PdfViewerShellProps> = (props) => {
             anchor={item.rect}
             onCancel={closeAsk}
             onSave={(question) => {
-              if (item.document !== selectionDocument()) return closeAsk()
+              if (item.document !== selectionDocument() || (item.fingerprint && item.fingerprint !== fingerprint()))
+                return closeAsk()
+              if (item.reference) {
+                if (previous()?.id === item.reference) props.onReferenceEdit?.(item.reference, question)
+                return closeAsk()
+              }
               if ("page" in item) props.onImageSelectionAction?.({ ...item, question })
               else props.onTextSelectionAction?.({ ...item, question })
               closeAsk()

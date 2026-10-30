@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test"
-import { conversationSelection } from "./conversation-selection"
+import { conversationRanges, conversationSelection } from "./conversation-selection"
 
 afterEach(() => document.body.replaceChildren())
 
@@ -54,5 +54,36 @@ describe("conversation selection source", () => {
       conversationSelection(view.root, range(view.bodies[1].firstChild!, view.bodies[2].firstChild!)),
     ).toBeUndefined()
     expect(conversationSelection(view.root, range(view.root.firstElementChild!.firstChild!))).toBeUndefined()
+  })
+
+  test("reconstructs exact text ranges across parts without including intervening controls", () => {
+    const view = fixture()
+    const source = conversationSelection(
+      view.root,
+      range(view.bodies[0].querySelector("strong")!.firstChild!, view.bodies[1].firstChild!),
+    )!
+    const ranges = conversationRanges(view.root, source)
+    expect(ranges.map((item) => item.range.toString())).toEqual(["repeat", "repeat"])
+    expect(ranges.map((item) => item.container.dataset.assistantPartId)).toEqual(["part-one", "part-two"])
+    expect(ranges[0].range.endContainer.parentElement?.tagName).toBe("STRONG")
+    expect(conversationRanges(view.root, { ...source, start: 0 })).toEqual([])
+  })
+
+  test("hides stale, collapsed and absent ranges, and restores them after the same source remounts", () => {
+    const view = fixture()
+    const source = conversationSelection(view.root, range(view.bodies[0].querySelector("strong")!.firstChild!))!
+    view.bodies[0].querySelector("strong")!.textContent = "changed"
+    expect(conversationRanges(view.root, source)).toEqual([])
+    view.bodies[0].querySelector("strong")!.textContent = "repeat"
+    view.root.dataset.assistantCollapsed = "true"
+    expect(conversationRanges(view.root, source)).toEqual([])
+    delete view.root.dataset.assistantCollapsed
+    const position = view.bodies[0].nextSibling
+    view.bodies[0].remove()
+    expect(conversationRanges(view.root, source)).toEqual([])
+    view.root.insertBefore(view.bodies[0], position)
+    expect(conversationRanges(view.root, source)).toHaveLength(1)
+    view.bodies[1].append(" streamed text")
+    expect(conversationRanges(view.root, source)).toHaveLength(1)
   })
 })

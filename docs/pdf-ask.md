@@ -1,13 +1,21 @@
 # PDF 与对话选区提问
 
-PDF 的“问 AI”和对话正文的 Ask 共用一套待提问列表。选中文字或框选 PDF 截图后，在选区附近填写问题，点击“加入问题”；继续选择其他内容，最后从主输入框一次发送。加入引用不会调用模型，也不会写入 PDF 永久批注。
+PDF 的“问 AI”和对话正文的 Ask 共用一套待提问列表。选中文字或框选 PDF 截图后，在选区附近的输入条填写问题，点击勾号确认；继续选择其他内容，最后从主输入框一次发送。加入引用不会调用模型，也不会写入 PDF 永久批注。
 
 ## 使用方式
 
 - 每处问题可以留空，用主输入框填写总问题；也可以只填写逐项问题而不填总问题。发送时至少需要一个问题。
 - 引用按加入顺序编号，混合显示 PDF 文件、页码和对话来源，可以展开原文、编辑问题、删除。再次选择同一位置会编辑原条目；不同位置的相同文字分别保留。
-- 选区卡片的取消、关闭及 Escape 不新增引用，取消编辑保留原问题。Ctrl/Cmd+Enter 确认加入；输入法正在组合文字时不会提交。
+- 输入条默认一行，随内容增高至四行，之后内部滚动。Enter 换行，Ctrl/Cmd+Enter 确认；输入法正在组合文字时不会提交。关闭或 Escape 不新增引用，取消编辑保留原问题。切换编辑入口会取消尚未确认的编辑，同时只打开一条输入条。
 - 文件预览、快速阅读和阅读模式均支持。截图与其引用编号一起发送；普通文件引用仍可同时使用。
+
+## 临时提问标记
+
+打开输入条时保留选区高亮。确认加入后，原文附近显示蓝色编号，与混合引用列表顺序一致；平时只显示编号，悬停或键盘聚焦时高亮对应选区，点击编号可重新编辑问题。跨页 PDF 引用在各页显示相同编号，相邻标记错开显示。原文和截图仍可在待提问列表及发送后的引用详情中查看。
+
+标记直接由当前会话的 `Prompt.references` 派生。删除引用会移除标记并重新编号，成功发送或加入队列会清除对应标记；失败保留，编辑队列消息时恢复。发送期间已经修改或新加入的引用及标记不会被旧请求清除。标记不属于 PDF 永久批注，不参与批注保存或导出。
+
+PDF 引用保存页面坐标和可选的原始文档指纹。滚动、缩放、旋转后根据当前页面重新定位；文档指纹不符或旧引用缺少可靠定位时，只保留列表，不在页面上绘制可能错误的标记。重新选择可补齐旧引用定位。对话引用通过消息 ID 和文本偏移定位，并核对原文；折叠、尚未渲染或原文改变时隐藏标记，重新展示且准确匹配后恢复。
 
 ## 草稿、队列与来源
 
@@ -30,10 +38,10 @@ PDF 的“问 AI”和对话正文的 Ask 共用一套待提问列表。选中�
 ```powershell
 bun test --preload ./happydom.ts ./src/utils/ask-reference.test.ts ./src/context/prompt.test.ts ./src/components/prompt-input/history.test.ts ./src/utils/comment-note.test.ts ./src/pages/session/conversation-selection.test.ts
 bun test --preload ./happydom.ts ./src/components/prompt-input/ask-request.test.ts ./src/components/prompt-input/submit.test.ts ./src/components/prompt-input/build-request-parts.test.ts
-bun run ./script/vitest.ts run --config ./vitest.config.ts src/components/ask-editor.vitest.tsx src/components/pdf-viewer-shell-official.vitest.tsx src/pages/session/composer/session-composer-region.vitest.tsx src/pages/session/message-references.vitest.tsx
+bun run ./script/vitest.ts run --config ./vitest.config.ts src/components/ask-editor.vitest.tsx src/components/pdf-viewer-shell-official.vitest.tsx src/pages/session/composer/session-composer-region.vitest.tsx src/pages/session/conversation-marks.vitest.tsx src/pages/session/message-references.vitest.tsx
 bun typecheck
 ```
 
 对话选区使用真实 AI 消息的文本位置；单条消息内可以跨文本部分选择，不跨不同消息。`packages/ui` 的 `message-part.vitest.tsx` 验证渲染出的消息、文本部分标识，并运行该包 `bun typecheck`。
 
-手动检查连续选择、跨页与跨 PDF、PDF/对话/文件混合、截图编号、重复位置、取消编辑及逐项删除；再检查排队编辑、失败重试、发送中修改、切会话和草稿重载。布局检查覆盖明暗主题、三语、窄面板、页面边缘、缩放、长问题和中文输入法。无需调用真实模型即可验证请求内容、草稿清理和队列快照。
+手动检查连续选择、跨页与跨 PDF、PDF/对话/文件混合、截图编号、重复位置、取消编辑及逐项删除；再检查排队编辑、失败重试、发送中修改、切会话和草稿重载。布局检查覆盖明暗主题、三语、窄面板、页面边缘、缩放、旋转、长问题和中文输入法。编号检查还包括悬停与键盘聚焦高亮、点击编辑、相邻选区避让、滚动时焦点保留、折叠重开、PDF 指纹不匹配，以及临时标记不会产生批注保存事件。无需调用真实模型即可验证请求内容、草稿清理和队列快照。

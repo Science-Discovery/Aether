@@ -187,4 +187,15 @@ describe("pending Ask references", () => {
     expect(document.querySelector("[data-component='ask-editor']")).toBeNull()
     expect(state.model!.draft.references[0].question).toBe("Question one")
   })
+
+  test("closes an editor whose reference was removed or consumed by sending", () => {
+    state.model!.set("references", [conversation("one"), pdf("two")])
+    const host = mount()
+    click(host.querySelector("[data-reference-id='one']")!, "common.edit")
+    state.model!.prompt.references.remove("one")
+    expect(document.querySelector("[data-component='ask-editor']")).toBeNull()
+    click(host.querySelector("[data-reference-id='two']")!, "common.edit")
+    state.model!.set("references", [])
+    expect(document.querySelector("[data-component='ask-editor']")).toBeNull()
+  })
 })
