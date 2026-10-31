@@ -37,6 +37,7 @@ import {
   estimateRootSessionTotal,
   loadDescendantsForRoots,
   loadRootSessionsWithFallback,
+  mergeSessions,
   planSessionLoad,
 } from "./global-sync/session-load"
 import { trimSessions } from "./global-sync/session-trim"
@@ -300,9 +301,8 @@ function createGlobalSync() {
     directory = normalizeDir(directory)
     const pending = sessionLoads.get(directory)
     if (pending) {
-      if (!opts?.collapse) return pending
-      // Re-trim strictly once the in-flight load settles: the pending call was
-      // started without collapse options and must not swallow them.
+      if (!opts?.collapse && !opts?.force) return pending
+      // Apply an explicit refresh or collapse after the in-flight snapshot settles.
       return pending.then(() => loadSessions(directory, opts))
     }
 
@@ -361,9 +361,8 @@ function createGlobalSync() {
         const limit = store.limit
         // Preserve sessions that arrived via SSE while this API call was in-flight.
         // Without this, reconcile() would overwrite them since the API snapshot predates their creation.
-        const apiIds = new Set(nonArchived.map((s) => s.id))
-        const sseSessions = store.session.filter((s) => !s.time?.archived && !apiIds.has(s.id))
-        const sessions = trimSessions([...nonArchived, ...sseSessions], {
+        const merged = mergeSessions(nonArchived, store.session)
+        const sessions = trimSessions(merged, {
           limit,
           permission: store.permission,
           keep: viewingIDs(),
@@ -371,11 +370,14 @@ function createGlobalSync() {
         })
         setStore(
           "sessionTotal",
-          estimateRootSessionTotal({
-            count: nonArchivedRoots.length,
-            limit: x.limit,
-            limited: x.limited,
-          }),
+          Math.max(
+            merged.filter((session) => !session.parentID).length,
+            estimateRootSessionTotal({
+              count: nonArchivedRoots.length,
+              limit: x.limit,
+              limited: x.limited,
+            }),
+          ),
         )
         setStore("session", reconcile(sessions, { key: "id" }))
         cleanupDroppedSessionCaches(store, setStore, sessions, setSessionTodo)

@@ -55,6 +55,10 @@ import { iife } from "@/util/iife"
 import type { ReadingMode } from "../reading-mode/types"
 import { SessionPreference } from "./preference"
 import { PROJECT } from "@/persist/naming"
+import { Lock } from "@/util/lock"
+import { NamedError } from "@opencode-ai/util/error"
+import { Question } from "@/question"
+import { SessionStatus } from "./status"
 
 export namespace Session {
   const log = Log.create({ service: "session" })
@@ -62,6 +66,7 @@ export namespace Session {
   const parentTitlePrefix = "New session - "
   const childTitlePrefix = "Child session - "
   const forkTitlePattern = /^(.*) \(fork #(\d+)\)$/
+  export const DetachError = NamedError.create("SessionDetachError", z.object({ message: z.string() }))
 
   function isSubagentSession(session: Info) {
     return !!session.parentID && !session.forkParentSessionID
@@ -171,30 +176,26 @@ export namespace Session {
     return Number.isFinite(parsed) ? parsed : undefined
   }
 
-  async function getNextForkIndex(input: { projectID: ProjectID; treeID: TreeID }) {
-    const rows = Database.useProject(Instance.project.id, (db) =>
+  async function getNextForkIndex(input: { projectID: ProjectID; treeID: TreeID; title: string }) {
+    const rows = Database.useProject(input.projectID, (db) =>
       db
         .select({
           forkIndex: SessionTable.fork_index,
           title: SessionTable.title,
+          treeID: SessionTable.tree_id,
         })
         .from(SessionTable)
-        .where(and(eq(SessionTable.project_id, input.projectID), eq(SessionTable.tree_id, input.treeID)))
+        .where(eq(SessionTable.project_id, input.projectID))
         .all(),
     )
 
-    let maxForkIndex = 0
-    for (const row of rows) {
-      if (typeof row.forkIndex === "number") {
-        maxForkIndex = Math.max(maxForkIndex, row.forkIndex)
-      }
-      const fromTitle = parseForkIndexFromTitle(row.title)
-      if (typeof fromTitle === "number") {
-        maxForkIndex = Math.max(maxForkIndex, fromTitle)
-      }
-    }
-
-    return maxForkIndex + 1
+    const titles = new Set(rows.map((row) => row.title))
+    let index =
+      rows
+        .filter((row) => row.treeID === input.treeID)
+        .reduce((max, row) => Math.max(max, row.forkIndex ?? 0, parseForkIndexFromTitle(row.title) ?? 0), 0) + 1
+    while (titles.has(getForkedTitle(input.title, index))) index++
+    return index
   }
 
   function getForkedTitle(title: string, forkIndex: number): string {
@@ -333,7 +334,7 @@ export namespace Session {
   }
 
   async function repairTreeForkParents(input: { projectID: ProjectID; treeID: TreeID }) {
-    const rows = Database.useProject(Instance.project.id, (db) =>
+    const rows = Database.useProject(input.projectID, (db) =>
       db
         .select()
         .from(SessionTable)
@@ -378,9 +379,22 @@ export namespace Session {
         forkParentSessionID: normalized.parentSessionID,
         forkAfterUserMessageID: normalized.anchorUserMessageID,
       }
+      // A detach may commit while the history reads above are awaiting. Never
+      // restore the old parent links across the newly established boundary.
+      const latest = Database.useProject(input.projectID, (db) =>
+        db.select().from(SessionTable).where(eq(SessionTable.id, session.id)).get(),
+      )
+      if (
+        !latest ||
+        latest.tree_id !== input.treeID ||
+        latest.parent_id !== (session.parentID ?? null) ||
+        latest.fork_parent_session_id !== (session.forkParentSessionID ?? null) ||
+        latest.fork_after_user_message_id !== (session.forkAfterUserMessageID ?? null)
+      )
+        continue
       SyncEvent.run(Event.Updated, {
         sessionID: session.id,
-        info: patched,
+        info: { ...patched, projectID: input.projectID },
       })
       const current = sessionByID.get(session.id)
       if (current) {
@@ -392,7 +406,7 @@ export namespace Session {
   }
 
   async function collectSessionSubtree(input: { projectID: ProjectID; rootSessionID: SessionID }) {
-    const rows = Database.useProject(Instance.project.id, (db) =>
+    const rows = Database.useProject(input.projectID, (db) =>
       db
         .select()
         .from(SessionTable)
@@ -703,8 +717,10 @@ export namespace Session {
     z.object({
       sessionID: SessionID.zod,
       messageID: MessageID.zod.optional(),
+      detached: z.boolean().optional(),
     }),
     async (input) => {
+      using lock = await Lock.write(`session.tree:${Instance.project.id}`)
       const original = await get(input.sessionID)
       if (!original) throw new Error("session not found")
       if (original.treeID) {
@@ -713,28 +729,39 @@ export namespace Session {
           treeID: original.treeID,
         })
       }
-      const source = (await get(input.sessionID).catch(() => undefined)) ?? original
-      const targetTreeID = source.treeID ?? TreeID.descending()
+      const source = await get(input.sessionID)
+      const targetTreeID = input.detached ? TreeID.descending() : (source.treeID ?? TreeID.descending())
       const forkIndex = await getNextForkIndex({
         projectID: source.projectID,
-        treeID: targetTreeID,
+        treeID: source.treeID ?? targetTreeID,
+        title: source.title,
       })
       const title = getForkedTitle(source.title, forkIndex)
       const msgs = await messages({ sessionID: input.sessionID })
       const forkAnchorUserMessageID = resolveForkAnchorUserMessageID(msgs, input.messageID)
-      const resolvedForkParent = await resolveForkParent({
-        session: source,
-        messages: msgs,
-        anchorUserMessageID: forkAnchorUserMessageID,
-      })
+      const resolvedForkParent = input.detached
+        ? undefined
+        : await resolveForkParent({
+            session: source,
+            messages: msgs,
+            anchorUserMessageID: forkAnchorUserMessageID,
+          })
+      const latest = await get(source.id)
+      if (
+        latest.treeID !== source.treeID ||
+        latest.parentID !== source.parentID ||
+        latest.forkParentSessionID !== source.forkParentSessionID ||
+        latest.forkAfterUserMessageID !== source.forkAfterUserMessageID
+      )
+        throw new DetachError({ message: "Session tree changed while forking. Please retry." })
       const session = await createNext({
         directory: Instance.directory,
         workspaceID: source.workspaceID,
-        parentID: resolvedForkParent.parentSessionID,
+        parentID: resolvedForkParent?.parentSessionID,
         treeID: targetTreeID,
         forkIndex,
-        forkParentSessionID: resolvedForkParent.parentSessionID,
-        forkAfterUserMessageID: resolvedForkParent.forkAfterUserMessageID,
+        forkParentSessionID: resolvedForkParent?.parentSessionID,
+        forkAfterUserMessageID: resolvedForkParent?.forkAfterUserMessageID,
         title,
       })
       const pref = SessionPreference.get(input.sessionID)
@@ -974,7 +1001,109 @@ export namespace Session {
     },
   )
 
+  export const detach = fn(SessionID.zod, async (sessionID) => {
+    using lock = await Lock.write(`session.tree:${Instance.project.id}`)
+    const session = await get(sessionID)
+    if (isSubagentSession(session)) {
+      throw new DetachError({ message: "Task subagent sessions cannot be detached." })
+    }
+    if (!session.parentID && !session.forkParentSessionID) return session
+
+    const subtree = await collectSessionSubtree({ projectID: session.projectID, rootSessionID: sessionID })
+    const ids = new Set(subtree.map((item) => item.id))
+    const checks = await Promise.all(
+      [...new Set(subtree.map((item) => item.directory))].map((directory) =>
+        Instance.provide({
+          directory,
+          fn: async () => {
+            const rows = subtree.filter((item) => Filesystem.resolve(item.directory) === Instance.directory)
+            const [status, permissions, questions] = await Promise.all([
+              SessionStatus.list(),
+              Permission.list(),
+              Question.list(),
+            ])
+            const pending = new Set([...permissions, ...questions].map((item) => item.sessionID))
+            const busy = rows.find((item) => (status.get(item.id)?.type ?? "idle") !== "idle" || pending.has(item.id))
+            if (busy) throw new BusyError(busy.id)
+            // Retain each directory's synchronous claim check for the final
+            // commit, after all asynchronous status/approval reads finish.
+            return Instance.bind(() => {
+              rows.forEach((item) => {
+                SessionPrompt.assertNotBusy(item.id)
+                if (SessionStatus.active(item.id)) throw new BusyError(item.id)
+              })
+            })
+          },
+        }),
+      ),
+    )
+
+    const tree = TreeID.descending()
+    const patches = Database.transactionProject(
+      session.projectID,
+      (db) => {
+        checks.forEach((check) => check())
+        const rows = db
+          .select()
+          .from(SessionTable)
+          .where(and(eq(SessionTable.project_id, session.projectID), inArray(SessionTable.id, [...ids])))
+          .all()
+        if (
+          rows.length !== subtree.length ||
+          rows.some((row) => {
+            const before = subtree.find((item) => item.id === row.id)!
+            return (
+              row.tree_id !== (before.treeID ?? null) ||
+              row.parent_id !== (before.parentID ?? null) ||
+              row.fork_parent_session_id !== (before.forkParentSessionID ?? null) ||
+              row.fork_after_user_message_id !== (before.forkAfterUserMessageID ?? null) ||
+              row.time_archived !== (before.time.archived ?? null) ||
+              (row.id !== sessionID && !!row.fork_parent_session_id && !ids.has(row.fork_parent_session_id))
+            )
+          }) ||
+          db
+            .select({ id: SessionTable.id })
+            .from(SessionTable)
+            .where(and(inArray(SessionTable.parent_id, [...ids]), ne(SessionTable.id, sessionID)))
+            .all()
+            .some((row) => !ids.has(row.id))
+        )
+          throw new DetachError({ message: "Session tree changed while detaching. Please retry." })
+
+        const time = Math.max(Date.now(), ...rows.map((row) => row.time_updated + 1))
+        return rows.map((row) => {
+          const root = row.id === sessionID
+          const patch = {
+            tree_id: tree,
+            parent_id: root ? null : row.parent_id,
+            fork_parent_session_id: root ? null : row.fork_parent_session_id,
+            fork_after_user_message_id: root ? null : row.fork_after_user_message_id,
+            time_updated: time,
+          }
+          db.update(SessionTable).set(patch).where(eq(SessionTable.id, row.id)).run()
+          return {
+            sessionID: row.id,
+            info: {
+              projectID: session.projectID,
+              treeID: tree,
+              parentID: patch.parent_id,
+              forkParentSessionID: patch.fork_parent_session_id,
+              forkAfterUserMessageID: patch.fork_after_user_message_id,
+              time: { updated: time },
+            },
+          }
+        })
+      },
+      { behavior: "immediate" },
+    )
+    // Publish through the existing sync path only after the whole project
+    // subtree has committed. Reapplying these patches is idempotent.
+    patches.forEach((patch) => SyncEvent.run(Event.Updated, patch))
+    return get(sessionID)
+  })
+
   export const archive = fn(SessionID.zod, async (sessionID) => {
+    using lock = await Lock.write(`session.tree:${Instance.project.id}`)
     const session = await get(sessionID)
     const archivedAt = Date.now()
     const subtree = await collectSessionSubtree({
@@ -1028,6 +1157,7 @@ export namespace Session {
   })
 
   export const unarchive = fn(SessionID.zod, async (sessionID) => {
+    using lock = await Lock.write(`session.tree:${Instance.project.id}`)
     const session = await get(sessionID)
     if (session.parentID) {
       throw new Error("Only archived subtree roots can be unarchived")
@@ -1384,7 +1514,7 @@ export namespace Session {
       projectID: session.projectID,
       treeID: session.treeID,
     })
-    const treeID = session.treeID
+    const treeID = (await get(sessionID)).treeID!
 
     const rows = Database.useProject(session.projectID, (db) =>
       db
@@ -1473,7 +1603,7 @@ export namespace Session {
       projectID: currentSession.projectID,
       treeID: currentSession.treeID,
     })
-    const treeID = currentSession.treeID
+    const treeID = (await get(sessionID)).treeID!
 
     const allTreeSessions = Database.useProject(currentSession.projectID, (db) =>
       db
@@ -1738,6 +1868,12 @@ export namespace Session {
     const currentLatestNodeID =
       currentTargetNodeID && nodes.get(currentTargetNodeID)?.kind === "turn" ? currentTargetNodeID : undefined
 
+    const latest = Database.useProject(currentSession.projectID, (db) =>
+      db.select({ tree: SessionTable.tree_id }).from(SessionTable).where(eq(SessionTable.id, sessionID)).get(),
+    )
+    if (!latest) throw new NotFoundError({ message: `Session not found: ${sessionID}` })
+    if (latest.tree !== treeID) return graph(sessionID)
+
     return {
       kind: "graph",
       treeID,
@@ -1753,10 +1889,15 @@ export namespace Session {
   })
 
   export const remove = fn(SessionID.zod, async (sessionID) => {
+    using lock = await Lock.write(`session.tree:${Instance.project.id}`)
+    return await erase(sessionID)
+  })
+
+  async function erase(sessionID: SessionID) {
     try {
       const session = await get(sessionID)
       for (const child of await children(sessionID)) {
-        await remove(child.id)
+        await erase(child.id)
       }
 
       if (session.readingMode) {
@@ -1779,7 +1920,7 @@ export namespace Session {
     } catch (e) {
       log.error(e)
     }
-  })
+  }
 
   export const updateMessage = fn(MessageV2.Info, async (msg) => {
     SyncEvent.run(MessageV2.Event.Updated, {

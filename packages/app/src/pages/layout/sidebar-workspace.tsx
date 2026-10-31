@@ -852,12 +852,19 @@ const SessionTreeNodes = (props: {
 
   createEffect(
     on(
-      () => [props.currentSessionID(), conversationTreeEnabled(), sessionByID()] as const,
-      ([currentSessionID, treeEnabled]) => {
-        if (!treeEnabled || !currentSessionID) return
-        const rootID = rootSessionIDFor(currentSessionID)
-        if (!rootID) return
+      () => {
+        const id = props.currentSessionID()
+        return [id, conversationTreeEnabled(), id ? rootSessionIDFor(id) : undefined] as const
+      },
+      ([currentSessionID, treeEnabled, rootID], previous) => {
+        if (!currentSessionID || !rootID) return
+        if (treeEnabled) props.ctx.setConversationTreeLastFocus(rootID, currentSessionID)
+        if (!previous?.[2] || previous[0] !== currentSessionID || previous[2] === rootID || rootID !== currentSessionID)
+          return
+        props.ctx.setSessionExpanded(rootID, true)
+        props.ctx.setConversationTreeOpen(rootID, true)
         props.ctx.setConversationTreeLastFocus(rootID, currentSessionID)
+        props.ctx.setConversationTreeLastFocus(previous[2], previous[2])
       },
     ),
   )
@@ -896,7 +903,10 @@ const SessionTreeNodes = (props: {
       const rows = props
         .allSessions()
         .filter((session) => rootSessionIDFor(session.id) === rootID)
-        .map((session) => `${session.id}:${session.time.updated ?? 0}`)
+        .map(
+          (session) =>
+            `${session.id}:${session.parentID ?? ""}:${session.treeID ?? ""}:${session.forkParentSessionID ?? ""}:${session.forkAfterUserMessageID ?? ""}:${session.time.updated ?? 0}`,
+        )
       return rows.sort().join("|")
     })
 

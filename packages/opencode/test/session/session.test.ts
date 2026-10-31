@@ -249,7 +249,7 @@ describe("session tree IDs", () => {
     await Instance.provide({
       directory: projectRoot,
       fn: async () => {
-        const legacy = await Session.create({ title: "Legacy" })
+        const legacy = await Session.create({ title: "Legacy numbering" })
         Database.useProject(legacy.projectID, (db) =>
           db.update(SessionTable).set({ tree_id: null }).where(eq(SessionTable.id, legacy.id)).run(),
         )
@@ -262,7 +262,7 @@ describe("session tree IDs", () => {
         expect(child.parentID).toBe(refreshedLegacy.id)
         expect(child.forkParentSessionID).toBe(refreshedLegacy.id)
         expect(child.treeID).not.toBe(refreshedLegacy.treeID)
-        expect(child.title).toBe("Legacy (fork #1)")
+        expect(child.title).toBe("Legacy numbering (fork #1)")
         expect(child.forkIndex).toBe(1)
       },
     })
@@ -272,16 +272,16 @@ describe("session tree IDs", () => {
     await Instance.provide({
       directory: projectRoot,
       fn: async () => {
-        const root = await Session.create({ title: "Root" })
+        const root = await Session.create({ title: "Nested" })
         const fork1 = await Session.fork({ sessionID: root.id })
         const fork2 = await Session.fork({ sessionID: fork1.id })
         const fork3 = await Session.fork({ sessionID: fork1.id })
         const fork4 = await Session.fork({ sessionID: root.id })
 
-        expect(fork1.title).toBe("Root (fork #1)")
-        expect(fork2.title).toBe("Root (fork #2)")
-        expect(fork3.title).toBe("Root (fork #3)")
-        expect(fork4.title).toBe("Root (fork #4)")
+        expect(fork1.title).toBe("Nested (fork #1)")
+        expect(fork2.title).toBe("Nested (fork #2)")
+        expect(fork3.title).toBe("Nested (fork #3)")
+        expect(fork4.title).toBe("Nested (fork #4)")
         expect(fork1.forkIndex).toBe(1)
         expect(fork2.forkIndex).toBe(2)
         expect(fork3.forkIndex).toBe(3)
@@ -294,7 +294,7 @@ describe("session tree IDs", () => {
     await Instance.provide({
       directory: projectRoot,
       fn: async () => {
-        const root = await Session.create({ title: "Root" })
+        const root = await Session.create({ title: "Renamed" })
         await Session.fork({ sessionID: root.id })
         const renamedBranch = await Session.fork({ sessionID: root.id })
 
@@ -316,7 +316,7 @@ describe("session tree IDs", () => {
     await Instance.provide({
       directory: projectRoot,
       fn: async () => {
-        const root = await Session.create({ title: "Root" })
+        const root = await Session.create({ title: "Historical" })
         const child1 = await Session.fork({ sessionID: root.id })
         const child2 = await Session.fork({ sessionID: root.id })
 
@@ -329,9 +329,9 @@ describe("session tree IDs", () => {
 
         const child3 = await Session.fork({ sessionID: root.id })
 
-        expect(child1.title).toBe("Root (fork #1)")
-        expect(child2.title).toBe("Root (fork #2)")
-        expect(child3.title).toBe("Root (fork #3)")
+        expect(child1.title).toBe("Historical (fork #1)")
+        expect(child2.title).toBe("Historical (fork #2)")
+        expect(child3.title).toBe("Historical (fork #3)")
         expect(child3.forkIndex).toBe(3)
       },
     })

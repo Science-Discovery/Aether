@@ -6,7 +6,7 @@ import { useLanguage } from "@/context/language"
 import { useLayout } from "@/context/layout"
 import { useSettings } from "@/context/settings"
 import { errorMessage as formatErrorMessage } from "@/pages/layout/helpers"
-import { Match, Show, Switch, createEffect, createMemo, createSignal, onMount } from "solid-js"
+import { Match, Show, Switch, createEffect, createMemo, createSignal, onCleanup, onMount, untrack } from "solid-js"
 import {
   buildConversationGraphView,
   type ConversationGraph,
@@ -68,6 +68,8 @@ export function SidebarBranchView(props: {
   let requestVersion = 0
   let scrollContainer: HTMLDivElement | undefined
 
+  onCleanup(() => requestVersion++)
+
   onMount(() => {
     try {
       const storedCompact = window.localStorage.getItem(COMPACT_STORAGE_KEY)
@@ -88,6 +90,8 @@ export function SidebarBranchView(props: {
       setGraph(cached)
       setErrorMessage(undefined)
     } else {
+      const previous = untrack(graph)
+      if (previous?.kind === "graph" && previous.current.sessionID !== sessionID) setGraph(undefined)
       setLoading(true)
       setErrorMessage(undefined)
     }
@@ -154,7 +158,11 @@ export function SidebarBranchView(props: {
 
   return (
     <div class="overflow-hidden rounded-md border border-border-weaker-base bg-background-stronger">
-      <div ref={scrollContainer} class="min-h-0 overflow-auto" style={{ "max-height": `${DEFAULT_PANEL_MAX_HEIGHT}px` }}>
+      <div
+        ref={scrollContainer}
+        class="min-h-0 overflow-auto"
+        style={{ "max-height": `${DEFAULT_PANEL_MAX_HEIGHT}px` }}
+      >
         <Switch>
           <Match when={graph()?.kind === "legacy"}>
             <div class="flex h-full items-center justify-center px-4 text-center text-11-regular text-text-weak">
