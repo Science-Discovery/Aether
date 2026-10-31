@@ -61,4 +61,41 @@ describe("fitFileTabs", () => {
 
     expect(fit).toEqual({ capped: true, visible: 1 })
   })
+
+  test("keeps a bounded long filename alongside short tabs without compacting them", () => {
+    expect(
+      fitFileTabs({
+        clientWidth: 600,
+        fixedWidth: 100,
+        natural: [240, 90, 90],
+        capped: [150, 90, 90],
+        moreWidth: 40,
+      }),
+    ).toEqual({ capped: false, visible: 3 })
+  })
+
+  test("retains every compact tab at the exact available width", () => {
+    expect(
+      fitFileTabs({
+        clientWidth: 490,
+        fixedWidth: 100,
+        natural: [240, 90, 240],
+        capped: [150, 90, 150],
+        moreWidth: 40,
+      }),
+    ).toEqual({ capped: true, visible: 3 })
+  })
+
+  test("reserves overflow space and restores tabs after a resize", () => {
+    const input = {
+      fixedWidth: 100,
+      natural: [240, 240, 240],
+      capped: [150, 150, 150],
+      moreWidth: 40,
+    }
+    expect(fitFileTabs({ ...input, clientWidth: 1100 })).toEqual({ capped: false, visible: 3 })
+    expect(fitFileTabs({ ...input, clientWidth: 700 })).toEqual({ capped: true, visible: 3 })
+    expect(fitFileTabs({ ...input, clientWidth: 460 })).toEqual({ capped: true, visible: 2 })
+    expect(fitFileTabs({ ...input, clientWidth: 1100 })).toEqual({ capped: false, visible: 3 })
+  })
 })
