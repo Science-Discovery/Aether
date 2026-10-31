@@ -5560,44 +5560,6 @@ export type PermissionRespondResponses = {
 
 export type PermissionRespondResponse = PermissionRespondResponses[keyof PermissionRespondResponses]
 
-export type SessionSteerData = {
-  body?: {
-    text: string
-  }
-  path: {
-    sessionID: string
-  }
-  query?: {
-    directory?: string
-    workspace?: string
-  }
-  url: "/session/{sessionID}/steer"
-}
-
-export type SessionSteerErrors = {
-  /**
-   * Bad request
-   */
-  400: BadRequestError
-  /**
-   * Not found
-   */
-  404: NotFoundError
-}
-
-export type SessionSteerError = SessionSteerErrors[keyof SessionSteerErrors]
-
-export type SessionSteerResponses = {
-  /**
-   * Steer text added
-   */
-  200: {
-    ok: boolean
-  }
-}
-
-export type SessionSteerResponse = SessionSteerResponses[keyof SessionSteerResponses]
-
 export type SessionPreferenceGetData = {
   body?: never
   path: {

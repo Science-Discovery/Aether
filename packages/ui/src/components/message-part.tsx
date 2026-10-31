@@ -1086,7 +1086,7 @@ export function UserMessageDisplay(props: {
   }
 
   const handleCopy = async () => {
-    const content = text()
+    const content = [text(), ...steerParts().map((part) => part.text)].filter(Boolean).join("\n")
     if (!content) return
     await navigator.clipboard.writeText(content)
     setState("copied", true)

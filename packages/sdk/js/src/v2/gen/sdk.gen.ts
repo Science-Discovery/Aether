@@ -315,8 +315,6 @@ import type {
   SessionShellResponses,
   SessionStatusErrors,
   SessionStatusResponses,
-  SessionSteerErrors,
-  SessionSteerResponses,
   SessionSummarizeErrors,
   SessionSummarizeResponses,
   SessionTodoErrors,
@@ -3667,45 +3665,6 @@ export class Session2 extends HeyApiClient {
       url: "/session/{sessionID}/unrevert",
       ...options,
       ...params,
-    })
-  }
-
-  /**
-   * Add steer text
-   *
-   * Append a steer/supplement text to the last user message in a session, visible to the AI from the next iteration.
-   */
-  public steer<ThrowOnError extends boolean = false>(
-    parameters: {
-      sessionID: string
-      directory?: string
-      workspace?: string
-      text?: string
-    },
-    options?: Options<never, ThrowOnError>,
-  ) {
-    const params = buildClientParams(
-      [parameters],
-      [
-        {
-          args: [
-            { in: "path", key: "sessionID" },
-            { in: "query", key: "directory" },
-            { in: "query", key: "workspace" },
-            { in: "body", key: "text" },
-          ],
-        },
-      ],
-    )
-    return (options?.client ?? this.client).post<SessionSteerResponses, SessionSteerErrors, ThrowOnError>({
-      url: "/session/{sessionID}/steer",
-      ...options,
-      ...params,
-      headers: {
-        "Content-Type": "application/json",
-        ...options?.headers,
-        ...params.headers,
-      },
     })
   }
 
