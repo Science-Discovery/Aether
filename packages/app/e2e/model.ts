@@ -19,6 +19,10 @@ export function config(url?: string) {
             name: "Test Model",
             limit: { context: 128000, output: 8192 },
           },
+          "backup-model": {
+            name: "Test Model Backup",
+            limit: { context: 128000, output: 8192 },
+          },
         },
       },
     },
