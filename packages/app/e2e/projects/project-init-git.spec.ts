@@ -35,8 +35,12 @@ async function openProjectViaDialog(page: Page, directory: string) {
   return resolveSlug(await waitSlug(page))
 }
 
-test("new project defaults to a git repository and enabled workspaces", async ({ page }) => {
+test("enabling auto git init creates a git repository and enables workspaces", async ({ page }) => {
   test.setTimeout(120_000)
+  await page.addInitScript(() => {
+    localStorage.setItem("settings.v3", JSON.stringify({ general: { autoGitInit: true } }))
+  })
+
   const directory = await gitlessProject()
   try {
     expect(await hasGit(directory)).toBe(false)
@@ -63,12 +67,8 @@ test("new project defaults to a git repository and enabled workspaces", async ({
   }
 })
 
-test("disabling auto git init keeps new projects git-less", async ({ page }) => {
+test("new projects stay git-less by default", async ({ page }) => {
   test.setTimeout(120_000)
-  await page.addInitScript(() => {
-    localStorage.setItem("settings.v3", JSON.stringify({ general: { autoGitInit: false } }))
-  })
-
   const directory = await gitlessProject()
   try {
     const project = await openProjectViaDialog(page, directory)
