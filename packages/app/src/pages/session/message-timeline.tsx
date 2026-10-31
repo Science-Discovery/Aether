@@ -22,6 +22,8 @@ import { getFilename } from "@opencode-ai/util/path"
 import { Popover as KobaltePopover } from "@kobalte/core/popover"
 import { shouldMarkBoundaryGesture, normalizeWheelDelta } from "@/pages/session/message-gesture"
 import { createTurnCollapse } from "@/pages/session/message-collapse"
+import { createUserCollapse } from "@/pages/session/message-user-collapse"
+import { gap, header } from "@/pages/session/message-layout"
 import { resolveSelectionAnchorRect } from "@/pages/session/selection-anchor"
 import { SessionContextUsage } from "@/components/session-context-usage"
 import { useI18n } from "@opencode-ai/ui/context"
@@ -328,6 +330,7 @@ export function MessageTimeline(props: {
   onUserScroll: () => void
   onTurnBackfillScroll: () => void
   onAutoScrollInteraction: (event: MouseEvent) => void
+  onUserMessageResize: () => void
   centered: boolean
   setContentRef: (el: HTMLDivElement) => void
   turnStart: number
@@ -368,6 +371,11 @@ export function MessageTimeline(props: {
   const quote = useConversationQuote()
   const { params, sessionKey } = useSessionKey()
   const platform = usePlatform()
+  const userCollapse = createUserCollapse({
+    enabled: settings.general.collapseLongUserMessages,
+    root: () => root,
+    pause: props.onUserMessageResize,
+  })
   const [selection, setSelection] = createStore({
     open: false,
     sourceMessageID: "",
@@ -482,7 +490,8 @@ export function MessageTimeline(props: {
   })
   const collapse = createTurnCollapse({
     session: sessionID,
-    ready: paged,
+    ready: () => settings.ready() && paged(),
+    auto: settings.general.autoCollapse,
     rendered,
     turns: collapsibleTurnIDs,
   })
@@ -1176,9 +1185,9 @@ export function MessageTimeline(props: {
           onClick={props.onAutoScrollInteraction}
           class="relative min-w-0 w-full h-full"
           style={{
-            "--session-title-height": showHeader() ? "45px" : "0px",
-            "--sticky-accordion-top": showHeader() ? "45px" : "0px",
-            "--session-title-block": showHeader() ? "45px" : "0px",
+            "--session-title-height": `${showHeader() ? header : 0}px`,
+            "--sticky-accordion-top": `${showHeader() ? header : 0}px`,
+            "--session-title-block": `${(showHeader() ? header : 0) + gap}px`,
           }}
         >
           <div ref={props.setContentRef} class="min-w-0 w-full">
@@ -1486,11 +1495,10 @@ export function MessageTimeline(props: {
               role="log"
               data-slot="session-turn-list"
               class="flex flex-col items-start justify-start pb-16 transition-[margin]"
+              style={{ "padding-top": `${gap}px` }}
               classList={{
                 "w-full": true,
                 "md:max-w-[2400px] md:mx-auto 2xl:max-w-[3000px]": props.centered,
-                "mt-0.5": props.centered,
-                "mt-0": !props.centered,
               }}
             >
               <Show when={props.turnStart > 0 || props.historyMore}>
@@ -1734,6 +1742,8 @@ export function MessageTimeline(props: {
                         actions={props.actions}
                         assistantCollapsed={collapse.is(messageID)}
                         onAssistantCollapsedChange={(collapsed) => collapse.set(messageID, collapsed)}
+                        collapseLongUserMessages={userCollapse.enabled()}
+                        onUserMessageResize={props.onUserMessageResize}
                         active={active()}
                         status={active() ? sessionStatus() : undefined}
                         showReasoningSummaries={settings.general.showReasoningSummaries()}

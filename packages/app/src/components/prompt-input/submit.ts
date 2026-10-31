@@ -289,7 +289,7 @@ export async function sendFollowupDraft(input: FollowupSendInput) {
       messageID,
       parts: requestParts,
       variant: input.draft.variant,
-      knowledgeBase: input.knowledgeBase,
+      knowledgeBase: input.globalSync.data?.config?.knowledge?.enabled === true ? input.knowledgeBase : undefined,
     })
     return true
   } catch (err) {

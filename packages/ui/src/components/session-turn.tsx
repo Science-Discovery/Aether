@@ -20,6 +20,7 @@ import { TextReveal } from "./text-reveal"
 import { createAutoScroll } from "../hooks"
 import { useI18n } from "../context/i18n"
 import { livePart } from "../utils/session-live"
+import { anchor, observe } from "../utils/session-pin"
 
 function same<T>(a: readonly T[], b: readonly T[]) {
   if (a === b) return true
@@ -93,6 +94,8 @@ export function SessionTurn(
     assistantCollapsed?: boolean
     onAssistantCollapsedChange?: (collapsed: boolean) => void
     onUserInteracted?: () => void
+    collapseLongUserMessages?: boolean
+    onUserMessageResize?: () => void
     classes?: {
       root?: string
       content?: string
@@ -322,29 +325,12 @@ export function SessionTurn(
     props.onAssistantCollapsedChange(!assistantCollapsed())
   }
 
-  const promptPinShift = (el: HTMLElement) => {
-    const bubble = el.querySelector<HTMLElement>("[data-slot='user-message-text']")
-    if (!bubble) return 0
-    const rect = el.getBoundingClientRect()
-    const bubbleRect = bubble.getBoundingClientRect()
-    return Math.max(0, Math.ceil(bubbleRect.bottom - rect.top - 50))
-  }
   const [pin, setPin] = createSignal<HTMLElement>()
-  let pinShift = -1
 
   createEffect(
-    on([pin], ([el]) => {
+    on(pin, (el) => {
       if (!el) return
-      const apply = () => {
-        const shift = promptPinShift(el)
-        if (shift === pinShift) return
-        pinShift = shift
-        el.style.setProperty("--pin-shift", `${shift}px`)
-      }
-      apply()
-      const ro = new ResizeObserver(apply)
-      ro.observe(el)
-      onCleanup(() => ro.disconnect())
+      onCleanup(observe(el))
     }),
   )
 
@@ -353,6 +339,12 @@ export function SessionTurn(
     onUserInteracted: props.onUserInteracted,
     overflowAnchor: "dynamic",
   })
+  const resize = () => {
+    props.onUserMessageResize?.()
+    autoScroll.pause(true)
+    const el = pin()
+    if (el) return anchor(el)
+  }
 
   return (
     <div
@@ -376,17 +368,14 @@ export function SessionTurn(
               data-assistant-collapsed={assistantCollapsed() ? "true" : undefined}
               class={props.classes?.container}
             >
-              <div
-                ref={setPin}
-                data-slot="session-turn-message-content"
-                aria-live="off"
-                style={{ "--pin-shift": "0px" }}
-              >
+              <div ref={setPin} data-slot="session-turn-message-content" aria-live="off">
                 <Message
                   message={message()!}
                   parts={parts()}
                   actions={props.actions}
                   onUserBubbleClick={toggleAssistant}
+                  collapseLongUserMessages={props.collapseLongUserMessages}
+                  onUserMessageResize={resize}
                 />
               </div>
               <Show when={divider() && !assistantCollapsed()}>

@@ -1164,6 +1164,20 @@ export const dict = {
 
   "settings.section.desktop": "Desktop",
   "settings.section.server": "Server",
+  "settings.section.custom": "Custom features",
+  "settings.general.row.autoCollapse.title": "Automatically collapse earlier replies",
+  "settings.general.row.autoCollapse.description":
+    "Collapse earlier replies when opening a session or loading history. Manual expand and collapse remain available.",
+  "settings.general.row.collapseLongUserMessages.title": "Automatically collapse long user messages",
+  "settings.general.row.collapseLongUserMessages.description":
+    "Show about 10 lines of long user messages. Expand or collapse each message without changing its content.",
+  "knowledge.settings.description": "Use local knowledge bases to add relevant context to conversations.",
+  "knowledge.settings.enabled": "Enable knowledge bases",
+  "knowledge.settings.enabledDescription":
+    "Applies to this server. Turning off hides the shortcut and stops new indexing and searches; saved data and selections are kept.",
+  "knowledge.disabled": "Knowledge bases are turned off. Enable them in settings to use indexing and search.",
+  "knowledge.loading": "Loading saved knowledge bases…",
+  "knowledge.loadFailed": "Saved knowledge bases could not be loaded. Retry to restore them before making changes.",
   "settings.tab.general": "General",
   "settings.tab.shortcuts": "Shortcuts",
   "settings.tab.skillEvolution": "Skill Evolution",
@@ -1208,7 +1222,7 @@ export const dict = {
     "Max characters (in thousands, k) a whole background review may output before it is stopped — guards against a review that keeps grinding step after step. Default 1000k.",
   "settingsSkills.evolutionEnabled": "Skill Self-Evolution",
   "settingsSkills.evolutionEnabledDescription":
-    "Master switch. When off, no project triggers background skill review — the settings below have no effect until you turn it back on.",
+    "Off by default. Applies to this server. Turning off hides the shortcut and stops new background reviews and automatic maintenance. Existing skills are kept.",
   "settingsSkills.curatorEnabled": "Skill Curator",
   "settingsSkills.curatorEnabledDescription":
     "Periodically counts skill usage, marks unused skills as stale, and archives skills untouched for 90 days (archived copies can be restored). Turn off to stop all automatic maintenance.",

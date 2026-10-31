@@ -76,9 +76,29 @@ export function chatRanges(root: HTMLElement, text: string) {
   return out
 }
 
-function jump(range: Range) {
+function jump(range: Range, valid: () => boolean) {
   const n = range.startContainer
   const el = n instanceof Element ? n : n.parentElement
+  const content = el?.closest('[data-slot="user-message-content"]')
+  if (
+    content?.parentElement?.getAttribute("data-collapsed") === "true" &&
+    content.getBoundingClientRect().height > content.parentElement.getBoundingClientRect().height + 1
+  ) {
+    content.dispatchEvent(new Event("beforematch"))
+    // Let the message finish its layout/scroll anchoring before centering the
+    // match, including hits below the collapsed preview.
+    const frame = requestAnimationFrame(() => {
+      if (!valid() || !el?.isConnected) return
+      const view = el.closest<HTMLElement>(".scroll-view__viewport")
+      if (!view) {
+        el.scrollIntoView({ block: "center", inline: "nearest" })
+        return
+      }
+      const rect = range.getBoundingClientRect()
+      view.scrollTop += rect.top - view.getBoundingClientRect().top - (view.clientHeight - rect.height) / 2
+    })
+    return () => cancelAnimationFrame(frame)
+  }
   el?.scrollIntoView({ block: "center", inline: "nearest" })
 }
 
@@ -101,6 +121,7 @@ export function createChatFind(input: Find) {
   let ref: HTMLInputElement | undefined
   let list: Range[] = []
   let frame: number | undefined
+  let reveal: (() => void) | undefined
 
   const [state, setState] = createStore({
     open: false,
@@ -117,7 +138,17 @@ export function createChatFind(input: Find) {
   const pos = () => state.pos
   const enabled = () => input.active?.() ?? true
 
+  const cancel = () => {
+    reveal?.()
+    reveal = undefined
+  }
+  const seek = (range: Range) => {
+    cancel()
+    reveal = jump(range, () => open() && enabled())
+  }
+
   const clear = () => {
+    cancel()
     list = []
     setState("count", 0)
     setState("index", 0)
@@ -156,7 +187,7 @@ export function createChatFind(input: Find) {
 
     if (!opts?.scroll) return
     const r = list[i]
-    if (r) jump(r)
+    if (r) seek(r)
   }
 
   const schedule = (opts?: { reset?: boolean; scroll?: boolean }) => {
@@ -192,7 +223,7 @@ export function createChatFind(input: Find) {
     setState("index", i)
     paint(list, i)
     const r = list[i]
-    if (r) jump(r)
+    if (r) seek(r)
   }
 
   onMount(() => {
@@ -266,6 +297,7 @@ export function createChatFind(input: Find) {
   })
 
   onCleanup(() => {
+    cancel()
     if (frame !== undefined) cancelAnimationFrame(frame)
     clearMarks()
   })
@@ -280,6 +312,7 @@ export function createChatFind(input: Find) {
       ref = el
     },
     setQuery: (value: string) => {
+      cancel()
       setState("query", value)
       setState("index", 0)
       apply({ reset: true, scroll: true })

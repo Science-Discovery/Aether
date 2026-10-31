@@ -56,6 +56,7 @@ import { ToolStatusTitle } from "./tool-status-title"
 import { animate } from "motion"
 import { useLocation } from "@solidjs/router"
 import { attached, inline, kind } from "./message-file"
+import { UserMessageContent } from "./user-message-content"
 
 function ShellSubmessage(props: { text: string; animate?: boolean }) {
   let widthRef: HTMLSpanElement | undefined
@@ -136,6 +137,8 @@ export interface MessageProps {
   showAssistantCopyPartID?: string | null
   showReasoningSummaries?: boolean
   onUserBubbleClick?: JSX.EventHandlerUnion<HTMLDivElement, MouseEvent>
+  collapseLongUserMessages?: boolean
+  onUserMessageResize?: () => (() => void) | void
 }
 
 export type SessionAction = (input: { sessionID: string; messageID: string }) => Promise<void> | void
@@ -818,6 +821,8 @@ export function Message(props: MessageProps) {
             parts={props.parts}
             actions={props.actions}
             onBubbleClick={props.onUserBubbleClick}
+            collapseLongUserMessages={props.collapseLongUserMessages}
+            onUserMessageResize={props.onUserMessageResize}
           />
         )}
       </Match>
@@ -1014,6 +1019,8 @@ export function UserMessageDisplay(props: {
   parts: PartType[]
   actions?: UserActions
   onBubbleClick?: JSX.EventHandlerUnion<HTMLDivElement, MouseEvent>
+  collapseLongUserMessages?: boolean
+  onUserMessageResize?: () => (() => void) | void
 }) {
   const data = useData()
   const dialog = useDialog()
@@ -1149,16 +1156,23 @@ export function UserMessageDisplay(props: {
         <>
           <div data-slot="user-message-body">
             <div data-slot="user-message-text" onClick={props.onBubbleClick}>
-              <HighlightedText text={text()} references={inlineFiles()} agents={agents()} />
-              <Show when={steerParts().length > 0}>
-                <For each={steerParts()}>
-                  {(sp) => (
-                    <div data-slot="user-message-steer" class="mt-1 text-13-regular text-text-weak opacity-80">
-                      {sp.text}
-                    </div>
-                  )}
-                </For>
-              </Show>
+              <UserMessageContent
+                id={props.message.id}
+                version={JSON.stringify([text(), ...steerParts().map((part) => part.text)])}
+                collapse={props.collapseLongUserMessages}
+                onResize={props.onUserMessageResize}
+              >
+                <HighlightedText text={text()} references={inlineFiles()} agents={agents()} />
+                <Show when={steerParts().length > 0}>
+                  <For each={steerParts()}>
+                    {(sp) => (
+                      <div data-slot="user-message-steer" class="mt-1 text-13-regular text-text-weak opacity-80">
+                        {sp.text}
+                      </div>
+                    )}
+                  </For>
+                </Show>
+              </UserMessageContent>
             </div>
           </div>
           <div data-slot="user-message-copy-wrapper">

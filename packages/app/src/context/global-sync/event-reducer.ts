@@ -25,7 +25,12 @@ export function applyGlobalEvent(input: {
   setGlobalProject: (next: Project[] | ((draft: Project[]) => void)) => void
   refresh: () => void
   providers?: () => void
+  config?: () => void
 }) {
+  if (input.event.type === "global.config.updated") {
+    input.config?.()
+    return
+  }
   if (input.event.type === "session.created" || input.event.type === "session.imported") {
     const info = (input.event.properties as { info?: Partial<Session> } | undefined)?.info
     if (!info?.projectID || !info.directory) return

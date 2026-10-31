@@ -2,6 +2,7 @@ import type { UserMessage } from "@opencode-ai/sdk/v2"
 import { useLocation, useNavigate } from "@solidjs/router"
 import { createEffect, createMemo, onCleanup, onMount } from "solid-js"
 import { messageIdFromHash } from "./message-id-from-hash"
+import { gap } from "./message-layout"
 
 export const useSessionHashScroll = (input: {
   sessionKey: () => string
@@ -70,7 +71,7 @@ export const useSessionHashScroll = (input: {
     const a = el.getBoundingClientRect()
     const b = root.getBoundingClientRect()
     const sticky = root.querySelector("[data-session-title]")
-    const inset = sticky instanceof HTMLElement ? sticky.offsetHeight : 0
+    const inset = (sticky instanceof HTMLElement ? sticky.offsetHeight : 0) + gap
     const top = Math.max(0, a.top - b.top + root.scrollTop - inset)
     root.scrollTo({ top, behavior })
     return true

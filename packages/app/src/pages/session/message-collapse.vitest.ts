@@ -9,13 +9,16 @@ function setup() {
   const [src, setSrc] = createStore({
     session: undefined as string | undefined,
     ready: false,
+    hydrated: true,
+    auto: true,
     rendered: [] as string[],
     turns: [] as string[],
   })
   return createRoot((dispose) => {
     const collapse = createTurnCollapse({
       session: () => src.session,
-      ready: () => src.ready,
+      ready: () => src.ready && src.hydrated,
+      auto: () => src.auto,
       rendered: () => src.rendered,
       turns: () => src.turns,
     })
@@ -140,11 +143,11 @@ describe("turn collapse", () => {
 
   test("late tail correction expands a wrongly folded tail", async () => {
     const { collapse, set, close } = setup()
-    set({ session: "s1", ready: true, rendered: ["m1", "m2"], turns: ["m1", "m2"] })
+    set({ session: "s1", ready: true, rendered: ["m1", "m3", "m2"], turns: ["m1", "m3", "m2"] })
     await tick()
     expect(collapse.is("m2")).toBe(false)
+    expect(collapse.is("m3")).toBe(true)
 
-    collapse.set("m3", true)
     set({ rendered: ["m1", "m2", "m3"], turns: ["m1", "m2", "m3"] })
     await tick()
     expect(collapse.is("m3")).toBe(false)
@@ -160,6 +163,118 @@ describe("turn collapse", () => {
     await tick()
     expect(collapse.is("m1")).toBe(true)
     expect(collapse.is("m2")).toBe(false)
+    close()
+  })
+
+  test("disabled automatic collapse keeps initial and loaded history expanded", async () => {
+    const { collapse, set, close } = setup()
+    set({ session: "s1", ready: true, auto: false, rendered: ["m1", "m2"], turns: ["m1", "m2"] })
+    await tick()
+    expect(collapse.is("m1")).toBe(false)
+    expect(collapse.is("m2")).toBe(false)
+
+    set({ rendered: ["m0", "m1", "m2"], turns: ["m0", "m1", "m2"] })
+    await tick()
+    expect(collapse.is("m0")).toBe(false)
+    expect(collapse.is("m1")).toBe(false)
+    expect(collapse.is("m2")).toBe(false)
+    close()
+  })
+
+  test("changing the preference preserves individual manual overrides", async () => {
+    const { collapse, set, close } = setup()
+    set({ session: "s1", ready: true, rendered: ["m0", "m1", "m2"], turns: ["m0", "m1", "m2"] })
+    await tick()
+    collapse.set("m1", false)
+    collapse.set("m2", true)
+    set("auto", false)
+    await tick()
+    expect(collapse.is("m0")).toBe(false)
+    expect(collapse.is("m1")).toBe(false)
+    expect(collapse.is("m2")).toBe(true)
+
+    set("auto", true)
+    await tick()
+    expect(collapse.is("m0")).toBe(true)
+    expect(collapse.is("m1")).toBe(false)
+    expect(collapse.is("m2")).toBe(true)
+    close()
+  })
+
+  test("manual collapse remains available for turns outside automatic eligibility", async () => {
+    const { collapse, set, close } = setup()
+    set({ session: "s1", ready: true, rendered: ["m1", "m2"], turns: ["m2"] })
+    await tick()
+    collapse.set("m1", true)
+    set("auto", false)
+    await tick()
+    expect(collapse.is("m1")).toBe(true)
+    collapse.set("m1", false)
+    expect(collapse.is("m1")).toBe(false)
+    close()
+  })
+
+  test("manual bulk actions keep priority over the automatic preference", async () => {
+    const { collapse, set, close } = setup()
+    set({ session: "s1", ready: true, auto: false, rendered: ["m1", "m2"], turns: ["m1", "m2"] })
+    await tick()
+    collapse.all()
+    expect(collapse.is("m1")).toBe(true)
+    expect(collapse.is("m2")).toBe(true)
+
+    set("auto", true)
+    set({ rendered: ["m0", "m1", "m2"], turns: ["m0", "m1", "m2"] })
+    await tick()
+    expect(collapse.is("m0")).toBe(true)
+    expect(collapse.is("m2")).toBe(true)
+
+    set({ rendered: ["m0", "m1", "m2", "m3"], turns: ["m0", "m1", "m2", "m3"] })
+    await tick()
+    expect(collapse.is("m3")).toBe(false)
+
+    collapse.none()
+    set("auto", false)
+    await tick()
+    set("auto", true)
+    set({ rendered: ["z0", "m0", "m1", "m2", "m3"], turns: ["z0", "m0", "m1", "m2", "m3"] })
+    await tick()
+    expect(collapse.is("z0")).toBe(false)
+    expect(collapse.is("m2")).toBe(false)
+    collapse.set("m2", true)
+    expect(collapse.is("m2")).toBe(true)
+    close()
+  })
+
+  test("settings hydration completes before the initial automatic snapshot", async () => {
+    const { collapse, set, close } = setup()
+    set({ session: "s1", ready: true, hydrated: false, rendered: ["m1", "m2"], turns: ["m1", "m2"] })
+    await tick()
+    expect(collapse.is("m1")).toBe(false)
+
+    set({ hydrated: true, auto: false })
+    await tick()
+    expect(collapse.is("m1")).toBe(false)
+    set("auto", true)
+    await tick()
+    expect(collapse.is("m1")).toBe(true)
+    close()
+  })
+
+  test("disabled preference survives session changes without carrying manual folds", async () => {
+    const { collapse, set, close } = setup()
+    set({ session: "s1", ready: true, auto: false, rendered: ["m1", "m2"], turns: ["m1", "m2"] })
+    await tick()
+    collapse.set("m1", true)
+    expect(collapse.is("m1")).toBe(true)
+
+    set({ session: "s2", rendered: ["n1", "n2"], turns: ["n1", "n2"] })
+    await tick()
+    expect(collapse.is("n1")).toBe(false)
+    expect(collapse.is("m1")).toBe(false)
+
+    set({ session: "s1", rendered: ["m1", "m2"], turns: ["m1", "m2"] })
+    await tick()
+    expect(collapse.is("m1")).toBe(false)
     close()
   })
 })

@@ -138,6 +138,13 @@ export type EventGlobalDisposed = {
   }
 }
 
+export type EventGlobalConfigUpdated = {
+  type: "global.config.updated"
+  properties: {
+    [key: string]: unknown
+  }
+}
+
 export type EventLspClientDiagnostics = {
   type: "lsp.client.diagnostics"
   properties: {
@@ -1115,6 +1122,7 @@ export type Event =
   | EventServerInstanceDisposed
   | EventServerConnected
   | EventGlobalDisposed
+  | EventGlobalConfigUpdated
   | EventLspClientDiagnostics
   | EventLspUpdated
   | EventFileWatcherUpdated
@@ -1714,7 +1722,7 @@ export type Config = {
      */
     evolution_disabled_files?: Array<string>
     /**
-     * Global master switch for skill self-evolution. When false, no project triggers background review (default: true)
+     * Server-global master switch for skill self-evolution. Requires explicit true in global config (default: false)
      */
     evolution_enabled?: boolean
     /**
@@ -1737,6 +1745,12 @@ export type Config = {
      * Whether the skill curator runs its periodic maintenance (counting usage, marking stale, archiving unused skills). Default: true.
      */
     curator_enabled?: boolean
+  }
+  knowledge?: {
+    /**
+     * Server-global master switch for knowledge base processing and search (default: false)
+     */
+    enabled?: boolean
   }
   watcher?: {
     ignore?: Array<string>
@@ -8089,6 +8103,12 @@ export type KnowledgeCreateErrors = {
    * Bad request
    */
   400: BadRequestError
+  /**
+   * Knowledge base feature is disabled
+   */
+  403: {
+    error: string
+  }
 }
 
 export type KnowledgeCreateError = KnowledgeCreateErrors[keyof KnowledgeCreateErrors]
@@ -8361,6 +8381,12 @@ export type KnowledgeConfigUpdateErrors = {
    */
   400: BadRequestError
   /**
+   * Knowledge base feature is disabled
+   */
+  403: {
+    error: string
+  }
+  /**
    * 知识库不存在
    */
   404: unknown
@@ -8436,10 +8462,18 @@ export type KnowledgeImportData = {
 
 export type KnowledgeImportErrors = {
   /**
+   * Knowledge base feature is disabled
+   */
+  403: {
+    error: string
+  }
+  /**
    * 知识库不存在
    */
   404: unknown
 }
+
+export type KnowledgeImportError = KnowledgeImportErrors[keyof KnowledgeImportErrors]
 
 export type KnowledgeImportResponses = {
   /**
@@ -8474,6 +8508,12 @@ export type KnowledgeSyncErrors = {
    * Bad request
    */
   400: BadRequestError
+  /**
+   * Knowledge base feature is disabled
+   */
+  403: {
+    error: string
+  }
   /**
    * 知识库不存在
    */
@@ -8522,6 +8562,12 @@ export type KnowledgeSearchErrors = {
    * Bad request
    */
   400: BadRequestError
+  /**
+   * Knowledge base feature is disabled
+   */
+  403: {
+    error: string
+  }
   /**
    * 知识库不存在
    */

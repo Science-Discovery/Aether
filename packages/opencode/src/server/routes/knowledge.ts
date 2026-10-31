@@ -10,11 +10,18 @@ import { lazy } from "../../util/lazy"
 import { Log } from "../../util/log"
 import { Filesystem } from "../../util/filesystem"
 import { setKnowledgeConfig, getKnowledgeConfig } from "../../tool/knowledge"
+import { Config } from "../../config/config"
 import path from "path"
 import os from "os"
 import { readdir, mkdir, rename, realpath } from "fs/promises"
 
 const log = Log.create({ service: "knowledge" })
+const disabled = {
+  403: {
+    description: "Knowledge base feature is disabled",
+    content: { "application/json": { schema: resolver(z.object({ error: z.string() })) } },
+  },
+}
 
 // Constrain a user-supplied path to knowledge base directories: the path (or,
 // after symlink resolution, one of its ancestors) must be a real knowledge
@@ -311,6 +318,7 @@ export const KnowledgeRoutes = lazy(() =>
         description: "创建新的知识库",
         operationId: "knowledge.create",
         responses: {
+          ...disabled,
           200: {
             description: "知识库创建成功",
             content: {
@@ -324,6 +332,7 @@ export const KnowledgeRoutes = lazy(() =>
       }),
       validator("json", CreateKnowledgeBaseSchema),
       async (c) => {
+        if (!(await Config.enabled("knowledge"))) return c.json({ error: "Knowledge base feature is disabled" }, 403)
         const opts = c.req.valid("json")
         log.info("creating knowledge base", { path: opts.path, name: opts.name, model: opts.embeddingModel })
 
@@ -583,6 +592,7 @@ export const KnowledgeRoutes = lazy(() =>
         description: "更新知识库嵌入模型配置，模型变更时会清空索引并等待重新同步",
         operationId: "knowledge.config.update",
         responses: {
+          ...disabled,
           200: {
             description: "更新后的知识库",
             content: {
@@ -599,6 +609,7 @@ export const KnowledgeRoutes = lazy(() =>
       }),
       validator("json", UpdateConfigSchema),
       async (c) => {
+        if (!(await Config.enabled("knowledge"))) return c.json({ error: "Knowledge base feature is disabled" }, 403)
         const dir = decodeURIComponent(c.req.param("path"))
         const opts = c.req.valid("json")
 
@@ -647,6 +658,7 @@ export const KnowledgeRoutes = lazy(() =>
         description: "复制文件到知识库目录（不自动同步）",
         operationId: "knowledge.import",
         responses: {
+          ...disabled,
           200: {
             description: "导入结果",
             content: {
@@ -668,6 +680,7 @@ export const KnowledgeRoutes = lazy(() =>
       }),
       validator("json", ImportSchema),
       async (c) => {
+        if (!(await Config.enabled("knowledge"))) return c.json({ error: "Knowledge base feature is disabled" }, 403)
         const dir = decodeURIComponent(c.req.param("path"))
         const opts = c.req.valid("json")
 
@@ -768,6 +781,7 @@ export const KnowledgeRoutes = lazy(() =>
         description: "同步知识库文件夹，处理新增的可支持文档，以 SSE 流式返回进度",
         operationId: "knowledge.sync",
         responses: {
+          ...disabled,
           200: {
             description: "SSE 进度流，最终事件为 complete 或 error",
             content: {
@@ -784,6 +798,7 @@ export const KnowledgeRoutes = lazy(() =>
       }),
       validator("json", SyncKnowledgeBaseSchema.optional()),
       async (c) => {
+        if (!(await Config.enabled("knowledge"))) return c.json({ error: "Knowledge base feature is disabled" }, 403)
         const dir = decodeURIComponent(c.req.param("path"))
         const opts = c.req.valid("json") || {}
 
@@ -833,6 +848,7 @@ export const KnowledgeRoutes = lazy(() =>
         description: "在知识库中搜索相关内容",
         operationId: "knowledge.search",
         responses: {
+          ...disabled,
           200: {
             description: "搜索结果",
             content: {
@@ -849,6 +865,7 @@ export const KnowledgeRoutes = lazy(() =>
       }),
       validator("json", SearchSchema),
       async (c) => {
+        if (!(await Config.enabled("knowledge"))) return c.json({ error: "Knowledge base feature is disabled" }, 403)
         const dir = decodeURIComponent(c.req.param("path"))
         const opts = c.req.valid("json")
 

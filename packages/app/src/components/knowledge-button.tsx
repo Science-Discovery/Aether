@@ -32,13 +32,14 @@ export const KnowledgeButton: Component<{ sessionID?: string }> = (props) => {
         size="normal"
         class="h-7 px-2 flex items-center gap-1"
         onClick={handleClick}
+        aria-label={label()}
         classList={{
           "text-icon-strong-base": knowledge.enabled(props.sessionID),
           "text-icon-weak": !knowledge.enabled(props.sessionID),
         }}
       >
         <Icon
-          name="brain"
+          name="book-open"
           class="size-4"
           classList={{
             "text-icon-success-base": knowledge.enabled(props.sessionID),

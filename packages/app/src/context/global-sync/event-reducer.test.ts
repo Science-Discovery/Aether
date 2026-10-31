@@ -87,6 +87,21 @@ const baseState = (input: Partial<State> = {}) =>
   }) as State
 
 describe("applyGlobalEvent", () => {
+  test("feature changes refresh only configuration", () => {
+    let config = 0
+    let refresh = 0
+    let providers = 0
+    applyGlobalEvent({
+      event: { type: "global.config.updated", properties: {} },
+      project: [],
+      setGlobalProject() {},
+      config: () => config++,
+      refresh: () => refresh++,
+      providers: () => providers++,
+    })
+    expect({ config, refresh, providers }).toEqual({ config: 1, refresh: 0, providers: 0 })
+  })
+
   test("upserts project.updated in sorted position", () => {
     const project = [{ id: "a" }, { id: "c" }] as Project[]
     let refreshCount = 0
