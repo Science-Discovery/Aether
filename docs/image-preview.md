@@ -4,6 +4,8 @@
 
 图片通过带当前服务认证的请求读取，再以临时 Blob URL 显示。中文、空格、`#`、`%` 等路径字符保留原始文件含义，不把服务密码写入图片 URL。加载失败时显示错误和重试按钮；格式不支持或文件损坏时，可以选择使用服务所在电脑的系统应用打开。
 
+文件名中的 `%20`、`%E5` 等字符按字面保留；仅对 `file://` 链接解码一层，不将实际文件名误转换为空格或中文。文件读取失败时保留服务返回的错误原因，例如 `File not found`，避免统一显示为“未知错误”。
+
 切换文件、服务器、认证或文件版本时取消旧请求，旧结果不会覆盖当前图片。关闭预览或替换图片后释放 Blob URL；外部修改文件沿用现有文件版本刷新机制。SVG 只作为图片显示，不以 HTML 或脚本方式执行。Web 代理页面的内容安全策略仅为图片增加 `blob:` 来源许可。
 
 ## TIFF
@@ -12,7 +14,7 @@
 
 - 预览第一个有效图像页；多页文件显示总页数提示，本轮不提供翻页。
 - 支持常见经典 TIFF 编码，已验证 RGB、非预乘的 RGBA、16 位灰度，以及 LZW、Deflate、PackBits 压缩和方向信息。
-- 文件上限为 32 MiB，首个图像页上限为 1600 万像素。超限时明确提示并提供系统应用入口。
+- 文件上限为 64 MiB，首个图像页上限为 1600 万像素。超限时明确提示并提供系统应用入口。
 - BigTIFF、内嵌 JPEG 压缩、预乘透明度、未支持的采样/颜色布局会显示无法预览；检测到损坏的目录或图像数据时也会提示错误。
 
 本轮没有增加 HEIC/HEIF 和相机 RAW 的专用解码器。这些格式能否直接显示取决于当前浏览器；不能解码时使用系统应用入口。文件被识别为图片，不代表所有该后缀下的编码都已支持。
@@ -24,7 +26,7 @@
 ```powershell
 # packages/app
 bun run ./script/vitest.ts run --config ./vitest.config.ts src/components/file-image.vitest.tsx src/utils/tiff-preview.vitest.ts
-bun test src/utils/tiff.test.ts
+bun test src/utils/tiff.test.ts src/context/file/path.test.ts src/utils/server-errors.test.ts
 bun typecheck
 
 # packages/opencode

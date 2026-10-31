@@ -1,12 +1,12 @@
 import utif from "utif2"
 
 const pixels = 16_000_000
-const bytes = 32 * 1024 * 1024
+const bytes = 64 * 1024 * 1024
 
 // UTIF trusts directory offsets and counts. Bound its metadata traversal before
 // decoding so a truncated file or a cyclic IFD cannot hang the viewer.
 function inspect(input: ArrayBuffer) {
-  if (input.byteLength > bytes) throw new RangeError("TIFF preview is limited to 32 MiB")
+  if (input.byteLength > bytes) throw new RangeError("TIFF preview is limited to 64 MiB")
   if (input.byteLength < 8) throw new Error("Invalid TIFF header")
   const view = new DataView(input)
   const order = view.getUint16(0)

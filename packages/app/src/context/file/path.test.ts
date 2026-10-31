@@ -32,6 +32,59 @@ describe("file path helpers", () => {
     expect(unquoteGitPath('"plain\\nname"')).toBe("plain\nname")
     expect(unquoteGitPath("a/b/c.ts")).toBe("a/b/c.ts")
   })
+
+  test("round trips a downloaded image with literal percent-encoded text in its filename", () => {
+    const path = createPathHelpers(() => "F:/Download")
+    const name =
+      "_F__Desktop_%E5%AF%B9%E8%AF%9D%E6%A0%91%E8%AF%B4%E6%98%8E_%E5%AF%B9%E8%AF%9D%E6%A0%91%20_%20Aether%20%E5%8A%9F%E8%83%BD%E8%AF%B4%E6%98%8E.html.png"
+    const tab = path.tab(`F:/Download/${name}`)
+    expect(path.normalize(`F:/Download/${name}`)).toBe(name)
+    expect(tab).toContain("%25E5%25AF%25B9")
+    expect(path.pathFromTab(tab)).toBe(name)
+    expect(path.normalize(path.pathFromTab(tab)!)).toBe(name)
+    expect(path.tab(tab)).toBe(tab)
+  })
+
+  test.each(["image%20.png", "image%2520.png", "image%23.png", "100%.png", "中文 空格 #?% &.png"])(
+    "keeps literal filename characters stable across repeated normalization: %s",
+    (name) => {
+      const path = createPathHelpers(() => "/repo")
+      expect(path.normalize(name)).toBe(name)
+      expect(path.normalize(`/repo/${name}`)).toBe(name)
+      expect(path.normalize(path.normalize(name))).toBe(name)
+      const tab = path.tab(name)
+      expect(path.pathFromTab(tab)).toBe(name)
+      expect(path.normalize(path.pathFromTab(tab)!)).toBe(name)
+      expect(path.tab(tab)).toBe(tab)
+    },
+  )
+
+  test("decodes file URLs once while stripping only their query and fragment", () => {
+    const path = createPathHelpers(() => "/repo")
+    const input = "file:///repo/image%23sample%3Fname%2520.png?start=10&end=20#L10"
+    const name = "image#sample?name%20.png"
+    expect(path.normalize(input)).toBe(name)
+    expect(path.normalize(path.normalize(input))).toBe(name)
+    expect(path.pathFromTab(path.tab(input))).toBe(name)
+    expect(path.normalize("file://src/image%2520.png")).toBe("src/image%20.png")
+    expect(path.tab("file://src/image%2520.png")).toBe("file://src/image%2520.png")
+  })
+
+  test.each(["file://C:/repo", "file:///C:/repo", "file:///c:/repo", "/C:/repo"])(
+    "normalizes Windows drive prefixes before matching the workspace: %s",
+    (prefix) => {
+      const path = createPathHelpers(() => "C:\\repo")
+      expect(path.normalize(`${prefix}/src/image.png`)).toBe("src/image.png")
+      expect(path.normalize(path.normalize(`${prefix}/src/image.png`))).toBe("src/image.png")
+      expect(path.pathFromTab(path.tab(`${prefix}/src/image.png`))).toBe("src/image.png")
+    },
+  )
+
+  test("keeps raw git-quoted filenames literal after unquoting", () => {
+    const path = createPathHelpers(() => "/repo")
+    expect(path.normalize('"src/\\303\\251%20#?.png"')).toBe("src/é%20#?.png")
+    expect(path.normalize(path.normalize('"src/\\303\\251%20#?.png"'))).toBe("src/é%20#?.png")
+  })
 })
 
 describe("encodeFilePath", () => {

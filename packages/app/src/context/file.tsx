@@ -46,12 +46,6 @@ export {
   touchFileContent,
 }
 
-function errorMessage(error: unknown, fallback: string) {
-  if (error instanceof Error && error.message) return error.message
-  if (typeof error === "string" && error) return error
-  return fallback
-}
-
 const image = new Set([
   "png",
   "jpg",
@@ -362,7 +356,7 @@ export const { use: useFile, provider: FileProvider } = createSimpleContext({
       showToast({
         variant: "error",
         title: language.t("toast.file.loadFailed.title"),
-        description: formatServerError(message, language.t),
+        description: message,
       })
     }
 
@@ -401,7 +395,7 @@ export const { use: useFile, provider: FileProvider } = createSimpleContext({
         .catch((e) => {
           if (scope() !== directory) return
           if (!inflight.fresh(key, id)) return
-          setLoadError(file, errorMessage(e, language.t("error.chain.unknown")))
+          setLoadError(file, formatServerError(e, language.t))
         })
         .finally(() => {
           inflight.detach(key, promise)

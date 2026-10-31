@@ -104,11 +104,19 @@ describe("TIFF preview", () => {
   })
 
   test("rejects oversized previews and unsupported encodings", async () => {
-    await expect(decodeTiff(new ArrayBuffer(32 * 1024 * 1024 + 1))).rejects.toBeInstanceOf(RangeError)
+    await expect(decodeTiff(new ArrayBuffer(64 * 1024 * 1024 + 1))).rejects.toBeInstanceOf(RangeError)
     await expect(decodeTiff(fixture([{ ...page, t256: [20_000], t257: [20_000] }]))).rejects.toBeInstanceOf(RangeError)
     await expect(decodeTiff(fixture([{ ...page, t259: [99] }]))).rejects.toThrow("encoding")
     await expect(decodeTiff(fixture([{ ...page, t284: [2] }]))).rejects.toThrow("encoding")
     await expect(decodeTiff(fixture([{}]))).rejects.toThrow("no image pages")
+  })
+
+  test("accepts a valid TIFF at the 64 MiB file limit", async () => {
+    const input = new Uint8Array(64 * 1024 * 1024)
+    input.set(new Uint8Array(utif.encodeImage(rgba.buffer, 2, 1, { t338: [2] })))
+    const output = await decodeTiff(input.buffer)
+    expect([output.width, output.height]).toEqual([2, 1])
+    expect(Array.from(output.data)).toEqual(Array.from(rgba))
   })
 
   test.each([8, 32946])("bounds Deflate %s output to the strip dimensions", async (compression) => {

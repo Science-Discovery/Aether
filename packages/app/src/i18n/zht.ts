@@ -470,7 +470,7 @@ export const dict = {
   "toast.file.loadFailed.title": "載入檔案失敗",
   "file.image.loadFailed": "無法載入此圖片。",
   "file.image.decodeFailed": "無法預覽此圖片，目前格式可能不受支援，或檔案已損壞。",
-  "file.image.tooLarge": "TIFF 預覽限制為 32 MiB、1600 萬像素，請使用系統應用程式開啟此圖片。",
+  "file.image.tooLarge": "TIFF 預覽限制為 64 MiB、1600 萬像素，請使用系統應用程式開啟此圖片。",
   "file.image.retry": "重試",
   "file.image.timeout": "圖片解碼逾時，請使用系統應用程式開啟此圖片。",
   "file.image.external": "使用系統應用程式開啟",
