@@ -120,7 +120,7 @@ function createBatchSelect(
   sessions: Accessor<Session[]>,
   fetchAll: () => Promise<Session[]>,
   archiveSession: (s: Session) => Promise<void>,
-  deleteSession: (s: Session) => Promise<void>,
+  deleteSession: (s: Session) => Promise<boolean | void>,
   dialog: ReturnType<typeof useDialog>,
   language: ReturnType<typeof useLanguage>,
 ) {
@@ -220,7 +220,7 @@ export type WorkspaceSidebarContext = {
   prefetchSession: (session: Session, priority?: "high" | "low") => void
   archiveSession: (session: Session) => Promise<void>
   createSession: (directory: string) => Promise<void>
-  deleteSession: (session: Session) => Promise<void>
+  deleteSession: (session: Session) => Promise<boolean | void>
   renameSession: (session: Session, title: string) => Promise<void>
   workspaceName: (directory: string, projectId?: string, branch?: string) => string | undefined
   renameWorkspace: (directory: string, next: string, projectId?: string, branch?: string) => void
@@ -798,7 +798,7 @@ const SessionTreeNodes = (props: {
   children: Accessor<Map<string, string[]>>
   archiveSession?: (session: Session) => Promise<void>
   unarchiveSession?: (session: Session) => Promise<void>
-  deleteSession?: (session: Session) => Promise<void>
+  deleteSession?: (session: Session) => Promise<boolean | void>
 }) => {
   const settings = useSettings()
   const conversationTreeEnabled = createMemo(() => settings.general.branchesTab())
@@ -852,12 +852,19 @@ const SessionTreeNodes = (props: {
 
   createEffect(
     on(
-      () => [props.currentSessionID(), conversationTreeEnabled(), sessionByID()] as const,
-      ([currentSessionID, treeEnabled]) => {
-        if (!treeEnabled || !currentSessionID) return
-        const rootID = rootSessionIDFor(currentSessionID)
-        if (!rootID) return
+      () => {
+        const id = props.currentSessionID()
+        return [id, conversationTreeEnabled(), id ? rootSessionIDFor(id) : undefined] as const
+      },
+      ([currentSessionID, treeEnabled, rootID], previous) => {
+        if (!currentSessionID || !rootID) return
+        if (treeEnabled) props.ctx.setConversationTreeLastFocus(rootID, currentSessionID)
+        if (!previous?.[2] || previous[0] !== currentSessionID || previous[2] === rootID || rootID !== currentSessionID)
+          return
+        props.ctx.setSessionExpanded(rootID, true)
+        props.ctx.setConversationTreeOpen(rootID, true)
         props.ctx.setConversationTreeLastFocus(rootID, currentSessionID)
+        props.ctx.setConversationTreeLastFocus(previous[2], previous[2])
       },
     ),
   )
@@ -896,7 +903,10 @@ const SessionTreeNodes = (props: {
       const rows = props
         .allSessions()
         .filter((session) => rootSessionIDFor(session.id) === rootID)
-        .map((session) => `${session.id}:${session.time.updated ?? 0}`)
+        .map(
+          (session) =>
+            `${session.id}:${session.parentID ?? ""}:${session.treeID ?? ""}:${session.forkParentSessionID ?? ""}:${session.forkAfterUserMessageID ?? ""}:${session.time.updated ?? 0}`,
+        )
       return rows.sort().join("|")
     })
 
@@ -948,6 +958,8 @@ const SessionTreeNodes = (props: {
               currentSessionID={props.currentSessionID() ?? nodeProps.session.id}
               directory={nodeProps.session.directory}
               refreshKey={graphRefreshKey()}
+              session={sessionByID().get(props.currentSessionID() ?? "")}
+              deleteSession={props.deleteSession ?? props.ctx.deleteSession}
             />
           </div>
         </Show>
@@ -1065,8 +1077,9 @@ const ArchivedSessionList = (props: {
 
   const deleteSession = async (session: Session) => {
     try {
-      await props.ctx.deleteSession(session)
+      if ((await props.ctx.deleteSession(session)) === false) return false
       removeSessionSubtree(session.id)
+      return true
     } catch (err) {
       throw new Error(formatServerError(err, props.language.t))
     }

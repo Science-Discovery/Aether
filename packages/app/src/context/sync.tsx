@@ -15,6 +15,7 @@ import {
 import { useGlobalSync } from "./global-sync"
 import { useSDK } from "./sdk"
 import type { Message, Part } from "@opencode-ai/sdk/v2/client"
+import { mergeSessions } from "./global-sync/session-load"
 import { SESSION_CACHE_LIMIT, dropSessionCaches, pickSessionCacheEvictions } from "./global-sync/session-cache"
 import { isViewing } from "./global-sync/viewing"
 import { useLanguage } from "./language"
@@ -442,6 +443,8 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
         })
     }
 
+    const update = globalSync.session.update
+
     return {
       get data() {
         return current()[0]
@@ -461,6 +464,7 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
       },
       session: {
         get: getSession,
+        update,
         optimistic: {
           add(input: { directory?: string; sessionID: string; message: Message; parts: Part[] }) {
             const directory = input.directory ?? sdk.directory
@@ -547,11 +551,16 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
                     if (!tracked(directory, sessionID)) return
                     const data = session.data
                     if (!data) return
+                    if (!data.time.archived && Binary.search(store.session, sessionID, (s) => s.id).found) {
+                      update(data)
+                      return
+                    }
                     setStore(
                       "session",
                       produce((draft) => {
                         const match = Binary.search(draft, sessionID, (s) => s.id)
                         if (match.found) {
+                          if (draft[match.index].time.updated > data.time.updated) return
                           draft[match.index] = data
                           return
                         }
@@ -682,11 +691,12 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
           const [store, setStore] = globalSync.child(directory)
           setStore("limit", (x) => x + count)
           await client.session.list().then((x) => {
-            const sessions = (x.data ?? [])
-              .filter((s) => !!s?.id)
-              .sort((a, b) => cmp(a.id, b.id))
-              .slice(0, store.limit)
-            setStore("session", reconcile(sessions, { key: "id" }))
+            const rows = (x.data ?? []).filter((s) => !!s?.id)
+            const sessions = mergeSessions(rows, store.session).slice(0, store.limit)
+            batch(() => {
+              rows.filter((session) => Binary.search(store.session, session.id, (s) => s.id).found).forEach(update)
+              setStore("session", reconcile(sessions, { key: "id" }))
+            })
           })
         },
         more: createMemo(() => current()[0].session.length >= current()[0].limit),

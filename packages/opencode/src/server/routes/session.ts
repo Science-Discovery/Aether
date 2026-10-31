@@ -499,6 +499,36 @@ export const SessionRoutes = lazy(() =>
       },
     )
     .post(
+      "/:sessionID/detach",
+      describeRoute({
+        summary: "Detach session subtree",
+        description: "Move an idle fork and its descendants into an independent active or archived session tree.",
+        operationId: "session.detach",
+        responses: {
+          200: {
+            description: "Independent session subtree root",
+            content: {
+              "application/json": {
+                schema: resolver(Session.Info),
+              },
+            },
+          },
+          ...errors(400, 404, 409),
+        },
+      }),
+      validator("param", z.object({ sessionID: Session.detach.schema })),
+      async (c) =>
+        Session.detach(c.req.valid("param").sessionID)
+          .then((session) => c.json(session))
+          .catch((err: unknown) => {
+            if (err instanceof Session.BusyError) {
+              return c.json({ name: "SessionBusyError", data: { message: err.message } }, 409)
+            }
+            if (Session.DetachError.isInstance(err)) return c.json(err.toObject(), 409)
+            throw err
+          }),
+    )
+    .post(
       "/:sessionID/fork",
       describeRoute({
         summary: "Fork session",
@@ -513,6 +543,7 @@ export const SessionRoutes = lazy(() =>
               },
             },
           },
+          ...errors(400, 404, 409),
         },
       }),
       validator(
@@ -525,8 +556,12 @@ export const SessionRoutes = lazy(() =>
       async (c) => {
         const sessionID = c.req.valid("param").sessionID
         const body = c.req.valid("json")
-        const result = await Session.fork({ ...body, sessionID })
-        return c.json(result)
+        return Session.fork({ ...body, sessionID })
+          .then((session) => c.json(session))
+          .catch((err: unknown) => {
+            if (Session.DetachError.isInstance(err)) return c.json(err.toObject(), 409)
+            throw err
+          })
       },
     )
     .post(

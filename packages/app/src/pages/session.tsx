@@ -2086,7 +2086,7 @@ function SessionPageContent(props: SessionPageProps = {}) {
     const value = draft(input.messageID)
     const dir = base64Encode(sdk.directory)
     return sdk.client.session
-      .fork(input)
+      .fork({ ...input, detached: settings.general.detached() })
       .then((result) => {
         const next = result.data
         if (!next) {
@@ -2096,6 +2096,7 @@ function SessionPageContent(props: SessionPageProps = {}) {
           })
           return
         }
+        sync.session.update(next)
         prompt.set(value, undefined, { dir, id: next.id })
         navigate(`/${dir}/session/${next.id}`)
       })

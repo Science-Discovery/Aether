@@ -1,12 +1,12 @@
 import { useLocation, useNavigate, useParams } from "@solidjs/router"
-import type { SessionGraphResult } from "@opencode-ai/sdk/v2"
+import type { Session, SessionGraphResult } from "@opencode-ai/sdk/v2"
 import { Icon } from "@opencode-ai/ui/icon"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useLanguage } from "@/context/language"
 import { useLayout } from "@/context/layout"
 import { useSettings } from "@/context/settings"
 import { errorMessage as formatErrorMessage } from "@/pages/layout/helpers"
-import { Match, Show, Switch, createEffect, createMemo, createSignal, onMount } from "solid-js"
+import { Match, Show, Switch, createEffect, createMemo, createSignal, onCleanup, onMount, untrack } from "solid-js"
 import {
   buildConversationGraphView,
   type ConversationGraph,
@@ -39,6 +39,8 @@ export function SidebarBranchView(props: {
   currentSessionID: string
   directory: string
   refreshKey?: string
+  session?: Session
+  deleteSession?: (session: Session) => Promise<boolean | void>
 }) {
   const params = useParams()
   const location = useLocation()
@@ -68,6 +70,8 @@ export function SidebarBranchView(props: {
   let requestVersion = 0
   let scrollContainer: HTMLDivElement | undefined
 
+  onCleanup(() => requestVersion++)
+
   onMount(() => {
     try {
       const storedCompact = window.localStorage.getItem(COMPACT_STORAGE_KEY)
@@ -88,6 +92,8 @@ export function SidebarBranchView(props: {
       setGraph(cached)
       setErrorMessage(undefined)
     } else {
+      const previous = untrack(graph)
+      if (previous?.kind === "graph" && previous.current.sessionID !== sessionID) setGraph(undefined)
       setLoading(true)
       setErrorMessage(undefined)
     }
@@ -154,7 +160,11 @@ export function SidebarBranchView(props: {
 
   return (
     <div class="overflow-hidden rounded-md border border-border-weaker-base bg-background-stronger">
-      <div ref={scrollContainer} class="min-h-0 overflow-auto" style={{ "max-height": `${DEFAULT_PANEL_MAX_HEIGHT}px` }}>
+      <div
+        ref={scrollContainer}
+        class="min-h-0 overflow-auto"
+        style={{ "max-height": `${DEFAULT_PANEL_MAX_HEIGHT}px` }}
+      >
         <Switch>
           <Match when={graph()?.kind === "legacy"}>
             <div class="flex h-full items-center justify-center px-4 text-center text-11-regular text-text-weak">
@@ -176,6 +186,8 @@ export function SidebarBranchView(props: {
                   onFork={() => {}}
                   onRename={() => {}}
                   showRowActions={false}
+                  session={props.session}
+                  deleteSession={props.deleteSession}
                 />
                 <Show when={compact()}>
                   <button

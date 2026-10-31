@@ -133,7 +133,12 @@ export function applyDirectoryEvent(input: {
       const info = (event.properties as { info: Session }).info
       const result = Binary.search(input.store.session, info.id, (s) => s.id)
       if (result.found) {
+        const previous = input.store.session[result.index]
+        if (previous.time.updated > info.time.updated) break
+        const delta =
+          Number(!info.parentID && !info.time.archived) - Number(!previous.parentID && !previous.time.archived)
         input.setStore("session", result.index, reconcile(info))
+        if (delta) input.setStore("sessionTotal", (value) => Math.max(0, value + delta))
         break
       }
       const next = input.store.session.slice()
@@ -152,6 +157,7 @@ export function applyDirectoryEvent(input: {
       const info = (event.properties as { info: Session }).info
       const result = Binary.search(input.store.session, info.id, (s) => s.id)
       const previous = result.found ? input.store.session[result.index] : undefined
+      if (previous && previous.time.updated > info.time.updated) break
       const wasRootVisible = !!previous && !previous.parentID && !previous.time?.archived
       const isRootVisible = !info.parentID && !info.time?.archived
       if (info.time.archived) {

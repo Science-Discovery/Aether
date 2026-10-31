@@ -86,6 +86,7 @@ import {
   workspaceKey,
 } from "./layout/helpers"
 import { dismissKeys, shouldNotify } from "./layout/request-alert"
+import { remove } from "./layout/session-removal"
 import {
   collectNewSessionDeepLinks,
   collectOpenProjectDeepLinks,
@@ -1262,11 +1263,18 @@ export default function Layout(props: ParentProps) {
 
   async function deleteSession(session: Session) {
     const [store, setStore] = globalSync.child(session.directory)
-    const sessions = store.session ?? []
-    const idx = sessions.findIndex((s) => s.id === session.id)
-    const next = sessions[idx + 1] ?? sessions[idx - 1]
-    const ok = await globalSDK.client.session
-      .delete({ sessionID: session.id, directory: session.directory })
+    return remove({
+      session,
+      store,
+      set: setStore,
+      current: () => params.id,
+      send: async () => {
+        const result = await globalSDK.client.session.delete({ sessionID: session.id, directory: session.directory })
+        if (!result.data) throw result.error ?? new Error(language.t("common.requestFailed"))
+      },
+      navigate: (id) => navigate(`/${base64Encode(session.directory)}/session${id ? `/${id}` : ""}`),
+      todo: (id) => globalSync.todo.set(id, undefined),
+    })
       .then(() => true)
       .catch((err) => {
         showToast({
@@ -1275,16 +1283,6 @@ export default function Layout(props: ParentProps) {
         })
         return false
       })
-    if (!ok) return
-    setStore(
-      produce((draft) => {
-        const match = Binary.search(draft.session, session.id, (s) => s.id)
-        if (match.found) draft.session.splice(match.index, 1)
-      }),
-    )
-    if (session.id !== params.id) return
-    if (next) navigate(`/${base64Encode(session.directory)}/session/${next.id}`)
-    else navigate(`/${base64Encode(session.directory)}/session`)
   }
 
   async function renameSession(session: Session, title: string) {

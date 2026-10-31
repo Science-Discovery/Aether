@@ -615,6 +615,17 @@ export const SettingsGeneral: Component = () => {
         </SettingsRow>
 
         <SettingsRow
+          title={language.t("settings.general.row.detached.title")}
+          description={language.t("settings.general.row.detached.description")}
+        >
+          <Switch
+            data-action="settings-fork-detached"
+            checked={settings.general.detached()}
+            onChange={(checked) => settings.general.setDetached(checked)}
+          />
+        </SettingsRow>
+
+        <SettingsRow
           title={language.t("settings.general.row.shellToolPartsExpanded.title")}
           description={language.t("settings.general.row.shellToolPartsExpanded.description")}
         >

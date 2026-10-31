@@ -25,6 +25,7 @@ export interface Settings {
     followup: "queue" | "steer"
     reviewBatch: number
     branchesTab: boolean
+    detached: boolean
     debugBar: boolean
     branchGraphCompact: boolean
     branchGraphFontSize: "xs" | "sm" | "md" | "lg" | "xl"
@@ -61,6 +62,7 @@ const defaultSettings: Settings = {
     followup: "steer",
     reviewBatch: 10,
     branchesTab: true,
+    detached: false,
     debugBar: false,
     branchGraphCompact: false,
     branchGraphFontSize: "lg",
@@ -176,6 +178,10 @@ export const { use: useSettings, provider: SettingsProvider } = createSimpleCont
         branchesTab: withFallback(() => store.general?.branchesTab, defaultSettings.general.branchesTab),
         setBranchesTab(value: boolean) {
           setStore("general", "branchesTab", value)
+        },
+        detached: withFallback(() => store.general?.detached, defaultSettings.general.detached),
+        setDetached(value: boolean) {
+          setStore("general", "detached", value)
         },
         debugBar: withFallback(() => store.general?.debugBar, defaultSettings.general.debugBar),
         setDebugBar(value: boolean) {

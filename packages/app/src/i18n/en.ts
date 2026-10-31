@@ -1316,6 +1316,21 @@ export const dict = {
   "settings.general.defaultPermission.option.safe": "Safe zone",
   "settings.general.defaultPermission.option.full": "Auto-accept all",
   "settings.general.row.branchesTab.title": "Enable conversation tree",
+  "settings.general.row.detached.title": "New forks are independent by default",
+  "settings.general.row.detached.description":
+    "Only affects future forks created in this app. Each fork starts as an independent session with its copied history.",
+  "session.detach.action": "Split into an independent session",
+  "session.branch.menu.title": "Branch: {{name}}",
+  "session.branch.detach": "Split out branch",
+  "session.branch.delete": "Delete branch",
+  "session.branch.delete.confirm":
+    "Permanently delete the entire conversation in branch “{{name}}” and all of its descendant sessions? This cannot be undone.",
+  "session.detach.failed.title": "Could not split session",
+  "session.detach.refreshFailed.title": "Session split successfully, but the list could not refresh",
+  "error.chain.session.busy":
+    "This session or one of its branches is running or awaiting an answer. Finish or stop it and try again.",
+  "error.chain.session.detachTask": "Task subagent sessions cannot be split into independent sessions.",
+  "error.chain.session.treeChanged": "The conversation tree changed. Please try again.",
   "settings.general.row.branchesTab.description": "Show the conversation tree inline in the session list sidebar",
   "settings.general.row.branchGraphCompact.title": "Conversation tree view",
   "settings.general.row.branchGraphCompact.description": "Choose between a full view and a compact node view",

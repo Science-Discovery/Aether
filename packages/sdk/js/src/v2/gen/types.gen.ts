@@ -4868,9 +4868,53 @@ export type SessionInitResponses = {
 
 export type SessionInitResponse = SessionInitResponses[keyof SessionInitResponses]
 
+export type SessionDetachData = {
+  body?: never
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/session/{sessionID}/detach"
+}
+
+export type SessionDetachErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+  /**
+   * Conflict
+   */
+  409: {
+    name: string
+    data: {
+      message: string
+    }
+  }
+}
+
+export type SessionDetachError = SessionDetachErrors[keyof SessionDetachErrors]
+
+export type SessionDetachResponses = {
+  /**
+   * Independent session subtree root
+   */
+  200: Session
+}
+
+export type SessionDetachResponse = SessionDetachResponses[keyof SessionDetachResponses]
+
 export type SessionForkData = {
   body?: {
     messageID?: string
+    detached?: boolean
   }
   path: {
     sessionID: string
@@ -4881,6 +4925,28 @@ export type SessionForkData = {
   }
   url: "/session/{sessionID}/fork"
 }
+
+export type SessionForkErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+  /**
+   * Conflict
+   */
+  409: {
+    name: string
+    data: {
+      message: string
+    }
+  }
+}
+
+export type SessionForkError = SessionForkErrors[keyof SessionForkErrors]
 
 export type SessionForkResponses = {
   /**

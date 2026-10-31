@@ -11,6 +11,7 @@ import { extractPromptFromParts } from "@/utils/prompt"
 import type { TextPart as SDKTextPart } from "@opencode-ai/sdk/v2/client"
 import { base64Encode } from "@opencode-ai/util/encode"
 import { useLanguage } from "@/context/language"
+import { useSettings } from "@/context/settings"
 import { formatServerError } from "@/utils/server-errors"
 
 interface ForkableMessage {
@@ -32,6 +33,7 @@ export const DialogFork: Component = () => {
   const prompt = usePrompt()
   const dialog = useDialog()
   const language = useLanguage()
+  const settings = useSettings()
 
   const messages = createMemo((): ForkableMessage[] => {
     const sessionID = params.id
@@ -71,12 +73,13 @@ export const DialogFork: Component = () => {
     const dir = base64Encode(sdk.directory)
 
     sdk.client.session
-      .fork({ sessionID, messageID: item.id })
+      .fork({ sessionID, messageID: item.id, detached: settings.general.detached() })
       .then((forked) => {
         if (!forked.data) {
           showToast({ title: language.t("common.requestFailed") })
           return
         }
+        sync.session.update(forked.data)
         dialog.close()
         prompt.set(restored, undefined, { dir, id: forked.data.id })
         navigate(`/${dir}/session/${forked.data.id}`)
