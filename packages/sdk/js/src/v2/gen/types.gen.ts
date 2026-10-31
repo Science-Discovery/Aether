@@ -7212,6 +7212,63 @@ export type FilePdfAnnotationsExportResponses = {
   200: unknown
 }
 
+export type FilePreviewResourceData = {
+  body?: never
+  path?: never
+  query: {
+    directory?: string
+    workspace?: string
+    path: string
+  }
+  url: "/file/preview/resource"
+}
+
+export type FilePreviewResourceErrors = {
+  /**
+   * Invalid preview path or query
+   */
+  400:
+    | {
+        error: string
+      }
+    | {
+        data: {
+          [key: string]: unknown
+        }
+        error: Array<{
+          [key: string]: unknown
+        }>
+        success: false
+      }
+  /**
+   * Resource is outside the validated workspace
+   */
+  403: {
+    error: string
+  }
+  /**
+   * Preview resource not found
+   */
+  404: {
+    error: string
+  }
+  /**
+   * Unsupported preview resource type
+   */
+  415: {
+    error: string
+  }
+}
+
+export type FilePreviewResourceError = FilePreviewResourceErrors[keyof FilePreviewResourceErrors]
+
+export type FilePreviewResourceResponses = {
+  /**
+   * Preview resource bytes
+   */
+  200: unknown
+}
+
 export type FileRawData = {
   body?: never
   path?: never
