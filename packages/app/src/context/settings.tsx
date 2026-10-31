@@ -31,6 +31,7 @@ export interface Settings {
     branchGraphRowDensity: "xcompact" | "compact" | "normal" | "relaxed" | "xrelaxed"
     branchGraphOrderMode: "sequence" | "time"
     showReasoningSummaries: boolean
+    autoCollapse: boolean
     shellToolPartsExpanded: boolean
     editToolPartsExpanded: boolean
     autoGitInit: boolean
@@ -67,6 +68,7 @@ const defaultSettings: Settings = {
     branchGraphRowDensity: "xcompact",
     branchGraphOrderMode: "time",
     showReasoningSummaries: false,
+    autoCollapse: true,
     shellToolPartsExpanded: true,
     editToolPartsExpanded: false,
     autoGitInit: true,
@@ -215,6 +217,10 @@ export const { use: useSettings, provider: SettingsProvider } = createSimpleCont
         ),
         setShowReasoningSummaries(value: boolean) {
           setStore("general", "showReasoningSummaries", value)
+        },
+        autoCollapse: withFallback(() => store.general?.autoCollapse, defaultSettings.general.autoCollapse),
+        setAutoCollapse(value: boolean) {
+          setStore("general", "autoCollapse", value)
         },
         shellToolPartsExpanded: withFallback(
           () => store.general?.shellToolPartsExpanded,

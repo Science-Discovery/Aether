@@ -1048,6 +1048,16 @@ export const dict = {
 
   "settings.section.desktop": "桌面",
   "settings.section.server": "服务器",
+  "settings.section.custom": "自定义功能",
+  "settings.general.row.autoCollapse.title": "自动收起历史回复",
+  "settings.general.row.autoCollapse.description": "进入会话或加载更早消息时收起历史回复；仍可手动展开和收起。",
+  "knowledge.settings.description": "使用本地知识库，为对话补充相关内容。",
+  "knowledge.settings.enabled": "启用知识库",
+  "knowledge.settings.enabledDescription":
+    "作用于当前服务器。关闭后隐藏快捷入口，并停止新的索引与检索；保留已有数据及会话选择。",
+  "knowledge.disabled": "知识库已关闭，可在设置中启用后使用索引与检索。",
+  "knowledge.loading": "正在读取已保存的知识库…",
+  "knowledge.loadFailed": "未能读取已保存的知识库，请重试恢复后再修改。",
 
   "settings.tab.general": "通用",
   "settings.tab.shortcuts": "快捷键",
@@ -1089,7 +1099,7 @@ export const dict = {
     "一次后台评审整场最多输出多少字符（单位 k，即千），超过就停掉整场——防止评审一步步磨蹭停不下来。默认 1000k（100 万）。",
   "settingsSkills.evolutionEnabled": "Skill 自进化",
   "settingsSkills.evolutionEnabledDescription":
-    "总开关。关闭后所有项目都不再触发后台 Skill 评审——下面的设置在重新打开前都不生效。",
+    "默认关闭，作用于当前服务器。关闭后隐藏快捷入口，并停止新的后台评审和自动维护；保留已有技能。",
   "settingsSkills.curatorEnabled": "Skill 管家",
   "settingsSkills.curatorEnabledDescription":
     "定期统计 Skill 使用次数、把长期没用的标记为陈旧，并把 90 天没动过的 Skill 归档（归档副本可恢复）。关闭后停止所有自动维护。",

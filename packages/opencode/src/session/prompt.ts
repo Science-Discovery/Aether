@@ -930,7 +930,8 @@ export namespace SessionPrompt {
       input.agent,
     )) {
       // 仅当会话挂载了知识库时才暴露 knowledge_search
-      if (item.id === "knowledge_search" && !hasKnowledge(input.session.id)) continue
+      if (item.id === "knowledge_search" && (!hasKnowledge(input.session.id) || !(await Config.enabled("knowledge"))))
+        continue
       const schema = ProviderTransform.schema(input.model, z.toJSONSchema(item.parameters))
       tools[item.id] = tool({
         id: item.id as any,
@@ -1174,7 +1175,7 @@ export namespace SessionPrompt {
 
     // RAG: search knowledge base and build context for system prompt
     let ragContext: string | undefined
-    const kb = input.knowledgeBase
+    const kb = (await Config.enabled("knowledge")) ? input.knowledgeBase : undefined
     const kbPaths = kb?.paths ?? (kb?.path ? [kb.path] : [])
     // 会话级知识库配置：knowledge_search 工具按此判断是否可用。
     // 进行中的 run 依赖该配置解析工具，只有无人持锁（或锁是本次抢到的）才允许改写，

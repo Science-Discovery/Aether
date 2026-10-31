@@ -6,6 +6,7 @@ import { Server } from "../../src/server/server"
 import { Storage } from "../../src/knowledge/storage"
 import { Log } from "../../src/util/log"
 import { tmpdir } from "../fixture/fixture"
+import { features } from "../fixture/features"
 
 Log.init({ print: false })
 
@@ -128,6 +129,7 @@ describe("knowledge import confinement", () => {
     })
 
   test("copies sources from knowledge base directories", async () => {
+    await using global = await features({ knowledge: { enabled: true } })
     await using src = await tmpdir()
     await using dst = await tmpdir()
     await makeKB(src.path)
@@ -143,6 +145,7 @@ describe("knowledge import confinement", () => {
   })
 
   test("rejects sources outside knowledge base directories", async () => {
+    await using global = await features({ knowledge: { enabled: true } })
     await using dst = await tmpdir()
     await using outside = await tmpdir()
     await makeKB(dst.path)
@@ -159,6 +162,7 @@ describe("knowledge import confinement", () => {
   })
 
   test("still reports unknown knowledge base targets", async () => {
+    await using global = await features({ knowledge: { enabled: true } })
     await using outside = await tmpdir()
     const doc = path.join(outside.path, "paper.md")
     await Bun.write(doc, "content")

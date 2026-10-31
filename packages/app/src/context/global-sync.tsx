@@ -32,6 +32,7 @@ import { applyDirectoryEvent, applyGlobalEvent, cleanupDroppedSessionCaches } fr
 import { createReconnectTracker } from "./global-sync/reconnect"
 import { createRefreshQueue } from "./global-sync/queue"
 import { createProviderRefresh } from "./global-sync/provider-refresh"
+import { createConfigRefresh } from "./global-sync/config-refresh"
 import { clearSessionPrefetchDirectory, resetSessionPrefetch } from "./global-sync/session-prefetch"
 import {
   estimateRootSessionTotal,
@@ -95,6 +96,11 @@ function createGlobalSync() {
   })
 
   let active = true
+  const refreshConfig = createConfigRefresh({
+    active: () => active,
+    load: () => globalSDK.client.global.config.get().then((x) => x.data),
+    apply: (config) => setGlobalStore("config", reconcile(config)),
+  })
   let projectWritten = false
   let recentWritten = false
   let bootedAt = 0
@@ -470,6 +476,9 @@ function createGlobalSync() {
           queue.refresh()
         },
         providers: refreshProviders,
+        config: () => {
+          void refreshConfig().catch((error) => console.error("Failed to refresh feature configuration", error))
+        },
         setGlobalProject: setProjects,
       })
       if (event.type === "project.updated" || event.type === "project.recent.updated") {
@@ -541,6 +550,7 @@ function createGlobalSync() {
       await bootstrapGlobal({
         globalSDK: globalSDK.client,
         provider: providers.global,
+        config: refreshConfig,
         requestFailedTitle: language.t("common.requestFailed"),
         translate: language.t,
         formatMoreCount: (count) => language.t("common.moreCountSuffix", { count }),
@@ -629,6 +639,16 @@ function createGlobalSync() {
   }
 
   const updateConfig = async (config: Config) => {
+    if (
+      Object.keys(config).length > 0 &&
+      Object.keys(config).every((key) => key === "skills" || key === "knowledge") &&
+      Object.keys(config.skills ?? {}).every((key) => key === "evolution_enabled") &&
+      Object.keys(config.knowledge ?? {}).every((key) => key === "enabled")
+    ) {
+      await globalSDK.client.global.config.update({ config })
+      await refreshConfig()
+      return
+    }
     const provider = ["provider", "provider_remove", "enabled_providers", "disabled_providers", "disabled_models"].some(
       (key) => key in config,
     )

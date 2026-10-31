@@ -1,4 +1,4 @@
-import { Component, Show, createMemo, createSignal, For, onMount } from "solid-js"
+import { Component, Show, createEffect, createMemo, createSignal, For, onMount, onCleanup } from "solid-js"
 import { createStore } from "solid-js/store"
 import { Dialog } from "@opencode-ai/ui/dialog"
 import { Button } from "@opencode-ai/ui/button"
@@ -20,6 +20,7 @@ import {
 } from "@/utils/knowledge-embedding"
 import { DialogSelectDirectory } from "./dialog-select-directory"
 import { useLanguage } from "@/context/language"
+import { KnowledgeStatus } from "./knowledge-status"
 
 export const KnowledgeDialog: Component<{ sessionID?: string }> = (props) => {
   const knowledge = useKnowledge()
@@ -29,6 +30,7 @@ export const KnowledgeDialog: Component<{ sessionID?: string }> = (props) => {
   const providers = useProviders()
   const language = useLanguage()
   const kbKey = () => props.sessionID ?? NEW_SESSION_KEY
+  const active = () => knowledge.available() && knowledge.ready()
 
   const [syncing, setSyncing] = createSignal(false)
   const [error, setError] = createSignal("")
@@ -72,6 +74,18 @@ export const KnowledgeDialog: Component<{ sessionID?: string }> = (props) => {
   const [useManualModel, setUseManualModel] = createSignal(false)
   let addRun = 0
   let editRun = 0
+
+  createEffect(() => {
+    if (active()) return
+    addRun += 1
+    editRun += 1
+    setLoadingModels(false)
+    setEditLoadingModels(false)
+  })
+  onCleanup(() => {
+    addRun += 1
+    editRun += 1
+  })
 
   const connected = createMemo(() => providers.connected())
   const providerOptions = createMemo(() => ["local", ...connected().map((p) => p.id)])
@@ -156,7 +170,7 @@ export const KnowledgeDialog: Component<{ sessionID?: string }> = (props) => {
   }
 
   const handleProviderSelect = async (id: string | undefined, pick?: string) => {
-    if (!id) return
+    if (!id || !active()) return
     const cur = ++addRun
     setSelectedProviderID(id)
     setAddProviderType(id === "local" ? "local" : toEmbeddingProvider(id))
@@ -184,7 +198,7 @@ export const KnowledgeDialog: Component<{ sessionID?: string }> = (props) => {
   }
 
   const handleEditProviderSelect = async (id: string | undefined, pick?: string) => {
-    if (!id) return
+    if (!id || !active()) return
     const cur = ++editRun
     setEditProviderID(id)
     setEditProviderType(id === "local" ? "local" : toEmbeddingProvider(id))
@@ -236,6 +250,7 @@ export const KnowledgeDialog: Component<{ sessionID?: string }> = (props) => {
   }
 
   const handleAddKnowledgeBase = async () => {
+    if (!active()) return
     setError("")
     setSuccess("")
 
@@ -312,6 +327,7 @@ export const KnowledgeDialog: Component<{ sessionID?: string }> = (props) => {
   }
 
   const handleSync = async (id: string) => {
+    if (!active()) return
     setError("")
     setSuccess("")
     setSyncing(true)
@@ -332,6 +348,7 @@ export const KnowledgeDialog: Component<{ sessionID?: string }> = (props) => {
   }
 
   const handleRemove = async (id: string) => {
+    if (!active()) return
     if (confirm("Are you sure you want to remove this knowledge base?")) {
       setError("")
       setSuccess("")
@@ -340,10 +357,12 @@ export const KnowledgeDialog: Component<{ sessionID?: string }> = (props) => {
   }
 
   const handleToggle = (id: string) => {
+    if (!active()) return
     knowledge.toggleActive(id, kbKey())
   }
 
   const openEditor = async (id: string) => {
+    if (!active()) return
     const kb = knowledge.knowledgeBases().find((item) => item.id === id)
     if (!kb) return
     setEditId(id)
@@ -378,6 +397,7 @@ export const KnowledgeDialog: Component<{ sessionID?: string }> = (props) => {
   }
 
   const handleUpdateConfig = async () => {
+    if (!active()) return
     const id = editId()
     if (!id) return
     setError("")
@@ -428,6 +448,7 @@ export const KnowledgeDialog: Component<{ sessionID?: string }> = (props) => {
   }
 
   const handleRemoveDocument = async (kbId: string, docId: string) => {
+    if (!active()) return
     setError("")
     setSuccess("")
     try {
@@ -444,6 +465,7 @@ export const KnowledgeDialog: Component<{ sessionID?: string }> = (props) => {
   }
 
   const handleImportDocument = async (kbId: string) => {
+    if (!active()) return
     setError("")
     setSuccess("")
     if (!addPath()) {
@@ -485,7 +507,15 @@ export const KnowledgeDialog: Component<{ sessionID?: string }> = (props) => {
 
   return (
     <Dialog title={language.t("knowledgeBase.title")} class="max-w-lg">
-      <div class="flex flex-col gap-4 p-4 max-h-[60vh] overflow-y-auto">
+      <Show when={!knowledge.ready() || !knowledge.available()}>
+        <div class="flex flex-col gap-3 px-4 pt-4">
+          <KnowledgeStatus />
+          <Show when={!knowledge.available()}>
+            <p class="text-12-regular text-text-weak">{language.t("knowledge.disabled")}</p>
+          </Show>
+        </div>
+      </Show>
+      <fieldset disabled={!active()} class="flex min-w-0 flex-col gap-4 p-4 max-h-[60vh] overflow-y-auto">
         <Show when={knowledge.knowledgeBases().length > 0}>
           <div class="flex flex-col gap-2">
             <label class="text-13-medium text-text-strong">{language.t("knowledgeBase.label")}</label>
@@ -943,7 +973,7 @@ export const KnowledgeDialog: Component<{ sessionID?: string }> = (props) => {
             <span>{success()}</span>
           </div>
         </Show>
-      </div>
+      </fieldset>
     </Dialog>
   )
 }

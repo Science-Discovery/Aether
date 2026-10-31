@@ -65,9 +65,8 @@ import { PromptDragOverlay } from "./prompt-input/drag-overlay"
 import { promptPlaceholder } from "./prompt-input/placeholder"
 import { ImagePreview } from "@opencode-ai/ui/image-preview"
 import { FileIcon } from "@opencode-ai/ui/file-icon"
-import { KnowledgeButton } from "@/components/knowledge-button"
+import { FeatureButtons } from "@/components/prompt-input/feature-buttons"
 import { openSafeZoneOnboarding, useSafeZoneOnboarding } from "@/components/dialog-safe-zone"
-import { DialogEvolvedSkills } from "@/skill-evolution/dialog-evolved-skills"
 import { createWorkingState, type ChildrenSource } from "@/utils/working-state"
 import { childMapByParent } from "@/pages/layout/helpers"
 import { SteerButton } from "@/components/steer-button"
@@ -1750,27 +1749,15 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                     </Button>
                   </TooltipKeybind>
                   <SteerButton />
-                  <div
+                  <FeatureButtons
+                    sessionID={params.id}
                     style={{
                       opacity: buttonsSpring(),
                       transform: `scale(${0.95 + buttonsSpring() * 0.05})`,
                       filter: `blur(${(1 - buttonsSpring()) * 2}px)`,
                       "pointer-events": buttonsSpring() > 0.5 ? "auto" : "none",
                     }}
-                  >
-                    <KnowledgeButton sessionID={params.id} />
-                  </div>
-                  <Tooltip placement="top" gutter={4} value={language.t("evolvedSkills.title")}>
-                    <Button
-                      variant="ghost"
-                      size="normal"
-                      class="h-7 w-7 p-0 flex items-center justify-center text-icon-weak shrink-0"
-                      onClick={() => dialog.show(() => <DialogEvolvedSkills />)}
-                      aria-label={language.t("evolvedSkills.title")}
-                    >
-                      <Icon name="list-square" class="size-4" />
-                    </Button>
-                  </Tooltip>
+                  />
                 </div>
               </div>
             </div>

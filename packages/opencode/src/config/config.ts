@@ -28,6 +28,7 @@ import { ConfigMarkdown } from "./markdown"
 import { constants, existsSync, statSync } from "fs"
 import { Bus } from "@/bus"
 import { GlobalBus } from "@/bus/global"
+import { BusEvent } from "@/bus/bus-event"
 import { ProviderEvent } from "../provider/event"
 import { Event } from "../server/event"
 import { Glob } from "../util/glob"
@@ -51,6 +52,8 @@ import {
 } from "@/persist/naming"
 
 export namespace Config {
+  export const Updated = BusEvent.define("global.config.updated", z.object({}))
+
   const ModelId = z.string().meta({ $ref: "https://models.dev/model-schema.json#/$defs/Model" })
 
   const log = Log.create({ service: "config" })
@@ -264,6 +267,11 @@ export namespace Config {
         result = mergeConfigConcatArrays(result, await loadFile(path.join(dir, file)))
       }
     }
+
+    // Feature masters belong to the server, never to a project or inline config.
+    const shared = await server()
+    result.skills = { ...result.skills, evolution_enabled: shared.skills?.evolution_enabled === true }
+    result.knowledge = { enabled: shared.knowledge?.enabled === true }
 
     // Migrate deprecated mode field to agent field
     for (const [name, mode] of Object.entries(result.mode ?? {})) {
@@ -841,7 +849,7 @@ export namespace Config {
       .boolean()
       .optional()
       .describe(
-        "Global master switch for skill self-evolution. When false, no project triggers background review (default: true)",
+        "Server-global master switch for skill self-evolution. Requires explicit true in global config (default: false)",
       ),
     creation_nudge_interval: z
       .number()
@@ -1232,6 +1240,14 @@ export namespace Config {
         .optional()
         .describe("Command configuration, see https://opencode.ai/docs/commands"),
       skills: Skills.optional().describe("Additional skill folder paths"),
+      knowledge: z
+        .object({
+          enabled: z
+            .boolean()
+            .optional()
+            .describe("Server-global master switch for knowledge base processing and search (default: false)"),
+        })
+        .optional(),
       watcher: z
         .object({
           ignore: z.array(z.string()).optional(),
@@ -1591,7 +1607,41 @@ export namespace Config {
   }
 
   export async function getGlobal() {
-    return global()
+    return server()
+  }
+
+  const servers = new WeakMap<Info, Promise<Info>>()
+
+  async function server() {
+    const config = await global()
+    const cached = servers.get(config)
+    if (cached) return cached
+    const pending = (async () => {
+      let result = config
+      for (const dir of managedDirs) {
+        if (!existsSync(dir)) continue
+        for (const file of [...configFiles(CFG), ...configFiles(LEGACY_CFG)]) {
+          const policy = await loadFile(path.join(dir, file))
+          if (policy.skills?.evolution_enabled !== undefined) {
+            result = {
+              ...result,
+              skills: { ...result.skills, evolution_enabled: policy.skills.evolution_enabled },
+            }
+          }
+          if (policy.knowledge?.enabled !== undefined) {
+            result = { ...result, knowledge: { enabled: policy.knowledge.enabled } }
+          }
+        }
+      }
+      return result
+    })()
+    servers.set(config, pending)
+    return pending
+  }
+
+  export async function enabled(feature: "evolution" | "knowledge") {
+    const config = await server()
+    return feature === "evolution" ? config.skills?.evolution_enabled === true : config.knowledge?.enabled === true
   }
 
   export async function update(config: Info) {
@@ -1830,6 +1880,7 @@ export namespace Config {
     "server",
     "cron",
     "memory",
+    "knowledge",
     "logLevel",
     "autoupdate",
     "username",
@@ -1851,6 +1902,7 @@ export namespace Config {
   ])
 
   export async function updateGlobal(config: Info) {
+    using _ = await Lock.write("global-config")
     const filepath = globalConfigFile()
     const found = existsSync(filepath)
     const before = found
@@ -1906,6 +1958,13 @@ export namespace Config {
       state.reset()
       ProviderEvent.update()
     }
+    if (!provider) state.reset()
+    if (config.skills?.evolution_enabled !== undefined || config.knowledge?.enabled !== undefined) {
+      GlobalBus.emit("event", {
+        directory: "global",
+        payload: { type: Updated.type, properties: {} },
+      })
+    }
     if (unsafe) {
       void Instance.disposeAll()
         .catch(() => undefined)
@@ -1921,7 +1980,6 @@ export namespace Config {
       return next
     }
 
-    if (!provider) state.reset()
     return next
   }
 

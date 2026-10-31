@@ -1,7 +1,21 @@
-import { createContext, useContext, createSignal, Component, JSX, onMount, createEffect, on } from "solid-js"
-import { createStore } from "solid-js/store"
+import {
+  batch,
+  createContext,
+  useContext,
+  createSignal,
+  Component,
+  JSX,
+  createEffect,
+  on,
+  onCleanup,
+  untrack,
+} from "solid-js"
+import { createStore, reconcile } from "solid-js/store"
 import { useGlobalSDK } from "./global-sdk"
+import { useGlobalSync } from "./global-sync"
+import { useLanguage } from "./language"
 import { useServer } from "./server"
+import { createKnowledgeClient } from "./knowledge-client"
 
 // 知识库配置
 export interface KnowledgeConfig {
@@ -101,6 +115,10 @@ const DEFAULT_STATE: KnowledgeState = {
 
 interface KnowledgeContextValue {
   state: KnowledgeState
+  available: () => boolean
+  ready: () => boolean
+  error: () => string | undefined
+  retry: () => Promise<void>
   models: () => EmbeddingModel[]
   activeIds: (key?: string) => string[]
   activeKnowledgeBases: (key?: string) => KnowledgeConfig[]
@@ -115,7 +133,7 @@ interface KnowledgeContextValue {
   updateKnowledgeBase: (id: string, config: Partial<KnowledgeConfig>) => void
   removeKnowledgeBase: (id: string) => Promise<void>
   loadKnowledgeBase: (path: string) => Promise<KnowledgeIndexData | null>
-  createKnowledgeBase: (config: KnowledgeConfig) => Promise<any>
+  createKnowledgeBase: (config: KnowledgeConfig) => Promise<KnowledgeIndexData>
   syncKnowledgeBase: (id?: string) => Promise<{ added: number; updated: number; removed: number; errors?: string[] }>
   syncAllActive: () => Promise<void>
   stopSync: () => void
@@ -154,43 +172,40 @@ function generateId(): string {
 
 export const KnowledgeProvider: Component<{ children: JSX.Element }> = (props) => {
   const sdk = useGlobalSDK()
+  const global = useGlobalSync()
+  const language = useLanguage()
   const server = useServer()
 
   const [state, setState] = createStore<KnowledgeState>({ ...DEFAULT_STATE })
-
-  let initDone = false
-  let saveTimer: ReturnType<typeof setTimeout>
-
-  const loadState = async () => {
-    try {
-      const resp = await fetchApi("/knowledge/state")
-      if (resp.ok) {
-        const remote = await resp.json()
-        if (remote.knowledgeBases?.length > 0)
-          setState({
-            knowledgeBases: remote.knowledgeBases,
-            activeIdsBySession: remote.activeIdsBySession ?? {},
-            lastConfig: remote.lastConfig,
-          })
-        return remote.knowledgeBases?.length > 0
-      }
-    } catch {}
-    return false
-  }
+  const [meta, setMeta] = createStore({ ready: false, loading: false, error: undefined as string | undefined })
+  const available = () =>
+    global.ready && (server.current?.http.url ?? sdk.url) === sdk.url && global.data.config.knowledge?.enabled === true
+  const ready = () => meta.ready
+  const error = () => meta.error
+  const client = createKnowledgeClient({
+    url: () => sdk.url,
+    auth: () => sdk.auth(),
+    enabled: () => available() && ready(),
+    disabled: () => language.t("knowledge.disabled"),
+  })
+  let timer: ReturnType<typeof setTimeout> | undefined
+  let serial = 0
+  let saved = ""
+  const transfers: Array<[string, string]> = []
 
   const saveState = () => {
-    clearTimeout(saveTimer)
-    saveTimer = setTimeout(() => {
-      fetchApi("/knowledge/state", {
-        method: "POST",
-        body: JSON.stringify({
-          data: {
-            knowledgeBases: state.knowledgeBases,
-            activeIdsBySession: state.activeIdsBySession,
-            lastConfig: state.lastConfig,
-          },
-        }),
-      }).catch(() => {})
+    clearTimeout(timer)
+    const version = serial
+    const data = JSON.stringify(state)
+    if (!meta.ready || data === saved) return
+    timer = setTimeout(() => {
+      if (version !== serial || !meta.ready) return
+      void client
+        .request("/knowledge/state", { method: "POST", body: `{"data":${data}}` }, false)
+        .then(() => {
+          if (version === serial) saved = data
+        })
+        .catch(() => undefined)
     }, 500)
   }
 
@@ -224,6 +239,7 @@ export const KnowledgeProvider: Component<{ children: JSX.Element }> = (props) =
   const stopSync = () => {
     syncAbortController?.abort()
     syncAbortController = null
+    setSyncProgress(null)
   }
 
   const idsFor = (key?: string) => state.activeIdsBySession[key ?? NEW_SESSION_KEY] ?? []
@@ -231,17 +247,19 @@ export const KnowledgeProvider: Component<{ children: JSX.Element }> = (props) =
   const activeIds = (key?: string) => idsFor(key)
 
   const activeKnowledgeBases = (key?: string) => {
+    if (!available()) return []
     const ids = idsFor(key)
     return state.knowledgeBases.filter((kb) => ids.includes(kb.id))
   }
 
   const knowledgeBases = () => state.knowledgeBases
 
-  const enabled = (key?: string) => idsFor(key).length > 0
+  const enabled = (key?: string) => available() && idsFor(key).length > 0
 
   const isActive = (id: string, key?: string) => idsFor(key).includes(id)
 
   const toggleActive = (id: string, key?: string) => {
+    if (!ready() || !available()) return
     const bucket = key ?? NEW_SESSION_KEY
     const current = state.activeIdsBySession[bucket] ?? []
     setState(
@@ -252,11 +270,16 @@ export const KnowledgeProvider: Component<{ children: JSX.Element }> = (props) =
   }
 
   const setActive = (ids: string[], key?: string) => {
+    if (!ready() || !available()) return
     setState("activeIdsBySession", key ?? NEW_SESSION_KEY, ids)
   }
 
   const rekey = (from: string, to: string) => {
     if (from === to) return
+    if (!ready()) {
+      transfers.push([from, to])
+      return
+    }
     const ids = state.activeIdsBySession[from]
     if (!ids?.length) return
     setState("activeIdsBySession", to, ids)
@@ -264,6 +287,7 @@ export const KnowledgeProvider: Component<{ children: JSX.Element }> = (props) =
   }
 
   const addKnowledgeBase = (config: Omit<KnowledgeConfig, "id">): string => {
+    if (!ready() || !available()) throw new Error(language.t("knowledge.disabled"))
     const id = generateId()
     const newKb: KnowledgeConfig = { ...config, id }
     setState("knowledgeBases", [...state.knowledgeBases, newKb])
@@ -271,122 +295,144 @@ export const KnowledgeProvider: Component<{ children: JSX.Element }> = (props) =
   }
 
   const updateKnowledgeBase = (id: string, config: Partial<KnowledgeConfig>) => {
+    if (!ready() || !available()) return
     const index = state.knowledgeBases.findIndex((kb) => kb.id === id)
     if (index === -1) return
     setState("knowledgeBases", index, { ...state.knowledgeBases[index], ...config })
   }
 
-  const fetchApi = async (path: string, options: RequestInit = {}) => {
-    const baseUrl = sdk.url
-    const s = server.current?.http
-    const authHeader: Record<string, string> = s?.password
-      ? { Authorization: `Basic ${btoa(`${s.username ?? "opencode"}:${s.password}`)}` }
-      : {}
-    const headers: Record<string, string> = {
-      "Content-Type": "application/json",
-      ...authHeader,
-      ...(options.headers as Record<string, string>),
-    }
-
-    const response = await fetch(`${baseUrl}${path}`, {
-      ...options,
-      headers,
-    })
-
-    return response
-  }
-
   const refreshAllStats = async () => {
+    if (!available() || !meta.ready) return
+    const version = serial
     for (const kb of state.knowledgeBases) {
       try {
         const encodedPath = encodeURIComponent(kb.path)
-        const response = await fetchApi(`/knowledge/${encodedPath}/stats`)
-        if (response.ok) {
-          const stats = await response.json()
-          updateKnowledgeBase(kb.id, {
-            documentCount: stats.totalDocuments,
-            pdfFileCount: stats.pdfFileCount,
-            syncedAt: stats.lastSyncedAt,
-          })
-        }
+        const stats = await client.request<{ totalDocuments: number; pdfFileCount: number; lastSyncedAt?: number }>(
+          `/knowledge/${encodedPath}/stats`,
+        )
+        if (version !== serial || !available()) return
+        updateKnowledgeBase(kb.id, {
+          documentCount: stats.totalDocuments,
+          pdfFileCount: stats.pdfFileCount,
+          syncedAt: stats.lastSyncedAt,
+        })
       } catch (e) {
+        if (!available() || (e instanceof Error && e.name === "AbortError")) return
         console.error(`Failed to refresh stats for ${kb.name}:`, e)
       }
     }
   }
 
-  onMount(async () => {
-    const hasRemote = await loadState()
-    initDone = true
-
-    if (!hasRemote) {
-      // 尝试从 .aether-kb 目录扫描恢复
-      try {
-        const resp = await fetchApi("/knowledge/discover")
-        if (resp.ok) {
-          const { found } = await resp.json()
-          if (found?.length > 0) {
-            for (const item of found) {
-              const id = generateId()
-              setState("knowledgeBases", (list) => [
-                ...list,
-                {
-                  id,
-                  path: item.path,
-                  name: item.config?.name ?? item.path.split("/").pop() ?? "Recovered KB",
-                  providerID: "",
-                  embeddingProvider: item.config?.embeddingProvider ?? "custom",
-                  embeddingModel: item.config?.embeddingModel ?? "",
-                  embeddingDimensions: item.config?.embeddingDimensions,
-                  apiKey: item.config?.apiKey ?? "",
-                  baseURL: item.config?.baseURL ?? "",
-                  chunkSize: item.config?.chunkSize ?? 500,
-                  chunkOverlap: item.config?.chunkOverlap ?? 50,
-                } as KnowledgeConfig,
-              ])
-            }
-            saveState()
-          }
-        }
-      } catch {}
+  const retry = async () => {
+    if (meta.ready || meta.loading || (server.current?.http.url ?? sdk.url) !== sdk.url) return
+    const version = serial
+    setMeta({ loading: true, error: undefined })
+    try {
+      const data = await client.request<KnowledgeState>("/knowledge/state", {}, false)
+      if (version !== serial) return
+      const next = {
+        knowledgeBases: data.knowledgeBases ?? [],
+        activeIdsBySession: data.activeIdsBySession ?? {},
+        lastConfig: data.lastConfig,
+      }
+      saved = JSON.stringify(next)
+      for (const [from, to] of transfers.splice(0)) {
+        const ids = next.activeIdsBySession[from]
+        if (!ids?.length) continue
+        next.activeIdsBySession = { ...next.activeIdsBySession, [to]: ids, [from]: [] }
+      }
+      batch(() => {
+        setState(reconcile(next))
+        setMeta("ready", true)
+      })
+    } catch (err) {
+      if (version !== serial) return
+      setMeta("error", err instanceof Error ? err.message : String(err))
+    } finally {
+      if (version === serial) setMeta("loading", false)
     }
+  }
 
-    if (state.knowledgeBases.length > 0) {
-      refreshAllStats()
-    }
-  })
+  createEffect(
+    on(
+      () => `${sdk.url}|${server.current?.http.url ?? sdk.url}`,
+      (_key, previous) => {
+        if (previous !== undefined) transfers.length = 0
+        serial += 1
+        clearTimeout(timer)
+        client.reset()
+        stopSync()
+        batch(() => {
+          setMeta({ ready: false, loading: false, error: undefined })
+          setState(reconcile({ knowledgeBases: [], activeIdsBySession: {} }))
+        })
+        saved = ""
+        void retry()
+      },
+    ),
+  )
+
+  createEffect(
+    on([available, ready], async ([active, loaded]) => {
+      if (!active) {
+        client.reset(true)
+        stopSync()
+        return
+      }
+      if (!loaded) return
+      const version = serial
+      if (untrack(() => state.knowledgeBases.length) === 0) {
+        const data = await client
+          .request<{ found?: Array<{ path: string; config?: Partial<KnowledgeConfig> }> }>("/knowledge/discover")
+          .catch(() => undefined)
+        if (!data?.found?.length || !available() || version !== serial) return
+        setState(
+          "knowledgeBases",
+          data.found.map((item) => ({
+            id: generateId(),
+            path: item.path,
+            name: item.config?.name ?? item.path.split(/[\\/]/).pop() ?? "Recovered KB",
+            providerID: "",
+            embeddingProvider: item.config?.embeddingProvider ?? "custom",
+            embeddingModel: item.config?.embeddingModel ?? "",
+            embeddingDimensions: item.config?.embeddingDimensions,
+            apiKey: item.config?.apiKey ?? "",
+            baseURL: item.config?.baseURL ?? "",
+            chunkSize: item.config?.chunkSize ?? 500,
+            chunkOverlap: item.config?.chunkOverlap ?? 50,
+          })),
+        )
+      }
+      await refreshAllStats()
+    }),
+  )
 
   // 状态变更时自动持久化
   createEffect(
     on(
-      () => ({
-        knowledgeBases: state.knowledgeBases,
-        activeIdsBySession: state.activeIdsBySession,
-        lastConfig: state.lastConfig,
-      }),
+      () => JSON.stringify(state),
       () => {
-        if (!initDone) return
         saveState()
       },
       { defer: true },
     ),
   )
 
+  onCleanup(() => {
+    serial += 1
+    transfers.length = 0
+    clearTimeout(timer)
+    client.reset()
+    stopSync()
+  })
+
   const loadKnowledgeBase = async (path: string): Promise<KnowledgeIndexData | null> => {
     const encodedPath = encodeURIComponent(path)
-    const response = await fetchApi(`/knowledge/${encodedPath}`, {
-      method: "GET",
-    })
-
-    if (!response.ok) {
-      return null
-    }
-
-    return response.json()
+    return client.request<KnowledgeIndexData>(`/knowledge/${encodedPath}`, {}, false).catch(() => null)
   }
 
   const createKnowledgeBase = async (cfg: KnowledgeConfig): Promise<KnowledgeIndexData> => {
-    const response = await fetchApi("/knowledge", {
+    return client.request<KnowledgeIndexData>("/knowledge", {
       method: "POST",
       body: JSON.stringify({
         path: cfg.path,
@@ -400,16 +446,10 @@ export const KnowledgeProvider: Component<{ children: JSX.Element }> = (props) =
         chunkOverlap: cfg.chunkOverlap,
       }),
     })
-
-    if (!response.ok) {
-      const error = await response.text()
-      throw new Error(`Failed to create knowledge base: ${error}`)
-    }
-
-    return response.json()
   }
 
   const syncKnowledgeBase = async (id?: string) => {
+    if (!available()) throw new Error(language.t("knowledge.disabled"))
     const targetId = id ?? activeIds()[0] ?? null
     if (!targetId) {
       throw new Error("No knowledge base selected")
@@ -422,100 +462,105 @@ export const KnowledgeProvider: Component<{ children: JSX.Element }> = (props) =
 
     setSyncProgress(null)
     const encodedPath = encodeURIComponent(kb.path)
-    const baseUrl = sdk.url
-
-    await fetchApi("/knowledge/config", {
-      method: "POST",
-      body: JSON.stringify({
-        path: kb.path,
-        apiKey: kb.apiKey,
-        baseURL: kb.baseURL,
-      }),
-    })
-
-    syncAbortController = new AbortController()
-    const timeoutSignal = AbortSignal.timeout(600000)
-    const combinedSignal = AbortSignal.any
-      ? AbortSignal.any([syncAbortController.signal, timeoutSignal])
-      : syncAbortController.signal
-
-    const response = await fetch(`${baseUrl}/knowledge/${encodedPath}/sync`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(server.current?.http?.password
-          ? {
-              Authorization: `Basic ${btoa(`${server.current.http.username ?? "opencode"}:${server.current.http.password}`)}`,
-            }
-          : {}),
-      } as Record<string, string>,
-      body: JSON.stringify({
-        apiKey: kb.apiKey,
-        baseURL: kb.baseURL,
-      }),
-      signal: combinedSignal,
-    })
-
-    if (!response.ok) {
-      const error = await response.text()
-      throw new Error(`Failed to sync knowledge base: ${error}`)
-    }
-
-    let finalResult: { added: number; updated: number; removed: number; errors?: string[] } = {
-      added: 0,
-      updated: 0,
-      removed: 0,
-    }
-
-    const reader = response.body!.getReader()
-    const decoder = new TextDecoder()
-    let buffer = ""
+    stopSync()
+    const abort = new AbortController()
+    syncAbortController = abort
+    const signal = abort.signal
+    const timeout = setTimeout(() => abort.abort(), 600000)
 
     try {
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-        buffer += decoder.decode(value, { stream: true })
+      await client.request("/knowledge/config", {
+        method: "POST",
+        body: JSON.stringify({
+          path: kb.path,
+          apiKey: kb.apiKey,
+          baseURL: kb.baseURL,
+        }),
+        signal,
+      })
 
-        const parts = buffer.split("\n\n")
-        buffer = parts.pop() ?? ""
+      const pending = await client.open(`/knowledge/${encodedPath}/sync`, {
+        method: "POST",
+        body: JSON.stringify({
+          apiKey: kb.apiKey,
+          baseURL: kb.baseURL,
+        }),
+        signal,
+      })
 
-        for (const block of parts) {
-          let event = "message"
-          let data = ""
-          for (const line of block.split("\n")) {
-            if (line.startsWith("event: ")) event = line.slice(7).trim()
-            else if (line.startsWith("data: ")) data = line.slice(6).trim()
-          }
-          if (!data) continue
+      let finalResult: { added: number; updated: number; removed: number; errors?: string[] } = {
+        added: 0,
+        updated: 0,
+        removed: 0,
+      }
 
-          if (event === "progress") {
-            const status = JSON.parse(data)
-            setSyncProgress({ current: status.current, total: status.total })
-          } else if (event === "complete") {
-            finalResult = JSON.parse(data)
-            const statsResponse = await fetchApi(`/knowledge/${encodedPath}/stats`)
-            if (statsResponse.ok) {
-              const stats = await statsResponse.json()
+      const reader = pending.response.body?.getReader()
+      if (!reader) {
+        pending.close()
+        throw new Error("Knowledge sync response has no content")
+      }
+      const cancel = () => void reader.cancel().catch(() => undefined)
+      pending.signal.addEventListener("abort", cancel, { once: true })
+      if (pending.signal.aborted) cancel()
+      const decoder = new TextDecoder()
+      let buffer = ""
+
+      try {
+        while (true) {
+          const { done, value } = await reader.read()
+          pending.check()
+          if (done) break
+          buffer += decoder.decode(value, { stream: true })
+
+          const parts = buffer.split("\n\n")
+          buffer = parts.pop() ?? ""
+
+          for (const block of parts) {
+            let event = "message"
+            let data = ""
+            for (const line of block.split("\n")) {
+              if (line.startsWith("event: ")) event = line.slice(7).trim()
+              else if (line.startsWith("data: ")) data = line.slice(6).trim()
+            }
+            if (!data) continue
+
+            if (event === "progress") {
+              const status = JSON.parse(data)
+              setSyncProgress({ current: status.current, total: status.total })
+            } else if (event === "complete") {
+              finalResult = JSON.parse(data)
+              const stats = await client.request<{ totalDocuments: number; pdfFileCount: number }>(
+                `/knowledge/${encodedPath}/stats`,
+                { signal },
+              )
+              pending.check()
               updateKnowledgeBase(targetId, {
                 documentCount: stats.totalDocuments,
                 pdfFileCount: stats.pdfFileCount,
                 syncedAt: Date.now(),
               })
+            } else if (event === "error") {
+              const errData = JSON.parse(data)
+              throw new Error(errData.message)
             }
-          } else if (event === "error") {
-            const errData = JSON.parse(data)
-            throw new Error(errData.message)
           }
         }
+      } finally {
+        pending.signal.removeEventListener("abort", cancel)
+        await reader.cancel().catch(() => undefined)
+        reader.releaseLock()
+        pending.close()
       }
-    } finally {
-      setSyncProgress(null)
-      syncAbortController = null
-      reader.releaseLock()
-    }
 
-    return finalResult
+      return finalResult
+    } finally {
+      clearTimeout(timeout)
+      abort.abort()
+      if (syncAbortController === abort) {
+        setSyncProgress(null)
+        syncAbortController = null
+      }
+    }
   }
 
   const syncAllActive = async () => {
@@ -533,22 +578,20 @@ export const KnowledgeProvider: Component<{ children: JSX.Element }> = (props) =
   }
 
   const removeDocument = async (id: string, documentId: string) => {
+    if (!ready()) throw new Error(language.t("knowledge.disabled"))
+    const version = serial
     const kb = state.knowledgeBases.find((item) => item.id === id)
     if (!kb) {
       throw new Error("Knowledge base not found")
     }
     const encodedPath = encodeURIComponent(kb.path)
-    const response = await fetchApi(`/knowledge/${encodedPath}/document/${encodeURIComponent(documentId)}`, {
-      method: "DELETE",
-    })
-
-    if (!response.ok) {
-      const error = await response.text()
-      throw new Error(`Failed to remove document: ${error}`)
-    }
-
-    const index = await response.json()
-    updateKnowledgeBase(id, {
+    const index = await client.request<KnowledgeIndexData>(
+      `/knowledge/${encodedPath}/document/${encodeURIComponent(documentId)}`,
+      { method: "DELETE" },
+      false,
+    )
+    if (version !== serial) return
+    setState("knowledgeBases", (kb) => kb.id === id, {
       documentCount: index.stats.totalDocuments,
       syncedAt: index.stats.lastSyncedAt,
     })
@@ -560,17 +603,10 @@ export const KnowledgeProvider: Component<{ children: JSX.Element }> = (props) =
       throw new Error("Knowledge base not found")
     }
     const encodedPath = encodeURIComponent(kb.path)
-    const response = await fetchApi(`/knowledge/${encodedPath}/import`, {
+    return client.request<{ added: number; skipped: number; errors: string[] }>(`/knowledge/${encodedPath}/import`, {
       method: "POST",
       body: JSON.stringify({ paths: [filePath] }),
     })
-
-    if (!response.ok) {
-      const error = await response.text()
-      throw new Error(`Failed to import document: ${error}`)
-    }
-
-    return response.json() as Promise<{ added: number; skipped: number; errors: string[] }>
   }
 
   const updateEmbeddingConfig = async (
@@ -582,23 +618,19 @@ export const KnowledgeProvider: Component<{ children: JSX.Element }> = (props) =
       baseURL?: string
     },
   ) => {
+    const version = serial
     const kb = state.knowledgeBases.find((item) => item.id === id)
     if (!kb) {
       throw new Error("Knowledge base not found")
     }
 
     const encodedPath = encodeURIComponent(kb.path)
-    const response = await fetchApi(`/knowledge/${encodedPath}/config`, {
+    const index = await client.request<KnowledgeIndexData>(`/knowledge/${encodedPath}/config`, {
       method: "PATCH",
       body: JSON.stringify(cfg),
     })
+    if (version !== serial || !available()) return
 
-    if (!response.ok) {
-      const error = await response.text()
-      throw new Error(`Failed to update embedding config: ${error}`)
-    }
-
-    const index = await response.json()
     updateKnowledgeBase(id, {
       embeddingProvider: index.config.embeddingProvider,
       embeddingModel: index.config.embeddingModel,
@@ -620,7 +652,7 @@ export const KnowledgeProvider: Component<{ children: JSX.Element }> = (props) =
 
     for (const kb of kbs) {
       const encodedPath = encodeURIComponent(kb.path)
-      const response = await fetchApi(`/knowledge/${encodedPath}/search`, {
+      const results = await client.request<KnowledgeSearchResult[]>(`/knowledge/${encodedPath}/search`, {
         method: "POST",
         body: JSON.stringify({
           query,
@@ -630,10 +662,7 @@ export const KnowledgeProvider: Component<{ children: JSX.Element }> = (props) =
         }),
       })
 
-      if (response.ok) {
-        const results = await response.json()
-        allResults.push(...results)
-      }
+      allResults.push(...results)
     }
 
     allResults.sort((a, b) => b.score - a.score)
@@ -641,6 +670,8 @@ export const KnowledgeProvider: Component<{ children: JSX.Element }> = (props) =
   }
 
   const removeKnowledgeBase = async (id?: string) => {
+    if (!ready()) throw new Error(language.t("knowledge.disabled"))
+    const version = serial
     const targetId = id ?? activeIds()[0] ?? null
     if (!targetId) return
 
@@ -648,14 +679,8 @@ export const KnowledgeProvider: Component<{ children: JSX.Element }> = (props) =
     if (!kb) return
 
     const encodedPath = encodeURIComponent(kb.path)
-    const response = await fetchApi(`/knowledge/${encodedPath}`, {
-      method: "DELETE",
-    })
-
-    if (!response.ok) {
-      const error = await response.text()
-      throw new Error(`Failed to remove knowledge base: ${error}`)
-    }
+    await client.request(`/knowledge/${encodedPath}`, { method: "DELETE" }, false)
+    if (version !== serial) return
 
     setState(
       "knowledgeBases",
@@ -692,11 +717,16 @@ export const KnowledgeProvider: Component<{ children: JSX.Element }> = (props) =
   const getLastConfig = () => state.lastConfig
 
   const saveLastConfig = (config: LastConfig) => {
+    if (!ready() || !available()) return
     setState("lastConfig", config)
   }
 
   const value: KnowledgeContextValue = {
     state,
+    available,
+    ready,
+    error,
+    retry,
     models,
     activeIds,
     activeKnowledgeBases,

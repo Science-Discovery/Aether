@@ -3,6 +3,7 @@ import type { Prompt } from "@/context/prompt"
 import { readFileQuoteMetadata } from "@/utils/comment-note"
 
 let createPromptSubmit: typeof import("./submit").createPromptSubmit
+let sendFollowupDraft: typeof import("./submit").sendFollowupDraft
 
 const createdClients: string[] = []
 const createdSessions: string[] = []
@@ -243,6 +244,57 @@ beforeAll(async () => {
 
   const mod = await import("./submit")
   createPromptSubmit = mod.createPromptSubmit
+  sendFollowupDraft = mod.sendFollowupDraft
+})
+
+describe("knowledge gate at followup send", () => {
+  const send = async (enabled: boolean | undefined, before?: () => Promise<boolean>) => {
+    const config = { knowledge: { enabled } }
+    const input = {
+      client: clientFor("/repo/main"),
+      globalSync: {
+        data: { config },
+        child: () => [{}, () => undefined],
+      },
+      sync: {
+        data: { command: [] },
+        session: { optimistic: { add: () => undefined, remove: () => undefined } },
+      },
+      draft: {
+        sessionID: "session1",
+        sessionDirectory: "/repo/main",
+        prompt: [{ type: "text", content: "question", start: 0, end: 8 }],
+        context: [],
+        agent: "agent",
+        model: { providerID: "provider", modelID: "model" },
+      },
+      before: before
+        ? async () => {
+            const result = await before()
+            config.knowledge.enabled = false
+            return result
+          }
+        : undefined,
+      knowledgeBase: { paths: ["/docs/kb"] },
+    } as unknown as Parameters<typeof sendFollowupDraft>[0]
+    await sendFollowupDraft(input)
+  }
+
+  test("unset and disabled masters drop queued or referenced knowledge attachments", async () => {
+    await send(undefined)
+    await send(false)
+    expect(prompted.map((request) => request.knowledgeBase)).toEqual([undefined, undefined])
+  })
+
+  test("enabled master keeps the selected knowledge configuration", async () => {
+    await send(true)
+    expect(prompted[0].knowledgeBase).toEqual({ paths: ["/docs/kb"] })
+  })
+
+  test("checks the current master after waiting for a queued send", async () => {
+    await send(true, async () => true)
+    expect(prompted[0].knowledgeBase).toBeUndefined()
+  })
 })
 
 beforeEach(() => {
