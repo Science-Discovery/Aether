@@ -1,4 +1,4 @@
-export type HtmlOutput = { html: string; deps: string[]; missing: number; blocked: number }
+export type HtmlOutput = { html: string; deps: string[]; missing: number; blocked: number; unsupported?: number }
 export type HtmlRequest =
   | { type: "render"; path: string; source: string }
   | { type: "resource"; id: number; data: ArrayBuffer; mime: string }

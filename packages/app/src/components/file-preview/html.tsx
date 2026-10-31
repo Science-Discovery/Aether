@@ -22,10 +22,21 @@ export default function HtmlPreview(props: {
     error: "",
     missing: 0,
     blocked: 0,
+    unsupported: 0,
     revision: 0,
     deps: [] as string[],
   })
   const deps = createMemo(() => new Set(state.deps))
+  const status = createMemo(() =>
+    [
+      text("static"),
+      state.missing ? `${text("missing")} (${state.missing})` : "",
+      state.unsupported ? `${text("unsupported")} (${state.unsupported})` : "",
+      state.blocked ? `${text("blocked")} (${state.blocked})` : "",
+    ]
+      .filter(Boolean)
+      .join(" · "),
+  )
   const refresh = () => setState("revision", (value) => value + 1)
   const source = createMemo(() => ({
     path: props.path,
@@ -44,7 +55,13 @@ export default function HtmlPreview(props: {
         (result) => {
           if (controller.signal.aborted) return
           if (JSON.stringify(state.deps) !== JSON.stringify(result.deps)) setState("deps", result.deps)
-          setState({ html: result.html, busy: false, missing: result.missing, blocked: result.blocked })
+          setState({
+            html: result.html,
+            busy: false,
+            missing: result.missing,
+            blocked: result.blocked,
+            unsupported: result.unsupported ?? 0,
+          })
         },
         (error: unknown) => {
           if (controller.signal.aborted) return
@@ -69,8 +86,8 @@ export default function HtmlPreview(props: {
   return (
     <div data-component="html-preview" class="flex h-full min-h-0 w-full flex-col overflow-hidden">
       <div class="flex min-h-9 shrink-0 items-center justify-between gap-3 border-b border-border-weak-base px-3 py-1 text-xs text-text-weak">
-        <span class="min-w-0 truncate" title={text("static")}>
-          {state.missing ? `${text("partial")} (${state.missing})` : text("static")}
+        <span class="min-w-0 truncate" title={status()} aria-label={status()}>
+          {status()}
         </span>
         <button
           type="button"

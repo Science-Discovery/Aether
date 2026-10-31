@@ -76,6 +76,17 @@ describe("HTML preview component", () => {
     expect(["#fff", "rgb(255, 255, 255)"]).toContain(frame.style.backgroundColor)
     expect(fixture.error).not.toHaveBeenCalled()
   })
+  test("distinguishes resource read failures, blocked content and unsupported CSS in the status", async () => {
+    const fixture = mount()
+    pending[0]!.resolve({ ...result(), missing: 2, blocked: 3, unsupported: 4 })
+    await tick()
+    const status = fixture.host.querySelector("span[aria-label]")!
+    expect(status.getAttribute("title")).toContain("本地资源读取失败 (2)")
+    expect(status.getAttribute("title")).toContain("未支持的样式片段 (4)")
+    expect(status.getAttribute("title")).toContain("已停用的内容 (3)")
+    expect(fixture.host.querySelector("iframe")).not.toBeNull()
+    expect(fixture.error).not.toHaveBeenCalled()
+  })
   test("exposes reactive dependencies and refreshes changed CSS drafts without looping", async () => {
     const [draft, update] = createSignal("body{color:red}")
     const stop = vi.fn()

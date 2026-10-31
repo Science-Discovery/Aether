@@ -133,7 +133,13 @@ export async function htmlConvert(input: {
   const deps = new Set<string>()
   const cache = new Map<string, Promise<{ data: ArrayBuffer; mime: string }>>()
   const styles = new Map<string, Promise<string>>()
-  const stats = { missing: 0, blocked: 0, bytes: 0 }
+  const missing = new Set<string>()
+  const stats = { missing: 0, blocked: 0, unsupported: 0, bytes: 0 }
+  const miss = (path: string) => {
+    if (missing.has(path)) return
+    missing.add(path)
+    stats.missing++
+  }
   const check = () => input.signal.throwIfAborted()
   const read = (path: string) => {
     check()
@@ -184,7 +190,7 @@ export async function htmlConvert(input: {
     } catch (error) {
       check()
       if (error instanceof Error && /HTML preview/.test(error.message)) throw error
-      stats.missing++
+      miss(target.path)
       return ""
     }
   }
@@ -196,22 +202,45 @@ export async function htmlConvert(input: {
     const tree = css.parse(source, {
       context: inline ? "declarationList" : "stylesheet",
       parseCustomProperty: true,
-      onParseError: (error) => {
-        throw error
+    })
+    const locations = new Map<css.CssNode, { item: css.ListItem<css.CssNode>; list: css.List<css.CssNode> }>()
+    const removed = new Set<css.CssNode>()
+    // Recovery callbacks also occur while parsing valid nested @supports.
+    // Audit the completed AST instead: Raw syntax must never reach the frame,
+    // but an unsupported declaration must not erase an otherwise readable page.
+    css.walk(tree, {
+      enter(this: css.WalkContext, node: css.CssNode, item: css.ListItem<css.CssNode>, list: css.List<css.CssNode>) {
+        if (
+          item &&
+          list &&
+          (node.type === "Declaration" || node.type === "Rule" || node.type === "Atrule" || node.type === "Raw")
+        ) {
+          locations.set(node, { item, list })
+        }
+        if (node.type !== "Raw") return
+        const owner =
+          this.declaration ?? (this.atrulePrelude ? this.atrule : this.selector ? this.rule : undefined) ?? node
+        const target = locations.has(owner) ? owner : (this.rule ?? this.atrule)
+        if (!target || !locations.has(target)) throw new Error("Unsupported CSS syntax")
+        removed.add(target)
       },
     })
+    removed.forEach((node) => {
+      const position = locations.get(node)!
+      position.list.remove(position.item)
+    })
+    stats.unsupported += removed.size
     const imports: Array<{ node: css.Atrule; item: css.ListItem<css.CssNode>; list: css.List<css.CssNode> }> = []
     const urls: css.Url[] = []
     const strings: css.StringNode[] = []
     css.walk(tree, {
       enter(node: css.CssNode, item: css.ListItem<css.CssNode>, list: css.List<css.CssNode>) {
-        if (node.type === "Raw") throw new Error("Unsupported CSS syntax")
-        if (node.type === "Atrule" && node.name.toLowerCase() === "import") {
+        if (node.type === "Atrule" && css.ident.decode(node.name).toLowerCase() === "import") {
           if (item && list) imports.push({ node, item, list })
           return css.walk.skip
         }
         if (node.type === "Url") urls.push(node)
-        if (node.type === "Function" && /^(?:-webkit-)?image-set$|^image$|^src$/i.test(node.name)) {
+        if (node.type === "Function" && /^(?:-webkit-)?image-set$|^image$|^src$/i.test(css.ident.decode(node.name))) {
           node.children.forEach((child) => {
             if (child.type === "String") strings.push(child)
           })
@@ -287,7 +316,13 @@ export async function htmlConvert(input: {
           deps.add(path)
           return await sheet(draft, path, stack)
         }
-        const file = await read(path)
+        const file = await read(path).catch((error: unknown) => {
+          check()
+          if (error instanceof Error && /HTML preview/.test(error.message)) throw error
+          miss(path)
+          return undefined
+        })
+        if (!file) return ""
         if (mime(file.mime) !== "text/css") {
           stats.blocked++
           return ""
@@ -296,7 +331,7 @@ export async function htmlConvert(input: {
       } catch (error) {
         check()
         if (error instanceof Error && /HTML preview/.test(error.message)) throw error
-        stats.missing++
+        stats.unsupported++
         return ""
       }
     })()
@@ -309,7 +344,7 @@ export async function htmlConvert(input: {
     } catch (error) {
       check()
       if (error instanceof Error && /HTML preview/.test(error.message)) throw error
-      stats.blocked++
+      stats.unsupported++
       return ""
     }
   }
@@ -354,6 +389,14 @@ export async function htmlConvert(input: {
         const href = attrs.find((attr) => attr.name === "href")?.value.trim()
         if (href?.startsWith("#")) set("href", href)
       }
+      if (node.tagName === "style") {
+        const source = node.childNodes
+          .filter((child) => child.nodeName === "#text")
+          .map((child) => ("value" in child ? child.value : ""))
+          .join("")
+        const body = await safeStyle(source, input.path)
+        node.childNodes = [{ nodeName: "#text", value: body.replaceAll("<", "\\3c "), parentNode: node }]
+      }
       if (node.tagName === "link") {
         const rel =
           attrs
@@ -368,14 +411,6 @@ export async function htmlConvert(input: {
         node.tagName = "style"
         node.nodeName = "style"
         node.attrs = attrs.filter((attr) => attr.name === "media")
-        node.childNodes = [{ nodeName: "#text", value: body.replaceAll("<", "\\3c "), parentNode: node }]
-      }
-      if (node.tagName === "style") {
-        const source = node.childNodes
-          .filter((child) => child.nodeName === "#text")
-          .map((child) => ("value" in child ? child.value : ""))
-          .join("")
-        const body = await safeStyle(source, input.path)
         node.childNodes = [{ nodeName: "#text", value: body.replaceAll("<", "\\3c "), parentNode: node }]
       }
       if ("content" in node && node.content) await visit(node.content as Node)
@@ -405,5 +440,5 @@ export async function htmlConvert(input: {
     head.childNodes.unshift(...prefix.childNodes)
   }
   check()
-  return { html: serialize(doc), deps, missing: stats.missing, blocked: stats.blocked }
+  return { html: serialize(doc), deps, missing: stats.missing, blocked: stats.blocked, unsupported: stats.unsupported }
 }

@@ -4,7 +4,9 @@ const en = {
   refresh: "Refresh preview",
   failed: "Could not preview this page",
   static: "Scripts and online resources are disabled",
-  partial: "Some local resources could not be loaded",
+  missing: "Local resource read failures",
+  blocked: "Disabled content",
+  unsupported: "Unsupported style fragments",
   retry: "Try again",
 }
 const zh: typeof en = {
@@ -13,7 +15,9 @@ const zh: typeof en = {
   refresh: "刷新预览",
   failed: "无法预览此网页",
   static: "已停用脚本和联网资源",
-  partial: "部分本地资源无法加载",
+  missing: "本地资源读取失败",
+  blocked: "已停用的内容",
+  unsupported: "未支持的样式片段",
   retry: "重试",
 }
 const zht: typeof en = {
@@ -22,7 +26,9 @@ const zht: typeof en = {
   refresh: "重新整理預覽",
   failed: "無法預覽此網頁",
   static: "已停用指令碼和連線資源",
-  partial: "部分本機資源無法載入",
+  missing: "本機資源讀取失敗",
+  blocked: "已停用的內容",
+  unsupported: "未支援的樣式片段",
   retry: "重試",
 }
 

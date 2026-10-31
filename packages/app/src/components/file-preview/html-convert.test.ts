@@ -131,6 +131,91 @@ describe("static offline HTML conversion", () => {
     expect(result.html).toContain("@supports (display:grid)")
     expect(result.html).toContain("@media screen")
   })
+  test("keeps valid nested supports rules despite recoverable parser callbacks", async () => {
+    const fixture = setup({
+      "site/pages/modern.css": {
+        source:
+          ".before{color:red}@supports ((-webkit-backdrop-filter:blur(10px)) or (backdrop-filter:blur(10px))){.modern{background:#fff}}@supports ((-o-object-fit:cover) or (object-fit:cover)){.photo{object-fit:cover}}.after{color:blue}",
+        mime: "text/css",
+      },
+    })
+    const result = await fixture.render('<link rel="stylesheet" href="modern.css">')
+    expect(result.html).toContain(".before{color:red}")
+    expect(result.html).toContain(".modern{background:#fff}")
+    expect(result.html).toContain(".photo{object-fit:cover}")
+    expect(result.html).toContain(".after{color:blue}")
+    expect(result.missing).toBe(0)
+    expect(result.unsupported).toBe(0)
+  })
+  test("removes only unsupported declarations while preserving the rest of linked and inline styles", async () => {
+    const fixture = setup({
+      "site/pages/legacy.css": {
+        source:
+          '.legacy{color:green;filter:progid:DXImageTransform.Microsoft.dropshadow(OffX=2,OffY=2,Color="gray");padding:12px}.cookie{font-family:sans-serif!important!important;margin:3px}.after{color:blue}',
+        mime: "text/css",
+      },
+    })
+    const result = await fixture.render(
+      '<link rel="stylesheet" href="legacy.css"><p style="color:red;filter:alpha(opacity=0);padding:8px">text</p>',
+    )
+    expect(result.html).toContain(".legacy{color:green;padding:12px}")
+    expect(result.html).toContain(".cookie{margin:3px}")
+    expect(result.html).toContain(".after{color:blue}")
+    expect(result.html).toContain('style="color:red;padding:8px"')
+    expect(result.html).not.toContain("progid")
+    expect(result.html).not.toContain("alpha(")
+    expect(result.missing).toBe(0)
+    expect(result.unsupported).toBe(3)
+  })
+  test("drops the smallest unauditable rules and never exposes Raw URLs", async () => {
+    const fixture = setup()
+    const result = await fixture.render(
+      '<style>.broken[=x]{background:url("https://example.invalid/selector")}@media ???{.raw{background:url("https://example.invalid/media")}}.old{filter:progid:DXImageTransform.Microsoft.AlphaImageLoader(src="https://example.invalid/filter");color:blue}.safe{padding:2px}</style>',
+    )
+    expect(result.html).not.toContain("https://example.invalid")
+    expect(result.html).not.toContain(".broken")
+    expect(result.html).not.toContain(".raw")
+    expect(result.html).toContain(".old{color:blue}")
+    expect(result.html).toContain(".safe{padding:2px}")
+    expect(fixture.paths).toEqual([])
+    expect(result.missing).toBe(0)
+    expect(result.unsupported).toBe(3)
+  })
+  test("rewrites escaped import and image function names without permitting remote URLs", async () => {
+    const fixture = setup()
+    const result = await fixture.render(
+      '<style>@\\69mport "https://example.invalid/import";.x{background:u\\72l(https://example.invalid/image);background-image:i\\6d age-set("https://example.invalid/set" 1x)}.safe{color:green}</style>',
+    )
+    expect(result.html).not.toContain("https://example.invalid")
+    expect(result.html).toContain(".safe{color:green}")
+    expect(fixture.paths).toEqual([])
+    expect(result.blocked + result.unsupported).toBeGreaterThanOrEqual(3)
+  })
+  test("separates unique missing resources from unsupported styles and blocked content", async () => {
+    const fixture = setup({
+      "site/pages/mixed.css": {
+        source: ".x{background:url(missing.png);filter:alpha(opacity=0);color:red}",
+        mime: "text/css",
+      },
+    })
+    const result = await fixture.render(
+      '<link rel="stylesheet" href="mixed.css"><img src="missing.png"><img src="missing.png"><img src="https://example.invalid/blocked.png">',
+    )
+    expect(result.missing).toBe(1)
+    expect(result.unsupported).toBe(1)
+    expect(result.blocked).toBe(1)
+    expect(fixture.paths.filter((path) => path.endsWith("missing.png"))).toHaveLength(1)
+    expect(result.html).toContain("color:red")
+  })
+  test("keeps no-script body content and deduplicates identical fallback stylesheet reads", async () => {
+    const fixture = setup({ "site/pages/local.css": { source: "body{color:green}", mime: "text/css" } })
+    const result = await fixture.render(
+      '<link rel="stylesheet" href="local.css"><noscript><link rel="stylesheet" href="local.css"><p>Readable without scripts</p><img src="missing.png"></noscript>',
+    )
+    expect(result.html).toContain("Readable without scripts")
+    expect(fixture.paths.filter((path) => path.endsWith("local.css"))).toHaveLength(1)
+    expect(result.missing).toBe(1)
+  })
   test("does not load or apply disabled and alternate stylesheets", async () => {
     const fixture = setup({ "site/pages/off.css": { source: "body{display:none}", mime: "text/css" } })
     const result = await fixture.render(

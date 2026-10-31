@@ -173,6 +173,9 @@ export default function Pptx(props: DocumentProps) {
       <div
         ref={viewport}
         class="min-h-0 flex-1 overflow-auto bg-background-base p-3"
+        // Windowed rendering temporarily removes the scrollable content. Keep
+        // its gutter stable so the viewer does not repeatedly rebuild on resize.
+        style={{ "scrollbar-gutter": "stable" }}
         role="region"
         aria-label={t().slides}
         tabIndex={0}
