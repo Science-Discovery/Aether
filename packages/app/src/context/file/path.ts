@@ -105,11 +105,16 @@ export function createPathHelpers(scope: () => string) {
   const normalize = (input: string) => {
     const root = scope()
 
-    let path = unquoteGitPath(decodeFilePath(stripQueryAndHash(stripFileProtocol(input))))
+    // Filesystem names may contain literal URL escapes, query marks, and hashes.
+    // Decode only an actual file URL, and only once before reusing its path.
+    let path = unquoteGitPath(
+      input.startsWith("file://") ? decodeFilePath(stripQueryAndHash(stripFileProtocol(input))) : input,
+    )
 
     // Separator-agnostic prefix stripping for Cygwin/native Windows compatibility
     // Only case-insensitive on Windows (drive letter or UNC paths)
     const windows = /^[A-Za-z]:/.test(root) || root.startsWith("\\\\")
+    if (windows && /^\/[A-Za-z]:[\\/]/.test(path)) path = path.slice(1)
     const canonRoot = windows ? root.replace(/\\/g, "/").toLowerCase() : root.replace(/\\/g, "/")
     const canonPath = windows ? path.replace(/\\/g, "/").toLowerCase() : path.replace(/\\/g, "/")
     if (

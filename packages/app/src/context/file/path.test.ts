@@ -21,6 +21,32 @@ describe("file path helpers", () => {
     expect(path.normalize("c:\\repo\\src\\app.ts")).toBe("src\\app.ts")
   })
 
+  test("keeps literal URL escapes and punctuation in filesystem names", () => {
+    const path = createPathHelpers(() => "/repo")
+    for (const name of ["page%20copy.html", "%E6%96%87%E6%A1%A3.xlsx", "assets/picture#1.png", "a?b.css", "%ZZ.pptx"]) {
+      expect(path.normalize(name)).toBe(name)
+      expect(path.pathFromTab(path.tab(name))).toBe(name)
+      expect(path.normalize(path.pathFromTab(path.tab(name))!)).toBe(name)
+    }
+    expect(path.normalize("/repo/page%20copy.html")).toBe("page%20copy.html")
+  })
+
+  test("decodes file URLs once while keeping URL query and hash semantics", () => {
+    const path = createPathHelpers(() => "/repo")
+    expect(path.pathFromTab("file:///repo/page%2520copy.html?view=1#top")).toBe("page%20copy.html")
+    expect(path.pathFromTab("file://assets/picture%231%3Fv.png")).toBe("assets/picture#1?v.png")
+    expect(path.normalize("file:///repo/%E6%96%87%E6%A1%A3.xlsx")).toBe("文档.xlsx")
+    expect(path.tab("file://page%2520copy.html")).toBe("file://page%2520copy.html")
+  })
+
+  test("round trips file URLs within Windows roots without losing literal escapes", () => {
+    const path = createPathHelpers(() => "C:\\repo")
+    expect(path.normalize("file:///C:/repo/page%2520copy.html")).toBe("page%20copy.html")
+    expect(path.normalize("/c:/repo/page%20copy.html")).toBe("page%20copy.html")
+    expect(path.pathFromTab(path.tab("C:\\repo\\assets\\图%20片#1.png"))).toBe("assets/图%20片#1.png")
+    expect(path.normalize("C:/repository/other.css")).toBe("C:/repository/other.css")
+  })
+
   test("keeps query/hash stripping behavior stable", () => {
     expect(stripQueryAndHash("a/b.ts#L12?x=1")).toBe("a/b.ts")
     expect(stripQueryAndHash("a/b.ts?x=1#L12")).toBe("a/b.ts")

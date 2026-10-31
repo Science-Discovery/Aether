@@ -37,6 +37,7 @@ import { detectDataJson, chunkByContent, chunksFromDataJson } from "../../markdo
 import fs from "fs/promises"
 import { linux, missing, windows, wsl, wslPath } from "../pick-folder"
 import { PdfAnnotations } from "../../pdf-annotations"
+import { Preview } from "../../file/preview"
 
 export type ServerEnv = {
   Variables: {
@@ -1352,6 +1353,45 @@ export const FileRoutes = lazy(() =>
           if (pdfAnnotationInputError(err)) return c.json({ error: err.message }, 400)
           if (err instanceof Error && err.message === "PDF changed after annotations were created") {
             return c.json({ error: err.message }, 409)
+          }
+          throw err
+        }
+      },
+    )
+    .get(
+      "/file/preview/resource",
+      describeRoute({
+        summary: "Read a local preview resource",
+        description:
+          "Read CSS, image, or font bytes confined to the current workspace for an isolated document preview.",
+        operationId: "file.previewResource",
+        responses: {
+          200: { description: "Preview resource bytes" },
+          403: { description: "Resource is outside the validated workspace" },
+          415: { description: "Unsupported preview resource type" },
+          ...errors(400, 404),
+        },
+      }),
+      validator("query", z.object({ path: z.string() })),
+      async (c) => {
+        try {
+          const input = c.req.valid("query").path
+          const result = await Preview.resource(input)
+          return new Response(c.req.method === "HEAD" ? null : result.file, {
+            headers: {
+              ...raw(c.req.header("origin"), c.get("cors") as string[] | undefined),
+              "Content-Type": result.type,
+              "Content-Length": String(result.stat.size),
+              "Content-Disposition": attachment(path.basename(input)),
+              "Cache-Control": "no-cache",
+              "X-Content-Type-Options": "nosniff",
+              "Content-Security-Policy": "default-src 'none'; sandbox",
+            },
+          })
+        } catch (err) {
+          if (err instanceof Preview.Error) return c.json({ error: err.message }, err.status)
+          if (err instanceof Error && "code" in err && (err.code === "ENOENT" || err.code === "ENOTDIR")) {
+            return c.json({ error: "Preview resource not found" }, 404)
           }
           throw err
         }

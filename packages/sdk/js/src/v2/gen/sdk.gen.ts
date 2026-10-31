@@ -95,6 +95,8 @@ import type {
   FilePdfToMarkdownProgressResponses,
   FilePdfToMarkdownResponses,
   FilePickFolderResponses,
+  FilePreviewResourceErrors,
+  FilePreviewResourceResponses,
   FileRawErrors,
   FileRawResponses,
   FileReadResponses,
@@ -5323,6 +5325,38 @@ export class File extends HeyApiClient {
         ...options?.headers,
         ...params.headers,
       },
+    })
+  }
+
+  /**
+   * Read a local preview resource
+   *
+   * Read CSS, image, or font bytes confined to the current workspace for an isolated document preview.
+   */
+  public previewResource<ThrowOnError extends boolean = false>(
+    parameters: {
+      directory?: string
+      workspace?: string
+      path: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "path" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<FilePreviewResourceResponses, FilePreviewResourceErrors, ThrowOnError>({
+      url: "/file/preview/resource",
+      ...options,
+      ...params,
     })
   }
 
