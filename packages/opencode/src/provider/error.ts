@@ -2,6 +2,10 @@ import { APICallError } from "ai"
 import { STATUS_CODES } from "http"
 import { iife } from "@/util/iife"
 import type { ProviderID } from "./schema"
+import { NamedError } from "@opencode-ai/util/error"
+import z from "zod"
+
+export const NoModelConfiguredError = NamedError.create("NoModelConfiguredError", z.object({ message: z.string() }))
 
 export namespace ProviderError {
   // Adapted from overflow detection patterns in:

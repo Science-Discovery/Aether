@@ -1,8 +1,10 @@
 import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test"
 import type { Prompt } from "@/context/prompt"
+import type { FollowupDraft } from "./submit"
 import { readFileQuoteMetadata } from "@/utils/comment-note"
 
 let createPromptSubmit: typeof import("./submit").createPromptSubmit
+let sendFollowupDraft: typeof import("./submit").sendFollowupDraft
 
 const createdClients: string[] = []
 const createdSessions: string[] = []
@@ -22,7 +24,7 @@ const promoted: Array<{ directory: string; sessionID: string }> = []
 const sentShell: string[] = []
 const syncedDirectories: string[] = []
 const prompted: Array<Record<string, unknown>> = []
-const toasts: Array<{ title?: string }> = []
+const toasts: Array<{ title?: string; description?: string }> = []
 
 let params: { id?: string } = {}
 let selected = "/repo/worktree-a"
@@ -30,6 +32,18 @@ let variant: string | undefined
 let failCreate: Error | undefined
 let directoryAutoAccept = false
 let defaultMode: "off" | "safe" | "full" = "safe"
+let configured = true
+let unavailable = false
+const cleared: string[] = []
+const catalogs: Record<string, ReturnType<typeof catalog>> = {}
+
+function catalog(provider = "provider", model = "model") {
+  return {
+    all: [{ id: provider, name: provider, models: { [model]: { id: model, name: model, disabled: false } } }],
+    connected: [provider],
+    default: {},
+  }
+}
 
 const promptValue: Prompt = [{ type: "text", content: "ls", start: 0, end: 2 }]
 
@@ -83,7 +97,7 @@ beforeAll(async () => {
   }))
 
   mock.module("@opencode-ai/ui/toast", () => ({
-    showToast: (input: { title?: string }) => toasts.push(input),
+    showToast: (input: { title?: string; description?: string }) => toasts.push(input),
   }))
 
   mock.module("@opencode-ai/util/encode", () => ({
@@ -93,7 +107,8 @@ beforeAll(async () => {
   mock.module("@/context/local", () => ({
     useLocal: () => ({
       model: {
-        current: () => ({ id: "model", provider: { id: "provider" } }),
+        current: () => (configured ? { id: "model", provider: { id: "provider" } } : undefined),
+        unavailable: () => unavailable,
         variant: { current: () => variant },
       },
       agent: {
@@ -129,11 +144,11 @@ beforeAll(async () => {
     DEFAULT_PROMPT: [{ type: "text", content: "", start: 0, end: 0 }],
     usePrompt: () => ({
       current: () => promptValue,
-      reset: () => undefined,
-      set: () => undefined,
+      reset: () => cleared.push("prompt"),
+      set: () => cleared.push("set"),
       context: {
         add: () => undefined,
-        remove: () => undefined,
+        remove: () => cleared.push("context"),
         items: () => [],
       },
     }),
@@ -183,11 +198,17 @@ beforeAll(async () => {
 
   mock.module("@/context/global-sync", () => ({
     useGlobalSync: () => ({
+      data: { config: {} },
       child: (directory: string) => {
         syncedDirectories.push(directory)
         storedSessions[directory] ??= []
         return [
-          { session: storedSessions[directory] },
+          {
+            session: storedSessions[directory],
+            status: "complete",
+            config: {},
+            provider: catalogs[directory] ?? catalog(),
+          },
           (...args: unknown[]) => {
             if (args[0] !== "session") return
             const next = args[1]
@@ -243,6 +264,7 @@ beforeAll(async () => {
 
   const mod = await import("./submit")
   createPromptSubmit = mod.createPromptSubmit
+  sendFollowupDraft = mod.sendFollowupDraft
 })
 
 beforeEach(() => {
@@ -262,10 +284,110 @@ beforeEach(() => {
   failCreate = undefined
   directoryAutoAccept = false
   defaultMode = "safe"
+  configured = true
+  unavailable = false
+  cleared.length = 0
   for (const key of Object.keys(storedSessions)) delete storedSessions[key]
+  for (const key of Object.keys(catalogs)) delete catalogs[key]
 })
 
 describe("prompt submit worktree selection", () => {
+  test.each(["missing", "disabled"])(
+    "retains a queued reference and attachment snapshot when its old model is %s",
+    async (state) => {
+      const draft: FollowupDraft = {
+        sessionID: "queued-session",
+        sessionDirectory: "/repo/worktree-a",
+        prompt: [{ type: "text", content: "question", start: 0, end: 8 }],
+        context: [{ type: "file", key: "quote", path: "notes.md", comment: "keep this question" }],
+        attachments: [{ filename: "selection.png", mime: "image/png", dataUrl: "data:image/png;base64,AQ==" }],
+        extraTextParts: [{ text: "original selection", metadata: { test: "reference" } }],
+        model: { providerID: "opencode", modelID: "big-pickle" },
+        agent: "agent",
+      }
+      const snapshot = structuredClone(draft)
+      const folders: string[] = []
+      const listed = catalog("opencode", "big-pickle")
+      listed.all[0].models["big-pickle"].disabled = true
+      const input = {
+        draft,
+        client: clientFor("/repo/main"),
+        sync: {
+          data: { command: [] },
+          session: { optimistic: { add() {}, remove() {} } },
+        },
+        globalSync: {
+          data: { config: {} },
+          child: (directory: string) => {
+            folders.push(directory)
+            return [
+              {
+                status: "complete",
+                config: {},
+                provider: state === "disabled" ? listed : catalog("custom", "available"),
+              },
+              () => {},
+            ]
+          },
+        },
+      } as unknown as Parameters<typeof sendFollowupDraft>[0]
+      await expect(sendFollowupDraft(input)).rejects.toEqual({
+        name: "ProviderModelNotFoundError",
+        data: draft.model,
+      })
+      expect(draft).toEqual(snapshot)
+      expect(prompted).toEqual([])
+      expect(folders.every((directory) => directory === draft.sessionDirectory)).toBe(true)
+    },
+  )
+
+  test.each([false, true])(
+    "preserves the draft and attachments before session creation when no model exists (unavailable: %p)",
+    async (stale) => {
+      configured = false
+      unavailable = stale
+      const images = [
+        {
+          type: "image" as const,
+          id: "image",
+          filename: "sample.png",
+          mime: "image/png",
+          dataUrl: "data:image/png;base64,AQ==",
+        },
+      ]
+      const submit = createPromptSubmit({
+        info: () => undefined,
+        imageAttachments: () => images,
+        commentCount: () => 1,
+        autoAccept: () => false,
+        mode: () => "normal",
+        working: () => false,
+        editor: () => undefined,
+        queueScroll: () => undefined,
+        promptLength: () => 2,
+        addToHistory: () => cleared.push("history"),
+        resetHistoryNavigation: () => cleared.push("navigation"),
+        setMode: () => cleared.push("mode"),
+        setPopover: () => cleared.push("popover"),
+        newSessionWorktree: () => "create",
+        onSubmit: () => cleared.push("submit"),
+      })
+      await submit.handleSubmit({ preventDefault() {} } as Event)
+      expect(createdSessions).toEqual([])
+      expect(prompted).toEqual([])
+      expect(optimistic).toEqual([])
+      expect(cleared).toEqual([])
+      expect(images).toHaveLength(1)
+      expect(promptValue[0]).toMatchObject({ content: "ls" })
+      expect(toasts).toEqual([
+        {
+          title: "prompt.toast.modelAgentRequired.title",
+          description: "prompt.model.required",
+        },
+      ])
+    },
+  )
+
   test("reads the latest worktree accessor value per submit", async () => {
     const submit = createPromptSubmit({
       info: () => undefined,

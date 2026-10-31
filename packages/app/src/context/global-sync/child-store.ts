@@ -169,6 +169,7 @@ export function createChildStoreManager(input: {
             projectMeta: initialMeta,
             icon: initialIcon,
             provider: { all: [], connected: [], default: {} },
+            modelReady: false,
             config: {},
             path: { state: "", config: "", data: "", worktree: "", directory: "", home: "" },
             status: "loading" as const,

@@ -1,5 +1,5 @@
 import type { Locator } from "@playwright/test"
-import { test, expect } from "../fixtures"
+import { test, expect } from "../models/fixtures"
 import { promptSelector } from "../selectors"
 import { closeDialog, openSettings } from "../actions"
 
@@ -15,8 +15,8 @@ async function state(list: Locator, values: boolean[]) {
   )
 }
 
-test("hiding a model removes it from the model picker", async ({ page, gotoSession }) => {
-  await gotoSession()
+test("hiding a model removes it from the model picker", async ({ page, project }) => {
+  await project.open()
 
   await page.locator(promptSelector).click()
   await page.keyboard.type("/model")
@@ -73,8 +73,8 @@ test("hiding a model removes it from the model picker", async ({ page, gotoSessi
   await expect(pickerAgain).toHaveCount(0)
 })
 
-test("showing a hidden model restores it to the model picker", async ({ page, gotoSession }) => {
-  await gotoSession()
+test("showing a hidden model restores it to the model picker", async ({ page, project }) => {
+  await project.open()
 
   await page.locator(promptSelector).click()
   await page.keyboard.type("/model")

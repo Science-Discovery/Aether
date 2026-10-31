@@ -612,6 +612,7 @@ export type EventSessionError = {
     sessionID?: string
     error?:
       | ProviderAuthError
+      | NoModelConfiguredError
       | UnknownError
       | MessageOutputLengthError
       | MessageAbortedError
@@ -747,6 +748,7 @@ export type AssistantMessage = {
   }
   error?:
     | ProviderAuthError
+    | NoModelConfiguredError
     | UnknownError
     | MessageOutputLengthError
     | MessageAbortedError
@@ -2601,6 +2603,13 @@ export type FormatterStatus = {
   name: string
   extensions: Array<string>
   enabled: boolean
+}
+
+export type NoModelConfiguredError = {
+  name: "NoModelConfiguredError"
+  data: {
+    message: string
+  }
 }
 
 export type GlobalScriptsData = {

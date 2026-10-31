@@ -8,6 +8,8 @@ import { useProviders } from "@/hooks/use-providers"
 import { modelEnabled, modelProbe } from "@/testing/model-selection"
 import { Persist, persisted } from "@/utils/persist"
 import { cycleModelVariant, getConfiguredAgentVariant, resolveModelVariant } from "./model-variant"
+import { resolveModelSelection } from "./model-selection"
+import { isChatModel } from "@/utils/voice"
 import { useSDK } from "./sdk"
 import { useSync } from "./sync"
 import { unwrap } from "solid-js/store"
@@ -64,7 +66,6 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
 
     const id = createMemo(() => params.id || undefined)
     const list = createMemo(() => sync.data.agent.filter((item) => item.mode !== "subagent" && !item.hidden))
-    const connected = createMemo(() => new Set(providers.connected().map((item) => item.id)))
 
     const [saved, setSaved] = persisted(
       {
@@ -92,16 +93,16 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
     })
 
     const validModel = (model: ModelKey) => {
-      const provider = providers.all().find((item) => item.id === model.providerID)
-      return !!provider?.models[model.modelID] && connected().has(model.providerID)
-    }
-
-    const firstModel = (...items: Array<() => ModelKey | undefined>) => {
-      for (const item of items) {
-        const model = item()
-        if (!model) continue
-        if (validModel(model)) return model
-      }
+      const item = models.find(model)
+      const disabled = sync.data.config.disabled_models ?? []
+      return (
+        !!item &&
+        !("disabled" in item && item.disabled === true) &&
+        isChatModel(item) &&
+        models.visible(model) &&
+        !disabled.includes(`${model.providerID}/${model.modelID}`) &&
+        !disabled.includes(model.modelID)
+      )
     }
 
     const pickAgent = (name: string | undefined) => {
@@ -145,15 +146,8 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
 
     const configuredModel = () => {
       if (!sync.data.config.model) return
-      const [providerID, modelID] = sync.data.config.model.split("/")
-      const model = { providerID, modelID }
-      if (validModel(model)) return model
-    }
-
-    const recentModel = () => {
-      for (const item of models.recent.list()) {
-        if (validModel(item)) return item
-      }
+      const [providerID, ...parts] = sync.data.config.model.split("/")
+      return { providerID, modelID: parts.join("/") }
     }
 
     const defaultModel = () => {
@@ -165,14 +159,14 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
           if (validModel(model)) return model
         }
 
-        const first = Object.values(provider.models)[0]
+        const first = Object.values(provider.models).find((item) =>
+          validModel({ providerID: provider.id, modelID: item.id }),
+        )
         if (!first) continue
         const model = { providerID: provider.id, modelID: first.id }
         if (validModel(model)) return model
       }
     }
-
-    const fallback = createMemo<ModelKey | undefined>(() => configuredModel() ?? recentModel() ?? defaultModel())
 
     const agent = {
       list,
@@ -225,12 +219,17 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
       },
     }
 
+    const selection = createMemo(() =>
+      resolveModelSelection({
+        candidates: [scope()?.model, agent.current()?.model, configuredModel(), ...models.recent.list()],
+        valid: validModel,
+        fallback: defaultModel,
+        ready: providers.ready() && models.ready(),
+      }),
+    )
+
     const current = () => {
-      const item = firstModel(
-        () => scope()?.model,
-        () => agent.current()?.model,
-        fallback,
-      )
+      const item = selection().model
       if (!item) return undefined
       return models.find(item)
     }
@@ -341,6 +340,7 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
     const model = {
       ready: models.ready,
       current,
+      unavailable: () => selection().unavailable,
       recent,
       list: models.list,
       cycle(direction: 1 | -1) {

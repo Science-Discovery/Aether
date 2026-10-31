@@ -39,6 +39,15 @@ function isSessionNotFound(err: unknown): boolean {
   )
 }
 
+function failure(err: unknown) {
+  if (err === null) return "null"
+  if (isSessionNotFound(err)) return "会话已不存在"
+  if (Provider.NoModelConfiguredError.isInstance(err)) return "请先连接提供商并选择模型，然后重试。"
+  if (Provider.ModelNotFoundError.isInstance(err))
+    return `模型 ${err.data.providerID}/${err.data.modelID} 已不可用，请重新选择模型。`
+  return err instanceof Error ? err.message : String(err)
+}
+
 function localISOString(d = new Date()): string {
   const offset = -d.getTimezoneOffset()
   const sign = offset >= 0 ? "+" : "-"
@@ -420,14 +429,18 @@ export abstract class MobileManagerBase {
 
   protected async buildModelList(): Promise<ModelEntry[]> {
     try {
-      const providers = await this.provide(this._initialDir, () => Provider.list())
+      const [providers, connected] = await this.provide(this._initialDir, () =>
+        Promise.all([Provider.list(), Provider.connected()]),
+      )
       const entries: ModelEntry[] = []
       let index = 1
       for (const [providerID, info] of Object.entries(providers)) {
-        const modelValues = Object.entries(info.models)
-        const defaultModelId = modelValues.filter(([_, m]) => !m.disabled).map(([id]) => id)[0]
+        if (!connected.includes(ProviderID.make(providerID))) continue
+        const modelValues = Object.entries(info.models).filter(
+          ([_, model]) => !model.disabled && model.capabilities.input.text && model.capabilities.output.text,
+        )
+        const defaultModelId = modelValues[0]?.[0]
         for (const [modelID, model] of modelValues) {
-          if (model.disabled) continue
           entries.push({
             index,
             providerID,
@@ -480,6 +493,13 @@ export abstract class MobileManagerBase {
     const model = this.resolveModel(scope)
     if (!model) return raw
     const { providerID, modelID } = model
+
+    const available = await Provider.getModel(providerID, modelID).catch((err) => {
+      if (Provider.ModelNotFoundError.isInstance(err) || Provider.NoModelConfiguredError.isInstance(err))
+        return undefined
+      throw err
+    })
+    if (!available) return raw
 
     const provider = await Provider.getProvider(providerID)
     if (!provider) return raw
@@ -856,7 +876,7 @@ export abstract class MobileManagerBase {
       }
       console.error(`[${this.adapter.platform}] handleMessage error:`, err)
       try {
-        const errMsg = isSessionNotFound(err) ? "会话已不存在" : err instanceof Error ? err.message : String(err)
+        const errMsg = failure(err)
         await this.replySession(scope, reply, `处理消息时出错: ${errMsg}`)
       } catch (e2) {
         console.error(`[${this.adapter.platform}] failed to send error reply:`, e2)
@@ -974,7 +994,7 @@ export abstract class MobileManagerBase {
           } catch {}
         }
       }
-      const errMsg = isSessionNotFound(err) ? "会话已不存在" : err instanceof Error ? err.message : String(err)
+      const errMsg = failure(err)
       await this.replySession(scope, reply, `处理消息时出错: ${errMsg}`).catch(() => {})
     } finally {
       this._activePrompt.delete(scope)
@@ -1161,7 +1181,7 @@ export abstract class MobileManagerBase {
       }
     } catch (err) {
       console.error(`[${this.adapter.platform}] handleCommand error:`, err)
-      const errMsg = err instanceof Error ? err.message : String(err)
+      const errMsg = failure(err)
       await this.adapter.replyText(targetId, `命令执行出错: ${errMsg}`).catch(() => {})
     }
   }

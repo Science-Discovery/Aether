@@ -130,8 +130,6 @@ export const dict = {
   "dialog.model.manage.description": "Tilpass hvilke modeller som vises i modellvelgeren.",
   "dialog.model.manage.provider.toggle": "Veksle alle {{provider}}-modeller",
 
-  "dialog.model.unpaid.freeModels.title": "Gratis modeller levert av Aether",
-  "dialog.model.unpaid.addMore.title": "Legg til flere modeller fra populære leverandører",
 
   "dialog.provider.viewAll": "Vis flere leverandører",
 
@@ -706,8 +704,8 @@ export const dict = {
   "sidebar.workspaces.enable": "Aktiver arbeidsområder",
   "sidebar.workspaces.disable": "Deaktiver arbeidsområder",
   "sidebar.gettingStarted.title": "Kom i gang",
-  "sidebar.gettingStarted.line1": "Aether inkluderer gratis modeller så du kan starte umiddelbart.",
-  "sidebar.gettingStarted.line2": "Koble til en leverandør for å bruke modeller, inkl. Claude, GPT, Gemini osv.",
+  "sidebar.gettingStarted.line1": "Koble til en leverandør og velg en modell før du starter en samtale.",
+  "sidebar.gettingStarted.line2": "Du kan fortsatt bla gjennom prosjekter og samtalehistorikk uten en modell.",
   "sidebar.project.recentSessions": "Nylige sesjoner",
   "sidebar.project.viewAllSessions": "Vis alle sesjoner",
   "sidebar.project.clearNotifications": "Fjern varsler",

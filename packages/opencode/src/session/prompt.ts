@@ -196,10 +196,11 @@ export namespace SessionPrompt {
         if (s[input.sessionID]?.abort.signal === claim) delete s[input.sessionID]
       })
 
+      const selected = await resolve(input)
       await SessionRevert.awaitPending(input.sessionID)
       await SessionRevert.cleanup(await Session.get(input.sessionID))
 
-      const message = await createUserMessage(input, claim)
+      const message = await createUserMessage(input, claim, selected)
       await Session.touch(input.sessionID)
 
       // this is backwards compatibility for allowing `tools` to be specified when
@@ -871,6 +872,16 @@ export namespace SessionPrompt {
   export const loop = fn(LoopInput, runLoop)
 
   async function lastModel(sessionID: SessionID) {
+    const session = await Session.get(sessionID)
+    const revert = session.revert
+    if (revert) {
+      const messages = await Session.messages({ sessionID })
+      const at = messages.findIndex((item) => item.info.id === revert.messageID)
+      const retained = at < 0 ? messages : messages.slice(0, at + (revert.partID ? 1 : 0))
+      const last = retained.findLast((item) => item.info.role === "user")
+      if (last?.info.role === "user") return last.info.model
+      return Provider.defaultModel()
+    }
     for await (const item of MessageV2.stream(sessionID)) {
       if (item.info.role === "user" && item.info.model) return item.info.model
     }
@@ -1142,23 +1153,36 @@ export namespace SessionPrompt {
     })
   }
 
-  async function createUserMessage(input: PromptInput, claim?: AbortSignal) {
+  export async function resolve(input: Pick<PromptInput, "sessionID" | "agent" | "model">) {
+    return home(input.sessionID, async () => {
+      await SessionRevert.awaitPending(input.sessionID)
+      const chosen = await select(input)
+      const full = await Provider.getModel(chosen.model.providerID, chosen.model.modelID)
+      return { ...chosen, full }
+    })
+  }
+
+  async function select(input: Pick<PromptInput, "sessionID" | "agent" | "model">) {
     const pref = SessionPreference.get(input.sessionID)
-    const agentName = input.agent || pref?.agent || (await Agent.defaultAgent())
-    const agent = await Agent.get(agentName)
+    const name = input.agent || pref?.agent || (await Agent.defaultAgent())
+    const agent = await Agent.get(name)
     if (!agent) {
       const available = await Agent.list().then((agents) => agents.filter((a) => !a.hidden).map((a) => a.name))
       const hint = available.length ? ` Available agents: ${available.join(", ")}` : ""
-      const error = new NamedError.Unknown({ message: `Agent not found: "${agentName}".${hint}` })
-      Bus.publish(Session.Event.Error, {
-        sessionID: input.sessionID,
-        error: error.toObject(),
-      })
+      const error = new NamedError.Unknown({ message: `Agent not found: "${name}".${hint}` })
+      Bus.publish(Session.Event.Error, { sessionID: input.sessionID, error: error.toObject() })
       throw error
     }
+    const model = input.model ?? pref?.model ?? agent.model ?? (await lastModel(input.sessionID))
+    return { pref, agent, model }
+  }
 
-    const prefModel = pref?.model ? { providerID: pref.model.providerID, modelID: pref.model.modelID } : undefined
-    const model = input.model ?? prefModel ?? agent.model ?? (await lastModel(input.sessionID))
+  async function createUserMessage(
+    input: PromptInput,
+    claim?: AbortSignal,
+    selected?: Awaited<ReturnType<typeof select>> & { full?: Provider.Model },
+  ) {
+    const { pref, agent, model, full } = selected ?? (await resolve(input))
     const variant =
       input.variant ??
       pref?.variant ??
@@ -1166,10 +1190,6 @@ export namespace SessionPrompt {
         if (!agent.variant) return undefined
         return undefined
       })()
-    const full =
-      !variant && agent.variant
-        ? await Provider.getModel(model.providerID, model.modelID).catch(() => undefined)
-        : undefined
     const resolvedVariant = variant ?? (agent.variant && full?.variants?.[agent.variant] ? agent.variant : undefined)
 
     // RAG: search knowledge base and build context for system prompt
@@ -2120,14 +2140,23 @@ NOTE: At any point in time through this workflow you should feel free to ask the
     await SessionRevert.cleanup(await Session.get(input.sessionID))
 
     const text = input.arguments.trim() ? `/${input.command} ${input.arguments}` : `/${input.command}`
-    const user = await createUserMessage({
+    const metadata = await select({
       sessionID: input.sessionID,
-      messageID: input.messageID,
       agent: input.agent,
       model: input.model ? Provider.parseModel(input.model) : undefined,
-      variant: input.variant,
-      parts: [{ type: "text", text }],
     })
+    const user = await createUserMessage(
+      {
+        sessionID: input.sessionID,
+        messageID: input.messageID,
+        agent: input.agent,
+        model: input.model ? Provider.parseModel(input.model) : undefined,
+        variant: input.variant,
+        parts: [{ type: "text", text }],
+      },
+      undefined,
+      metadata,
+    )
 
     const now = Date.now()
     const msg: MessageV2.Assistant = {
@@ -2370,7 +2399,12 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       return (
         (await Provider.getSmallModel(input.providerID)) ?? (await Provider.getModel(input.providerID, input.modelID))
       )
+    }).catch((err) => {
+      if (Provider.NoModelConfiguredError.isInstance(err) || Provider.ModelNotFoundError.isInstance(err))
+        return undefined
+      throw err
     })
+    if (!model) return
     const result = await LLM.stream({
       agent,
       user: firstRealUser.info as MessageV2.User,

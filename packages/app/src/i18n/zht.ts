@@ -144,8 +144,6 @@ export const dict = {
   "dialog.model.manage.description": "自訂模型選擇器中顯示的模型。",
   "dialog.model.manage.provider.toggle": "切換所有 {{provider}} 模型",
 
-  "dialog.model.unpaid.freeModels.title": "Aether 提供的免費模型",
-  "dialog.model.unpaid.addMore.title": "從熱門提供者新增更多模型",
 
   "dialog.provider.viewAll": "查看更多提供者",
 
@@ -313,6 +311,9 @@ export const dict = {
   "prompt.toast.pasteUnsupported.description": "此處僅能附加圖片、PDF 或文字檔案。",
   "prompt.toast.modelAgentRequired.title": "請選擇代理程式和模型",
   "prompt.toast.modelAgentRequired.description": "傳送提示前請先選擇代理程式和模型。",
+  "prompt.model.required": "請先連線提供者並選擇模型。",
+  "prompt.model.connect": "連接模型",
+  "prompt.model.unavailable": "原模型已無法使用，請重新選擇模型。",
   "prompt.toast.worktreeCreateFailed.title": "建立工作樹失敗",
   "prompt.toast.sessionCreateFailed.title": "建立工作階段失敗",
   "prompt.toast.shellSendFailed.title": "傳送 shell 命令失敗",
@@ -747,8 +748,8 @@ export const dict = {
   "sidebar.workspaces.enable": "啟用工作區",
   "sidebar.workspaces.disable": "停用工作區",
   "sidebar.gettingStarted.title": "開始使用",
-  "sidebar.gettingStarted.line1": "Aether 提供免費模型，你可以立即開始使用。",
-  "sidebar.gettingStarted.line2": "連線任意提供者即可使用更多模型，如 Claude、GPT、Gemini 等。",
+  "sidebar.gettingStarted.line1": "開始對話前，請先連線提供者並選擇模型。",
+  "sidebar.gettingStarted.line2": "尚未設定模型時，仍可瀏覽專案和歷史對話。",
   "sidebar.project.recentSessions": "最近工作階段",
   "sidebar.project.viewAllSessions": "查看全部工作階段",
   "sidebar.project.clearNotifications": "清除通知",
