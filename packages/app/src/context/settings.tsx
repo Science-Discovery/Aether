@@ -69,7 +69,7 @@ const defaultSettings: Settings = {
     showReasoningSummaries: false,
     shellToolPartsExpanded: true,
     editToolPartsExpanded: false,
-    autoGitInit: true,
+    autoGitInit: false,
   },
   updates: {
     startup: true,

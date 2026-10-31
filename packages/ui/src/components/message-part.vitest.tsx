@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, test, vi } from "vitest"
 import { render } from "solid-js/web"
-import type { AssistantMessage, Message, Part as PartType } from "@opencode-ai/sdk/v2"
-import { DataProvider } from "../context"
+import type { AssistantMessage, Message, Part as PartType, UserMessage } from "@opencode-ai/sdk/v2"
+import { DataProvider, DialogProvider } from "../context"
 import { MarkedProvider } from "../context/marked"
-import { AssistantParts, Part, groupParts } from "./message-part"
+import { AssistantParts, Part, UserMessageDisplay, groupParts } from "./message-part"
 
 vi.mock("@solidjs/router", () => ({
   useLocation: () => ({ pathname: "/workspace/session/root" }),
@@ -172,6 +172,51 @@ const textPart = (id: string, messageID: string, value: string): PartType =>
     sessionID: "root",
     time: { start: 1, end: 2 },
   }) as PartType
+
+test("keeps legacy steer text visible and copies it without synthetic context", async () => {
+  const host = document.createElement("div")
+  document.body.append(host)
+  const user: UserMessage = {
+    id: "msg",
+    sessionID: "root",
+    role: "user",
+    time: { created: 1 },
+    agent: "build",
+    model: { providerID: "provider", modelID: "model" },
+  }
+  const parts: PartType[] = [
+    textPart("p1", user.id, "原问题"),
+    { ...textPart("p2", user.id, "内部上下文"), synthetic: true },
+    { ...textPart("p3", user.id, "-用户补充：第一条\n第二行"), metadata: { steer: true } },
+    { ...textPart("p4", user.id, "-用户补充：另一条"), metadata: { steer: true } },
+  ]
+  const copy = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue()
+  const off = render(
+    () => (
+      <DataProvider data={store()} directory="/tmp">
+        <DialogProvider>
+          <UserMessageDisplay message={user} parts={parts} />
+        </DialogProvider>
+      </DataProvider>
+    ),
+    host,
+  )
+  try {
+    expect([...host.querySelectorAll('[data-slot="user-message-steer"]')].map((node) => node.textContent)).toEqual([
+      "-用户补充：第一条\n第二行",
+      "-用户补充：另一条",
+    ])
+    expect(host.textContent).not.toContain("内部上下文")
+    const button = host.querySelector<HTMLButtonElement>('button[aria-label="Copy message"]')
+    expect(button).not.toBeNull()
+    button?.click()
+    await vi.waitFor(() => expect(copy).toHaveBeenCalledWith("原问题\n-用户补充：第一条\n第二行\n-用户补充：另一条"))
+    expect(copy).toHaveBeenCalledTimes(1)
+  } finally {
+    off()
+    copy.mockRestore()
+  }
+})
 
 function mountAssistant(messages: AssistantMessage[], parts: Record<string, PartType[]>) {
   const host = document.createElement("div")

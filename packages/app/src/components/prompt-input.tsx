@@ -70,7 +70,6 @@ import { openSafeZoneOnboarding, useSafeZoneOnboarding } from "@/components/dial
 import { DialogEvolvedSkills } from "@/skill-evolution/dialog-evolved-skills"
 import { createWorkingState, type ChildrenSource } from "@/utils/working-state"
 import { childMapByParent } from "@/pages/layout/helpers"
-import { SteerButton } from "@/components/steer-button"
 import { VoiceInputButton, type VoiceInputAPI } from "@/components/voice-input-button"
 import { VariantSelect } from "./prompt-input/variant-select"
 
@@ -1749,7 +1748,6 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                       />
                     </Button>
                   </TooltipKeybind>
-                  <SteerButton />
                   <div
                     style={{
                       opacity: buttonsSpring(),

@@ -301,13 +301,6 @@ export const dict = {
   "prompt.attachment.remove": "移除附件",
   "prompt.action.send": "傳送",
   "prompt.action.stop": "停止",
-  "prompt.action.steer": "引導",
-  "prompt.steer.placeholder": "添加引導...",
-  "prompt.steer.send": "發送",
-  "prompt.steer.toast.failed.title": "引導失敗",
-  "prompt.steer.toast.failed.description": "添加引導消息失敗",
-  "prompt.steer.toast.notBusy.title": "會話未活躍",
-  "prompt.steer.toast.notBusy.description": "引導僅在 AI 正在回覆時可用",
 
   "prompt.toast.pasteUnsupported.title": "不支援的附件",
   "prompt.toast.pasteUnsupported.description": "此處僅能附加圖片、PDF 或文字檔案。",
