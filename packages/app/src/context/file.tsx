@@ -56,6 +56,8 @@ const image = new Set([
   "png",
   "jpg",
   "jpeg",
+  "jpe",
+  "jfif",
   "gif",
   "bmp",
   "webp",

@@ -193,7 +193,7 @@ const NO_AUTH_PATHS = new Set([
 ])
 
 const csp = (hash = "") =>
-  `default-src 'self'; script-src 'self' 'wasm-unsafe-eval'${hash ? ` 'sha256-${hash}'` : ""}; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; media-src 'self' data:; connect-src 'self' data:`
+  `default-src 'self'; script-src 'self' 'wasm-unsafe-eval'${hash ? ` 'sha256-${hash}'` : ""}; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; media-src 'self' data:; connect-src 'self' data:`
 
 const web = process.env.AETHER_WEB_ORIGIN || process.env.OPENCODE_WEB_ORIGIN || "https://app.opencode.ai"
 

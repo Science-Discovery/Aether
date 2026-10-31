@@ -16,6 +16,7 @@ import { showToast } from "@opencode-ai/ui/toast"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { Markdown } from "@opencode-ai/ui/markdown"
 import { CodeEditor } from "@/components/code-editor"
+import { FileImage } from "@/components/file-image"
 import { PdfViewerShell } from "@/components/pdf-viewer-shell-official"
 import {
   registerOpenFileCallback,
@@ -1249,11 +1250,7 @@ export function FileTabContent(props: { tab: string }) {
 
   const renderFile = (source: string) => {
     if (isImageFile()) {
-      return (
-        <div class="flex h-full min-h-0 items-center justify-center p-6" data-file-content>
-          <img src={rawPreviewUrl()} alt={path() ?? "image"} class="max-h-full max-w-full object-contain" />
-        </div>
-      )
+      return <FileImage src={rawPreviewUrl()} path={path() ?? ""} auth={pdfAuthHeader()} />
     }
     if (isPDF()) {
       const currentPath = path()

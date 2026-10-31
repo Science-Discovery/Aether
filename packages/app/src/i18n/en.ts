@@ -733,6 +733,14 @@ export const dict = {
   "toast.model.none.description": "Connect a provider to summarize this session",
 
   "toast.file.loadFailed.title": "Failed to load file",
+  "file.image.loadFailed": "Unable to load this image.",
+  "file.image.decodeFailed": "Unable to preview this image. Its format may be unsupported, or the file may be damaged.",
+  "file.image.tooLarge":
+    "TIFF previews are limited to 32 MiB and 16 megapixels. Open this image with a system application.",
+  "file.image.retry": "Retry",
+  "file.image.timeout": "Image decoding timed out. Open this image with a system application.",
+  "file.image.external": "Open with system application",
+  "file.image.firstPage": "Previewing page 1 of {{count}}",
   "toast.file.listFailed.title": "Failed to list files",
   "toast.file.copyPath.success": "Path copied",
   "toast.file.openFailed.title": "Failed to open",
