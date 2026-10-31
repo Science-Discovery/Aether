@@ -62,6 +62,59 @@ describe("local preview resources", () => {
     expect(res.headers.get("Content-Disposition")).toContain("%231.svg")
   })
 
+  test("documents the actual query validation and resource error responses", async () => {
+    await using tmp = await tmpdir()
+    await Instance.provide({ directory: tmp.path, fn: () => {} })
+    const doc = await Server.openapi()
+    const responses = doc.paths?.["/file/preview/resource"]?.get?.responses
+    const failure = { type: "object", properties: { error: { type: "string" } }, required: ["error"] }
+    expect(responses?.["400"]).toMatchObject({
+      content: {
+        "application/json": {
+          schema: {
+            anyOf: [
+              failure,
+              {
+                type: "object",
+                properties: { data: { type: "object" }, error: { type: "array" }, success: { const: false } },
+                required: ["data", "error", "success"],
+              },
+            ],
+          },
+        },
+      },
+    })
+    for (const status of [403, 404, 415]) {
+      expect(responses?.[String(status)]).toMatchObject({
+        content: { "application/json": { schema: failure } },
+      })
+    }
+    const invalid = await Server.Default().request("/file/preview/resource", {
+      headers: { "x-opencode-directory": tmp.path },
+    })
+    expect(invalid.status).toBe(400)
+    expect(await invalid.json()).toMatchObject({
+      data: {},
+      error: [expect.objectContaining({ path: ["path"] })],
+      success: false,
+    })
+    const cases = [
+      ["", 400],
+      ["../outside.css", 403],
+      ["missing.css", 404],
+      ["page.html", 415],
+    ] as const
+    await Promise.all(
+      cases.map(async ([file, status]) => {
+        const res = await resource(tmp.path, file)
+        expect(res.status).toBe(status)
+        const body = await res.json()
+        expect(Object.keys(body)).toEqual(["error"])
+        expect(body.error).toBeString()
+      }),
+    )
+  })
+
   test("rejects HTML, script, data, and document resources", async () => {
     await using tmp = await tmpdir()
     await Instance.provide({ directory: tmp.path, fn: () => {} })

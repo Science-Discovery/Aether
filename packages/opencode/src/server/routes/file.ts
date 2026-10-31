@@ -147,6 +147,8 @@ const requireDirectory = async (input: string) => {
   }
 }
 
+const failure = z.object({ error: z.string() })
+
 export const FileRoutes = lazy(() =>
   new Hono<ServerEnv>()
     .get(
@@ -1367,9 +1369,35 @@ export const FileRoutes = lazy(() =>
         operationId: "file.previewResource",
         responses: {
           200: { description: "Preview resource bytes" },
-          403: { description: "Resource is outside the validated workspace" },
-          415: { description: "Unsupported preview resource type" },
-          ...errors(400, 404),
+          400: {
+            description: "Invalid preview path or query",
+            content: {
+              "application/json": {
+                schema: resolver(
+                  z.union([
+                    failure,
+                    z.object({
+                      data: z.record(z.string(), z.unknown()),
+                      error: z.array(z.record(z.string(), z.unknown())),
+                      success: z.literal(false),
+                    }),
+                  ]),
+                ),
+              },
+            },
+          },
+          403: {
+            description: "Resource is outside the validated workspace",
+            content: { "application/json": { schema: resolver(failure) } },
+          },
+          404: {
+            description: "Preview resource not found",
+            content: { "application/json": { schema: resolver(failure) } },
+          },
+          415: {
+            description: "Unsupported preview resource type",
+            content: { "application/json": { schema: resolver(failure) } },
+          },
         },
       }),
       validator("query", z.object({ path: z.string() })),

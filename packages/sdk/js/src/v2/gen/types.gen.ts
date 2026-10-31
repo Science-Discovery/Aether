@@ -7225,21 +7225,39 @@ export type FilePreviewResourceData = {
 
 export type FilePreviewResourceErrors = {
   /**
-   * Bad request
+   * Invalid preview path or query
    */
-  400: BadRequestError
+  400:
+    | {
+        error: string
+      }
+    | {
+        data: {
+          [key: string]: unknown
+        }
+        error: Array<{
+          [key: string]: unknown
+        }>
+        success: false
+      }
   /**
    * Resource is outside the validated workspace
    */
-  403: unknown
+  403: {
+    error: string
+  }
   /**
-   * Not found
+   * Preview resource not found
    */
-  404: NotFoundError
+  404: {
+    error: string
+  }
   /**
    * Unsupported preview resource type
    */
-  415: unknown
+  415: {
+    error: string
+  }
 }
 
 export type FilePreviewResourceError = FilePreviewResourceErrors[keyof FilePreviewResourceErrors]

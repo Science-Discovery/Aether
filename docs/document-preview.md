@@ -50,3 +50,17 @@ Office 沿用 metadata 和带鉴权的原始字节读取。HTML 资源使用 `GE
 定向验证覆盖格式路由、有效与空草稿、真实 Office 文件、单元格格式容错、日期系统、公式缓存、合并区域、图片、虚拟视口、HTML 离线资源、鉴权和真实路径边界、取消及迟到结果保护。隔离 Edge 浏览器验证了实际显示、控件和 Worker／对象 URL／iframe 清理，没有重启 Aether 或调用真实模型。
 
 一个 20,000×20 单元格、约 1.17 MB 的合成 XLSX 在开发机器上的 Worker 加载约 1.5 秒，可视区 120 格读取约 4 毫秒。这只是单一样例，不代表所有文档的性能。
+
+## 预览示例
+
+以下截图来自隔离浏览器中的实际预览组件，使用合成测试文件与应用样式，不包含用户文档。
+
+<details>
+<summary>Word、Excel、PPT 与 HTML 示例</summary>
+
+![Word 预览](images/preview-word.png)
+![Excel 预览](images/preview-excel.png)
+![PPT 预览](images/preview-powerpoint.png)
+![HTML 离线预览](images/preview-html.png)
+
+</details>
