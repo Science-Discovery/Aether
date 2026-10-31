@@ -359,6 +359,7 @@ export const dict = {
   "prompt.toast.modelAgentRequired.title": "请选择智能体和模型",
   "prompt.toast.modelAgentRequired.description": "发送提示前请先选择智能体和模型。",
   "prompt.model.required": "请先连接提供商并选择模型。",
+  "prompt.model.connect": "连接模型",
   "prompt.model.unavailable": "原模型已不可用，请重新选择模型。",
   "prompt.toast.worktreeCreateFailed.title": "创建工作树失败",
   "prompt.toast.sessionCreateFailed.title": "创建会话失败",

@@ -602,11 +602,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       showToast({
         title: language.t("prompt.toast.modelAgentRequired.title"),
         description: language.t(
-          !currentModel
-            ? local.model.unavailable()
-              ? "prompt.model.unavailable"
-              : "prompt.model.required"
-            : "prompt.toast.modelAgentRequired.description",
+          !currentModel ? "prompt.model.required" : "prompt.toast.modelAgentRequired.description",
         ),
       })
       return

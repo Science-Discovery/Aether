@@ -312,6 +312,7 @@ export const dict = {
   "prompt.toast.modelAgentRequired.title": "請選擇代理程式和模型",
   "prompt.toast.modelAgentRequired.description": "傳送提示前請先選擇代理程式和模型。",
   "prompt.model.required": "請先連線提供者並選擇模型。",
+  "prompt.model.connect": "連接模型",
   "prompt.model.unavailable": "原模型已無法使用，請重新選擇模型。",
   "prompt.toast.worktreeCreateFailed.title": "建立工作樹失敗",
   "prompt.toast.sessionCreateFailed.title": "建立工作階段失敗",

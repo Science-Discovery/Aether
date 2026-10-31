@@ -1659,11 +1659,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                                 style={{ "will-change": "opacity", transform: "translateZ(0)" }}
                               />
                             </Show>
-                            <span class="truncate">
-                              {language.t(
-                                local.model.unavailable() ? "prompt.model.unavailable" : "prompt.model.required",
-                              )}
-                            </span>
+                            <span class="truncate">{language.t("prompt.model.connect")}</span>
                             <Icon name="chevron-down" size="small" class="shrink-0" />
                           </Button>
                         </TooltipKeybind>
@@ -1694,10 +1690,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                             />
                           </Show>
                           <span class="truncate">
-                            {local.model.current()?.name ??
-                              language.t(
-                                local.model.unavailable() ? "prompt.model.unavailable" : "dialog.model.select.title",
-                              )}
+                            {local.model.current()?.name ?? language.t("prompt.model.connect")}
                           </span>
                           <Icon name="chevron-down" size="small" class="shrink-0" />
                         </ModelSelectorPopover>

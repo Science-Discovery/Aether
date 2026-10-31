@@ -382,7 +382,7 @@ describe("prompt submit worktree selection", () => {
       expect(toasts).toEqual([
         {
           title: "prompt.toast.modelAgentRequired.title",
-          description: stale ? "prompt.model.unavailable" : "prompt.model.required",
+          description: "prompt.model.required",
         },
       ])
     },

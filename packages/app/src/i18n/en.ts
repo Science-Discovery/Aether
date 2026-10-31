@@ -344,6 +344,7 @@ export const dict = {
   "prompt.toast.modelAgentRequired.title": "Select an agent and model",
   "prompt.toast.modelAgentRequired.description": "Choose an agent and model before sending a prompt.",
   "prompt.model.required": "Connect a provider and select a model first.",
+  "prompt.model.connect": "Connect model",
   "prompt.model.unavailable": "This model is unavailable. Select another model.",
   "prompt.toast.worktreeCreateFailed.title": "Failed to create worktree",
   "prompt.toast.sessionCreateFailed.title": "Failed to create session",
