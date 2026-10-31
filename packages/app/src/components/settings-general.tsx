@@ -630,6 +630,21 @@ export const SettingsGeneral: Component = () => {
         </SettingsRow>
 
         <SettingsRow
+          title={language.t("settings.general.row.collapseLongUserMessages.title")}
+          description={language.t("settings.general.row.collapseLongUserMessages.description")}
+        >
+          <div data-action="settings-collapse-long-user-messages">
+            <Switch
+              checked={settings.general.collapseLongUserMessages()}
+              onChange={(checked) => settings.general.setCollapseLongUserMessages(checked)}
+              hideLabel
+            >
+              {language.t("settings.general.row.collapseLongUserMessages.title")}
+            </Switch>
+          </div>
+        </SettingsRow>
+
+        <SettingsRow
           title={language.t("settings.general.row.shellToolPartsExpanded.title")}
           description={language.t("settings.general.row.shellToolPartsExpanded.description")}
         >

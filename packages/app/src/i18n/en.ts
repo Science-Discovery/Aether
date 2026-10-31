@@ -1168,6 +1168,9 @@ export const dict = {
   "settings.general.row.autoCollapse.title": "Automatically collapse earlier replies",
   "settings.general.row.autoCollapse.description":
     "Collapse earlier replies when opening a session or loading history. Manual expand and collapse remain available.",
+  "settings.general.row.collapseLongUserMessages.title": "Automatically collapse long user messages",
+  "settings.general.row.collapseLongUserMessages.description":
+    "Show about 10 lines of long user messages. Expand or collapse each message without changing its content.",
   "knowledge.settings.description": "Use local knowledge bases to add relevant context to conversations.",
   "knowledge.settings.enabled": "Enable knowledge bases",
   "knowledge.settings.enabledDescription":

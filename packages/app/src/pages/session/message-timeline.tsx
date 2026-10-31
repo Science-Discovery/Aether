@@ -22,6 +22,7 @@ import { getFilename } from "@opencode-ai/util/path"
 import { Popover as KobaltePopover } from "@kobalte/core/popover"
 import { shouldMarkBoundaryGesture, normalizeWheelDelta } from "@/pages/session/message-gesture"
 import { createTurnCollapse } from "@/pages/session/message-collapse"
+import { createUserCollapse } from "@/pages/session/message-user-collapse"
 import { gap, header } from "@/pages/session/message-layout"
 import { resolveSelectionAnchorRect } from "@/pages/session/selection-anchor"
 import { SessionContextUsage } from "@/components/session-context-usage"
@@ -329,6 +330,7 @@ export function MessageTimeline(props: {
   onUserScroll: () => void
   onTurnBackfillScroll: () => void
   onAutoScrollInteraction: (event: MouseEvent) => void
+  onUserMessageResize: () => void
   centered: boolean
   setContentRef: (el: HTMLDivElement) => void
   turnStart: number
@@ -369,6 +371,11 @@ export function MessageTimeline(props: {
   const quote = useConversationQuote()
   const { params, sessionKey } = useSessionKey()
   const platform = usePlatform()
+  const userCollapse = createUserCollapse({
+    enabled: settings.general.collapseLongUserMessages,
+    root: () => root,
+    pause: props.onUserMessageResize,
+  })
   const [selection, setSelection] = createStore({
     open: false,
     sourceMessageID: "",
@@ -1735,6 +1742,8 @@ export function MessageTimeline(props: {
                         actions={props.actions}
                         assistantCollapsed={collapse.is(messageID)}
                         onAssistantCollapsedChange={(collapsed) => collapse.set(messageID, collapsed)}
+                        collapseLongUserMessages={userCollapse.enabled()}
+                        onUserMessageResize={props.onUserMessageResize}
                         active={active()}
                         status={active() ? sessionStatus() : undefined}
                         showReasoningSummaries={settings.general.showReasoningSummaries()}

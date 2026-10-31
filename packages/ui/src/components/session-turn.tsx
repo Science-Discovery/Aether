@@ -20,7 +20,7 @@ import { TextReveal } from "./text-reveal"
 import { createAutoScroll } from "../hooks"
 import { useI18n } from "../context/i18n"
 import { livePart } from "../utils/session-live"
-import { observe } from "../utils/session-pin"
+import { anchor, observe } from "../utils/session-pin"
 
 function same<T>(a: readonly T[], b: readonly T[]) {
   if (a === b) return true
@@ -94,6 +94,8 @@ export function SessionTurn(
     assistantCollapsed?: boolean
     onAssistantCollapsedChange?: (collapsed: boolean) => void
     onUserInteracted?: () => void
+    collapseLongUserMessages?: boolean
+    onUserMessageResize?: () => void
     classes?: {
       root?: string
       content?: string
@@ -337,6 +339,12 @@ export function SessionTurn(
     onUserInteracted: props.onUserInteracted,
     overflowAnchor: "dynamic",
   })
+  const resize = () => {
+    props.onUserMessageResize?.()
+    autoScroll.pause(true)
+    const el = pin()
+    if (el) return anchor(el)
+  }
 
   return (
     <div
@@ -366,6 +374,8 @@ export function SessionTurn(
                   parts={parts()}
                   actions={props.actions}
                   onUserBubbleClick={toggleAssistant}
+                  collapseLongUserMessages={props.collapseLongUserMessages}
+                  onUserMessageResize={resize}
                 />
               </div>
               <Show when={divider() && !assistantCollapsed()}>

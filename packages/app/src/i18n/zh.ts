@@ -1051,6 +1051,9 @@ export const dict = {
   "settings.section.custom": "自定义功能",
   "settings.general.row.autoCollapse.title": "自动收起历史回复",
   "settings.general.row.autoCollapse.description": "进入会话或加载更早消息时收起历史回复；仍可手动展开和收起。",
+  "settings.general.row.collapseLongUserMessages.title": "自动收起长用户消息",
+  "settings.general.row.collapseLongUserMessages.description":
+    "长用户消息默认显示约 10 行，可逐条展开或收起，不改变原文内容。",
   "knowledge.settings.description": "使用本地知识库，为对话补充相关内容。",
   "knowledge.settings.enabled": "启用知识库",
   "knowledge.settings.enabledDescription":

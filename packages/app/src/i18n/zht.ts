@@ -762,6 +762,9 @@ export const dict = {
   "settings.section.custom": "自訂功能",
   "settings.general.row.autoCollapse.title": "自動收合歷史回覆",
   "settings.general.row.autoCollapse.description": "進入對話或載入更早訊息時收合歷史回覆；仍可手動展開和收合。",
+  "settings.general.row.collapseLongUserMessages.title": "自動收合較長的使用者訊息",
+  "settings.general.row.collapseLongUserMessages.description":
+    "較長的使用者訊息預設顯示約 10 行，可逐則展開或收合，不改變原文內容。",
   "knowledgeBase.title": "知識庫",
   "knowledge.settings.description": "使用本機知識庫，為對話補充相關內容。",
   "knowledge.settings.enabled": "啟用知識庫",
