@@ -1151,6 +1151,10 @@ export const dict = {
   "settings.general.row.detached.description":
     "仅影响此客户端今后创建的 Fork；新分叉保留复制的历史，作为独立会话显示。",
   "session.detach.action": "拆为独立会话",
+  "session.branch.menu.title": "分支：{{name}}",
+  "session.branch.detach": "拆出分支",
+  "session.branch.delete": "删除分支",
+  "session.branch.delete.confirm": "将永久删除分支「{{name}}」的完整对话历史及所有后代会话，此操作无法撤销。",
   "session.detach.failed.title": "无法拆分会话",
   "session.detach.refreshFailed.title": "会话已拆分，但列表刷新失败",
   "error.chain.session.busy": "当前会话或其分支正在运行或等待答复，请完成或停止后重试。",

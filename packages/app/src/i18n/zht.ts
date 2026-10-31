@@ -802,6 +802,10 @@ export const dict = {
   "settings.general.row.detached.description":
     "僅影響此用戶端之後建立的 Fork；新分支保留複製的歷史，作為獨立工作階段顯示。",
   "session.detach.action": "拆為獨立工作階段",
+  "session.branch.menu.title": "分支：{{name}}",
+  "session.branch.detach": "拆出分支",
+  "session.branch.delete": "刪除分支",
+  "session.branch.delete.confirm": "將永久刪除分支「{{name}}」的完整對話歷史及所有後代工作階段，且無法復原。",
   "session.detach.failed.title": "無法拆分工作階段",
   "session.detach.refreshFailed.title": "工作階段已拆分，但清單重新整理失敗",
   "error.chain.session.busy": "目前工作階段或其分支正在執行或等待答覆，請完成或停止後重試。",

@@ -1,5 +1,5 @@
 import { useLocation, useNavigate, useParams } from "@solidjs/router"
-import type { SessionGraphResult } from "@opencode-ai/sdk/v2"
+import type { Session, SessionGraphResult } from "@opencode-ai/sdk/v2"
 import { Icon } from "@opencode-ai/ui/icon"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useLanguage } from "@/context/language"
@@ -39,6 +39,8 @@ export function SidebarBranchView(props: {
   currentSessionID: string
   directory: string
   refreshKey?: string
+  session?: Session
+  deleteSession?: (session: Session) => Promise<boolean | void>
 }) {
   const params = useParams()
   const location = useLocation()
@@ -184,6 +186,8 @@ export function SidebarBranchView(props: {
                   onFork={() => {}}
                   onRename={() => {}}
                   showRowActions={false}
+                  session={props.session}
+                  deleteSession={props.deleteSession}
                 />
                 <Show when={compact()}>
                   <button

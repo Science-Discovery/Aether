@@ -120,7 +120,7 @@ function createBatchSelect(
   sessions: Accessor<Session[]>,
   fetchAll: () => Promise<Session[]>,
   archiveSession: (s: Session) => Promise<void>,
-  deleteSession: (s: Session) => Promise<void>,
+  deleteSession: (s: Session) => Promise<boolean | void>,
   dialog: ReturnType<typeof useDialog>,
   language: ReturnType<typeof useLanguage>,
 ) {
@@ -220,7 +220,7 @@ export type WorkspaceSidebarContext = {
   prefetchSession: (session: Session, priority?: "high" | "low") => void
   archiveSession: (session: Session) => Promise<void>
   createSession: (directory: string) => Promise<void>
-  deleteSession: (session: Session) => Promise<void>
+  deleteSession: (session: Session) => Promise<boolean | void>
   renameSession: (session: Session, title: string) => Promise<void>
   workspaceName: (directory: string, projectId?: string, branch?: string) => string | undefined
   renameWorkspace: (directory: string, next: string, projectId?: string, branch?: string) => void
@@ -798,7 +798,7 @@ const SessionTreeNodes = (props: {
   children: Accessor<Map<string, string[]>>
   archiveSession?: (session: Session) => Promise<void>
   unarchiveSession?: (session: Session) => Promise<void>
-  deleteSession?: (session: Session) => Promise<void>
+  deleteSession?: (session: Session) => Promise<boolean | void>
 }) => {
   const settings = useSettings()
   const conversationTreeEnabled = createMemo(() => settings.general.branchesTab())
@@ -958,6 +958,8 @@ const SessionTreeNodes = (props: {
               currentSessionID={props.currentSessionID() ?? nodeProps.session.id}
               directory={nodeProps.session.directory}
               refreshKey={graphRefreshKey()}
+              session={sessionByID().get(props.currentSessionID() ?? "")}
+              deleteSession={props.deleteSession ?? props.ctx.deleteSession}
             />
           </div>
         </Show>
@@ -1075,8 +1077,9 @@ const ArchivedSessionList = (props: {
 
   const deleteSession = async (session: Session) => {
     try {
-      await props.ctx.deleteSession(session)
+      if ((await props.ctx.deleteSession(session)) === false) return false
       removeSessionSubtree(session.id)
+      return true
     } catch (err) {
       throw new Error(formatServerError(err, props.language.t))
     }

@@ -1,7 +1,9 @@
 import { Show } from "solid-js"
 import { createStore } from "solid-js/store"
+import { Dynamic } from "solid-js/web"
 import type { Session } from "@opencode-ai/sdk/v2/client"
 import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
+import { ContextMenu } from "@opencode-ai/ui/context-menu"
 import { showToast } from "@opencode-ai/ui/toast"
 import { useGlobalSync } from "@/context/global-sync"
 import { useLanguage } from "@/context/language"
@@ -9,7 +11,7 @@ import { useSDK } from "@/context/sdk"
 import { useSync } from "@/context/sync"
 import { formatServerError } from "@/utils/server-errors"
 
-export function SessionDetach(props: { session?: Session }) {
+export function SessionDetach(props: { session?: Session; context?: boolean }) {
   const sdk = useSDK()
   const sync = useSync()
   const global = useGlobalSync()
@@ -45,9 +47,16 @@ export function SessionDetach(props: { session?: Session }) {
 
   return (
     <Show when={props.session?.parentID && props.session.forkParentSessionID && !props.session.time.archived}>
-      <DropdownMenu.Item data-action="session-detach" disabled={state.pending} onSelect={detach}>
-        <DropdownMenu.ItemLabel>{language.t("session.detach.action")}</DropdownMenu.ItemLabel>
-      </DropdownMenu.Item>
+      <Dynamic
+        component={props.context ? ContextMenu.Item : DropdownMenu.Item}
+        data-action="session-detach"
+        disabled={state.pending}
+        onSelect={detach}
+      >
+        <Dynamic component={props.context ? ContextMenu.ItemLabel : DropdownMenu.ItemLabel}>
+          {language.t(props.context ? "session.branch.detach" : "session.detach.action")}
+        </Dynamic>
+      </Dynamic>
     </Show>
   )
 }

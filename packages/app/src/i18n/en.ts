@@ -1320,6 +1320,11 @@ export const dict = {
   "settings.general.row.detached.description":
     "Only affects future forks created in this app. Each fork starts as an independent session with its copied history.",
   "session.detach.action": "Split into an independent session",
+  "session.branch.menu.title": "Branch: {{name}}",
+  "session.branch.detach": "Split out branch",
+  "session.branch.delete": "Delete branch",
+  "session.branch.delete.confirm":
+    "Permanently delete the entire conversation in branch “{{name}}” and all of its descendant sessions? This cannot be undone.",
   "session.detach.failed.title": "Could not split session",
   "session.detach.refreshFailed.title": "Session split successfully, but the list could not refresh",
   "error.chain.session.busy":
