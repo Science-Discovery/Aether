@@ -33,7 +33,7 @@ import { Select } from "@opencode-ai/ui/select"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { Popover } from "@opencode-ai/ui/popover"
 import { ModelSelectorPopover } from "@/components/dialog-select-model"
-import { DialogSelectModelUnpaid } from "@/components/dialog-select-model-unpaid"
+import { DialogSelectProvider } from "@/components/dialog-select-provider"
 import { DialogReadingMode } from "@/components/dialog-reading-mode"
 import { useProviders } from "@/hooks/use-providers"
 import { useCommand, parseKeybind } from "@/context/command"
@@ -1635,7 +1635,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                   </div>
                   <div data-component="prompt-model-control">
                     <Show
-                      when={providers.paid().length > 0}
+                      when={providers.chat().length > 0}
                       fallback={
                         <TooltipKeybind
                           placement="top"
@@ -1650,7 +1650,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                             size="normal"
                             class="min-w-0 max-w-[320px] text-13-regular text-text-base group"
                             style={control()}
-                            onClick={() => dialog.show(() => <DialogSelectModelUnpaid model={local.model} />)}
+                            onClick={() => dialog.show(() => <DialogSelectProvider />)}
                           >
                             <Show when={local.model.current()?.provider?.id}>
                               <ProviderIcon
@@ -1660,7 +1660,9 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                               />
                             </Show>
                             <span class="truncate">
-                              {local.model.current()?.name ?? language.t("dialog.model.select.title")}
+                              {language.t(
+                                local.model.unavailable() ? "prompt.model.unavailable" : "prompt.model.required",
+                              )}
                             </span>
                             <Icon name="chevron-down" size="small" class="shrink-0" />
                           </Button>
@@ -1692,7 +1694,10 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                             />
                           </Show>
                           <span class="truncate">
-                            {local.model.current()?.name ?? language.t("dialog.model.select.title")}
+                            {local.model.current()?.name ??
+                              language.t(
+                                local.model.unavailable() ? "prompt.model.unavailable" : "dialog.model.select.title",
+                              )}
                           </span>
                           <Icon name="chevron-down" size="small" class="shrink-0" />
                         </ModelSelectorPopover>

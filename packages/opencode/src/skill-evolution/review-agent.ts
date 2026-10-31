@@ -382,6 +382,12 @@ export async function spawnReview(input: {
       directory: subDir,
       create: true,
       fn: async () => {
+        const model = await Provider.defaultModel().catch((err) => {
+          if (Provider.NoModelConfiguredError.isInstance(err)) return undefined
+          if (Provider.ModelNotFoundError.isInstance(err) && err.data.providerID === "opencode") return undefined
+          throw err
+        })
+        if (!model) return
         const { Session } = await import("@/session")
         reviewSessionId = (await Session.createNext({ title: sessionTitle, directory: subDir })).id
 
@@ -402,10 +408,9 @@ export async function spawnReview(input: {
           // memory/index.ts). Passing it explicitly bypasses SessionPrompt's
           // lastModel fallback, which would otherwise pin an existing review
           // session to whatever model it was first created with.
-          const m = await Provider.defaultModel()
           return await SessionPrompt.prompt({
             sessionID: reviewSessionId,
-            model: { providerID: m.providerID, modelID: m.modelID },
+            model: { providerID: model.providerID, modelID: model.modelID },
             parts: [{ type: "text", text: prompt }],
             tools: {
               "*": false,

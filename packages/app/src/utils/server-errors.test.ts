@@ -19,6 +19,7 @@ function useLanguageMock() {
     "error.chain.modelNotFound": "Modelo nao encontrado: {{provider}}/{{model}}",
     "error.chain.didYouMean": "Voce quis dizer: {{suggestions}}",
     "error.chain.checkConfig": "Revise provider/model no config",
+    "prompt.model.required": "Conecte um provedor e selecione um modelo.",
   }
   return {
     t(key: string, vars?: Record<string, string | number>) {
@@ -67,6 +68,12 @@ describe("parseReadableConfigInvalidError", () => {
 })
 
 describe("formatServerError", () => {
+  test("shows a localized setup instruction for an unconfigured model", () => {
+    const error = { name: "NoModelConfiguredError", data: { message: "No models available" } }
+    expect(formatServerError(error, language.t)).toBe("Conecte um provedor e selecione um modelo.")
+    expect(formatServerError(error)).toBe("Connect a provider and select a model first.")
+    expect(formatServerError(error, (key) => key)).toBe("Connect a provider and select a model first.")
+  })
   test("formats config invalid errors", () => {
     const error = {
       name: "ConfigInvalidError",

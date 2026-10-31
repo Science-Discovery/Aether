@@ -148,12 +148,22 @@ export const SettingsGeneral: Component = () => {
 
   const currentModel = createMemo(() => {
     const val = globalSync.data.config.model ?? ""
-    return modelOptions().find((o) => o.value === val) ?? modelOptions()[0]
+    return (
+      modelOptions().find((o) => o.value === val) ??
+      (globalSync.ready && models.ready() && val
+        ? { value: val, label: `${val} (${language.t("prompt.model.unavailable")})`, providerID: val.split("/")[0] }
+        : modelOptions()[0])
+    )
   })
 
   const currentSmallModel = createMemo(() => {
     const val = globalSync.data.config.small_model ?? ""
-    return modelOptions().find((o) => o.value === val) ?? modelOptions()[0]
+    return (
+      modelOptions().find((o) => o.value === val) ??
+      (globalSync.ready && models.ready() && val
+        ? { value: val, label: `${val} (${language.t("prompt.model.unavailable")})`, providerID: val.split("/")[0] }
+        : modelOptions()[0])
+    )
   })
 
   const voiceModelOptions = createMemo(() => {

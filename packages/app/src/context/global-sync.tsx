@@ -403,16 +403,36 @@ function createGlobalSync() {
   async function loadActiveMetadata(directory: string) {
     directory = normalizeDir(directory)
     if (!directory) return
+    const failed = (err: unknown) => {
+      showToast({
+        variant: "error",
+        title: language.t("toast.project.reloadFailed.title", { project: getFilename(directory) }),
+        description: formatServerError(err, language.t),
+        actions: [{ label: language.t("directory.retry"), onClick: () => loadActiveMetadata(directory) }],
+      })
+    }
+    const booted = await bootstrapInstance(directory).then(
+      () => true,
+      (err) => {
+        failed(err)
+        return false
+      },
+    )
+    if (!booted) return
     const [, setStore] = children.child(directory, { bootstrap: false })
     const sdk = sdkFor(directory)
-    await Promise.allSettled([
+    const selection = Promise.all([
       retry(() => sdk.app.agents().then((x) => setStore("agent", normalizeAgentList(x.data)))),
-      retry(() => sdk.command.list().then((x) => setStore("command", x.data ?? []))),
       retry(() => sdk.config.get().then((x) => setStore("config", x.data!))),
       retry(() => providers.child(directory)),
+    ]).then(() => setStore("modelReady", true))
+    const settled = await Promise.allSettled([
+      selection,
+      retry(() => sdk.command.list().then((x) => setStore("command", x.data ?? []))),
       retry(() => sdk.mcp.status().then((x) => setStore("mcp", x.data!))),
       retry(() => sdk.lsp.status().then((x) => setStore("lsp", x.data!))),
     ])
+    if (settled[0].status === "rejected") failed(settled[0].reason)
   }
 
   async function bootstrapInstance(directory: string) {

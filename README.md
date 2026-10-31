@@ -22,7 +22,7 @@ Both modes share the same local data and sessions. Mobile access (WeChat / Feish
 
 ### Key Features
 
-- **Ready to use**: Download the installer script from the official website, or download the archive from Releases — built-in default model settings included
+- **Easy setup**: Install from the official website or Releases, then connect an AI provider and select a model
 - **Full coding capabilities**: Fully inherits OpenCode's coding capabilities — code execution, LSP code intelligence, file and terminal operations, covering the entire daily development workflow
 - **25+ AI providers**: Supports Anthropic, OpenAI, Google Gemini, AIhubmix, DeepSeek, Z\.AI, Kimi, Qwen, and other mainstream platforms, plus any OpenAI-compatible API
 - **20+ built-in Skills**: Literature review, paper writing, deep research, arXiv search, peer review, research grant writing, document generation, and more — ready to use out of the box
@@ -191,7 +191,9 @@ bun run --cwd packages/desktop-electron dev
 
 ## Configuring AI Providers
 
-You can use the built-in free providers, or add AI providers through the settings UI (recommended).
+On first launch, connect a provider in Settings and select a model. Aether does not include anonymous OpenCode free models; OpenCode paid models and Go remain available with your own credentials. Other providers, local models, and custom API endpoints are supported.
+
+If a previously selected OpenCode free model is unavailable, choose another model before sending. Your conversation history and drafts are retained; Aether will not automatically switch that selection to another service. See the [OpenCode API restrictions](https://opencode.ai/v2/docs/console/api/inference/).
 
 ## Feature Details
 
@@ -296,7 +298,7 @@ aether debug config   # View current configuration
 
 **Frontend assets not found**: Ensure the `aether` binary and `web/` directory are in the same folder.
 
-**Model list is empty**: Check that the `OPENCODE_CONFIG` environment variable path is correct.
+**Model list is empty**: Connect a provider and select a model. If you have already configured one, check its credentials and whether the model is enabled; for a custom configuration file, also check the `OPENCODE_CONFIG` path.
 
 **macOS says "cannot be opened because the developer cannot be verified"**: The app is unsigned. Right-click the app and select "Open", then go to "Settings → Privacy & Security", find the related message, and select "Open Anyway". The app will be remembered as trusted and won't prompt again. (This needs to be repeated after each update.)
 

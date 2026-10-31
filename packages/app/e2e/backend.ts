@@ -4,6 +4,7 @@ import path from "node:path"
 import { fileURLToPath } from "node:url"
 import { freePort } from "./port"
 import { claim, create, remove, sweep } from "./sandbox"
+import { config } from "./model"
 
 type Handle = {
   url: string
@@ -86,6 +87,7 @@ async function launch(label: string, input?: { llmUrl?: string }): Promise<Handl
     OPENCODE_SERVER_PASSWORD: "",
     OPENCODE_E2E_RUN_ID: run,
     OPENCODE_E2E_LLM_URL: input?.llmUrl,
+    OPENCODE_CONFIG_CONTENT: config(input?.llmUrl),
   } satisfies Record<string, string | undefined>
   const out: string[] = []
   const err: string[] = []
@@ -106,7 +108,7 @@ async function launch(label: string, input?: { llmUrl?: string }): Promise<Handl
     err.push(String(chunk))
     trim(err)
   })
-  await claim(sandbox, proc.pid)
+  if (proc.pid !== undefined) await claim(sandbox, proc.pid)
 
   const url = `http://127.0.0.1:${port}`
   try {

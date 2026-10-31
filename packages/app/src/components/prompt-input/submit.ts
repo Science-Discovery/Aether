@@ -29,6 +29,7 @@ import {
 } from "@/utils/comment-note"
 import { createConversationQuoteMetadata } from "@/utils/conversation-quote-metadata"
 import { formatServerError } from "@/utils/server-errors"
+import { isChatModel } from "@/utils/voice"
 
 type PendingPrompt = {
   abort: AbortController
@@ -197,6 +198,30 @@ export async function sendFollowupDraft(input: FollowupSendInput) {
   const wait = async () => {
     const ok = await input.before?.()
     if (ok === false) return false
+    const [store] = input.globalSync.child(input.draft.sessionDirectory)
+    const catalog =
+      store.status === "complete"
+        ? store.provider
+        : await input.client.provider
+            .list({ directory: input.draft.sessionDirectory })
+            .then((response) => response.data)
+    const provider = catalog?.all.find((item) => item.id === input.draft.model.providerID)
+    const model = provider?.models[input.draft.model.modelID]
+    const disabled = new Set([
+      ...(input.globalSync.data.config.disabled_models ?? []),
+      ...(store.config.disabled_models ?? []),
+    ])
+    if (
+      !provider ||
+      !catalog?.connected.includes(provider.id) ||
+      !model ||
+      ("disabled" in model && model.disabled === true) ||
+      !isChatModel({ ...model, provider }) ||
+      disabled.has(`${provider.id}/${model.id}`) ||
+      disabled.has(model.id)
+    ) {
+      throw { name: "ProviderModelNotFoundError", data: { ...input.draft.model } }
+    }
     return true
   }
 
@@ -576,7 +601,13 @@ export function createPromptSubmit(input: PromptSubmitInput) {
     if (!currentModel || !currentAgent) {
       showToast({
         title: language.t("prompt.toast.modelAgentRequired.title"),
-        description: language.t("prompt.toast.modelAgentRequired.description"),
+        description: language.t(
+          !currentModel
+            ? local.model.unavailable()
+              ? "prompt.model.unavailable"
+              : "prompt.model.required"
+            : "prompt.toast.modelAgentRequired.description",
+        ),
       })
       return
     }

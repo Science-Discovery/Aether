@@ -10,7 +10,7 @@ import { SyncEvent } from "../sync"
 import { Instance } from "../project/instance"
 import { Database, NotFoundError, and, desc, eq, inArray, lt, or } from "@/storage/db"
 import { MessageTable, PartTable, SessionTable } from "./session.sql"
-import { ProviderError } from "@/provider/error"
+import { NoModelConfiguredError, ProviderError } from "@/provider/error"
 import { iife } from "@/util/iife"
 import type { SystemError } from "bun"
 import type { Provider } from "@/provider/provider"
@@ -418,6 +418,7 @@ export namespace MessageV2 {
     error: z
       .discriminatedUnion("name", [
         AuthError.Schema,
+        NoModelConfiguredError.Schema,
         NamedError.Unknown.Schema,
         OutputLengthError.Schema,
         AbortedError.Schema,
@@ -937,6 +938,8 @@ export namespace MessageV2 {
     ctx: { providerID: ProviderID; aborted?: boolean },
   ): NonNullable<Assistant["error"]> {
     switch (true) {
+      case NoModelConfiguredError.isInstance(e):
+        return { name: e.name, data: e.data }
       case e instanceof DOMException && e.name === "AbortError":
         return new MessageV2.AbortedError(
           { message: e.message },

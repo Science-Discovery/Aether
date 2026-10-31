@@ -6,7 +6,7 @@ import { mkdir, rm } from "node:fs/promises"
 import { Instance } from "../../src/project/instance"
 import { ModelID, ProviderID } from "../../src/provider/schema"
 import { Session } from "../../src/session"
-import { SessionID } from "../../src/session/schema"
+import { SessionID, MessageID } from "../../src/session/schema"
 import { SessionStatus } from "../../src/session/status"
 import { Filesystem } from "../../src/util/filesystem"
 import { MessageV2 } from "../../src/session/message-v2"
@@ -14,17 +14,118 @@ import { SessionPrompt } from "../../src/session/prompt"
 import { Log } from "../../src/util/log"
 import { tmpdir } from "../fixture/fixture"
 import { serve } from "../lib/server"
+import { Provider } from "../../src/provider/provider"
 
 Log.init({ print: false })
+
+const provider = {
+  name: "Local Test",
+  npm: "@ai-sdk/openai-compatible",
+  options: { apiKey: "local-test-key", baseURL: "http://127.0.0.1:1/v1" },
+  models: { "test-model": { name: "Test Model", limit: { context: 128000, output: 8192 } } },
+}
+
+describe("session.prompt model preflight", () => {
+  test("rejects a model-less send without writing a user message", async () => {
+    await using tmp = await tmpdir({ config: { enabled_providers: [] } })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const session = await Session.create({})
+        await expect(
+          SessionPrompt.prompt({ sessionID: session.id, parts: [{ type: "text", text: "keep this draft" }] }),
+        ).rejects.toBeInstanceOf(Provider.NoModelConfiguredError)
+        expect(await Session.messages({ sessionID: session.id })).toEqual([])
+      },
+    })
+  })
+
+  test("rejects a retired explicit selection before cleanup changes reverted history", async () => {
+    await using tmp = await tmpdir({ config: { provider: { e2e: provider } } })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const session = await Session.create({})
+        const message = await Session.updateMessage({
+          id: MessageID.ascending(),
+          sessionID: session.id,
+          role: "user",
+          agent: "build",
+          model: { providerID: ProviderID.make("e2e"), modelID: ModelID.make("test-model") },
+          time: { created: Date.now() },
+        })
+        await Session.setRevert({
+          sessionID: session.id,
+          revert: { messageID: message.id },
+          summary: { additions: 0, deletions: 0, files: 0 },
+        })
+        await expect(
+          SessionPrompt.prompt({
+            sessionID: session.id,
+            model: { providerID: ProviderID.opencode, modelID: ModelID.make("big-pickle") },
+            parts: [{ type: "text", text: "keep this draft" }],
+          }),
+        ).rejects.toBeInstanceOf(Provider.ModelNotFoundError)
+        expect((await Session.messages({ sessionID: session.id })).map((item) => item.info.id)).toEqual([message.id])
+        expect((await Session.get(session.id)).revert?.messageID).toBe(message.id)
+      },
+    })
+  })
+
+  test("resolves the retained history model rather than an unavailable reverted future", async () => {
+    await using tmp = await tmpdir({ config: { provider: { e2e: provider }, enabled_providers: ["e2e"] } })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const session = await Session.create({})
+        const model = { providerID: ProviderID.make("e2e"), modelID: ModelID.make("test-model") }
+        const first = await Session.updateMessage({
+          id: MessageID.ascending(),
+          sessionID: session.id,
+          role: "user",
+          agent: "build",
+          model,
+          time: { created: Date.now() - 1000 },
+        })
+        if (first.role !== "user") throw new Error("Expected a user message")
+        const future = await Session.updateMessage({
+          ...first,
+          id: MessageID.make("msg_00000000000000000000000000"),
+          time: { created: Date.now() },
+          model: { providerID: ProviderID.opencode, modelID: ModelID.make("big-pickle") },
+        })
+        await Session.setRevert({
+          sessionID: session.id,
+          revert: { messageID: future.id },
+          summary: { additions: 0, deletions: 0, files: 0 },
+        })
+        expect((await SessionPrompt.resolve({ sessionID: session.id })).model).toEqual(model)
+        expect(await Session.messages({ sessionID: session.id })).toHaveLength(2)
+        const result = await SessionPrompt.prompt({
+          sessionID: session.id,
+          noReply: true,
+          parts: [{ type: "text", text: "continue retained history" }],
+        })
+        expect(result.info.role).toBe("user")
+        if (result.info.role !== "user") throw new Error("Expected a user message")
+        expect(result.info.model).toEqual(model)
+        expect((await Session.messages({ sessionID: session.id })).some((item) => item.info.id === future.id)).toBe(
+          false,
+        )
+      },
+    })
+  })
+})
 
 describe("session.prompt missing file", () => {
   test("does not fail the prompt when a file part is missing", async () => {
     await using tmp = await tmpdir({
       git: true,
       config: {
+        provider: { e2e: provider },
         agent: {
           build: {
-            model: "openai/gpt-5.2",
+            model: "e2e/test-model",
           },
         },
       },
@@ -67,9 +168,10 @@ describe("session.prompt missing file", () => {
     await using tmp = await tmpdir({
       git: true,
       config: {
+        provider: { e2e: provider },
         agent: {
           build: {
-            model: "openai/gpt-5.2",
+            model: "e2e/test-model",
           },
         },
       },
@@ -118,6 +220,7 @@ describe("session.prompt special characters", () => {
   test("handles filenames with # character", async () => {
     await using tmp = await tmpdir({
       git: true,
+      config: { provider: { e2e: provider }, model: "e2e/test-model" },
       init: async (dir) => {
         await Bun.write(path.join(dir, "file#name.txt"), "special content\n")
       },
@@ -163,6 +266,7 @@ describe("session.prompt agent variant", () => {
       await using tmp = await tmpdir({
         git: true,
         config: {
+          provider: { e2e: provider },
           agent: {
             build: {
               model: "openai/gpt-5.2",
@@ -180,7 +284,7 @@ describe("session.prompt agent variant", () => {
           const other = await SessionPrompt.prompt({
             sessionID: session.id,
             agent: "build",
-            model: { providerID: ProviderID.make("opencode"), modelID: ModelID.make("kimi-k2.5-free") },
+            model: { providerID: ProviderID.make("e2e"), modelID: ModelID.make("test-model") },
             noReply: true,
             parts: [{ type: "text", text: "hello" }],
           })

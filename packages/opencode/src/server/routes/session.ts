@@ -24,6 +24,7 @@ import { lazy } from "../../util/lazy"
 import { Bus } from "../../bus"
 import { NamedError } from "@opencode-ai/util/error"
 import { SessionPreference } from "../../session/preference"
+import { NoModelConfiguredError } from "@/provider/error"
 
 const log = Log.create({ service: "server" })
 
@@ -1029,12 +1030,15 @@ export const SessionRoutes = lazy(() =>
       async (c) => {
         const sessionID = c.req.valid("param").sessionID
         const body = c.req.valid("json")
+        await SessionPrompt.resolve({ ...body, sessionID })
         SessionPrompt.prompt({ ...body, sessionID }).catch((err) => {
           if (err instanceof Session.BusyError) return
           log.error("prompt_async failed", { sessionID, error: err })
           Bus.publish(Session.Event.Error, {
             sessionID,
-            error: new NamedError.Unknown({ message: err instanceof Error ? err.message : String(err) }).toObject(),
+            error: NoModelConfiguredError.isInstance(err)
+              ? { name: err.name, data: err.data }
+              : new NamedError.Unknown({ message: err instanceof Error ? err.message : String(err) }).toObject(),
           })
         })
         return c.body(null, 204)

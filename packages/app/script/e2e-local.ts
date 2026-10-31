@@ -2,6 +2,7 @@ import fs from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { freePort } from "../e2e/port"
+import { config, model } from "../e2e/model"
 
 async function waitForHealth(url: string) {
   const timeout = Date.now() + 120_000
@@ -51,7 +52,8 @@ const serverEnv = {
   OPENCODE_E2E_PROJECT_DIR: repoDir,
   OPENCODE_E2E_SESSION_TITLE: "E2E Session",
   OPENCODE_E2E_MESSAGE: "Seeded for UI e2e",
-  OPENCODE_E2E_MODEL: process.env.OPENCODE_E2E_MODEL ?? "opencode/gpt-5-nano",
+  OPENCODE_E2E_MODEL: process.env.OPENCODE_E2E_MODEL ?? model,
+  OPENCODE_CONFIG_CONTENT: config(process.env.OPENCODE_E2E_LLM_URL),
   OPENCODE_MODELS_PATH: path.join(opencodeDir, "test", "tool", "fixtures", "models-api.json"),
   ANTHROPIC_API_KEY: "",
   OPENCODE_CLIENT: "app",

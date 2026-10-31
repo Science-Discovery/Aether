@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url"
 import { test, expect } from "../fixtures"
 import { freePort } from "../port"
 import { createSdk, dirSlug } from "../utils"
+import { config, model } from "../model"
 
 const appDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..")
 const repoDir = path.resolve(appDir, "../..")
@@ -46,6 +47,8 @@ function spawnBackend(port: number, sandbox: string, errors: string[]) {
         // enabled mobile bridge on the host leaks into the e2e backend and kills it.
         ...(process.platform === "win32" ? { APPDATA: path.join(sandbox, "appdata") } : {}),
         OPENCODE_MODELS_PATH: path.join(opencodeDir, "test", "tool", "fixtures", "models-api.json"),
+        OPENCODE_CONFIG_CONTENT: config(),
+        OPENCODE_DISABLE_MOBILE: "true",
         ANTHROPIC_API_KEY: "",
         OPENCODE_CLIENT: "app",
         OPENCODE_STRICT_CONFIG_DEPS: "true",
@@ -98,7 +101,8 @@ test("message written during a hard event-stream outage is recovered after recon
     })
 
     await page.addInitScript(
-      (args: { url: string; directory: string }) => {
+      (args: { url: string; directory: string; model: string }) => {
+        const [providerID, modelID] = args.model.split("/")
         const store = { list: [args.url], projects: {}, lastProject: {} }
         store.projects.local = [{ worktree: args.directory, expanded: true }]
         store.projects[args.url] = [{ worktree: args.directory, expanded: true }]
@@ -107,13 +111,13 @@ test("message written during a hard event-stream outage is recovered after recon
         localStorage.setItem(
           "opencode.global.dat:model",
           JSON.stringify({
-            recent: [{ providerID: "opencode", modelID: "big-pickle" }],
+            recent: [{ providerID, modelID }],
             user: [],
             variant: {},
           }),
         )
       },
-      { url, directory: worktree },
+      { url, directory: worktree, model: process.env.OPENCODE_E2E_MODEL ?? model },
     )
 
     await page.goto(`/${dirSlug(worktree)}/session/${session.id}`)
