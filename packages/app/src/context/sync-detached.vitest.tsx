@@ -5,16 +5,27 @@ import type { Session } from "@opencode-ai/sdk/v2/client"
 import type { State } from "./global-sync/types"
 import { resetSessionPrefetch } from "./global-sync/session-prefetch"
 import { SyncProvider, useSync } from "./sync"
+import { SDKProvider } from "./sdk"
+import { applyDirectoryEvent } from "./global-sync/event-reducer"
 
-const calls = vi.hoisted(() => ({ child: vi.fn(), get: vi.fn(), list: vi.fn(), messages: vi.fn() }))
-vi.mock("./global-sync", () => ({
-  useGlobalSync: () => ({ child: calls.child, onReconnect: () => () => {}, todo: { set() {} } }),
+const calls = vi.hoisted(() => ({
+  child: vi.fn(),
+  get: vi.fn(),
+  list: vi.fn(),
+  messages: vi.fn(),
+  client: vi.fn(),
+  update: vi.fn(),
 }))
-vi.mock("./sdk", () => ({
-  useSDK: () => ({
-    directory: "/project",
-    client: { session: { get: calls.get, list: calls.list, messages: calls.messages } },
+vi.mock("./global-sync", () => ({
+  useGlobalSync: () => ({
+    child: calls.child,
+    session: { update: calls.update },
+    onReconnect: () => () => {},
+    todo: { set() {} },
   }),
+}))
+vi.mock("./global-sdk", () => ({
+  useGlobalSDK: () => ({ createClient: calls.client, event: { on: () => () => {} }, url: "http://localhost" }),
 }))
 vi.mock("./language", () => ({ useLanguage: () => ({ t: (key: string) => key }) }))
 vi.mock("@solidjs/router", () => ({ useNavigate: () => () => {} }))
@@ -56,6 +67,16 @@ function mount() {
     limit: 5,
   } as State)
   calls.child.mockReturnValue([store, setStore])
+  calls.update.mockImplementation((info: Session) =>
+    applyDirectoryEvent({
+      event: { type: "session.updated", properties: { info } },
+      store,
+      setStore,
+      directory: info.directory,
+      push() {},
+      loadLsp() {},
+    }),
+  )
   const value: { sync?: ReturnType<typeof useSync> } = {}
   const Read = () => {
     value.sync = useSync()
@@ -66,9 +87,11 @@ function mount() {
   disposers.push(
     render(
       () => (
-        <SyncProvider>
-          <Read />
-        </SyncProvider>
+        <SDKProvider directory={() => "/project"}>
+          <SyncProvider>
+            <Read />
+          </SyncProvider>
+        </SDKProvider>
       ),
       host,
     ),
@@ -80,6 +103,7 @@ beforeEach(() => {
   vi.resetAllMocks()
   resetSessionPrefetch()
   calls.messages.mockResolvedValue({ data: [], response: { headers: new Headers() } })
+  calls.client.mockReturnValue({ session: { get: calls.get, list: calls.list, messages: calls.messages } })
 })
 afterEach(() => {
   disposers.splice(0).forEach((dispose) => dispose())
@@ -88,6 +112,15 @@ afterEach(() => {
 })
 
 describe("SyncProvider detached session reads", () => {
+  test("forwards session updates through the global reducer", () => {
+    const view = mount()
+    const info = root()
+    view.sync.session.update(info)
+    expect(calls.update).toHaveBeenCalledExactlyOnceWith(info)
+    expect(view.sync.session.get("child")).toEqual(info)
+    expect(view.store.sessionTotal).toBe(2)
+  })
+
   test("a force GET started before detach cannot reattach the new root when its response arrives later", async () => {
     const response = Promise.withResolvers<{ data: Session }>()
     calls.get.mockReturnValue(response.promise)

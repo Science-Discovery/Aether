@@ -14,8 +14,7 @@ import {
 } from "./global-sync/session-prefetch"
 import { useGlobalSync } from "./global-sync"
 import { useSDK } from "./sdk"
-import type { Message, Part, Session } from "@opencode-ai/sdk/v2/client"
-import { applyDirectoryEvent } from "./global-sync/event-reducer"
+import type { Message, Part } from "@opencode-ai/sdk/v2/client"
 import { mergeSessions } from "./global-sync/session-load"
 import { SESSION_CACHE_LIMIT, dropSessionCaches, pickSessionCacheEvictions } from "./global-sync/session-cache"
 import { isViewing } from "./global-sync/viewing"
@@ -444,18 +443,7 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
         })
     }
 
-    const update = (info: Session) => {
-      const [store, setStore] = target(info.directory)
-      applyDirectoryEvent({
-        event: { type: "session.updated", properties: { info } },
-        store,
-        setStore,
-        directory: info.directory,
-        push() {},
-        loadLsp() {},
-        setSessionTodo: globalSync.todo.set,
-      })
-    }
+    const update = globalSync.session.update
 
     return {
       get data() {

@@ -5,6 +5,7 @@ import type {
   ProjectRecent,
   ProviderAuthResponse,
   ProviderListResponse,
+  Session,
   Todo,
 } from "@opencode-ai/sdk/v2/client"
 import { showToast } from "@opencode-ai/ui/toast"
@@ -669,6 +670,21 @@ function createGlobalSync() {
     },
     provider: {
       refresh: refreshProviders,
+    },
+    session: {
+      update(info: Session) {
+        const directory = normalizeDir(info.directory)
+        const [store, setStore] = children.child(directory, { bootstrap: false })
+        applyDirectoryEvent({
+          event: { type: "session.updated", properties: { info } },
+          store,
+          setStore,
+          directory,
+          push() {},
+          loadLsp() {},
+          setSessionTodo,
+        })
+      },
     },
     project: projectApi,
     todo: {

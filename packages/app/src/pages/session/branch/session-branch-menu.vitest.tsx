@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest"
 import { render } from "solid-js/web"
+import { ErrorBoundary } from "solid-js"
 import { createStore } from "solid-js/store"
 import type { Session } from "@opencode-ai/sdk/v2/client"
 import { DialogProvider } from "@opencode-ai/ui/context/dialog"
@@ -15,10 +16,12 @@ const calls = vi.hoisted(() => ({
   select: vi.fn(),
   parent: vi.fn(),
   toast: vi.fn(),
+  client: vi.fn(),
 }))
-vi.mock("@/context/sdk", () => ({ useSDK: () => ({ client: { session: { detach: calls.detach } } }) }))
-vi.mock("@/context/sync", () => ({ useSync: () => ({ session: { update: calls.update } }) }))
-vi.mock("@/context/global-sync", () => ({ useGlobalSync: () => ({ project: { loadSessions: calls.load } }) }))
+vi.mock("@/context/global-sdk", () => ({ useGlobalSDK: () => ({ createClient: calls.client }) }))
+vi.mock("@/context/global-sync", () => ({
+  useGlobalSync: () => ({ session: { update: calls.update }, project: { loadSessions: calls.load } }),
+}))
 vi.mock("@opencode-ai/ui/toast", () => ({ showToast: calls.toast }))
 vi.mock("@/context/language", () => ({
   useLanguage: () => ({
@@ -64,30 +67,32 @@ function mount(session = child()) {
   disposers.push(
     render(
       () => (
-        <DialogProvider>
-          <div onContextMenu={calls.parent}>
-            <ConversationGraphList
-              currentSessionID={state.current}
-              session={state.session}
-              deleteSession={calls.remove}
-              nodes={[node("prefix", "A", 0), node("own", "B", 1), node("bud", "B", 2, "bud"), node("other", "C", 3)]}
-              edges={[]}
-              laneCount={4}
-              rowHeight={24}
-              labelClass="text-12-medium"
-              onSelect={(node) => {
-                calls.select(node)
-                setState({
-                  current: node.sessionID,
-                  session: { ...child(), id: node.sessionID, title: `Branch ${node.sessionID}` },
-                })
-              }}
-              onFork={() => {}}
-              onRename={() => {}}
-              showRowActions={false}
-            />
-          </div>
-        </DialogProvider>
+        <ErrorBoundary fallback={(err: Error) => <div data-boundary>{err.message}</div>}>
+          <DialogProvider>
+            <div onContextMenu={calls.parent}>
+              <ConversationGraphList
+                currentSessionID={state.current}
+                session={state.session}
+                deleteSession={calls.remove}
+                nodes={[node("prefix", "A", 0), node("own", "B", 1), node("bud", "B", 2, "bud"), node("other", "C", 3)]}
+                edges={[]}
+                laneCount={4}
+                rowHeight={24}
+                labelClass="text-12-medium"
+                onSelect={(node) => {
+                  calls.select(node)
+                  setState({
+                    current: node.sessionID,
+                    session: { ...child(), id: node.sessionID, title: `Branch ${node.sessionID}` },
+                  })
+                }}
+                onFork={() => {}}
+                onRename={() => {}}
+                showRowActions={false}
+              />
+            </div>
+          </DialogProvider>
+        </ErrorBoundary>
       ),
       host,
     ),
@@ -96,6 +101,7 @@ function mount(session = child()) {
     row: (id: string) => host.querySelector<HTMLElement>(`[data-graph-node-id="${id}"]`)!,
     set: (session: Session) => setState({ session, current: session.id }),
     current: (id: string) => setState("current", id),
+    error: () => host.querySelector("[data-boundary]")?.textContent,
   }
 }
 
@@ -109,6 +115,7 @@ beforeEach(() => {
   vi.resetAllMocks()
   calls.load.mockResolvedValue(undefined)
   calls.remove.mockResolvedValue(true)
+  calls.client.mockReturnValue({ session: { detach: calls.detach } })
 })
 afterEach(() => {
   disposers.splice(0).forEach((dispose) => dispose())
@@ -116,6 +123,14 @@ afterEach(() => {
 })
 
 describe("selected graph branch context menu", () => {
+  test("mounts the sidebar context menu without directory SDK or Sync providers", () => {
+    const view = mount()
+    open(view.row("own"))
+    expect(view.error()).toBeUndefined()
+    expect(item("session-detach")).not.toBeNull()
+    expect(item("branch-delete")).not.toBeNull()
+  })
+
   test("inherited highlighted nodes and unselected branches cannot manage or navigate on right click", () => {
     const view = mount()
     expect(view.row("own").querySelector("button")).toBeNull()
@@ -162,6 +177,7 @@ describe("selected graph branch context menu", () => {
     expect(item("branch-delete")?.textContent).toBe("Delete branch")
     select(item("session-detach")!)
     await vi.waitFor(() => expect(calls.detach).toHaveBeenCalledExactlyOnceWith({ sessionID: "B" }))
+    expect(calls.client).toHaveBeenCalledExactlyOnceWith({ directory: "/project", throwOnError: true })
     expect(calls.select).not.toHaveBeenCalled()
     expect(calls.parent).not.toHaveBeenCalled()
   })
@@ -233,5 +249,41 @@ describe("selected graph branch context menu", () => {
     view.set({ ...child(), id: "C", title: "Other branch C" })
     expect(item("branch-delete")).toBeNull()
     expect(calls.remove).not.toHaveBeenCalled()
+  })
+
+  test("an in-flight context action stays scoped to its original directory after the selected branch changes", async () => {
+    const source = { ...child(), directory: "/sandbox" }
+    const root = { ...source, parentID: undefined, forkParentSessionID: undefined }
+    const pending = Promise.withResolvers<{ data: Session }>()
+    calls.detach.mockReturnValue(pending.promise)
+    const view = mount(source)
+    open(view.row("own"))
+    select(item("session-detach")!)
+    view.set({ ...child(), id: "C", title: "Other branch C", directory: "/other" })
+    pending.resolve({ data: root })
+    await vi.waitFor(() => expect(calls.load).toHaveBeenCalledOnce())
+    expect(calls.client).toHaveBeenCalledExactlyOnceWith({ directory: "/sandbox", throwOnError: true })
+    expect(calls.update).toHaveBeenCalledExactlyOnceWith(root)
+    expect(calls.load).toHaveBeenCalledExactlyOnceWith("/sandbox", { force: true })
+    open(view.row("other"))
+    expect(document.body.textContent).toContain("Branch: Other branch C")
+    expect(view.error()).toBeUndefined()
+  })
+
+  test("a failed context action after navigation preserves the newly selected branch", async () => {
+    const pending = Promise.withResolvers<{ data: Session }>()
+    calls.detach.mockReturnValue(pending.promise)
+    const view = mount({ ...child(), directory: "/sandbox" })
+    open(view.row("own"))
+    select(item("session-detach")!)
+    view.set({ ...child(), id: "C", title: "Other branch C", directory: "/other" })
+    pending.reject({ name: "SessionBusyError", data: { message: "Session B is busy" } })
+    await vi.waitFor(() => expect(calls.toast).toHaveBeenCalledOnce())
+    expect(calls.update).not.toHaveBeenCalled()
+    expect(calls.load).not.toHaveBeenCalled()
+    open(view.row("other"))
+    expect(item("branch-delete")).not.toBeNull()
+    expect(document.body.textContent).toContain("Branch: Other branch C")
+    expect(view.error()).toBeUndefined()
   })
 })
