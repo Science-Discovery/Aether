@@ -13,7 +13,7 @@ export type FileTabFit = {
 
 /**
  * Decide how file tabs fit into the titlebar strip:
- * 1. show every tab at its natural width when it fits;
+ * 1. show every tab at its normal width (already limited by CSS) when it fits;
  * 2. otherwise cap each tab and show them all when that fits;
  * 3. otherwise keep the cap, show as many leading tabs as fit (at least one)
  *    and reveal the rest through the overflow menu.

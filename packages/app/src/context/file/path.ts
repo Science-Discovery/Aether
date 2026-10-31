@@ -105,11 +105,15 @@ export function createPathHelpers(scope: () => string) {
   const normalize = (input: string) => {
     const root = scope()
 
-    let path = unquoteGitPath(decodeFilePath(stripQueryAndHash(stripFileProtocol(input))))
+    // Tab URLs are encoded, but file-tree and watcher paths are literal names.
+    // A decoded tab path also passes through normalize again when loading it.
+    const source = input.startsWith("file://") ? decodeFilePath(stripQueryAndHash(stripFileProtocol(input))) : input
+    let path = unquoteGitPath(source)
 
     // Separator-agnostic prefix stripping for Cygwin/native Windows compatibility
     // Only case-insensitive on Windows (drive letter or UNC paths)
     const windows = /^[A-Za-z]:/.test(root) || root.startsWith("\\\\")
+    if (windows && /^\/[A-Za-z]:(?:[\\/]|$)/.test(path)) path = path.slice(1)
     const canonRoot = windows ? root.replace(/\\/g, "/").toLowerCase() : root.replace(/\\/g, "/")
     const canonPath = windows ? path.replace(/\\/g, "/").toLowerCase() : path.replace(/\\/g, "/")
     if (

@@ -19,6 +19,7 @@ function useLanguageMock() {
     "error.chain.modelNotFound": "Modelo nao encontrado: {{provider}}/{{model}}",
     "error.chain.didYouMean": "Voce quis dizer: {{suggestions}}",
     "error.chain.checkConfig": "Revise provider/model no config",
+    "error.network.failedToFetch": "Falha de rede",
   }
   return {
     t(key: string, vars?: Record<string, string | number>) {
@@ -88,6 +89,39 @@ describe("formatServerError", () => {
 
   test("returns provided string errors", () => {
     expect(formatServerError("Failed to connect to server", language.t)).toBe("Failed to connect to server")
+  })
+
+  test("preserves error and message fields returned as JSON objects", () => {
+    const missing: unknown = JSON.parse('{"error":"File not found"}')
+    const denied: unknown = JSON.parse('{"message":"Access denied: path escapes project directory"}')
+    expect(formatServerError(missing, language.t)).toBe("File not found")
+    expect(formatServerError(denied, language.t)).toBe("Access denied: path escapes project directory")
+    expect(formatServerError({ error: "  ", message: "Missing image" }, language.t)).toBe("Missing image")
+  })
+
+  test("translates network messages in JSON errors without exposing unrelated fields", () => {
+    const error: unknown = JSON.parse(
+      '{"error":"Failed to fetch\\n    at fetch (private.js)","stack":"private stack","body":"private body"}',
+    )
+    expect(formatServerError(error, language.t)).toBe("Falha de rede")
+    expect(formatServerError({ error: { body: "private body" }, stack: "private stack" }, language.t)).toBe(
+      "Erro desconhecido",
+    )
+  })
+
+  test("keeps named and configuration errors ahead of generic JSON messages", () => {
+    expect(
+      formatServerError(
+        { name: "UnknownError", data: { message: "Named reason" }, error: "Generic reason" },
+        language.t,
+      ),
+    ).toBe("Named reason")
+    expect(
+      formatServerError(
+        { name: "ConfigInvalidError", data: { message: "Missing host" }, message: "Generic reason" },
+        language.t,
+      ),
+    ).toBe("Arquivo de config em config invalido: Missing host")
   })
 
   test("uses translated unknown fallback", () => {

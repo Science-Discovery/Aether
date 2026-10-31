@@ -88,6 +88,7 @@
     "solid-js": "catalog:",
     "solid-list": "catalog:",
     "tailwindcss": "catalog:",
+    "utif2": "4.1.0",
     "virtua": "catalog:",
     "zod": "catalog:"
   }

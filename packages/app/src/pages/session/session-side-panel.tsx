@@ -702,7 +702,7 @@ export function SessionSidePanel(props: {
 
     for (const el of wrappers) {
       el.style.display = ""
-      el.style.maxWidth = "none"
+      el.style.setProperty("--file-tab-width", "240px")
     }
     if (more) more.style.display = "none"
 
@@ -714,8 +714,17 @@ export function SessionSidePanel(props: {
       0,
     )
     const natural = wrappers.map(widthOf)
+    for (const el of wrappers) el.style.setProperty("--file-tab-width", "150px")
+    const capped = wrappers.map(widthOf)
+    if (more) more.style.display = ""
+    const overflow = more ? widthOf(more) : 0
+    for (const el of wrappers) el.style.removeProperty("--file-tab-width")
     const signature = [
       budget,
+      fixed,
+      natural.join(","),
+      capped.join(","),
+      overflow,
       openedTabs().join(","),
       reviewTab() ? 1 : 0,
       contextOpen() ? 1 : 0,
@@ -726,27 +735,16 @@ export function SessionSidePanel(props: {
     // so content that sits exactly at the budget cannot flip-flop between
     // showing every tab and collapsing into the overflow menu.
     const relaxed = Math.max(0, budget - 24)
-    const first = fitFileTabs({ clientWidth: relaxed, fixedWidth: fixed, natural, capped: natural, moreWidth: 0 })
-    if (!first.capped) {
-      applyFit({ capped: false, visible: Number.MAX_SAFE_INTEGER, more: false }, signature)
-      return
-    }
-
-    for (const el of wrappers) el.style.maxWidth = "150px"
-    const capped = wrappers.map(widthOf)
-    const second = fitFileTabs({ clientWidth: relaxed, fixedWidth: fixed, natural, capped, moreWidth: 0 })
-    if (second.visible < capped.length && more) {
-      more.style.display = ""
-      const third = fitFileTabs({ clientWidth: budget, fixedWidth: fixed, natural, capped, moreWidth: widthOf(more) })
-      for (const el of wrappers) el.style.removeProperty("max-width")
-      wrappers.forEach((el, i) => {
-        el.style.display = i < third.visible ? "" : "none"
-      })
-      applyFit({ capped: true, visible: third.visible, more: true }, signature)
-      return
-    }
-    for (const el of wrappers) el.style.removeProperty("max-width")
-    applyFit({ capped: true, visible: second.visible, more: false }, signature)
+    const first = fitFileTabs({ clientWidth: relaxed, fixedWidth: fixed, natural, capped, moreWidth: 0 })
+    const next =
+      first.visible < capped.length && more
+        ? fitFileTabs({ clientWidth: budget, fixedWidth: fixed, natural, capped, moreWidth: overflow })
+        : first
+    applyFit({ ...next, more: next.visible < capped.length }, signature)
+    wrappers.forEach((el, i) => {
+      el.style.display = i < fit.visible ? "" : "none"
+    })
+    if (more) more.style.display = fit.more ? "" : "none"
   }
 
   const scheduleFit = () => {
@@ -762,12 +760,21 @@ export function SessionSidePanel(props: {
     reviewTab()
     contextOpen()
     gitGraphOpen()
+    language.t("session.tab.context")
+    language.t("session.tab.gitGraph")
+    language.t("session.tab.review")
+    props.hasReview()
+    props.reviewCount()
     if (untrack(() => fit.capped) && list.length > prevTabCount) {
       const last = list[list.length - 1]
       if (last) tabs().move(last, 0)
     }
     prevTabCount = list.length
     scheduleFit()
+  })
+
+  onCleanup(() => {
+    if (fitFrame !== undefined) cancelAnimationFrame(fitFrame)
   })
 
   const tabbar = (
@@ -799,7 +806,11 @@ export function SessionSidePanel(props: {
                   const target = el.closest<HTMLElement>("#opencode-titlebar-tabs") ?? el
                   const observer = new ResizeObserver(() => scheduleFit())
                   observer.observe(target)
-                  onCleanup(() => observer.disconnect())
+                  document.fonts?.addEventListener("loadingdone", scheduleFit)
+                  onCleanup(() => {
+                    observer.disconnect()
+                    document.fonts?.removeEventListener("loadingdone", scheduleFit)
+                  })
                 }}
               >
                 <Show when={contextOpen()}>
