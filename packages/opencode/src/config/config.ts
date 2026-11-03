@@ -6,6 +6,7 @@ import os from "os"
 import z from "zod"
 import { ModelsDev } from "../provider/models"
 import { LatexSchema } from "../latex/schema"
+import { Native } from "../native/schema"
 import { mergeDeep, pipe, unique } from "remeda"
 import { Global } from "../global"
 import fs from "fs/promises"
@@ -1230,6 +1231,12 @@ export namespace Config {
       logLevel: Log.Level.optional().describe("Log level"),
       server: Server.optional().describe("Server configuration for opencode serve and web commands"),
       latex: LatexSchema.Config.optional().describe("Local LaTeX compiler executable paths"),
+      native: z
+        .object({
+          codex: Native.Config.optional(),
+        })
+        .optional()
+        .describe("Native agent settings. Executable paths are read only from the user's global configuration."),
       command: z
         .record(z.string(), Command)
         .optional()
@@ -1478,7 +1485,7 @@ export namespace Config {
 
   export type Info = z.output<typeof Info>
 
-  const Integrations = Info.pick({ latex: true }).strict()
+  const Integrations = Info.pick({ latex: true, native: true }).strict()
   const Envelope = z
     .object({ $schema: z.string().optional(), native: z.unknown().optional(), latex: z.unknown().optional() })
     .strict()
@@ -1488,7 +1495,9 @@ export namespace Config {
   }
 
   function extension(config: Record<string, unknown>) {
-    return Object.fromEntries(Object.entries(config).filter(([key, value]) => key === "latex" && value !== undefined))
+    return Object.fromEntries(
+      Object.entries(config).filter(([key, value]) => (key === "latex" || key === "native") && value !== undefined),
+    )
   }
 
   function envelope(text: string, file: string) {
@@ -1863,6 +1872,7 @@ export namespace Config {
   }
 
   const SAFE_CONFIG_KEYS = new Set([
+    "native",
     "model",
     "small_model",
     "disabled_models",
@@ -1917,6 +1927,7 @@ export namespace Config {
     parseConfig(JSON.stringify(extension(envelope(extra, file))), file, Integrations)
     const patch = { ...config }
     delete patch.latex
+    delete patch.native
     const changes: { path: string; before?: string; after: string }[] = []
     if (extra !== (prior || "{}")) changes.push({ path: file, before: prior, after: extra })
 
@@ -1927,6 +1938,7 @@ export namespace Config {
         applyProviderReplace(merged, current, patch)
         delete merged.provider_remove
         delete merged.latex
+        delete merged.native
         return JSON.stringify(merged, null, 2)
       }
 
@@ -1936,6 +1948,7 @@ export namespace Config {
         applyProviderReplace(merged, existing, patch)
         delete merged.provider_remove
         delete merged.latex
+        delete merged.native
         return JSON.stringify(merged, null, 2)
       }
 
@@ -1959,7 +1972,7 @@ export namespace Config {
     for (const file of files) {
       const text = file.path === filepath ? result : file.before
       if (text === undefined) continue
-      const after = patchJsonc(text, { latex: undefined })
+      const after = patchJsonc(text, { latex: undefined, native: undefined })
       await load(after, { dir: path.dirname(file.path), source: file.path })
       if (after !== file.before) changes.push({ ...file, after })
     }
@@ -1971,6 +1984,12 @@ export namespace Config {
 
     global.reset()
     const next = await global()
+    if (config.native) {
+      const { Codex } = await import("../native/codex")
+      const { NativeRuntime } = await import("../native/runtime")
+      Codex.invalidate()
+      await NativeRuntime.configure((await getGlobal()).native?.codex)
+    }
 
     const keys = Object.keys(config)
     const provider = keys.some((key) => PROVIDER_CONFIG_KEYS.has(key))

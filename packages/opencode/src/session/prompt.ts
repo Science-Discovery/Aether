@@ -65,6 +65,10 @@ import { SkillEvolutionHook } from "../skill-evolution"
 import { isReviewSession } from "../skill-evolution/review-agent"
 import { reviewCharLimits, createReviewCharCounter } from "../skill-evolution/limits"
 import { Config } from "@/config/config"
+import { Native } from "../native/schema"
+import { NativeSession } from "../native/session"
+import { NativeQueue } from "../native/queue"
+import { NativeAnswers } from "../native/answers"
 
 // @ts-ignore
 globalThis.AI_SDK_LOG_WARNINGS = false
@@ -84,13 +88,14 @@ export namespace SessionPrompt {
 
   const state = Instance.state(
     () => {
-      const data: Record<string, { abort: AbortController }> = {}
+      const data: Record<string, { abort: AbortController; native?: Promise<void> }> = {}
       return data
     },
     async (current) => {
       for (const item of Object.values(current)) {
         item.abort.abort()
       }
+      await Promise.allSettled(Object.values(current).flatMap((item) => (item.native ? [item.native] : [])))
     },
   )
 
@@ -185,16 +190,36 @@ export namespace SessionPrompt {
     return fn(session)
   }
 
-  async function runPrompt(input: PromptInput): Promise<MessageV2.WithParts> {
+  async function runPrompt(input: PromptInput, ready?: () => boolean): Promise<MessageV2.WithParts> {
     return home(input.sessionID, async (session) => {
+      if (ready && !ready()) throw new Error("The queued request was paused before execution.")
       // Claim the busy lock before anything is persisted so a losing concurrent
       // prompt fails with BusyError instead of writing a permanent orphan message.
       const claim = start(input.sessionID)
       if (!claim) throw new Session.BusyError(input.sessionID)
+      if (session.engine && !ready && !input.noReply) NativeQueue.started(input.sessionID)
       await using _ = defer(() => {
         const s = state()
         if (s[input.sessionID]?.abort.signal === claim) delete s[input.sessionID]
       })
+
+      if (session.engine) {
+        await using native = defer(() => finish(input.sessionID, claim))
+        if (!input.noReply) await SessionStatus.set(input.sessionID, { type: "busy" })
+        claim.throwIfAborted()
+        const work = NativeSession.prompt(input, session, claim)
+        state()[input.sessionID].native = work.then(
+          () => undefined,
+          () => undefined,
+        )
+        const result = await work.catch(async (error: unknown) => {
+          await NativeQueue.pause(input.sessionID).catch(() => undefined)
+          throw error
+        })
+        await finish(input.sessionID, claim)
+        if (!input.noReply) await NativeQueue.completed(input.sessionID, result)
+        return result
+      }
 
       await SessionRevert.awaitPending(input.sessionID)
       await SessionRevert.cleanup(await Session.get(input.sessionID))
@@ -228,6 +253,12 @@ export namespace SessionPrompt {
   }
 
   export const prompt = fn(PromptInput, runPrompt)
+
+  // Internal queue dispatch checks cancellation after resolving the owning
+  // workspace, immediately before acquiring the same busy claim as normal input.
+  export function queued(input: PromptInput, ready: () => boolean) {
+    return runPrompt(PromptInput.parse(input), ready)
+  }
 
   export async function resolvePromptParts(template: string): Promise<PromptInput["parts"]> {
     const parts: PromptInput["parts"] = [
@@ -341,10 +372,20 @@ export namespace SessionPrompt {
       return Instance.provide({ directory: session.directory, fn: () => cancel(sessionID) })
     }
     log.info("cancel", { sessionID })
+    if (session?.engine) {
+      NativeAnswers.cancel(sessionID)
+      const { NativeCompact } = await import("../native/compact")
+      await NativeCompact.cancel(sessionID)
+      await NativeQueue.pause(sessionID).catch((error) => log.warn("pause native queue", { sessionID, error }))
+    }
     const s = state()
     const match = s[sessionID]
     if (match) {
       match.abort.abort()
+      if (match.native) {
+        await match.native
+        if (s[sessionID] !== match) return
+      }
       delete s[sessionID]
     }
     // Canceling also stops a pending connection-failure retry wait.
@@ -360,6 +401,7 @@ export namespace SessionPrompt {
   export type LoopInput = z.output<typeof LoopInput>
   async function runLoop(input: LoopInput, claim?: AbortSignal): Promise<MessageV2.WithParts> {
     return home(input.sessionID, async (session) => {
+      Native.guard(session, "Running the Aether agent loop")
       const { sessionID, resume_existing } = input
 
       // cancel() racing the prompt prep may have removed the caller's claim;
@@ -1756,6 +1798,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
   export type ShellInput = z.infer<typeof ShellInput>
   export async function shell(input: ShellInput): Promise<MessageV2.WithParts> {
     return home(input.sessionID, async (session) => {
+      Native.guard(session, "Shell mode")
       const abort = start(input.sessionID)
       if (!abort) {
         throw new Session.BusyError(input.sessionID)
@@ -2179,6 +2222,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
   }
 
   export async function command(input: CommandInput) {
+    Native.guard(await Session.getGlobal(input.sessionID), "Aether slash commands")
     log.info("command", input)
     const command = await Command.get(input.command)
     if (!command) {

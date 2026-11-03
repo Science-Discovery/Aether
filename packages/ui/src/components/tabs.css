@@ -154,10 +154,25 @@
   /* Review tab bar: compact pills portaled into the titlebar via data-scope. */
   &[data-scope="review-tabbar"][data-variant="normal"][data-orientation="horizontal"] {
     --tabs-bar-height: 28px;
+    --file-tab-width: 240px;
     background-color: transparent;
 
-    &[data-fit="capped"] [data-slot="tabs-trigger-wrapper"] {
-      max-width: 150px;
+    &[data-fit="capped"] {
+      --file-tab-width: 150px;
+    }
+
+    [data-file-tab] {
+      min-width: 0;
+      max-width: var(--file-tab-width);
+      flex-shrink: 0;
+
+      [data-slot="tabs-trigger-wrapper"] {
+        max-width: var(--file-tab-width);
+      }
+
+      [data-slot="tabs-trigger-close-button"] {
+        flex-shrink: 0;
+      }
     }
 
     [data-slot="tabs-list"] {

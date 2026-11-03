@@ -207,6 +207,7 @@ export namespace Knowledge {
       apiKey?: string
       baseURL?: string
       topK?: number
+      signal?: AbortSignal
     },
   ): Promise<SearchResult[]> {
     const embedder = createEmbedder({
@@ -217,7 +218,7 @@ export namespace Knowledge {
       baseURL: opts?.baseURL,
     })
 
-    return quickSearch(query, index, dir, embedder, opts?.topK ?? 5)
+    return quickSearch(query, index, dir, embedder, opts?.topK ?? 5, opts?.signal)
   }
 
   // 构建 RAG 上下文

@@ -165,6 +165,7 @@ import { CronRoutes } from "./routes/cron"
 import { MemoryRoutes } from "./routes/memory"
 import { MigrateRoutes } from "./routes/migrate"
 import { VoiceRoutes } from "./routes/voice"
+import { NativeRoutes } from "./routes/native"
 import { MDNS } from "./mdns"
 import { lazy } from "@/util/lazy"
 import { initProjectors } from "./projectors"
@@ -195,7 +196,7 @@ const NO_AUTH_PATHS = new Set([
 ])
 
 const csp = (hash = "") =>
-  `default-src 'self'; script-src 'self' 'wasm-unsafe-eval'${hash ? ` 'sha256-${hash}'` : ""}; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; media-src 'self' data:; connect-src 'self' data:`
+  `default-src 'self'; script-src 'self' 'wasm-unsafe-eval'${hash ? ` 'sha256-${hash}'` : ""}; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; media-src 'self' data:; connect-src 'self' data:`
 
 const web = process.env.AETHER_WEB_ORIGIN || process.env.OPENCODE_WEB_ORIGIN || "https://app.opencode.ai"
 
@@ -243,6 +244,7 @@ export namespace Server {
           else if (err instanceof Provider.ModelNotFoundError) status = 400
           else if (err.name === "ProviderAuthValidationFailed") status = 400
           else if (err.name === "InvalidSessionBackupError") status = 400
+          else if (err.name === "NativeSessionUnsupported") status = 400
           else if (err.name === "SessionImportActiveError") status = 409
           else if (err.name.startsWith("Worktree")) status = 400
           else status = 500
@@ -485,6 +487,7 @@ export namespace Server {
       .route("/permission", PermissionRoutes())
       .route("/question", QuestionRoutes())
       .route("/provider", ProviderRoutes())
+      .route("/native", NativeRoutes())
       .route("/database", DatabaseRoutes())
       .route("/latex", LatexRoutes())
       .route("/", FileRoutes())

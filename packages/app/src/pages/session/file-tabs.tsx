@@ -22,6 +22,7 @@ import { source } from "@/components/latex-drafts"
 import { useLatex } from "@/context/latex"
 import { useSettings, monoFontFamily } from "@/context/settings"
 import { useTheme } from "@opencode-ai/ui/theme/context"
+import { FileImage } from "@/components/file-image"
 import { PdfViewerShell } from "@/components/pdf-viewer-shell-official"
 import {
   registerOpenFileCallback,
@@ -493,13 +494,14 @@ export function FileTabContent(props: { tab: string; visible: boolean }) {
     attachments?: FollowupDraft["attachments"]
   }) => {
     const sessionID = params.id
-    const model = local.model.current()
-    const agent = local.agent.current()
-    if (!sessionID || !model || !agent) {
+    const selection = local.selection()
+    if (!sessionID || !selection) {
       showToast({
         variant: "error",
         title: language.t("common.requestFailed"),
-        description: language.t("prompt.toast.modelAgentRequired.description"),
+        description: language.t(
+          local.native.engine() ? "native.notReady" : "prompt.toast.modelAgentRequired.description",
+        ),
       })
       return
     }
@@ -516,9 +518,7 @@ export function FileTabContent(props: { tab: string; visible: boolean }) {
         prompt: DEFAULT_PROMPT,
         attachments: input.attachments,
         context: [],
-        agent: agent.name,
-        model: { providerID: model.provider.id, modelID: model.id },
-        variant: local.model.variant.current(),
+        ...selection,
         extraTextParts: input.extraTextParts,
       },
     }).catch((cause) => {
@@ -1297,11 +1297,7 @@ export function FileTabContent(props: { tab: string; visible: boolean }) {
 
   const renderFile = (source: string) => {
     if (isImageFile()) {
-      return (
-        <div class="flex h-full min-h-0 items-center justify-center p-6" data-file-content>
-          <img src={rawPreviewUrl()} alt={path() ?? "image"} class="max-h-full max-w-full object-contain" />
-        </div>
-      )
+      return <FileImage src={rawPreviewUrl()} path={path() ?? ""} auth={pdfAuthHeader()} />
     }
     if (isPDF()) {
       const currentPath = path()

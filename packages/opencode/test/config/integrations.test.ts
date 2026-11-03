@@ -50,13 +50,13 @@ test("integrations reject unrelated global settings", async () => {
   })
 })
 
-test("shared integrations resolve only latex placeholders and preserve opaque sibling text", async () => {
+test("shared integrations resolve LaTeX and native placeholders without changing their source text", async () => {
   await isolated(async (dir) => {
     await Bun.write(path.join(dir, "tectonic-path"), "tectonic-fixture")
+    await Bun.write(path.join(dir, "codex-path"), "codex-fixture")
     const sibling = `"native": {
-      // This build must not resolve or validate another feature's settings.
-      "codex": { "path": "{file:missing-codex-path}" },
-      "future": ["{env:AETHER_UNSET_SIBLING}", 42]
+      // Both registered integrations share this file.
+      "codex": { "path": "{file:codex-path}" }
     }`
     const source = `{
       ${sibling},
@@ -66,12 +66,12 @@ test("shared integrations resolve only latex placeholders and preserve opaque si
     await Bun.write(file, source)
     const current = await Config.getGlobal()
     expect(current.latex).toEqual({ tectonic: { path: "tectonic-fixture" }, latexmk: { path: "latexmk" } })
-    expect(current).not.toHaveProperty("native")
+    expect(current.native?.codex?.path).toBe("codex-fixture")
     expect(await Bun.file(file).text()).toBe(source)
     const result = await Config.updateGlobal({ latex: { latexmk: { path: "new-latexmk" } } })
     expect(result.latex).toEqual({ tectonic: { path: "tectonic-fixture" }, latexmk: { path: "new-latexmk" } })
-    expect(result).not.toHaveProperty("native")
-    expect(await Config.getGlobal()).not.toHaveProperty("native")
+    expect(result.native?.codex?.path).toBe("codex-fixture")
+    expect((await Config.getGlobal()).native?.codex?.path).toBe("codex-fixture")
     expect(await Bun.file(file).text()).toContain(sibling)
     expect((await read(dir, "aether.integrations.jsonc")).latex?.tectonic?.path).toBe("{file:tectonic-path}")
     expect(await Bun.file(path.join(dir, "aether.json")).exists()).toBe(false)
@@ -81,12 +81,12 @@ test("shared integrations resolve only latex placeholders and preserve opaque si
 test("sibling-only integrations stay byte-identical during ordinary config saves", async () => {
   await isolated(async (dir) => {
     const file = path.join(dir, "aether.integrations.jsonc")
-    const source = '{\n  // Opaque sibling data.\n  "native": ["{file:missing}", null]\n}\n'
+    const source = '{\n  // Native integration.\n  "native": { "codex": { "enabled": false } }\n}\n'
     await Bun.write(file, source)
-    expect(await Config.getGlobal()).toEqual({})
+    expect((await Config.getGlobal()).native?.codex?.enabled).toBe(false)
     const result = await Config.updateGlobal({ model: "test/model" })
     expect(result.model).toBe("test/model")
-    expect(result).not.toHaveProperty("native")
+    expect(result.native?.codex?.enabled).toBe(false)
     expect(await Bun.file(file).text()).toBe(source)
     expect(await read(dir, "aether.json")).toEqual({ $schema: schema, model: "test/model" })
   })
@@ -102,7 +102,7 @@ test("latex validation still rejects invalid settings in the shared envelope", a
   })
 })
 
-test("unmigrated mixed standard config is rejected without removing sibling fields", async () => {
+test("unmigrated mixed standard config moves both integrations on update", async () => {
   await isolated(async (dir) => {
     await save(dir, "aether.jsonc", {
       latex: { tectonic: { path: "tectonic" } },
@@ -110,12 +110,13 @@ test("unmigrated mixed standard config is rejected without removing sibling fiel
     })
     const file = path.join(dir, "aether.jsonc")
     const before = await Bun.file(file).text()
-    await expect(Config.getGlobal()).rejects.toMatchObject({ name: "ConfigInvalidError" })
-    await expect(Config.updateGlobal({ latex: { latexmk: { path: "latexmk" } } })).rejects.toMatchObject({
-      name: "ConfigInvalidError",
-    })
-    expect(await Bun.file(file).text()).toBe(before)
-    expect(await Bun.file(path.join(dir, "aether.integrations.jsonc")).exists()).toBe(false)
+    expect((await Config.getGlobal()).latex?.tectonic?.path).toBe("tectonic")
+    expect((await Config.getGlobal()).native?.codex?.enabled).toBe(false)
+    const result = await Config.updateGlobal({ latex: { latexmk: { path: "latexmk" } } })
+    expect(result.latex).toEqual({ tectonic: { path: "tectonic" }, latexmk: { path: "latexmk" } })
+    expect(result.native?.codex?.enabled).toBe(false)
+    expect(await Bun.file(file).text()).not.toBe(before)
+    expect((await read(dir, "aether.integrations.jsonc")).native?.codex?.enabled).toBe(false)
   })
 })
 
@@ -139,7 +140,7 @@ test("ordinary saves never copy integrations into a newly created standard confi
     })
     const result = await Config.updateGlobal({ model: "test/model" })
     expect(result.latex?.tectonic?.path).toBe("tectonic")
-    expect(result).not.toHaveProperty("native")
+    expect(result.native?.codex?.enabled).toBe(false)
     expect(result.model).toBe("test/model")
     expect(await read(dir, "aether.json")).toEqual({ $schema: schema, model: "test/model" })
     expect((await read(dir, "aether.integrations.jsonc")).native).toEqual({ codex: { enabled: false } })
