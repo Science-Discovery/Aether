@@ -13,6 +13,7 @@ const calls = vi.hoisted(() => ({
   get: vi.fn(),
   list: vi.fn(),
   messages: vi.fn(),
+  status: vi.fn(),
   client: vi.fn(),
   update: vi.fn(),
 }))
@@ -103,7 +104,8 @@ beforeEach(() => {
   vi.resetAllMocks()
   resetSessionPrefetch()
   calls.messages.mockResolvedValue({ data: [], response: { headers: new Headers() } })
-  calls.client.mockReturnValue({ session: { get: calls.get, list: calls.list, messages: calls.messages } })
+  calls.status.mockResolvedValue({ data: {} })
+  calls.client.mockReturnValue({ session: { get: calls.get, list: calls.list, messages: calls.messages, status: calls.status } })
 })
 afterEach(() => {
   disposers.splice(0).forEach((dispose) => dispose())
