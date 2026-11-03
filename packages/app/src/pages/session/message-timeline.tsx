@@ -77,6 +77,8 @@ const idle = { type: "idle" as const }
 
 type UserActions = {
   fork?: (input: { sessionID: string; messageID: string }) => Promise<void> | void
+  response?: (input: { sessionID: string; messageID: string }) => Promise<void> | void
+  edit?: (input: { sessionID: string; messageID: string }) => Promise<void> | void
   revert?: (input: { sessionID: string; messageID: string }) => Promise<void> | void
 }
 
@@ -320,6 +322,8 @@ export function MessageTimeline(props: {
   mobileChanges: boolean
   mobileFallback: JSX.Element
   actions?: UserActions
+  reveal?: string
+  onReveal?: (id: string) => void
   scroll: { overflow: boolean; bottom: boolean }
   onResumeScroll: () => void
   setScrollRef: (el: HTMLDivElement | undefined) => void
@@ -494,6 +498,12 @@ export function MessageTimeline(props: {
     auto: settings.general.autoCollapse,
     rendered,
     turns: collapsibleTurnIDs,
+  })
+  createEffect(() => {
+    const id = props.reveal
+    if (!id || !paged() || !rendered().includes(id)) return
+    if (collapse.is(id)) collapse.set(id, false)
+    props.onReveal?.(id)
   })
   createEffect(() => {
     const id = sessionID()

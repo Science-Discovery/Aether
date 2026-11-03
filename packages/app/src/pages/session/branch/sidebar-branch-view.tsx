@@ -1,7 +1,9 @@
 import { useLocation, useNavigate, useParams } from "@solidjs/router"
 import type { SessionGraphResult } from "@opencode-ai/sdk/v2"
 import { Icon } from "@opencode-ai/ui/icon"
+import { checksum } from "@opencode-ai/util/encode"
 import { useGlobalSDK } from "@/context/global-sdk"
+import { useGlobalSync } from "@/context/global-sync"
 import { useLanguage } from "@/context/language"
 import { useLayout } from "@/context/layout"
 import { useSettings } from "@/context/settings"
@@ -39,11 +41,13 @@ export function SidebarBranchView(props: {
   currentSessionID: string
   directory: string
   refreshKey?: string
+  linear?: boolean
 }) {
   const params = useParams()
   const location = useLocation()
   const navigate = useNavigate()
   const globalSDK = useGlobalSDK()
+  const sync = useGlobalSync()
   const layout = useLayout()
   const settings = useSettings()
   const language = useLanguage()
@@ -51,10 +55,10 @@ export function SidebarBranchView(props: {
   const [loading, setLoading] = createSignal(false)
   const [graph, setGraph] = createSignal<SessionGraphResult>()
   const [errorMessage, setErrorMessage] = createSignal<string>()
-  const compact = createMemo(() => settings.general.branchGraphCompact())
+  const compact = createMemo(() => !props.linear && settings.general.branchGraphCompact())
   const fontSize = createMemo(() => settings.general.branchGraphFontSize())
   const rowDensity = createMemo(() => settings.general.branchGraphRowDensity())
-  const orderMode = createMemo(() => settings.general.branchGraphOrderMode())
+  const orderMode = createMemo(() => (props.linear ? "sequence" : settings.general.branchGraphOrderMode()))
   const rowHeight = createMemo(() => ROW_DENSITY_HEIGHT_MAP[rowDensity()])
   const labelClass = "text-12-medium"
   const labelStyle = createMemo(() => FONT_SIZE_STYLE_MAP[fontSize()])
@@ -64,6 +68,19 @@ export function SidebarBranchView(props: {
       throwOnError: true,
     }),
   )
+  const revision = createMemo(() => {
+    if (!props.linear) return ""
+    const [store] = sync.child(props.directory, { bootstrap: false })
+    return (store.message[props.sessionID] ?? [])
+      .filter((message) => message.role === "user")
+      .map((message) => {
+        const label = (store.part[message.id] ?? [])
+          .flatMap((part) => (part.type === "text" && !part.synthetic ? [part.text] : []))
+          .join("\n")
+        return `${message.id}:${checksum(label) ?? ""}`
+      })
+      .join("|")
+  })
 
   let requestVersion = 0
   let scrollContainer: HTMLDivElement | undefined
@@ -82,7 +99,7 @@ export function SidebarBranchView(props: {
   const loadGraph = async (sessionID: string) => {
     const version = ++requestVersion
     const refreshKey = props.refreshKey ?? ""
-    const cacheKey = `${props.directory}:${sessionID}:${refreshKey}`
+    const cacheKey = `${props.directory}:${sessionID}:${refreshKey}:${revision()}`
     const cached = graphCache.get(cacheKey)
     if (cached) {
       setGraph(cached)
@@ -113,6 +130,7 @@ export function SidebarBranchView(props: {
     const sessionID = props.sessionID
     if (!sessionID) return
     props.refreshKey
+    revision()
     void loadGraph(sessionID)
   })
 

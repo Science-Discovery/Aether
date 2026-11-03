@@ -25,6 +25,7 @@ import {
   inArray,
   lt,
   asc,
+  sql,
 } from "../storage/db"
 import { SyncEvent } from "../sync"
 import type { SQL } from "../storage/db"
@@ -55,6 +56,11 @@ import { iife } from "@/util/iife"
 import type { ReadingMode } from "../reading-mode/types"
 import { SessionPreference } from "./preference"
 import { PROJECT } from "@/persist/naming"
+import { Native } from "../native/schema"
+import { NativeInput } from "../native/input"
+import { NativeRuntime } from "../native/runtime"
+import { NativeQueue } from "../native/queue"
+import { NativeAnswers } from "../native/answers"
 
 export namespace Session {
   const log = Log.create({ service: "session" })
@@ -102,7 +108,8 @@ export namespace Session {
       projectID: row.project_id,
       workspaceID: row.workspace_id ?? undefined,
       directory: row.directory,
-      parentID: row.parent_id ?? undefined,
+      parentID:
+        row.engine?.type === "codex" && row.fork_parent_session_id !== null ? undefined : (row.parent_id ?? undefined),
       treeID: row.tree_id ?? undefined,
       forkIndex: row.fork_index ?? undefined,
       forkParentSessionID: row.fork_parent_session_id ?? undefined,
@@ -113,6 +120,7 @@ export namespace Session {
       share,
       revert,
       permission: row.permission ?? undefined,
+      engine: row.engine ?? undefined,
       readingMode: row.reading_mode
         ? {
             ...row.reading_mode,
@@ -151,6 +159,7 @@ export namespace Session {
       summary_diffs: info.summary?.diffs,
       revert: info.revert ?? null,
       permission: info.permission,
+      engine: info.engine ?? null,
       reading_mode: info.readingMode ?? null,
       time_created: info.time.created,
       time_updated: info.time.updated,
@@ -359,7 +368,7 @@ export namespace Session {
     }
 
     for (const session of sessions) {
-      if (!session.forkParentSessionID) continue
+      if (session.engine?.type === "codex" || !session.forkParentSessionID) continue
 
       const normalized = await normalizeForkParentLink({
         session,
@@ -471,6 +480,7 @@ export namespace Session {
         archived: z.number().optional(),
       }),
       permission: Permission.Ruleset.optional(),
+      engine: Native.Engine.optional(),
       revert: z
         .object({
           messageID: MessageID.zod,
@@ -684,16 +694,22 @@ export namespace Session {
         parentID: SessionID.zod.optional(),
         title: z.string().optional(),
         permission: Info.shape.permission,
+        engine: Native.Input.optional(),
         workspaceID: WorkspaceID.zod.optional(),
       })
       .optional(),
     async (input) => {
+      if (input?.engine && (await Config.getGlobal()).native?.codex?.enabled === false)
+        throw new Native.Unsupported({
+          message: "Codex is disabled in Settings. Enable it before starting a Codex session.",
+        })
       return createNext({
         id: input?.id,
         parentID: input?.parentID,
         directory: Instance.directory,
         title: input?.title,
         permission: input?.permission,
+        engine: input?.engine ? { ...input.engine, permission: input.engine.permission ?? "auto" } : undefined,
         workspaceID: input?.workspaceID,
       })
     },
@@ -703,10 +719,40 @@ export namespace Session {
     z.object({
       sessionID: SessionID.zod,
       messageID: MessageID.zod.optional(),
+      after: z
+        .boolean()
+        .optional()
+        .describe("For native Codex, retain the complete turn containing the selected message"),
     }),
-    async (input) => {
-      const original = await get(input.sessionID)
+    async (input): Promise<Info> => {
+      const original = await getGlobal(input.sessionID)
       if (!original) throw new Error("session not found")
+      if (original.engine) {
+        const { NativeFork } = await import("../native/fork")
+        return NativeFork.run(input, async ({ id, source, engine, anchor }) => {
+          const tree = source.treeID ?? TreeID.descending()
+          const index = await getNextForkIndex({ projectID: source.projectID, treeID: tree })
+          const session = await createNext({
+            id,
+            directory: source.directory,
+            workspaceID: source.workspaceID,
+            permission: source.permission,
+            engine,
+            treeID: tree,
+            forkIndex: index,
+            forkParentSessionID: source.id,
+            forkAfterUserMessageID: anchor,
+            title: getForkedTitle(source.title, index),
+          })
+          const pref = SessionPreference.get(source.id)
+          if (pref) {
+            const { sessionID: _, ...rest } = pref
+            await SessionPreference.update({ sessionID: session.id, ...rest })
+          }
+          return session
+        })
+      }
+      if (input.after) throw new Error("The after option is only supported for native Codex forks.")
       if (original.treeID) {
         await repairTreeForkParents({
           projectID: original.projectID,
@@ -810,6 +856,7 @@ export namespace Session {
     workspaceID?: WorkspaceID
     directory: string
     permission?: Permission.Ruleset
+    engine?: Native.Engine
   }) {
     const treeID = await (async () => {
       if (input.treeID) return input.treeID
@@ -832,6 +879,7 @@ export namespace Session {
       forkAfterUserMessageID: input.forkAfterUserMessageID,
       title: input.title ?? createDefaultTitle(!!input.parentID),
       permission: input.permission,
+      engine: input.engine,
       time: {
         created: Date.now(),
         updated: Date.now(),
@@ -1067,6 +1115,65 @@ export namespace Session {
     },
   )
 
+  export const setEngine = fn(
+    z.object({ sessionID: SessionID.zod, engine: Native.Engine, preserve: z.boolean().optional() }),
+    async (input) => {
+      const session = await get(input.sessionID)
+      if (session.engine?.type !== input.engine.type) throw new Error("A session's engine cannot be changed")
+      const current = Database.useProject(session.projectID, (db) =>
+        db.select({ engine: SessionTable.engine }).from(SessionTable).where(eq(SessionTable.id, input.sessionID)).get(),
+      )
+      if (!current?.engine) throw new Error("The native session no longer exists")
+      SyncEvent.run(Event.Updated, {
+        sessionID: input.sessionID,
+        info: {
+          projectID: session.projectID,
+          engine: input.preserve
+            ? { ...input.engine, permission: current.engine.permission, mode: current.engine.mode }
+            : input.engine,
+          time: { updated: Date.now() },
+        },
+      })
+    },
+  )
+
+  export const setNativePermission = fn(
+    z.object({ sessionID: SessionID.zod, permission: Native.Permission }),
+    async (input) => {
+      const session = await get(input.sessionID)
+      if (!session.engine) throw new Error("This session does not use the native Codex backend")
+      const current = Database.useProject(session.projectID, (db) =>
+        db.select({ engine: SessionTable.engine }).from(SessionTable).where(eq(SessionTable.id, input.sessionID)).get(),
+      )
+      if (!current?.engine) throw new Error("The native session no longer exists")
+      SyncEvent.run(Event.Updated, {
+        sessionID: input.sessionID,
+        info: {
+          projectID: session.projectID,
+          engine: { ...current.engine, permission: input.permission },
+          time: { updated: Date.now() },
+        },
+      })
+    },
+  )
+
+  export const setNativeMode = fn(z.object({ sessionID: SessionID.zod, mode: Native.Mode }), async (input) => {
+    const session = await get(input.sessionID)
+    if (!session.engine) throw new Error("This session does not use the native Codex backend")
+    const current = Database.useProject(session.projectID, (db) =>
+      db.select({ engine: SessionTable.engine }).from(SessionTable).where(eq(SessionTable.id, input.sessionID)).get(),
+    )
+    if (!current?.engine) throw new Error("The native session no longer exists")
+    SyncEvent.run(Event.Updated, {
+      sessionID: input.sessionID,
+      info: {
+        projectID: session.projectID,
+        engine: { ...current.engine, mode: input.mode },
+        time: { updated: Date.now() },
+      },
+    })
+  })
+
   export const setRevert = fn(
     z.object({
       sessionID: SessionID.zod,
@@ -1205,6 +1312,18 @@ export namespace Session {
     }
   }
 
+  // Earlier native forks stored their source as parent_id. Treat them as
+  // independent chats before pagination without rewriting existing records.
+  function roots() {
+    return or(
+      isNull(SessionTable.parent_id),
+      and(
+        isNotNull(SessionTable.fork_parent_session_id),
+        sql`json_extract(${SessionTable.engine}, '$.type') = 'codex'`,
+      ),
+    )!
+  }
+
   export function* list(input?: {
     directory?: string
     workspaceID?: WorkspaceID
@@ -1234,7 +1353,7 @@ export namespace Session {
       conditions.push(eq(SessionTable.directory, Filesystem.resolve(input.directory)))
     }
     if (input?.roots) {
-      conditions.push(isNull(SessionTable.parent_id))
+      conditions.push(roots())
     }
     if (input?.start) {
       conditions.push(gte(SessionTable.time_updated, input.start))
@@ -1283,7 +1402,7 @@ export namespace Session {
       conditions.push(eq(SessionTable.directory, Filesystem.resolve(input.directory)))
     }
     if (input?.roots) {
-      conditions.push(isNull(SessionTable.parent_id))
+      conditions.push(roots())
     }
     if (input?.start) {
       conditions.push(gte(SessionTable.time_updated, input.start))
@@ -1369,7 +1488,7 @@ export namespace Session {
         .where(and(eq(SessionTable.project_id, project.id), eq(SessionTable.parent_id, parentID)))
         .all(),
     )
-    return rows.map((row) => fromRow(row)).filter((s) => !isSubagentSession(s))
+    return rows.map((row) => fromRow(row)).filter((s) => s.parentID === parentID && !isSubagentSession(s))
   })
 
   export const tree = fn(SessionID.zod, async (sessionID): Promise<TreeResult> => {
@@ -1463,6 +1582,52 @@ export namespace Session {
 
   export const graph = fn(SessionID.zod, async (sessionID): Promise<GraphResult> => {
     const currentSession = await get(sessionID)
+    if (currentSession.engine?.type === "codex") {
+      const history = await messages({ sessionID })
+      const replies = new Map(
+        history.flatMap((message) =>
+          message.info.role === "assistant" ? [[message.info.parentID, message.info] as const] : [],
+        ),
+      )
+      const nodes: GraphNode[] = history
+        .flatMap((message) => (message.info.role === "user" ? [{ info: message.info, parts: message.parts }] : []))
+        .map((message, row) => {
+          const reply = replies.get(message.info.id)
+          return {
+            id: turnNodeID(sessionID, message.info.id),
+            kind: "turn",
+            sessionID,
+            userMessageID: message.info.id,
+            lane: 0,
+            row,
+            time: message.info.time.created,
+            label: extractUserLabel(message),
+            providerID: reply?.providerID ?? message.info.model.providerID,
+            modelID: reply?.modelID ?? message.info.model.modelID,
+            mode: reply?.mode,
+            origin: "tree",
+          }
+        })
+      return {
+        kind: "graph",
+        // Display identity only: older native forks may still share a stored treeID.
+        treeID: TreeID.make(`tre_${sessionID.slice(4)}`),
+        nodes,
+        edges: nodes.slice(1).map((node, index) => ({
+          id: `${nodes[index].id}->${node.id}`,
+          from: nodes[index].id,
+          to: node.id,
+          kind: "continuation",
+          style: "solid",
+        })),
+        current: {
+          sessionID,
+          pathNodeIDs: nodes.map((node) => node.id),
+          latestNodeID: nodes.at(-1)?.id,
+          targetNodeID: nodes.at(-1)?.id,
+        },
+      }
+    }
     if (!currentSession.treeID) {
       return {
         kind: "legacy",
@@ -1752,14 +1917,34 @@ export namespace Session {
     }
   })
 
-  export const remove = fn(SessionID.zod, async (sessionID) => {
+  export const remove = fn(SessionID.zod, async (sessionID): Promise<void> => {
     try {
       const session = await get(sessionID)
+      if (session.engine) {
+        if (Filesystem.resolve(session.directory) !== Instance.directory)
+          return Instance.provide({ directory: session.directory, fn: () => remove(sessionID) })
+        NativeAnswers.close(sessionID)
+        await SessionPrompt.cancel(sessionID)
+        const { NativeCompact } = await import("../native/compact")
+        await NativeCompact.clear(sessionID)
+        await NativeRuntime.remove(sessionID)
+        await NativeQueue.clear(sessionID)
+        await NativeAnswers.clear(sessionID)
+        const { NativeRevert } = await import("../native/revert")
+        await NativeRevert.clear(sessionID)
+        const { NativeTasks } = await import("../native/tasks")
+        await NativeTasks.clear(sessionID)
+        if (!session.engine.thread)
+          await fs.rm(NativeInput.directory(sessionID), { recursive: true, force: true }).catch((error) => {
+            log.error("failed to remove native session attachments", { sessionID, error })
+          })
+      }
       for (const child of await children(sessionID)) {
         await remove(child.id)
       }
 
-      if (session.readingMode) {
+      // The native thread survives unlinking and can still refer to these files.
+      if (session.readingMode && !session.engine?.thread) {
         const dir = readingModeDir(sessionID)
         await fs.rm(dir, { recursive: true, force: true }).catch((error) => {
           log.error("failed to remove reading mode session directory", {

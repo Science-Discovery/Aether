@@ -4,6 +4,7 @@ import {
   createMemo,
   createSignal,
   For,
+  Index,
   on,
   onCleanup,
   onMount,
@@ -42,7 +43,15 @@ import { useSettings } from "@/context/settings"
 import { enqueueRun, runKey } from "@/context/terminal"
 import { isWorking } from "@/utils/working-state"
 import { NewSessionItem, SessionItem, SessionSkeleton, StatusDot } from "./sidebar-items"
-import { canCollapseAll, childMapByParent, hasProjectPermissions, sortedRootSessions, workspaceKey } from "./helpers"
+import {
+  canCollapseAll,
+  childMapByParent,
+  grouped,
+  hasProjectPermissions,
+  independent,
+  sortedRootSessions,
+  workspaceKey,
+} from "./helpers"
 import { formatServerError } from "@/utils/server-errors"
 import { SessionImportInput } from "@/components/session-import-input"
 import { MathConfirm } from "@/components/math-confirm"
@@ -789,6 +798,30 @@ const WorkspaceActions = (props: {
 
 const sortByUpdatedDesc = (a: Session, b: Session) => (b.time?.updated ?? 0) - (a.time?.updated ?? 0)
 
+const SessionGroups = (props: {
+  sessions: Accessor<Session[]>
+  children: (sessions: Accessor<Session[]>) => JSX.Element
+}) => {
+  const groups = createMemo(() => grouped(props.sessions()))
+  return (
+    <Index each={groups()}>
+      {(group) => (
+        <Show when={group().sessions.length > 0}>
+          <section
+            aria-label={group().label}
+            data-component="session-backend-group"
+            data-backend={group().type}
+            class="flex min-w-0 flex-col gap-1"
+          >
+            <h3 class="px-4 pt-2 pb-0.5 text-12-medium text-text-weak">{group().label}</h3>
+            {props.children(() => group().sessions)}
+          </section>
+        </Show>
+      )}
+    </Index>
+  )
+}
+
 const SessionTreeNodes = (props: {
   slug: Accessor<string>
   currentSessionID: Accessor<string | undefined>
@@ -815,12 +848,12 @@ const SessionTreeNodes = (props: {
   const childrenFor = (sessionID: string) =>
     (props.children().get(sessionID) ?? [])
       .map((childID) => sessionByID().get(childID))
-      .filter((session): session is Session => !!session)
+      .filter((session): session is Session => !!session && !independent(session))
 
   const rootSessionIDFor = (sessionID: string) => {
     let cursor = sessionByID().get(sessionID)
     if (!cursor) return
-    while (cursor.parentID) {
+    while (cursor.parentID && !independent(cursor)) {
       const parent = sessionByID().get(cursor.parentID)
       if (!parent) break
       cursor = parent
@@ -835,16 +868,23 @@ const SessionTreeNodes = (props: {
         if (!currentSessionID) return
         const current = sessions.get(currentSessionID)
         if (!current) return
-
-        if (treeEnabled) return
+        if (independent(current)) return
+        if (treeEnabled && current.engine?.type !== "codex") return
 
         const visited = new Set<string>()
         let cursor = current.parentID
         while (cursor && !visited.has(cursor)) {
           visited.add(cursor)
-          const expanded = untrack(() => props.ctx.sessionExpanded(cursor!))
-          if (!expanded) props.ctx.setSessionExpanded(cursor, true)
-          cursor = sessions.get(cursor)?.parentID
+          const parent = sessions.get(cursor)
+          const graph = treeEnabled && parent?.engine?.type === "codex"
+          const expanded = untrack(() =>
+            graph ? props.ctx.conversationTreeOpen(cursor!) : props.ctx.sessionExpanded(cursor!),
+          )
+          if (!expanded) {
+            const expand = graph ? props.ctx.setConversationTreeOpen : props.ctx.setSessionExpanded
+            expand(cursor, true)
+          }
+          cursor = parent && !independent(parent) ? parent.parentID : undefined
         }
       },
     ),
@@ -855,6 +895,7 @@ const SessionTreeNodes = (props: {
       () => [props.currentSessionID(), conversationTreeEnabled(), sessionByID()] as const,
       ([currentSessionID, treeEnabled]) => {
         if (!treeEnabled || !currentSessionID) return
+        if (sessionByID().get(currentSessionID)?.engine?.type === "codex") return
         const rootID = rootSessionIDFor(currentSessionID)
         if (!rootID) return
         props.ctx.setConversationTreeLastFocus(rootID, currentSessionID)
@@ -863,6 +904,8 @@ const SessionTreeNodes = (props: {
   )
 
   function SessionNode(nodeProps: { session: Session; depth: number; chain: Set<string> }): JSX.Element {
+    const native = () => nodeProps.session.engine?.type === "codex"
+    const tree = () => conversationTreeEnabled()
     const nextChain = new Set(nodeProps.chain)
     nextChain.add(nodeProps.session.id)
     const childSessions = createMemo(() =>
@@ -870,17 +913,19 @@ const SessionTreeNodes = (props: {
     )
     const hasChildren = createMemo(() => childSessions().length > 0)
     const hasBranchView = createMemo(() => {
-      if (!conversationTreeEnabled()) return hasChildren()
+      if (!tree()) return hasChildren()
+      if (native()) return true
       if (hasChildren()) return true
       if (nodeProps.session.id === props.currentSessionID()) return true
       return (nodeProps.session.time.updated ?? 0) > (nodeProps.session.time.created ?? 0)
     })
     const expanded = createMemo(() => {
-      if (!(conversationTreeEnabled() ? hasBranchView() : hasChildren())) return true
-      if (!conversationTreeEnabled()) return props.ctx.sessionExpanded(nodeProps.session.id)
+      if (!(tree() ? hasBranchView() : hasChildren())) return true
+      if (!tree()) return props.ctx.sessionExpanded(nodeProps.session.id)
       return props.ctx.conversationTreeOpen(nodeProps.session.id)
     })
     const graphSessionID = createMemo(() => {
+      if (native()) return nodeProps.session.id
       const currentSessionID = props.currentSessionID()
       const lastFocus = props.ctx.conversationTreeLastFocus(nodeProps.session.id)
       if (currentSessionID && rootSessionIDFor(currentSessionID) === nodeProps.session.id) {
@@ -892,6 +937,7 @@ const SessionTreeNodes = (props: {
       return nodeProps.session.id
     })
     const graphRefreshKey = createMemo(() => {
+      if (native()) return `${nodeProps.session.id}:${nodeProps.session.time.updated ?? 0}`
       const rootID = nodeProps.session.id
       const rows = props
         .allSessions()
@@ -917,9 +963,7 @@ const SessionTreeNodes = (props: {
           </Show>
           <SessionItem
             session={nodeProps.session}
-            targetSession={
-              conversationTreeEnabled() ? (sessionByID().get(graphSessionID()) ?? nodeProps.session) : nodeProps.session
-            }
+            targetSession={tree() ? (sessionByID().get(graphSessionID()) ?? nodeProps.session) : nodeProps.session}
             list={props.allSessions()}
             navList={props.ctx.navList}
             slug={props.slug()}
@@ -932,26 +976,25 @@ const SessionTreeNodes = (props: {
             unarchiveSession={nodeProps.depth === 0 ? props.unarchiveSession : undefined}
             deleteSession={props.deleteSession ?? props.ctx.deleteSession}
             renameSession={props.ctx.renameSession}
-            hasChildren={conversationTreeEnabled() ? hasBranchView() : hasChildren()}
+            hasChildren={tree() ? hasBranchView() : hasChildren()}
             expanded={expanded()}
             onToggleChildren={
-              conversationTreeEnabled()
-                ? toggleBranchView
-                : () => props.ctx.setSessionExpanded(nodeProps.session.id, !expanded())
+              tree() ? toggleBranchView : () => props.ctx.setSessionExpanded(nodeProps.session.id, !expanded())
             }
           />
         </div>
-        <Show when={expanded() && conversationTreeEnabled() && hasBranchView()}>
+        <Show when={expanded() && tree() && hasBranchView()}>
           <div class="pl-2 pr-2 pb-2">
             <SidebarBranchView
               sessionID={graphSessionID()}
               currentSessionID={props.currentSessionID() ?? nodeProps.session.id}
               directory={nodeProps.session.directory}
               refreshKey={graphRefreshKey()}
+              linear={native()}
             />
           </div>
         </Show>
-        <Show when={expanded() && !conversationTreeEnabled()}>
+        <Show when={expanded() && (native() || !tree())}>
           <For each={childSessions()}>
             {(child) => <SessionNode session={child} depth={nodeProps.depth + 1} chain={nextChain} />}
           </For>
@@ -961,7 +1004,11 @@ const SessionTreeNodes = (props: {
   }
 
   return (
-    <For each={props.rootSessions()}>{(session) => <SessionNode session={session} depth={0} chain={new Set()} />}</For>
+    <SessionGroups sessions={props.rootSessions}>
+      {(sessions) => (
+        <For each={sessions()}>{(session) => <SessionNode session={session} depth={0} chain={new Set()} />}</For>
+      )}
+    </SessionGroups>
   )
 }
 
@@ -1241,27 +1288,31 @@ export const WorkspaceSessionList = (props: {
         <Show
           when={!props.selectMode()}
           fallback={
-            <For each={props.rootSessions()}>
-              {(session) => (
-                <SessionItem
-                  session={session}
-                  list={props.rootSessions()}
-                  navList={props.ctx.navList}
-                  slug={props.slug()}
-                  children={props.children()}
-                  sidebarHovering={props.ctx.sidebarHovering}
-                  setHoverSession={props.ctx.setHoverSession}
-                  clearHoverProjectSoon={props.ctx.clearHoverProjectSoon}
-                  prefetchSession={props.ctx.prefetchSession}
-                  archiveSession={props.ctx.archiveSession}
-                  deleteSession={props.ctx.deleteSession}
-                  renameSession={props.ctx.renameSession}
-                  selectMode={props.selectMode}
-                  selected={() => props.selectedIds().has(session.id)}
-                  onToggleSelect={props.onToggleSelect}
-                />
+            <SessionGroups sessions={props.rootSessions}>
+              {(sessions) => (
+                <For each={sessions()}>
+                  {(session) => (
+                    <SessionItem
+                      session={session}
+                      list={props.rootSessions()}
+                      navList={props.ctx.navList}
+                      slug={props.slug()}
+                      children={props.children()}
+                      sidebarHovering={props.ctx.sidebarHovering}
+                      setHoverSession={props.ctx.setHoverSession}
+                      clearHoverProjectSoon={props.ctx.clearHoverProjectSoon}
+                      prefetchSession={props.ctx.prefetchSession}
+                      archiveSession={props.ctx.archiveSession}
+                      deleteSession={props.ctx.deleteSession}
+                      renameSession={props.ctx.renameSession}
+                      selectMode={props.selectMode}
+                      selected={() => props.selectedIds().has(session.id)}
+                      onToggleSelect={props.onToggleSelect}
+                    />
+                  )}
+                </For>
               )}
-            </For>
+            </SessionGroups>
           }
         >
           <SessionTreeNodes

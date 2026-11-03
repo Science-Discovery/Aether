@@ -21,6 +21,8 @@ import { createAutoScroll } from "../hooks"
 import { useI18n } from "../context/i18n"
 import { livePart } from "../utils/session-live"
 import { anchor, observe } from "../utils/session-pin"
+import { forkable } from "../utils/native-fork"
+export { forkable } from "../utils/native-fork"
 
 function same<T>(a: readonly T[], b: readonly T[]) {
   if (a === b) return true
@@ -266,6 +268,13 @@ export function SessionTurn(
     if (working()) return null
     return showAssistantCopyPartID() ?? null
   })
+  const response = createMemo(() => {
+    if (!props.actions?.response || status().type !== "idle") return
+    const id = assistantCopyPartID()
+    const message = assistantMessages().find((item) => data.store.part?.[item.id]?.some((part) => part.id === id))
+    if (!message || !forkable(message, allMessages(), data.store.part ?? {})) return
+    return props.actions.response
+  })
   const turnDurationMs = createMemo(() => {
     const start = message()?.time.created
     if (typeof start !== "number") return undefined
@@ -408,6 +417,7 @@ export function SessionTurn(
                     editToolDefaultOpen={props.editToolDefaultOpen}
                     canCollapseAssistant={canCollapseAssistant()}
                     onAssistantCollapse={collapseAssistant}
+                    onFork={response()}
                   />
                 </div>
               </Show>

@@ -16,6 +16,7 @@ import { showToast } from "@opencode-ai/ui/toast"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { Markdown } from "@opencode-ai/ui/markdown"
 import { CodeEditor } from "@/components/code-editor"
+import { FileImage } from "@/components/file-image"
 import { PdfViewerShell } from "@/components/pdf-viewer-shell-official"
 import {
   registerOpenFileCallback,
@@ -454,13 +455,14 @@ export function FileTabContent(props: { tab: string }) {
     attachments?: FollowupDraft["attachments"]
   }) => {
     const sessionID = params.id
-    const model = local.model.current()
-    const agent = local.agent.current()
-    if (!sessionID || !model || !agent) {
+    const selection = local.selection()
+    if (!sessionID || !selection) {
       showToast({
         variant: "error",
         title: language.t("common.requestFailed"),
-        description: language.t("prompt.toast.modelAgentRequired.description"),
+        description: language.t(
+          local.native.engine() ? "native.notReady" : "prompt.toast.modelAgentRequired.description",
+        ),
       })
       return
     }
@@ -477,9 +479,7 @@ export function FileTabContent(props: { tab: string }) {
         prompt: DEFAULT_PROMPT,
         attachments: input.attachments,
         context: [],
-        agent: agent.name,
-        model: { providerID: model.provider.id, modelID: model.id },
-        variant: local.model.variant.current(),
+        ...selection,
         extraTextParts: input.extraTextParts,
       },
     }).catch((cause) => {
@@ -1249,11 +1249,7 @@ export function FileTabContent(props: { tab: string }) {
 
   const renderFile = (source: string) => {
     if (isImageFile()) {
-      return (
-        <div class="flex h-full min-h-0 items-center justify-center p-6" data-file-content>
-          <img src={rawPreviewUrl()} alt={path() ?? "image"} class="max-h-full max-w-full object-contain" />
-        </div>
-      )
+      return <FileImage src={rawPreviewUrl()} path={path() ?? ""} auth={pdfAuthHeader()} />
     }
     if (isPDF()) {
       const currentPath = path()
