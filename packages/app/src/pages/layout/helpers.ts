@@ -24,13 +24,29 @@ function sortSessions(now: number) {
   }
 }
 
+export const independent = (session: Pick<Session, "engine" | "forkParentSessionID">) =>
+  session.engine?.type === "codex" && !!session.forkParentSessionID
+
 const isRootVisibleSession = (session: Session, directory: string) =>
-  workspaceKey(session.directory) === workspaceKey(directory) && !session.parentID && !session.time?.archived
+  workspaceKey(session.directory) === workspaceKey(directory) &&
+  (!session.parentID || independent(session)) &&
+  !session.time?.archived
 
 const roots = (store: SessionStore) =>
   (store.session ?? []).filter((session) => isRootVisibleSession(session, store.path.directory))
 
 export const sortedRootSessions = (store: SessionStore, now: number) => roots(store).sort(sortSessions(now))
+
+export const backends = { aether: "Aether", codex: "Codex" } as const
+
+export const backend = (session: Pick<Session, "engine">) => session.engine?.type ?? "aether"
+
+export const grouped = (sessions: Session[]) =>
+  (Object.keys(backends) as (keyof typeof backends)[]).map((type) => ({
+    type,
+    label: backends[type],
+    sessions: sessions.filter((session) => (!session.parentID || independent(session)) && backend(session) === type),
+  }))
 
 export const latestRootSession = (stores: SessionStore[], now: number) =>
   stores.flatMap(roots).sort(sortSessions(now))[0]

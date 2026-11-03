@@ -64,14 +64,15 @@ export function SortableTab(props: { tab: string; onTabClose: (tab: string) => v
       ref={wrapperRef}
       use:sortable
       data-dnd-sortable="true"
-      class="h-full flex items-center"
+      class="h-full flex items-center min-w-0 max-w-full"
       classList={{ "opacity-0": sortable.isActiveDraggable }}
       onMouseEnter={checkClipped}
       onMouseLeave={() => setClipped(false)}
     >
-      <div class="relative">
+      <div class="relative min-w-0 max-w-full">
         <Tabs.Trigger
           value={props.tab}
+          title={path()}
           closeButton={
             <TooltipKeybind
               title={language.t("common.closeTab")}

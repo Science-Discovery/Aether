@@ -9,6 +9,7 @@ import { Storage } from "@/storage/storage"
 import { Bus } from "../bus"
 import { SessionPrompt } from "./prompt"
 import { SessionSummary } from "./summary"
+import { Native } from "../native/schema"
 
 export namespace SessionRevert {
   const log = Log.create({ service: "session.revert" })
@@ -27,6 +28,7 @@ export namespace SessionRevert {
   export type RevertInput = z.infer<typeof RevertInput>
 
   export async function revert(input: RevertInput) {
+    Native.guard(await Session.get(input.sessionID), "Reverting conversation history")
     SessionPrompt.assertNotBusy(input.sessionID)
     const done = Promise.withResolvers<void>()
     pending[input.sessionID] = done.promise
@@ -108,6 +110,7 @@ export namespace SessionRevert {
   }
 
   export async function unrevert(input: { sessionID: SessionID }) {
+    Native.guard(await Session.get(input.sessionID), "Restoring reverted conversation history")
     log.info("unreverting", input)
     SessionPrompt.assertNotBusy(input.sessionID)
     const session = await Session.get(input.sessionID)

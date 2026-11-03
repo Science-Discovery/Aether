@@ -56,6 +56,7 @@ import { ToolStatusTitle } from "./tool-status-title"
 import { animate } from "motion"
 import { useLocation } from "@solidjs/router"
 import { attached, inline, kind } from "./message-file"
+import { nativeAnswer } from "./native-answer"
 
 function ShellSubmessage(props: { text: string; animate?: boolean }) {
   let widthRef: HTMLSpanElement | undefined
@@ -142,6 +143,8 @@ export type SessionAction = (input: { sessionID: string; messageID: string }) =>
 
 export type UserActions = {
   fork?: SessionAction
+  response?: SessionAction
+  edit?: SessionAction
   revert?: SessionAction
 }
 
@@ -154,6 +157,7 @@ export interface MessagePartProps {
   turnDurationMs?: number
   onAssistantCollapse?: () => void
   canCollapseAssistant?: boolean
+  onFork?: SessionAction
 }
 
 export type PartComponent = Component<MessagePartProps>
@@ -309,6 +313,8 @@ export function getToolInfo(tool: string, input: any = {}): ToolInfo {
           ? `${input.files.length} ${i18n.t(input.files.length > 1 ? "ui.common.file.other" : "ui.common.file.one")}`
           : undefined,
       }
+    case "codex.fileChange":
+      return { icon: "code-lines", title: i18n.t("ui.tool.patch"), subtitle: "Codex" }
     case "todowrite":
       return {
         icon: "checklist",
@@ -564,7 +570,7 @@ function renderable(part: PartType, showReasoningSummaries = true) {
     if (part.tool === "question") return part.state.status !== "pending" && part.state.status !== "running"
     return true
   }
-  if (part.type === "text") return !!part.text?.trim()
+  if (part.type === "text") return !!part.text?.trim() || !!part.nativeQuestion
   if (part.type === "reasoning") return showReasoningSummaries && !!part.text?.trim()
   return !!PART_MAPPING[part.type]
 }
@@ -589,6 +595,7 @@ export function AssistantParts(props: {
   editToolDefaultOpen?: boolean
   onAssistantCollapse?: () => void
   canCollapseAssistant?: boolean
+  onFork?: SessionAction
 }) {
   const data = useData()
   const emptyParts: PartType[] = []
@@ -673,6 +680,7 @@ export function AssistantParts(props: {
                         turnDurationMs={props.turnDurationMs}
                         onAssistantCollapse={props.onAssistantCollapse}
                         canCollapseAssistant={props.canCollapseAssistant}
+                        onFork={props.onFork}
                         defaultOpen={partDefaultOpen(item()!, props.shellToolDefaultOpen, props.editToolDefaultOpen)}
                       />
                     </Show>
@@ -1020,7 +1028,7 @@ export function UserMessageDisplay(props: {
   const i18n = useI18n()
   const [state, setState] = createStore({
     copied: false,
-    busy: undefined as "fork" | "revert" | undefined,
+    busy: undefined as "fork" | "edit" | "revert" | undefined,
   })
   const copied = () => state.copied
   const busy = () => state.busy
@@ -1042,7 +1050,10 @@ export function UserMessageDisplay(props: {
       ) as TextPart[]) ?? [],
   )
 
-  const text = createMemo(() => textPart()?.text || "")
+  const text = createMemo(() => {
+    const raw = textPart()?.text || ""
+    return props.message.model?.providerID === "codex-native" ? (nativeAnswer(raw) ?? raw) : raw
+  })
 
   const files = createMemo(() => (props.parts?.filter((p) => p.type === "file") as FilePart[]) ?? [])
 
@@ -1093,8 +1104,8 @@ export function UserMessageDisplay(props: {
     setTimeout(() => setState("copied", false), 2000)
   }
 
-  const run = (kind: "fork" | "revert") => {
-    const act = kind === "fork" ? props.actions?.fork : props.actions?.revert
+  const run = (kind: "fork" | "edit" | "revert") => {
+    const act = props.actions?.[kind]
     if (!act || busy()) return
     setState("busy", kind)
     void Promise.resolve()
@@ -1181,7 +1192,7 @@ export function UserMessageDisplay(props: {
                 </Show>
               </span>
             </Show>
-            <Show when={props.actions?.fork}>
+            <Show when={props.actions?.fork && props.message.model?.providerID !== "codex-native"}>
               <Tooltip value={i18n.t("ui.message.forkMessage")} placement="top" gutter={4}>
                 <IconButton
                   icon="fork"
@@ -1194,6 +1205,39 @@ export function UserMessageDisplay(props: {
                     run("fork")
                   }}
                   aria-label={i18n.t("ui.message.forkMessage")}
+                />
+              </Tooltip>
+            </Show>
+            <Show
+              when={
+                props.actions?.edit &&
+                !(props.message.model?.providerID === "codex-native" && nativeAnswer(textPart()?.text ?? ""))
+              }
+            >
+              <Tooltip
+                value={i18n.t(
+                  props.message.model?.providerID === "codex-native"
+                    ? "ui.message.revertEdit"
+                    : "ui.message.editMessage",
+                )}
+                placement="top"
+                gutter={4}
+              >
+                <IconButton
+                  icon="edit"
+                  size="normal"
+                  variant="ghost"
+                  disabled={!!busy()}
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    run("edit")
+                  }}
+                  aria-label={i18n.t(
+                    props.message.model?.providerID === "codex-native"
+                      ? "ui.message.revertEdit"
+                      : "ui.message.editMessage",
+                  )}
                 />
               </Tooltip>
             </Show>
@@ -1290,6 +1334,7 @@ export function Part(props: MessagePartProps) {
         turnDurationMs={props.turnDurationMs}
         onAssistantCollapse={props.onAssistantCollapse}
         canCollapseAssistant={props.canCollapseAssistant}
+        onFork={props.onFork}
       />
     </Show>
   )
@@ -1451,6 +1496,9 @@ PART_MAPPING["tool"] = function ToolPartDisplay(props) {
             />
           </Match>
         </Switch>
+        <Show when={data.toolExtension}>
+          {(extension) => <Dynamic component={extension()} part={part()} message={props.message} />}
+        </Show>
       </div>
     </Show>
   )
@@ -1527,6 +1575,17 @@ PART_MAPPING["text"] = function TextPartDisplay(props) {
 
   const displayText = () => (part().text ?? "").trim()
   const throttledText = createThrottledValue(displayText)
+  const duplicate = createMemo(() => {
+    const question = part().nativeQuestion
+    if (!question || !data.textExtension) return false
+    const text = throttledText().replace(/\r\n?/g, "\n").trim()
+    return [
+      question.questions.map((item) => item.title).join("\n\n"),
+      question.questions
+        .map((item) => [item.title, ...(item.options ?? []).map((option) => `- ${option}`)].join("\n"))
+        .join("\n\n"),
+    ].includes(text)
+  })
   const isLastTextPart = createMemo(() => {
     const last = (data.store.part?.[props.message.id] ?? [])
       .filter((item): item is TextPart => item?.type === "text" && !!item.text?.trim())
@@ -1543,6 +1602,7 @@ PART_MAPPING["text"] = function TextPartDisplay(props) {
     () => props.message.role === "assistant" && !!props.onAssistantCollapse && !!props.canCollapseAssistant,
   )
   const [copied, setCopied] = createSignal(false)
+  const [action, setAction] = createStore({ forking: false })
 
   const handleCopy = async () => {
     const content = displayText()
@@ -1553,11 +1613,16 @@ PART_MAPPING["text"] = function TextPartDisplay(props) {
   }
 
   return (
-    <Show when={throttledText()}>
+    <Show when={throttledText() || part().nativeQuestion}>
       <div data-component="text-part">
-        <div data-slot="text-part-body">
-          <Markdown text={throttledText()} cacheKey={part().id} />
-        </div>
+        <Show when={throttledText() && !duplicate()}>
+          <div data-slot="text-part-body">
+            <Markdown text={throttledText()} cacheKey={part().id} />
+          </div>
+        </Show>
+        <Show when={data.textExtension}>
+          {(extension) => <Dynamic component={extension()} part={part()} message={props.message} />}
+        </Show>
         <Show when={showCopy()}>
           <div data-slot="text-part-copy-wrapper" data-interrupted={interrupted() ? "" : undefined}>
             <Show when={meta()}>
@@ -1566,6 +1631,26 @@ PART_MAPPING["text"] = function TextPartDisplay(props) {
               </span>
             </Show>
             <div data-slot="text-part-actions">
+              <Show when={props.onFork}>
+                <Tooltip value={i18n.t("ui.message.forkResponse")} placement="top" gutter={4}>
+                  <IconButton
+                    icon="fork"
+                    size="normal"
+                    variant="ghost"
+                    disabled={action.forking}
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      if (action.forking || !props.onFork) return
+                      setAction("forking", true)
+                      void Promise.resolve()
+                        .then(() => props.onFork?.({ sessionID: props.message.sessionID, messageID: props.message.id }))
+                        .finally(() => setAction("forking", false))
+                    }}
+                    aria-label={i18n.t("ui.message.forkResponse")}
+                  />
+                </Tooltip>
+              </Show>
               <Tooltip
                 value={copied() ? i18n.t("ui.message.copied") : i18n.t("ui.message.copyResponse")}
                 placement="top"
@@ -2109,6 +2194,70 @@ ToolRegistry.register({
           <DiagnosticsDisplay diagnostics={diagnostics()} />
         </BasicTool>
       </div>
+    )
+  },
+})
+
+ToolRegistry.register({
+  name: "codex.fileChange",
+  render(props) {
+    const i18n = useI18n()
+    const pending = () => props.status === "pending" || props.status === "running"
+    const files = createMemo(() => {
+      const raw: unknown = props.input.changes ?? props.metadata.native?.changes
+      if (!Array.isArray(raw)) return []
+      return raw.flatMap((value: unknown) => {
+        if (!value || typeof value !== "object" || !("path" in value) || typeof value.path !== "string") return []
+        const kind = "kind" in value ? value.kind : undefined
+        return [
+          {
+            path: value.path,
+            kind:
+              typeof kind === "string"
+                ? kind
+                : kind && typeof kind === "object" && "type" in kind && typeof kind.type === "string"
+                  ? kind.type
+                  : "",
+            move:
+              kind && typeof kind === "object" && "move_path" in kind && typeof kind.move_path === "string"
+                ? kind.move_path
+                : undefined,
+            diff: "diff" in value && typeof value.diff === "string" ? value.diff : "",
+          },
+        ]
+      })
+    })
+    return (
+      <BasicTool
+        {...props}
+        icon="code-lines"
+        trigger={{ title: i18n.t("ui.tool.patch"), subtitle: "Codex" }}
+        defaultOpen
+        forceOpen={pending()}
+        hideDetails={pending() ? false : props.hideDetails}
+      >
+        <div data-component="codex-file-change">
+          <For each={files()}>
+            {(file) => (
+              <section>
+                <div data-slot="codex-change-header">
+                  <span>{file.path}</span>
+                  <span>{file.kind}</span>
+                </div>
+                <Show when={file.move}>
+                  <div>
+                    {file.path} → {file.move}
+                  </div>
+                </Show>
+                <pre data-slot="codex-change-diff">{file.diff}</pre>
+              </section>
+            )}
+          </For>
+          <Show when={!files().length && props.output}>
+            <pre data-slot="codex-change-diff">{props.output}</pre>
+          </Show>
+        </div>
+      </BasicTool>
     )
   },
 })
