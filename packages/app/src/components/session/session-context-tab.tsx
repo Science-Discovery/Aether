@@ -14,6 +14,7 @@ import type { Message, Part, UserMessage } from "@opencode-ai/sdk/v2/client"
 import { useLanguage } from "@/context/language"
 import { useSessionLayout } from "@/pages/session/session-layout"
 import { getSessionContextMetrics } from "./session-context-metrics"
+import { NativeUsage } from "../native-usage"
 import { estimateSessionContextBreakdown, type SessionContextBreakdownKey } from "./session-context-breakdown"
 import { createSessionContextFormatter } from "./session-context-format"
 import { MessageOrder } from "@/utils/message-order"
@@ -131,12 +132,15 @@ export function SessionContextTab() {
       }),
   )
 
-  const metrics = createMemo(() => getSessionContextMetrics(messages(), sync.data.provider.all))
+  const metrics = createMemo(() =>
+    getSessionContextMetrics(messages(), sync.data.provider.all, info()?.engine?.type === "codex"),
+  )
   const ctx = createMemo(() => metrics().context)
   const formatter = createMemo(() => createSessionContextFormatter(language.intl()))
 
   const cost = createMemo(() => {
-    return usd().format(metrics().totalCost)
+    const value = metrics().totalCost
+    return value === null ? language.t("native.usage.unknown") : usd().format(value)
   })
 
   const counts = createMemo(() => {
@@ -160,15 +164,11 @@ export function SessionContextTab() {
   })
 
   const providerLabel = createMemo(() => {
-    const c = ctx()
-    if (!c) return "—"
-    return c.providerLabel
+    return metrics().providerLabel ?? "—"
   })
 
   const modelLabel = createMemo(() => {
-    const c = ctx()
-    if (!c) return "—"
-    return c.modelLabel
+    return metrics().modelLabel ?? "—"
   })
 
   const breakdown = createMemo(
@@ -176,7 +176,7 @@ export function SessionContextTab() {
       () => [ctx()?.message.id, ctx()?.input, messages().length, systemPrompt()],
       () => {
         const c = ctx()
-        if (!c?.input) return []
+        if (!c?.input || c.native) return []
         return estimateSessionContextBreakdown({
           messages: messages(),
           parts: sync.data.part as Record<string, Part[] | undefined>,
@@ -214,7 +214,7 @@ export function SessionContextTab() {
     { label: "context.stats.assistantMessages", value: () => counts().assistant.toLocaleString(language.intl()) },
     { label: "context.stats.totalCost", value: cost },
     { label: "context.stats.sessionCreated", value: () => formatter().time(info()?.time.created) },
-    { label: "context.stats.lastActivity", value: () => formatter().time(ctx()?.message.time.created) },
+    { label: "context.stats.lastActivity", value: () => formatter().time(metrics().updated) },
   ] satisfies { label: string; value: () => JSX.Element }[]
 
   let scroll: HTMLDivElement | undefined
@@ -276,9 +276,25 @@ export function SessionContextTab() {
       onScroll={handleScroll}
     >
       <div class="px-6 pt-4 pb-10 flex flex-col gap-10">
+        <Show when={metrics().native}>
+          <NativeUsage />
+          <p class="text-12-regular text-text-weak">{language.t("native.usage.contextHelp")}</p>
+          <Stat label={language.t("native.usage.input")} value={formatter().number(ctx()?.used)} />
+        </Show>
         <div class="grid grid-cols-1 @[32rem]:grid-cols-2 gap-4">
           <For each={stats}>
-            {(stat) => <Stat label={language.t(stat.label as Parameters<typeof language.t>[0])} value={stat.value()} />}
+            {(stat) => (
+              <Stat
+                label={language.t(
+                  (metrics().native && stat.label === "context.stats.usage"
+                    ? "native.usage.context"
+                    : metrics().native && stat.label === "context.stats.totalCost"
+                      ? "native.usage.cost"
+                      : stat.label) as Parameters<typeof language.t>[0],
+                )}
+                value={stat.value()}
+              />
+            )}
           </For>
         </div>
 

@@ -17,6 +17,7 @@ import { useSDK } from "./sdk"
 import type { Message, Part } from "@opencode-ai/sdk/v2/client"
 import { SESSION_CACHE_LIMIT, dropSessionCaches, pickSessionCacheEvictions } from "./global-sync/session-cache"
 import { isViewing } from "./global-sync/viewing"
+import * as Status from "./global-sync/status"
 import { useLanguage } from "./language"
 import { formatServerError } from "@/utils/server-errors"
 import { MessageOrder } from "@/utils/message-order"
@@ -36,6 +37,22 @@ function runInflight(map: Map<string, Promise<void>>, key: string, task: () => P
   })
   map.set(key, promise)
   return promise
+}
+
+const snapshot = <T extends { id: string }>(items: T[]) => new Map(items.map((item) => [item.id, JSON.stringify(item)]))
+
+// A fetched page is authoritative except where the live store changed while
+// it was in flight (including streamed text, new messages, and deletions).
+function rebase<T extends { id: string }>(items: T[], before: Map<string, string>, current: T[]) {
+  const next = new Map(items.map((item) => [item.id, item]))
+  const ids = new Set(current.map((item) => item.id))
+  for (const id of before.keys()) {
+    if (!ids.has(id)) next.delete(id)
+  }
+  for (const item of current) {
+    if (before.get(item.id) !== JSON.stringify(item)) next.set(item.id, item)
+  }
+  return [...next.values()]
 }
 
 const keyFor = (directory: string, id: string) => `${directory}\n${id}`
@@ -194,6 +211,8 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
     const navigate = useNavigate()
     const language = useLanguage()
     const downgraded = new Set<string>()
+    let disposed = false
+    onCleanup(() => (disposed = true))
 
     type Child = ReturnType<(typeof globalSync)["child"]>
     type Setter = Child[1]
@@ -207,6 +226,8 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
     const initialMessagePageSize = 80
     const historyMessagePageSize = 200
     const inflight = new Map<string, Promise<void>>()
+    const loads = new Map<string, Promise<void>>()
+    const revisions = new Map<string, number>()
     const inflightDiff = new Map<string, Promise<void>>()
     const inflightTodo = new Map<string, Promise<void>>()
     const optimistic = new Map<string, Map<string, OptimisticItem>>()
@@ -218,24 +239,6 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
       complete: {} as Record<string, boolean>,
       loading: {} as Record<string, boolean>,
     })
-
-    // SSE reconnects replay no missed events: drop cached message paging state so
-    // the next sync refetches from the server. Message stores stay visible and
-    // optimistic entries are untouched until fresh data confirms them.
-    onCleanup(
-      globalSync.onReconnect(() => {
-        for (const [directory, sessions] of seen) {
-          clearSessionPrefetch(directory, sessions)
-          setMeta(
-            produce((draft) => {
-              for (const sessionID of sessions) {
-                invalidateSessionMessageCacheMeta(draft, { directory, sessionID })
-              }
-            }),
-          )
-        }
-      }),
-    )
 
     const downgrade = (directory: string, sessionID: string, err: unknown) => {
       if (!scopeError(err)) throw err
@@ -380,69 +383,91 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
       mode?: "replace" | "prepend"
     }) => {
       const key = keyFor(input.directory, input.sessionID)
-      if (meta.loading[key]) return
-
-      setMeta("loading", key, true)
-      await fetchMessages(input)
-        .then(async (page) => {
-          if (!tracked(input.directory, input.sessionID)) return
-          const [store] = globalSync.child(input.directory, { bootstrap: false })
-          const revert = store.session.find((item) => item.id === input.sessionID)?.revert?.messageID
-          const known = store.message[input.sessionID]?.some((item) => item.id === revert)
-          if (revert && !known && !page.session.some((item) => item.id === revert)) {
-            const result = await input.client.session
-              .message({ sessionID: input.sessionID, messageID: revert })
-              .catch(() => undefined)
-            const item = result?.data
-            if (item?.info?.id) {
-              page.session = MessageOrder.sort([...page.session, item.info])
-              page.part.push({ id: item.info.id, part: sortParts(item.parts) })
+      return runInflight(loads, key, async () => {
+        if (meta.loading[key]) return
+        const server = sdk.url
+        const revision = revisions.get(key)
+        const [store] = globalSync.child(input.directory, { bootstrap: false })
+        const messages = snapshot(store.message[input.sessionID] ?? [])
+        const parts = new Map(
+          (store.message[input.sessionID] ?? []).map((item) => [item.id, snapshot(store.part[item.id] ?? [])]),
+        )
+        const valid = () =>
+          !disposed &&
+          sdk.url === server &&
+          revision === revisions.get(key) &&
+          tracked(input.directory, input.sessionID)
+        setMeta("loading", key, true)
+        await fetchMessages(input)
+          .then(async (page) => {
+            if (!valid()) return
+            const [store] = globalSync.child(input.directory, { bootstrap: false })
+            const revert = store.session.find((item) => item.id === input.sessionID)?.revert?.messageID
+            const known = store.message[input.sessionID]?.some((item) => item.id === revert)
+            if (revert && !known && !page.session.some((item) => item.id === revert)) {
+              const result = await input.client.session
+                .message({ sessionID: input.sessionID, messageID: revert })
+                .catch(() => undefined)
+              const item = result?.data
+              if (item?.info?.id) {
+                page.session = MessageOrder.sort([...page.session, item.info])
+                page.part.push({ id: item.info.id, part: sortParts(item.parts) })
+              }
             }
-          }
-          return page
-        })
-        .then((page) => {
-          if (!page) return
-          if (!tracked(input.directory, input.sessionID)) return
-          const next = mergeOptimisticPage(page, getOptimistic(input.directory, input.sessionID))
-          for (const messageID of next.confirmed) {
-            clearOptimistic(input.directory, input.sessionID, messageID)
-          }
-          const [store] = globalSync.child(input.directory, { bootstrap: false })
-          const cached = input.mode === "prepend" ? (store.message[input.sessionID] ?? []) : []
-          const message = input.mode === "prepend" ? MessageOrder.merge(cached, next.session) : next.session
-          batch(() => {
-            input.setStore("message", input.sessionID, reconcile(message, { key: "id" }))
-            for (const p of next.part) {
-              const filtered = p.part.filter((x) => !SKIP_PARTS.has(x.type))
-              if (filtered.length) input.setStore("part", p.id, filtered)
+            return page
+          })
+          .then((page) => {
+            if (!page) return
+            if (!valid()) return
+            const next = mergeOptimisticPage(page, getOptimistic(input.directory, input.sessionID))
+            for (const messageID of next.confirmed) {
+              clearOptimistic(input.directory, input.sessionID, messageID)
             }
-            setMeta("limit", key, message.length)
-            setMeta("cursor", key, next.cursor)
-            setMeta("complete", key, next.complete)
-            setSessionPrefetch({
-              directory: input.directory,
-              sessionID: input.sessionID,
-              limit: message.length,
-              cursor: next.cursor,
-              complete: next.complete,
+            const [store] = globalSync.child(input.directory, { bootstrap: false })
+            const cached = input.mode === "prepend" ? (store.message[input.sessionID] ?? []) : []
+            const message = MessageOrder.sort(
+              rebase(
+                input.mode === "prepend" ? MessageOrder.merge(cached, next.session) : next.session,
+                messages,
+                store.message[input.sessionID] ?? [],
+              ),
+            )
+            batch(() => {
+              input.setStore("message", input.sessionID, reconcile(message, { key: "id" }))
+              for (const p of next.part) {
+                if (!message.some((item) => item.id === p.id)) continue
+                const filtered = rebase(p.part, parts.get(p.id) ?? new Map(), store.part[p.id] ?? []).filter(
+                  (x) => !SKIP_PARTS.has(x.type),
+                )
+                input.setStore("part", p.id, sortParts(filtered))
+              }
+              setMeta("limit", key, message.length)
+              setMeta("cursor", key, next.cursor)
+              setMeta("complete", key, next.complete)
+              setSessionPrefetch({
+                directory: input.directory,
+                sessionID: input.sessionID,
+                limit: message.length,
+                cursor: next.cursor,
+                complete: next.complete,
+              })
             })
           })
-        })
-        .finally(() => {
-          setMeta(
-            produce((draft) => {
-              if (!tracked(input.directory, input.sessionID)) {
-                delete draft.loading[key]
-                return
-              }
-              draft.loading[key] = false
-            }),
-          )
-        })
+          .finally(() => {
+            setMeta(
+              produce((draft) => {
+                if (!tracked(input.directory, input.sessionID)) {
+                  delete draft.loading[key]
+                  return
+                }
+                draft.loading[key] = false
+              }),
+            )
+          })
+      })
     }
 
-    return {
+    const api = {
       get data() {
         return current()[0]
       },
@@ -503,10 +528,13 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
         async sync(sessionID: string, opts?: { force?: boolean }) {
           const directory = sdk.directory
           const client = sdk.client
+          const server = sdk.url
           const [store, setStore] = globalSync.child(directory)
           const key = keyFor(directory, sessionID)
 
           if (!(await waitSession(sessionID))) return
+          if (opts?.force) await Promise.allSettled([inflight.get(key), loads.get(key)])
+          if (disposed || sdk.url !== server) return
 
           touch(directory, setStore, sessionID)
 
@@ -539,12 +567,15 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
             const cached = store.message[sessionID] !== undefined && meta.limit[key] !== undefined
             if (cached && hasSession && !opts?.force) return
 
-            const limit = meta.limit[key] ?? initialMessagePageSize
+            const revision = revisions.get(key)
+            const valid = () =>
+              !disposed && sdk.url === server && revision === revisions.get(key) && tracked(directory, sessionID)
+            const limit = Math.max(meta.limit[key] ?? initialMessagePageSize, store.message[sessionID]?.length ?? 0)
             const sessionReq =
               hasSession && !opts?.force
                 ? Promise.resolve()
                 : retry(() => client.session.get({ sessionID })).then((session) => {
-                    if (!tracked(directory, sessionID)) return
+                    if (!valid()) return
                     const data = session.data
                     if (!data) return
                     setStore(
@@ -552,6 +583,7 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
                       produce((draft) => {
                         const match = Binary.search(draft, sessionID, (s) => s.id)
                         if (match.found) {
+                          if (draft[match.index].time.updated > data.time.updated) return
                           draft[match.index] = data
                           return
                         }
@@ -571,7 +603,21 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
                     limit,
                   })
 
-            await Promise.all([sessionReq, messagesReq]).catch((err) => downgrade(directory, sessionID, err))
+            const status = Status.capture(store)
+            const statusReq = !opts?.force
+              ? Promise.resolve()
+              : retry(() => client.session.status()).then((response) => {
+                  if (!valid()) return
+                  const next = {
+                    ...response.data,
+                    [sessionID]: response.data?.[sessionID] ?? { type: "idle" as const },
+                  }
+                  setStore("session_status", reconcile(Status.rebase(next, status, store)))
+                })
+            await Promise.all([sessionReq, messagesReq, statusReq]).catch((err) => {
+              if (disposed || sdk.url !== server || sdk.directory !== directory) return
+              downgrade(directory, sessionID, err)
+            })
           })
         },
         async diff(sessionID: string, opts?: { force?: boolean }) {
@@ -699,5 +745,36 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
         return current()[0].path.directory
       },
     }
+    // A connection delivers no replay. Refresh viewed sessions even when an
+    // older HTTP request started before the connection was established.
+    onCleanup(
+      globalSync.onReconnect(() => {
+        const directory = sdk.directory
+        const server = sdk.url
+        for (const [directory, sessions] of seen) {
+          clearSessionPrefetch(directory, sessions)
+          for (const sessionID of sessions) {
+            const key = keyFor(directory, sessionID)
+            revisions.set(key, (revisions.get(key) ?? 0) + 1)
+          }
+          setMeta(
+            produce((draft) => {
+              for (const sessionID of sessions) invalidateSessionMessageCacheMeta(draft, { directory, sessionID })
+            }),
+          )
+        }
+        for (const sessionID of seen.get(directory) ?? []) {
+          if (!isViewing(sessionID)) continue
+          const key = keyFor(directory, sessionID)
+          void Promise.allSettled([inflight.get(key), loads.get(key)])
+            .then(() => {
+              if (disposed || sdk.url !== server || sdk.directory !== directory || !isViewing(sessionID)) return
+              return api.session.sync(sessionID, { force: true })
+            })
+            .catch((error: unknown) => console.error("Failed to recover session after reconnect", error))
+        }
+      }),
+    )
+    return api
   },
 })

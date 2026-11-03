@@ -11,7 +11,7 @@ import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { getFilename } from "@opencode-ai/util/path"
 import { A, useNavigate, useParams } from "@solidjs/router"
 import { decode64 } from "@/utils/base64"
-import { workspaceKey } from "./helpers"
+import { backend, workspaceKey } from "./helpers"
 import { type Accessor, createMemo, createSignal, For, type JSX, Match, onCleanup, Show, Switch } from "solid-js"
 import { useGlobalSync } from "@/context/global-sync"
 import { useLanguage } from "@/context/language"
@@ -397,6 +397,7 @@ export const SessionItem = (props: SessionItemProps): JSX.Element => {
       <ContextMenu.Trigger
         as="div"
         data-session-id={props.session.id}
+        data-backend={backend(props.session)}
         class="group/session relative w-full min-w-0 rounded-md cursor-default pl-2 pr-3 transition-colors
                hover:bg-surface-raised-base-hover [&:has(:focus-visible)]:bg-surface-raised-base-hover has-[[data-expanded]]:bg-surface-raised-base-hover has-[.active]:bg-surface-base-active"
       >

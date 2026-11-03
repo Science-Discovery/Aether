@@ -5,7 +5,7 @@ export interface Embedder {
   readonly name: string
   readonly provider: EmbeddingProvider
   readonly dimensions: number
-  embed(texts: string[]): Promise<Float32Array[]>
+  embed(texts: string[], signal?: AbortSignal): Promise<Float32Array[]>
 }
 
 // 可用的嵌入模型列表
@@ -82,7 +82,14 @@ function getError(data: EmbeddingResponse | null) {
   return data.error.message || ""
 }
 
-async function callEmbedding(opts: { url: string; apiKey: string; model: string; input: string | string[] }) {
+async function callEmbedding(opts: {
+  url: string
+  apiKey: string
+  model: string
+  input: string | string[]
+  signal?: AbortSignal
+}) {
+  opts.signal?.throwIfAborted()
   const response = await fetch(opts.url, {
     method: "POST",
     headers: {
@@ -93,7 +100,7 @@ async function callEmbedding(opts: { url: string; apiKey: string; model: string;
       input: opts.input,
       model: opts.model,
     }),
-    signal: AbortSignal.timeout(30000),
+    signal: AbortSignal.any([AbortSignal.timeout(30000), ...(opts.signal ? [opts.signal] : [])]),
   })
 
   const text = await response.text()
@@ -170,7 +177,8 @@ export class OpenAIEmbedder implements Embedder {
     this.baseURL = opts.baseURL || "https://api.openai.com/v1"
   }
 
-  private async embedBatch(batch: string[]): Promise<Float32Array[]> {
+  private async embedBatch(batch: string[], signal?: AbortSignal): Promise<Float32Array[]> {
+    signal?.throwIfAborted()
     const response = await fetch(`${this.baseURL}/embeddings`, {
       method: "POST",
       headers: {
@@ -181,7 +189,7 @@ export class OpenAIEmbedder implements Embedder {
         input: batch.length === 1 ? batch[0] : batch,
         model: this.model,
       }),
-      signal: AbortSignal.timeout(30000),
+      signal: AbortSignal.any([AbortSignal.timeout(30000), ...(signal ? [signal] : [])]),
     })
 
     if (!response.ok) {
@@ -195,7 +203,7 @@ export class OpenAIEmbedder implements Embedder {
     return sorted.map((item: any) => new Float32Array(item.embedding))
   }
 
-  async embed(texts: string[]): Promise<Float32Array[]> {
+  async embed(texts: string[], signal?: AbortSignal): Promise<Float32Array[]> {
     const allEmbeddings: Float32Array[] = []
 
     for (let i = 0; i < texts.length; i += EMBEDDING_BATCH_SIZE) {
@@ -203,12 +211,13 @@ export class OpenAIEmbedder implements Embedder {
 
       try {
         // 尝试批量发送
-        const embeddings = await this.embedBatch(batch)
+        const embeddings = await this.embedBatch(batch, signal)
         allEmbeddings.push(...embeddings)
       } catch {
+        signal?.throwIfAborted()
         // 批量失败（部分模型不支持数组输入）时降级为逐条发送
         for (const text of batch) {
-          const embeddings = await this.embedBatch([text])
+          const embeddings = await this.embedBatch([text], signal)
           allEmbeddings.push(...embeddings)
         }
       }
@@ -236,13 +245,14 @@ export class CustomEmbedder implements Embedder {
     this.baseURL = opts.baseURL
   }
 
-  async embed(texts: string[]): Promise<Float32Array[]> {
+  async embed(texts: string[], signal?: AbortSignal): Promise<Float32Array[]> {
     const allEmbeddings: Float32Array[] = []
     const urls = listURLs(this.baseURL)
     let size = EMBEDDING_BATCH_SIZE
 
     // 分批处理，每批最多 EMBEDDING_BATCH_SIZE 个
     for (let i = 0; i < texts.length; ) {
+      signal?.throwIfAborted()
       const batch = texts.slice(i, i + size)
 
       let data: EmbeddingResponse | undefined
@@ -256,9 +266,11 @@ export class CustomEmbedder implements Embedder {
             apiKey: this.apiKey,
             model: this.model,
             input: batch,
+            signal,
           })
           break
         } catch (e) {
+          signal?.throwIfAborted()
           err = pick(err, e instanceof Error ? e : new Error(String(e)))
         }
       }
@@ -325,8 +337,10 @@ export class LocalEmbedder implements Embedder {
     return this.initPromise
   }
 
-  async embed(texts: string[]): Promise<Float32Array[]> {
+  async embed(texts: string[], signal?: AbortSignal): Promise<Float32Array[]> {
+    signal?.throwIfAborted()
     await this.init()
+    signal?.throwIfAborted()
 
     if (!this.extractor) {
       throw new Error("Local embedder not initialized")
@@ -335,7 +349,9 @@ export class LocalEmbedder implements Embedder {
     const embeddings: Float32Array[] = []
 
     for (const text of texts) {
+      signal?.throwIfAborted()
       const result = await this.extractor(text, { pooling: "mean", normalize: true })
+      signal?.throwIfAborted()
       embeddings.push(new Float32Array(result.data))
     }
 

@@ -5,6 +5,7 @@ import { createRequire } from "module"
 import os from "os"
 import z from "zod"
 import { ModelsDev } from "../provider/models"
+import { Native } from "../native/schema"
 import { mergeDeep, pipe, unique } from "remeda"
 import { Global } from "../global"
 import fs from "fs/promises"
@@ -36,6 +37,7 @@ import { proxied } from "@/util/proxied"
 import { iife } from "@/util/iife"
 import { Account } from "@/account"
 import { ConfigPaths } from "./paths"
+import { write } from "./write"
 import { Filesystem } from "@/util/filesystem"
 import matter from "gray-matter"
 import { Process } from "@/util/process"
@@ -1227,6 +1229,12 @@ export namespace Config {
       $schema: z.string().optional().describe("JSON schema reference for configuration validation"),
       logLevel: Log.Level.optional().describe("Log level"),
       server: Server.optional().describe("Server configuration for opencode serve and web commands"),
+      native: z
+        .object({
+          codex: Native.Config.optional(),
+        })
+        .optional()
+        .describe("Native agent settings. Executable paths are read only from the user's global configuration."),
       command: z
         .record(z.string(), Command)
         .optional()
@@ -1475,12 +1483,36 @@ export namespace Config {
 
   export type Info = z.output<typeof Info>
 
+  const Integrations = Info.pick({ native: true }).strict()
+  const Envelope = z
+    .object({ $schema: z.string().optional(), native: z.unknown().optional(), latex: z.unknown().optional() })
+    .strict()
+
+  function integrations() {
+    return path.join(Global.Path.config, "aether.integrations.jsonc")
+  }
+
+  function extension(config: Record<string, unknown>) {
+    return Object.fromEntries(Object.entries(config).filter(([key, value]) => key === "native" && value !== undefined))
+  }
+
+  function envelope(text: string, file: string) {
+    const parsed = Envelope.safeParse(parse(text, file))
+    if (!parsed.success) throw new InvalidError({ path: file, issues: parsed.error.issues })
+    return parsed.data
+  }
+
   function globalFiles(name: string) {
     return [`${name}.json`, `${name}.jsonc`].map((file) => path.join(Global.Path.config, file))
   }
 
   function has(files: string[]) {
     return files.some((file) => existsSync(file))
+  }
+
+  function sources() {
+    const next = globalFiles(CFG)
+    return [path.join(Global.Path.config, "config.json"), ...(has(next) ? next : globalFiles(LEGACY_CFG))]
   }
 
   export const global = lazy(async () => {
@@ -1509,7 +1541,16 @@ export namespace Config {
         .catch(() => {})
     }
 
-    return result
+    // Only resolve this build's fields: sibling settings may contain file or
+    // environment references that are unavailable here and must stay opaque.
+    const file = integrations()
+    const text = await readFile(file)
+    if (!text) return result
+    const parsed = Integrations.safeParse(
+      await ConfigPaths.parseText(JSON.stringify(extension(envelope(text, file))), file),
+    )
+    if (!parsed.success) throw new InvalidError({ path: file, issues: parsed.error.issues })
+    return mergeDeep(result, parsed.data)
   })
 
   export const { readFile } = ConfigPaths
@@ -1788,7 +1829,7 @@ export namespace Config {
     }, input)
   }
 
-  function parseConfig(text: string, filepath: string): Info {
+  function parse(text: string, filepath: string) {
     const errors: JsoncParseError[] = []
     const data = parseJsonc(text, errors, { allowTrailingComma: true })
     if (errors.length) {
@@ -1813,7 +1854,11 @@ export namespace Config {
       })
     }
 
-    const parsed = Info.safeParse(data)
+    return data as unknown
+  }
+
+  function parseConfig(text: string, filepath: string, schema: z.ZodType<Info> = Info): Info {
+    const parsed = schema.safeParse(parse(text, filepath))
     if (parsed.success) return parsed.data
 
     throw new InvalidError({
@@ -1823,6 +1868,7 @@ export namespace Config {
   }
 
   const SAFE_CONFIG_KEYS = new Set([
+    "native",
     "model",
     "small_model",
     "disabled_models",
@@ -1851,35 +1897,56 @@ export namespace Config {
   ])
 
   export async function updateGlobal(config: Info) {
+    using lock = await Lock.write(`config:${Global.Path.config}`)
+    Info.parse(config)
+    global.reset()
+    const current = await global()
     const filepath = globalConfigFile()
-    const found = existsSync(filepath)
-    const before = found
-      ? await Filesystem.readText(filepath).catch((err: any) => {
-          if (err.code === "ENOENT") return "{}"
-          throw new JsonError({ path: filepath }, { cause: err })
-        })
-      : undefined
+    const files = await Promise.all(
+      unique([...sources(), filepath]).map(async (file) => ({
+        path: file,
+        before: (await readFile(file)) ?? undefined,
+      })),
+    )
+    const before = files.find((file) => file.path === filepath)?.before
+    const file = integrations()
+    const prior = (await readFile(file)) ?? undefined
+    const existing = prior ? extension(envelope(prior, file)) : {}
+    // Keep raw placeholders when moving settings out of the legacy files.
+    const legacy = files.reduce<Record<string, unknown>>((result, file) => {
+      if (!file.before) return result
+      const data = parse(file.before, file.path)
+      if (!isRecord(data)) return result
+      return mergeDeep(result, extension(data))
+    }, {})
+    const extra = patchJsonc(prior || "{}", mergeDeep(mergeDeep(legacy, existing), extension(config)))
+    parseConfig(JSON.stringify(extension(envelope(extra, file))), file, Integrations)
+    const patch = { ...config }
+    delete patch.native
+    const changes: { path: string; before?: string; after: string }[] = []
+    if (extra !== (prior || "{}")) changes.push({ path: file, before: prior, after: extra })
 
-    const next = await (async () => {
+    const result = (() => {
+      if (!Object.keys(patch).length) return before
       if (!before) {
-        const merged = mergeDeep(await global(), config)
-        applyProviderReplace(merged, await global(), config)
+        const merged = mergeDeep(current, patch)
+        applyProviderReplace(merged, current, patch)
         delete merged.provider_remove
-        await Filesystem.writeJson(filepath, merged)
-        return merged
+        delete merged.native
+        return JSON.stringify(merged, null, 2)
       }
 
       if (!filepath.endsWith(".jsonc")) {
         const existing = parseConfig(before, filepath)
-        const merged = mergeDeep(existing, config)
-        applyProviderReplace(merged, existing, config)
+        const merged = mergeDeep(existing, patch)
+        applyProviderReplace(merged, existing, patch)
         delete merged.provider_remove
-        await Filesystem.writeJson(filepath, merged)
-        return merged
+        delete merged.native
+        return JSON.stringify(merged, null, 2)
       }
 
       const fmt = { formattingOptions: { insertSpaces: true, tabSize: 2 } }
-      let result = patchJsonc(before, { ...config, provider: undefined, provider_remove: undefined })
+      let result = patchJsonc(before, { ...patch, provider_remove: undefined })
       if (config.provider) {
         for (const [id, value] of Object.entries(config.provider)) {
           const edits = modify(result, ["provider", id], value, fmt)
@@ -1892,12 +1959,31 @@ export namespace Config {
           result = applyEdits(result, edits)
         }
       }
-      const merged = parseConfig(result, filepath)
-      await Filesystem.write(filepath, result)
-      return merged
+      return result
     })()
 
+    for (const file of files) {
+      const text = file.path === filepath ? result : file.before
+      if (text === undefined) continue
+      const after = patchJsonc(text, { native: undefined })
+      await load(after, { dir: path.dirname(file.path), source: file.path })
+      if (after !== file.before) changes.push({ ...file, after })
+    }
+    await write(changes).catch((err) => {
+      global.reset()
+      state.reset()
+      throw err
+    })
+
     global.reset()
+    const next = await global()
+
+    if (config.native) {
+      const { Codex } = await import("../native/codex")
+      const { NativeRuntime } = await import("../native/runtime")
+      Codex.invalidate()
+      await NativeRuntime.configure((await getGlobal()).native?.codex)
+    }
 
     const keys = Object.keys(config)
     const provider = keys.some((key) => PROVIDER_CONFIG_KEYS.has(key))

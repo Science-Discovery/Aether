@@ -11,6 +11,7 @@ import { cycleModelVariant, getConfiguredAgentVariant, resolveModelVariant } fro
 import { useSDK } from "./sdk"
 import { useSync } from "./sync"
 import { unwrap } from "solid-js/store"
+import { createNative } from "./native"
 
 export type ModelKey = { providerID: string; modelID: string }
 
@@ -61,6 +62,7 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
     const sync = useSync()
     const providers = useProviders()
     const models = useModels()
+    const native = createNative()
 
     const id = createMemo(() => params.id || undefined)
     const list = createMemo(() => sync.data.agent.filter((item) => item.mode !== "subagent" && !item.hidden))
@@ -426,6 +428,29 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
 
     const result = {
       slug: createMemo(() => base64Encode(sdk.directory)),
+      native,
+      selection() {
+        if (!native.known()) return
+        if (native.engine()) {
+          const engine = native.selection()
+          if (!native.ready() || !engine?.model) return
+          return {
+            engine,
+            agent: "codex",
+            model: { providerID: "codex-native", modelID: engine.model },
+            variant: engine.effort,
+          }
+        }
+        const selected = model.current()
+        const current = agent.current()
+        if (!selected || !current) return
+        return {
+          engine: undefined,
+          agent: current.name,
+          model: { providerID: selected.provider.id, modelID: selected.id },
+          variant: model.variant.current(),
+        }
+      },
       model,
       agent,
       session: {

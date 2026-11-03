@@ -22,6 +22,7 @@ type Inline =
       value: string
       name: string
     }
+  | { type: "skill"; start: number; end: number; value: string; name: string; path: string }
 
 function selectionFromFileUrl(url: string): Extract<Inline, { type: "file" }>["selection"] {
   const queryIndex = url.indexOf("?")
@@ -47,6 +48,23 @@ function textPartValue(parts: Part[]) {
     if (part.text.length > best.text.length) return part
     return best
   }, undefined)
+}
+
+export function skill(part: Part) {
+  if (part.type !== "text") return
+  const value = part.metadata?.nativeSkill
+  if (
+    !value ||
+    typeof value !== "object" ||
+    !("name" in value) ||
+    typeof value.name !== "string" ||
+    !("path" in value) ||
+    typeof value.path !== "string" ||
+    !value.name.trim() ||
+    !value.path.trim()
+  )
+    return
+  return { name: value.name, path: value.path, source: "source" in value ? value.source : undefined }
 }
 
 /**
@@ -76,8 +94,48 @@ export function extractPromptFromParts(parts: Part[], opts?: { directory?: strin
 
   const inline: Inline[] = []
   const images: ImageAttachmentPart[] = []
+  const skills: Extract<Inline, { type: "skill" }>[] = []
 
   for (const part of parts) {
+    const native = skill(part)
+    if (native) {
+      const source = native.source
+      if (
+        source &&
+        typeof source === "object" &&
+        "value" in source &&
+        source.value === `$${native.name}` &&
+        "start" in source &&
+        typeof source.start === "number" &&
+        Number.isInteger(source.start) &&
+        source.start >= 0 &&
+        "end" in source &&
+        typeof source.end === "number" &&
+        source.end === source.start + source.value.length
+      )
+        inline.push({
+          type: "skill",
+          name: native.name,
+          path: native.path,
+          value: source.value,
+          start: source.start,
+          end: source.end,
+        })
+      else {
+        const value = `$${native.name}`
+        const start = text.indexOf(value)
+        const item = {
+          type: "skill" as const,
+          name: native.name,
+          path: native.path,
+          value,
+          start,
+          end: start + value.length,
+        }
+        if (start >= 0) inline.push(item)
+        if (start < 0) skills.push(item)
+      }
+    }
     if (part.type === "file") {
       const filePart = part as FilePart
       const sourceText = filePart.source?.text
@@ -181,18 +239,44 @@ export function extractPromptFromParts(parts: Part[], opts?: { directory?: strin
 
     const mismatch = item.end > text.length || item.start < cursor || text.slice(item.start, item.end) !== expected
     const start = mismatch ? text.indexOf(expected, cursor) : item.start
-    if (start === -1) continue
+    if (start === -1) {
+      if (item.type === "skill") skills.push(item)
+      continue
+    }
     const end = mismatch ? start + expected.length : item.end
 
     pushText(text.slice(cursor, start))
 
     if (item.type === "file") pushFile(item)
     if (item.type === "agent") pushAgent(item)
+    if (item.type === "skill") {
+      result.push({
+        type: "skill",
+        name: item.name,
+        path: item.path,
+        content: item.value,
+        start: position,
+        end: position + item.value.length,
+      })
+      position += item.value.length
+    }
 
     cursor = end
   }
 
   pushText(text.slice(cursor))
+  for (const item of skills) {
+    if (result.length) pushText(" ")
+    result.push({
+      type: "skill",
+      name: item.name,
+      path: item.path,
+      content: item.value,
+      start: position,
+      end: position + item.value.length,
+    })
+    position += item.value.length
+  }
 
   if (result.length === 0) {
     result.push({ type: "text", content: "", start: 0, end: 0 })

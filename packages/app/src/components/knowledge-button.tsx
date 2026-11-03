@@ -7,7 +7,7 @@ import { KnowledgeDialog } from "./knowledge-dialog"
 import { useKnowledge } from "@/context/knowledge"
 import { useLanguage } from "@/context/language"
 
-export const KnowledgeButton: Component<{ sessionID?: string }> = (props) => {
+export const KnowledgeButton: Component<{ sessionID?: string; disabled?: boolean }> = (props) => {
   const knowledge = useKnowledge()
   const dialog = useDialog()
   const language = useLanguage()
@@ -28,6 +28,7 @@ export const KnowledgeButton: Component<{ sessionID?: string }> = (props) => {
   return (
     <Tooltip placement="top" gutter={4} value={<span>{label()}</span>}>
       <Button
+        disabled={props.disabled}
         variant="ghost"
         size="normal"
         class="h-7 px-2 flex items-center gap-1"
