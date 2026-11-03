@@ -12,7 +12,7 @@ vi.mock("@solidjs/router", () => ({ useParams: () => env.params }))
 vi.mock("@/context/platform", () => ({ usePlatform: () => ({ platform: "web" }) }))
 vi.mock("@/context/global-sync", () => ({ useGlobalSync: () => env.global }))
 vi.mock("@/context/sdk", () => ({ useSDK: () => env.sdk }))
-vi.mock("@/context/sync", () => ({ useSync: () => ({ data: env.data }) }))
+vi.mock("@/context/sync", () => ({ useSync: () => ({ data: env.data, session: { get: () => undefined } }) }))
 
 const removed = { providerID: "opencode", modelID: "big-pickle" }
 const paid = { providerID: "opencode", modelID: "paid" }
@@ -89,6 +89,7 @@ function fixture(input?: { scope?: ModelKey; agent?: ModelKey; model?: string; r
       directory: dir,
       event: { listen: () => () => undefined },
       client: {
+        native: { status: async () => ({ data: undefined }) },
         session: {
           preference: {
             get: async () => ({ data: undefined }),
