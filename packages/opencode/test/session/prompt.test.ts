@@ -15,6 +15,7 @@ import { Log } from "../../src/util/log"
 import { tmpdir } from "../fixture/fixture"
 import { serve } from "../lib/server"
 import { Provider } from "../../src/provider/provider"
+import { Global } from "../../src/global"
 
 Log.init({ print: false })
 
@@ -27,10 +28,24 @@ const provider = {
 
 describe("session.prompt model preflight", () => {
   test("rejects a model-less send without writing a user message", async () => {
-    await using tmp = await tmpdir({ config: { enabled_providers: [] } })
+    const file = path.join(Global.Path.state, "model.json")
+    const saved = await Bun.file(file)
+      .text()
+      .catch(() => undefined)
+    await using tmp = await tmpdir({
+      config: { enabled_providers: [] },
+      dispose: async () => {
+        if (saved !== undefined) {
+          await Bun.write(file, saved)
+          return
+        }
+        await rm(file, { force: true })
+      },
+    })
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
+        await Bun.write(file, JSON.stringify({ recent: [] }))
         const session = await Session.create({})
         await expect(
           SessionPrompt.prompt({ sessionID: session.id, parts: [{ type: "text", text: "keep this draft" }] }),

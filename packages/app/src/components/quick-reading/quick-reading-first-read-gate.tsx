@@ -150,10 +150,9 @@ const Gate: Component<{
   }
 
   const queue = async (from: number, to: number) => {
-    const model = local.model.current()
-    const agent = local.agent.current()
-    if (!model || !agent) {
-      showToast({ variant: "error", title: language.t("common.requestFailed"), description: language.t("prompt.toast.modelAgentRequired.description") })
+    const selection = local.selection()
+    if (!selection) {
+      showToast({ variant: "error", title: language.t("common.requestFailed"), description: language.t(local.native.engine() ? "native.notReady" : "prompt.toast.modelAgentRequired.description") })
       return
     }
     setSending(true)
@@ -184,9 +183,7 @@ const Gate: Component<{
           },
         ],
         context: [],
-        agent: agent.name,
-        model: { providerID: model.provider.id, modelID: model.id },
-        variant: local.model.variant.current(),
+        ...selection,
       }
       const ok = await sendFollowupDraft({ client: sdk.client, sync, globalSync: global, draft, messageID: id, optimisticBusy: true })
       if (!ok) return

@@ -325,6 +325,33 @@
   }
 }
 
+[data-component="codex-file-change"] {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  user-select: text;
+
+  [data-slot="codex-change-header"] {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    overflow-wrap: anywhere;
+  }
+
+  [data-slot="codex-change-diff"] {
+    margin: 8px 0 0;
+    padding: 12px;
+    max-height: 480px;
+    overflow: auto;
+    white-space: pre;
+    font-family: var(--font-family-mono);
+    font-size: 13px;
+    border: 1px solid var(--border-weak-base);
+    border-radius: 6px;
+  }
+}
+
 [data-component="tool-output"] {
   white-space: pre;
   padding: 0;
@@ -977,6 +1004,8 @@
     line-height: var(--line-height-large);
     color: var(--text-strong);
     padding: 0 10px;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
   }
 
   [data-slot="question-hint"] {
