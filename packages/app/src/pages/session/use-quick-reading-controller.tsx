@@ -51,25 +51,21 @@ export function useQuickReadingController(_options: Options) {
 
   const validateSendContext = () => {
     const sessionID = params.id
-    const currentModel = local.model.current()
-    const currentAgent = local.agent.current()
-    if (!sessionID || !currentModel || !currentAgent) {
+    const selection = local.selection()
+    if (!sessionID || !selection) {
       showToast({
         variant: "error",
         title: language.t("common.requestFailed"),
-        description: language.t("prompt.toast.modelAgentRequired.description"),
+        description: language.t(
+          local.native.engine() ? "native.notReady" : "prompt.toast.modelAgentRequired.description",
+        ),
       })
       return
     }
 
     return {
       sessionID,
-      model: {
-        providerID: currentModel.provider.id,
-        modelID: currentModel.id,
-      },
-      agent: currentAgent.name,
-      variant: local.model.variant.current(),
+      ...selection,
     }
   }
 
@@ -90,6 +86,7 @@ export function useQuickReadingController(_options: Options) {
       agent: sendContext.agent,
       model: sendContext.model,
       variant: sendContext.variant,
+      engine: sendContext.engine,
       extraTextParts: input.extraTextParts,
     }
 

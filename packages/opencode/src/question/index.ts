@@ -150,7 +150,8 @@ export namespace Question {
         return yield* Effect.ensuring(
           Deferred.await(deferred),
           Effect.sync(() => {
-            pending.delete(id)
+            if (!pending.delete(id)) return
+            void Bus.publish(Event.Rejected, { sessionID: info.sessionID, requestID: id })
           }),
         )
       })
@@ -197,7 +198,7 @@ export namespace Question {
     }),
   )
 
-  const { runPromise } = makeRuntime(Service, layer)
+  export const { runPromise } = makeRuntime(Service, layer)
 
   export async function ask(input: {
     sessionID: SessionID
