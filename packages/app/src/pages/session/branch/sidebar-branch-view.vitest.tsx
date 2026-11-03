@@ -8,6 +8,9 @@ const calls = vi.hoisted(() => ({ graph: vi.fn() }))
 vi.mock("@/context/global-sdk", () => ({
   useGlobalSDK: () => ({ createClient: () => ({ session: { graph: calls.graph } }) }),
 }))
+vi.mock("@/context/global-sync", () => ({
+  useGlobalSync: () => ({ child: () => [{ message: {}, part: {} }] }),
+}))
 vi.mock("@solidjs/router", () => ({
   useParams: () => ({ dir: "project" }),
   useLocation: () => ({ hash: "" }),

@@ -16,6 +16,7 @@ import { Config } from "@/config/config"
 import { NotFoundError } from "@/storage/db"
 import { ProviderTransform } from "@/provider/transform"
 import { ModelID, ProviderID } from "@/provider/schema"
+import { Native } from "../native/schema"
 
 export namespace SessionCompaction {
   const log = Log.create({ service: "session.compaction" })
@@ -311,6 +312,7 @@ When constructing the summary, try to stick to this template:
       overflow: z.boolean().optional(),
     }),
     async (input) => {
+      Native.guard(await Session.get(input.sessionID), "Aether conversation compaction")
       const msg = await Session.updateMessage({
         id: MessageID.ascending(),
         role: "user",
