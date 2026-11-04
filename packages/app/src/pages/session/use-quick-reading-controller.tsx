@@ -407,6 +407,7 @@ export function useQuickReadingController(_options: Options) {
     handleDocumentInfo,
     handlePageChange,
     handleLocationChange,
+    locateSource: navigation.source,
     toggleLayoutSwapped,
     pdfFileName,
     totalPages,

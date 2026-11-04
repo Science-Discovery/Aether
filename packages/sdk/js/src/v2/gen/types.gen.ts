@@ -9201,6 +9201,62 @@ export type LatexRealtimeCommandResponses = {
 
 export type LatexRealtimeCommandResponse = LatexRealtimeCommandResponses[keyof LatexRealtimeCommandResponses]
 
+export type LatexRealtimeSpansData = {
+  body?: {
+    id: string
+    path: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/latex/realtime/spans"
+}
+
+export type LatexRealtimeSpansErrors = {
+  /**
+   * Invalid project or request
+   */
+  400: unknown
+  /**
+   * Build or artifact not found
+   */
+  404: unknown
+  /**
+   * Project changed or build already running
+   */
+  409: unknown
+  /**
+   * Project exceeds snapshot limits
+   */
+  413: unknown
+  /**
+   * Compiler unavailable
+   */
+  503: unknown
+}
+
+export type LatexRealtimeSpansResponses = {
+  /**
+   * LaTeX result
+   */
+  200: {
+    spans: Array<{
+      id: number
+      kind: string
+      hash: number
+      last_revision: number
+      range: {
+        start: number
+        end: number
+      }
+    }>
+  }
+}
+
+export type LatexRealtimeSpansResponse = LatexRealtimeSpansResponses[keyof LatexRealtimeSpansResponses]
+
 export type LatexRealtimeCloseData = {
   body?: {
     id: string

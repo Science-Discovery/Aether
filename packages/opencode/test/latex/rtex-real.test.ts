@@ -26,6 +26,8 @@ test.skipIf(!binary)("real rtex session starts with the local LuaLaTeX and emits
         for (let index = 0; index < 600 && !session.events.some((event) => event.event === "LayoutUpdate"); index++)
           await Bun.sleep(100)
         expect(session.events.some((event) => event.event === "LayoutUpdate")).toBe(true)
+        const spans = await LatexRealtime.spans(opened.id, "main.tex")
+        expect(spans.spans.some((span) => span.kind === "Body" && span.range.start > 0)).toBe(true)
         const text = "\\documentclass{article}\n\\begin{document}\nHello realtime world.\n\\end{document}\n"
         const at = text.indexOf("Hello")
         LatexRealtime.edit(opened.id, "main.tex", at, at, "Edited ")

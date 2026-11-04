@@ -11,6 +11,8 @@ import { LatexRtex } from "./setup"
 import { RtexResources } from "./resources"
 
 export type RtexEvent = { event: string; [key: string]: unknown }
+export type RtexReply = { reply: string; message?: string; [key: string]: unknown }
+type Pending = { kind: string; resolve: (reply: RtexReply) => void }
 
 type Server = { path: string; texdir?: string; source: "config" | "managed" | "path" }
 
@@ -65,6 +67,7 @@ export class RtexSession {
   readonly env: NodeJS.ProcessEnv
   readonly events: RtexEvent[] = []
   private readonly listeners = new Set<(event: RtexEvent) => void>()
+  private readonly pending: Pending[] = []
   private readonly stderr: string[] = []
   private buffer = ""
   private child: ReturnType<typeof launch> | undefined
@@ -111,6 +114,7 @@ export class RtexSession {
     child.once("error", (cause: Error) => this.publish({ event: "SessionError", message: cause.message }))
     child.once("close", (code, signal) => {
       this.closed = true
+      this.fail("The realtime engine exited.")
       this.publish({ event: "SessionExit", code, signal, stderr: this.stderr.slice(-20) })
     })
   }
@@ -123,8 +127,22 @@ export class RtexSession {
       this.stderr.push(`unparsable rtex output: ${line.slice(0, 200)}`)
       return
     }
-    if (!value || typeof value !== "object" || typeof (value as { event?: unknown }).event !== "string") return
+    if (!value || typeof value !== "object") return
+    const reply = (value as { reply?: unknown }).reply
+    if (typeof reply === "string") {
+      // Replies arrive in command order; match the kind when a line was lost so one bad reply
+      // cannot strand every later request.
+      const index = this.pending.findIndex((item) => item.kind === reply)
+      const target = index >= 0 ? this.pending.splice(index, 1)[0] : this.pending.shift()
+      target?.resolve(value as RtexReply)
+      return
+    }
+    if (typeof (value as { event?: unknown }).event !== "string") return
     this.publish(value as RtexEvent)
+  }
+
+  private fail(message: string) {
+    for (const item of this.pending.splice(0)) item.resolve({ reply: "error", message })
   }
 
   private publish(event: RtexEvent) {
@@ -144,6 +162,7 @@ export class RtexSession {
 
   kill() {
     this.closed = true
+    this.fail("The realtime session was closed.")
     try {
       this.child?.kill("SIGKILL")
     } catch {
@@ -154,15 +173,36 @@ export class RtexSession {
 
   send(command: Record<string, unknown>) {
     if (!this.running) throw new LatexSchema.Error(409, "The realtime session is not running.")
-    this.child?.stdin?.write(`${JSON.stringify(command)}\n`)
+    const kind = typeof command.cmd === "string" ? command.cmd : "unknown"
+    return new Promise<RtexReply>((resolve) => {
+      const pending = { kind, resolve }
+      this.pending.push(pending)
+      try {
+        this.child?.stdin?.write(`${JSON.stringify(command)}\n`)
+      } catch (cause) {
+        const index = this.pending.indexOf(pending)
+        if (index >= 0) this.pending.splice(index, 1)
+        resolve({ reply: "error", message: cause instanceof Error ? cause.message : String(cause) })
+      }
+    })
+  }
+
+  async request<T = Record<string, unknown>>(command: Record<string, unknown>): Promise<T> {
+    const reply = await this.send(command)
+    if (reply.reply === "error") throw new LatexSchema.Error(400, reply.message ?? "rtex rejected the command.")
+    return reply as T
   }
 
   document(file: string, text: string) {
-    this.send({ cmd: "set_document", path: file, text })
+    void this.send({ cmd: "set_document", path: file, text })
   }
 
   edit(file: string, start: number, end: number, text: string) {
-    this.send({ cmd: "edit", path: file, start, end, text })
+    void this.send({ cmd: "edit", path: file, start, end, text })
+  }
+
+  spans(file: string) {
+    return this.request<{ spans: LatexSchema.RealtimeSpan[] }>({ cmd: "spans", path: file })
   }
 
   async stop() {
@@ -171,6 +211,7 @@ export class RtexSession {
     if (!child || this.closed) return
     this.closed = true
     this.child = undefined
+    this.fail("The realtime session was closed.")
     const done = new Promise<void>((resolve) => {
       const timer = setTimeout(() => {
         if (process.platform === "win32") {
@@ -255,6 +296,11 @@ export namespace LatexRealtime {
   export function edit(id: string, file: string, start: number, end: number, text: string) {
     const session = get(id)
     session.edit(file, start, end, text)
+  }
+
+  export function spans(id: string, file: string) {
+    const session = get(id)
+    return session.spans(file)
   }
 
   export function command(id: string, command: "request_layout" | "export_pdf" | "status") {

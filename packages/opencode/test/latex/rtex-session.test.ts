@@ -31,7 +31,11 @@ describe("realtime session", () => {
         `    buffer = buffer.slice(at + 1)`,
         `    if (!line) continue`,
         `    const command = JSON.parse(line)`,
-        `    if (command.cmd === "set_document") console.log(JSON.stringify({ event: "Diagnostics", source: "test", items: [{ severity: "info", message: command.text }] }))`,
+        `    if (command.cmd === "set_document") {`,
+        `      console.log(JSON.stringify({ event: "Diagnostics", source: "test", items: [{ severity: "info", message: command.text }] }))`,
+        `      console.log(JSON.stringify({ reply: "set_document", result: { edit_id: 1 } }))`,
+        `    }`,
+        `    if (command.cmd === "spans") console.log(JSON.stringify({ reply: "spans", spans: [{ id: 2, kind: "Body", hash: 1, last_revision: 1, range: { start: 41, end: 63 } }] }))`,
         `    if (command.cmd === "quit") process.exit(0)`,
         `  }`,
         `}`,
@@ -76,6 +80,10 @@ describe("realtime session", () => {
               source: "test",
               items: [{ message: "realtime text" }],
             })
+            const spans = await LatexRealtime.spans(session.id, "main.tex")
+            expect(spans.spans).toEqual([
+              { id: 2, kind: "Body", hash: 1, last_revision: 1, range: { start: 41, end: 63 } },
+            ])
           } finally {
             await LatexRealtime.close(session.id)
           }

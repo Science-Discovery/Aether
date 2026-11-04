@@ -31,6 +31,7 @@ export const QuickReadingPanel: Component<{
   onDocumentInfo?: (info: { totalPages: number }) => void
   onTextSelectionAction?: PdfViewerShellProps["onTextSelectionAction"]
   onImageSelectionAction?: PdfViewerShellProps["onImageSelectionAction"]
+  onLocateSource?: (input: { path: string; line: number; column: number }) => void
   onSwapLayout?: () => void
   onExitQuickReading?: () => void
   onStartFirstRead?: () => void
@@ -87,8 +88,12 @@ export const QuickReadingPanel: Component<{
               version={props.version}
               onVersionChange={props.onVersionChange}
               reveal={live() ? undefined : props.reveal}
-              onSourceLocate={live() ? undefined : props.onSourceLocate}
-              onLocateUnavailable={live() ? undefined : props.onLocateUnavailable}
+              onSourceLocate={
+                live()
+                  ? (input) => void realtime.locate(input).then((target) => target && props.onLocateSource?.(target))
+                  : props.onSourceLocate
+              }
+              onLocateUnavailable={props.onLocateUnavailable}
               onBusyChange={props.onBusyChange}
               authHeader={props.authHeader}
               mode="full"

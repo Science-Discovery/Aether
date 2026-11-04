@@ -752,6 +752,7 @@ function SessionPageContent(props: SessionPageProps = {}) {
         onDocumentInfo={quickReadingController.handleDocumentInfo}
         onTextSelectionAction={quickReadingController.handleTextSelectionAction}
         onImageSelectionAction={quickReadingController.handleImageSelectionAction}
+        onLocateSource={quickReadingController.locateSource}
         onExitQuickReading={quickReadingController.closeQuickReading}
         onSwapLayout={quickReadingController.toggleLayoutSwapped}
         onStartFirstRead={quickReadingController.compiled() ? undefined : quickReadingController.openFirstRead}

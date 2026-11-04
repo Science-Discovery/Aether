@@ -158,6 +158,19 @@ export namespace LatexSchema {
     id: z.string().uuid(),
     command: z.enum(["request_layout", "export_pdf", "status"]),
   })
+  export const RealtimeSpans = z.object({
+    id: z.string().uuid(),
+    path: z.string().min(1).max(4096),
+  })
+  export const RealtimeSpan = z.object({
+    id: z.number().int(),
+    kind: z.string(),
+    hash: z.number(),
+    last_revision: z.number().int(),
+    range: z.object({ start: z.number().int().nonnegative(), end: z.number().int().nonnegative() }),
+  })
+  export type RealtimeSpan = z.infer<typeof RealtimeSpan>
+  export const RealtimeSpanResult = z.object({ spans: z.array(RealtimeSpan) })
   export const RealtimeClose = z.object({ id: z.string().uuid() })
   export const Selection = z.object({
     root: z.string(),

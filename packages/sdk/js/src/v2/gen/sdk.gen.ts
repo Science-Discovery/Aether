@@ -215,6 +215,8 @@ import type {
   LatexRealtimeSetupCancelResponses,
   LatexRealtimeSetupStartErrors,
   LatexRealtimeSetupStartResponses,
+  LatexRealtimeSpansErrors,
+  LatexRealtimeSpansResponses,
   LatexRealtimeStatusErrors,
   LatexRealtimeStatusResponses,
   LatexReferenceErrors,
@@ -6784,6 +6786,43 @@ export class Latex extends HeyApiClient {
       ThrowOnError
     >({
       url: "/latex/realtime/command",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Read a realtime session's source spans
+   */
+  public realtimeSpans<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      id?: string
+      path?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "id" },
+            { in: "body", key: "path" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<LatexRealtimeSpansResponses, LatexRealtimeSpansErrors, ThrowOnError>({
+      url: "/latex/realtime/spans",
       ...options,
       ...params,
       headers: {

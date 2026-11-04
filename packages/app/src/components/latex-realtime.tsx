@@ -2,21 +2,40 @@
 // the viewer shows; this controller paints live paragraph rows into transparent page images on
 // top of it. Adapted from realtime-tex-vsc-plugin (MIT; see latex-realtime/LICENSE).
 import { createEffect, createSignal, on, onCleanup, type Accessor } from "solid-js"
+import { showToast } from "@opencode-ai/ui/toast"
+import { contains } from "@/components/latex-drafts"
+import { useFile } from "@/context/file"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useLatex } from "@/context/latex"
 import { useLanguage } from "@/context/language"
 import { useSDK } from "@/context/sdk"
 import { FontStore, ImageStore, Painter, type Mat } from "./latex-realtime/render"
 import { fontKey, type FontResource } from "./latex-realtime/fontKey"
+import { charAtOffset, caretAt, clickedChar, matchScore, sourceOffset, unitRows } from "./latex-realtime/glyph"
 import { PreviewModel } from "./latex-realtime/model"
 import type { DisplayList, RtexEvent } from "./latex-realtime/protocol"
+import { glyphTextOf, type GlyphText } from "./latex-realtime/text"
+import {
+  byteOffset,
+  hitTest,
+  lineColumn,
+  spanAt,
+  targetInFragments,
+  utf16Offset,
+  type Span,
+} from "./latex-realtime/source"
 
 const CHANNEL = "aether-pdf-viewer"
 const MAX_SIDE = 8192
 const MAX_PIXELS = 24_000_000
+const SP_PER_PT = 65536
+const TEX_TO_BP = 72 / 72.27
+const BP_TO_SP = SP_PER_PT * (72.27 / 72)
 
 export type RealtimePost = (message: unknown, transfer?: Transferable[]) => void
 export type RealtimeRequest = { page: number; width: number; height: number; dpr: number; src?: string }
+export type RealtimeLocate = { page: number; x: number; y: number }
+export type RealtimeSource = { path: string; line: number; column: number }
 
 export type RealtimeController = {
   src: Accessor<string | undefined>
@@ -24,11 +43,13 @@ export type RealtimeController = {
   error: Accessor<string>
   attach: (post: RealtimePost) => void
   request: (input: RealtimeRequest) => void
+  locate: (input: RealtimeLocate) => Promise<RealtimeSource | undefined>
 }
 
 export function createRealtime(active: Accessor<boolean>): RealtimeController {
   const global = useGlobalSDK()
   const sdk = useSDK()
+  const file = useFile()
   const latex = useLatex()
   const language = useLanguage()
   const model = new PreviewModel()
@@ -59,6 +80,7 @@ export function createRealtime(active: Accessor<boolean>): RealtimeController {
   // Overlays may only be painted once the viewer has rendered the layout PDF they belong to.
   let loaded = false
   let generation = 0
+  let pendingReveal: RealtimeSource | undefined
 
   const headers = () => ({
     ...global.auth(),
@@ -131,6 +153,7 @@ export function createRealtime(active: Accessor<boolean>): RealtimeController {
     tokens.clear()
     loaded = false
     generation++
+    pendingReveal = undefined
     loading.clear()
     sent.clear()
     baselines.clear()
@@ -315,6 +338,7 @@ export function createRealtime(active: Accessor<boolean>): RealtimeController {
       post?.({ channel: CHANNEL, type: "realtime-reset" })
     }
     setTick((value) => value + 1)
+    if (pendingReveal) void flushReveal()
     if (latex.drafts().length) sendDrafts()
   }
 
@@ -426,6 +450,146 @@ export function createRealtime(active: Accessor<boolean>): RealtimeController {
     post({ channel: CHANNEL, type: "realtime-page", page, src: source, bitmap }, [bitmap])
   }
 
+  async function sourceText(path: string) {
+    const draft = file.draft(path)
+    if (draft !== undefined) return draft
+    const content = file.get(path)?.content
+    if (content?.type === "text") return content.content
+    const result = await sdk.client.file.read({ path }, { throwOnError: true }).catch(() => undefined)
+    return result?.data?.type === "text" ? result.data.content : undefined
+  }
+
+  async function getSpans(path: string) {
+    const id = session()
+    if (!id) return [] as Span[]
+    const result = await call<{ spans: Span[] }>("/latex/realtime/spans", { id, path }).catch(() => undefined)
+    return result?.spans ?? []
+  }
+
+  function sources() {
+    const project = latex.state.project
+    const root = project?.root ?? "."
+    const list = new Set<string>()
+    if (latex.state.path) list.add(latex.state.path)
+    if (project?.binding?.main) list.add(join(root, project.binding.main))
+    for (const draft of latex.drafts()) list.add(draft.path)
+    for (const editor of project?.editors ?? []) list.add(editor.path)
+    return [...list].filter((path) => !root || root === "." || contains(root, path))
+  }
+
+  function join(root: string, path: string) {
+    const rel = path.replaceAll("\\", "/")
+    const dir = root.replaceAll("\\", "/").replace(/\/$/, "")
+    return !dir || dir === "." ? rel : `${dir}/${rel}`
+  }
+
+  async function findSpan(parIds: number[], glyphs?: GlyphText) {
+    for (const path of sources()) {
+      const spans = await getSpans(relative(path))
+      const span = spans.find((item) => parIds.includes(item.id))
+      if (!span) continue
+      const value = await sourceText(path)
+      if (value === undefined) continue
+      const start = utf16Offset(value, span.range.start)
+      const unit = value.slice(start, utf16Offset(value, span.range.end))
+      if (glyphs && parIds.length > 1 && matchScore(glyphs, unit) < 0.5) continue
+      return { path, span, text: value }
+    }
+    return undefined
+  }
+
+  function exactTarget(span: Span, text: string, byte: number) {
+    const frags = model.currentPlacements().get(span.id)
+    if (!frags?.length) return undefined
+    const start = utf16Offset(text, span.range.start)
+    const unit = text.slice(start, utf16Offset(text, span.range.end))
+    const off = utf16Offset(text, byte) - start
+    let best: ({ page: number; x: number; y: number; size: number } & { distance: number }) | undefined
+    for (const page of new Set(frags.map((value) => value.page))) {
+      const rows = unitRows(model, page).get(span.id)
+      if (!rows?.length) continue
+      const glyphs = glyphTextOf(rows)
+      const char = charAtOffset(glyphs, unit, off)
+      if (!char || char.distance > 40) continue
+      const caret = caretAt(glyphs, char)
+      if (caret && (!best || char.distance < best.distance)) best = { page, ...caret, distance: char.distance }
+    }
+    if (best) return { page: best.page, x: best.x, y: best.y, size: best.size }
+    return targetInFragments(frags, (byte - span.range.start) / Math.max(1, span.range.end - span.range.start))
+  }
+
+  async function reveal(position: RealtimeSource) {
+    const id = session()
+    if (!id || !layout() || !contains(root(), position.path)) return
+    const text = await sourceText(position.path)
+    if (text === undefined || session() !== id) return
+    const byte = byteOffset(text, position.line, position.column)
+    const spans = await getSpans(relative(position.path))
+    if (session() !== id) return
+    const span = spanAt(spans, byte)
+    if (!span) return
+    const target = exactTarget(span, text, byte)
+    if (!target) return
+    const page = model.pages.get(target.page)
+    const source = src()
+    if (!page?.dl.page_height || !source) return
+    post?.({
+      channel: CHANNEL,
+      type: "realtime-caret",
+      src: source,
+      page: target.page,
+      x: (target.x / SP_PER_PT) * TEX_TO_BP,
+      y: ((page.dl.page_height - target.y) / SP_PER_PT) * TEX_TO_BP,
+      size: ((target.size ?? 655360) / SP_PER_PT) * TEX_TO_BP,
+    })
+  }
+
+  async function flushReveal() {
+    const position = pendingReveal
+    if (!position) return
+    pendingReveal = undefined
+    if (!session() || !layout() || !loaded) {
+      pendingReveal = position
+      return
+    }
+    await reveal(position)
+  }
+
+  async function locate(input: RealtimeLocate): Promise<RealtimeSource | undefined> {
+    const id = session()
+    if (!id) return
+    const update = model.pages.get(input.page)
+    if (!update?.dl.page_height) return
+    const x = input.x * BP_TO_SP
+    const y = update.dl.page_height - input.y * BP_TO_SP
+    const char = clickedChar(model, input.page, x, y)
+    const rough = char ? undefined : hitTest(model.currentPlacements(), input.page, y)
+    const parIds = char?.parIds ?? (rough ? [rough.parId] : [])
+    if (!parIds.length) return
+    const found = await findSpan(parIds, char?.gt)
+    if (session() !== id) return
+    if (!found) {
+      showToast({ title: language.t("latex.sync.locate"), description: language.t("latex.sync.nomatch") })
+      return
+    }
+    const start = utf16Offset(found.text, found.span.range.start)
+    const unit = found.text.slice(start, utf16Offset(found.text, found.span.range.end))
+    if (char) {
+      const exact = sourceOffset(char.gt, char.index, char.after, unit)
+      if (exact !== undefined) return { path: found.path, ...lineColumn(found.text, start + exact) }
+    }
+    const fraction = char ? char.index / Math.max(1, char.gt.text.length) : (rough?.fraction ?? 0)
+    const byte =
+      found.span.range.start + Math.floor(fraction * Math.max(0, found.span.range.end - found.span.range.start))
+    const offset = utf16Offset(found.text, Math.min(byte, found.span.range.end))
+    const at = lineColumn(found.text, offset)
+    const lineStart = found.text.lastIndexOf("\n", Math.max(0, offset - 1)) + 1
+    const lineEnd = found.text.indexOf("\n", lineStart)
+    const line = found.text.slice(lineStart, lineEnd < 0 ? found.text.length : lineEnd)
+    const first = line.search(/\S/)
+    return { path: found.path, line: at.line, column: first >= 0 ? first + 1 : at.column }
+  }
+
   const src = () => {
     const id = session()
     const version = layout()
@@ -459,6 +623,18 @@ export function createRealtime(active: Accessor<boolean>): RealtimeController {
     ),
   )
   createEffect(on(tick, schedule))
+  createEffect(
+    on(
+      () => latex.state.locating.nonce,
+      () => {
+        const locating = latex.state.locating
+        if (!active() || !locating.path) return
+        pendingReveal = { path: locating.path, line: locating.line, column: locating.column }
+        void flushReveal()
+      },
+      { defer: true },
+    ),
+  )
   onCleanup(() => {
     disposed = true
     void close()
@@ -479,6 +655,8 @@ export function createRealtime(active: Accessor<boolean>): RealtimeController {
       loaded = true
       sizes.set(input.page, input)
       void render(input.page).catch(() => undefined)
+      if (pendingReveal) void flushReveal()
     },
+    locate,
   }
 }

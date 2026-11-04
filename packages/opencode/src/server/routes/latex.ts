@@ -349,6 +349,19 @@ export const LatexRoutes = lazy(() =>
       },
     )
     .post(
+      "/realtime/spans",
+      describeRoute({
+        operationId: "latex.realtimeSpans",
+        summary: "Read a realtime session's source spans",
+        responses: { ...response(LatexSchema.RealtimeSpanResult), ...failure },
+      }),
+      validator("json", LatexSchema.RealtimeSpans),
+      async (c) => {
+        const input = c.req.valid("json")
+        return c.json(await Latex.realtimeSpans(input.id, input.path))
+      },
+    )
+    .post(
       "/realtime/close",
       describeRoute({
         operationId: "latex.realtimeClose",
@@ -492,8 +505,7 @@ export const LatexRoutes = lazy(() =>
         if (!input.filename && !input.name) return c.json({ error: "A font filename is required." }, 400)
         const resource = await Latex.realtimeFont(input.id, input.filename, input.name)
         if (resource.kind === "missing") return c.json({ error: resource.reason }, 404)
-        if (resource.kind === "type1")
-          return c.json(resource, 200, { "Cache-Control": "private, max-age=3600" })
+        if (resource.kind === "type1") return c.json(resource, 200, { "Cache-Control": "private, max-age=3600" })
         const data = await Bun.file(resource.path)
           .bytes()
           .catch(() => undefined)

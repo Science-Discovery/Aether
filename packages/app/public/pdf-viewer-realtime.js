@@ -9,6 +9,9 @@
   let configSrc = ""
   let realtimeEnabled = false
   let bound = false
+  let caret = null
+  let caretTimer = 0
+  let caretStyle = false
 
   function post(type, payload) {
     window.parent?.postMessage({ channel: CHANNEL, type, ...(payload || {}) }, ORIGIN)
@@ -48,6 +51,71 @@
   function reset() {
     for (const page of [...overlays.keys()]) clear(page)
     requested.clear()
+    clearCaret()
+  }
+
+  function sameSource(value) {
+    if (!value) return true
+    const strip = (input) => input.replace(/([?&])r=\d+$/, "")
+    return strip(value) === strip(configSrc)
+  }
+
+  function ensureCaretStyle() {
+    if (caretStyle) return
+    caretStyle = true
+    const style = document.createElement("style")
+    style.textContent =
+      ".aether-realtime-caret{position:absolute;pointer-events:none;z-index:6;width:2px;border-radius:1px;background:#d69e00;box-shadow:0 0 0 1px rgba(214,158,0,.25);animation:aether-realtime-blink 1s steps(1) infinite}@keyframes aether-realtime-blink{50%{opacity:0}}"
+    document.head.appendChild(style)
+  }
+
+  function clearCaret() {
+    clearTimeout(caretTimer)
+    caretTimer = 0
+    caret = null
+    document.querySelectorAll(".aether-realtime-caret").forEach((node) => node.remove())
+  }
+
+  function placeCaret() {
+    if (!caret) return
+    const page = pageElement(caret.page)
+    const view = window.PDFViewerApplication?.pdfViewer?.getPageView?.(caret.page - 1)
+    const box = page?.querySelector(".canvasWrapper")?.getBoundingClientRect()
+    if (!page || !view?.viewport || !box?.width || !box?.height) return
+    const point = view.viewport.convertToViewportPoint(caret.x, caret.y)
+    if (!point || !point.every(Number.isFinite)) return
+    const bounds = page.getBoundingClientRect()
+    ensureCaretStyle()
+    let node = page.querySelector(".aether-realtime-caret")
+    if (!node) {
+      node = document.createElement("div")
+      node.className = "aether-realtime-caret"
+      node.setAttribute("aria-hidden", "true")
+      page.appendChild(node)
+    }
+    const height = Math.max(4, caret.size * (view.viewport.scale || 1) * (box.height / view.viewport.height))
+    node.style.left = box.left - bounds.left + point[0] * (box.width / view.viewport.width) - 1 + "px"
+    node.style.top = box.top - bounds.top + point[1] * (box.height / view.viewport.height) - height + "px"
+    node.style.height = height + "px"
+  }
+
+  function showCaret(data) {
+    if (!sameSource(data.src)) return
+    if (!Number.isInteger(data.page) || data.page < 1) return
+    if (![data.x, data.y, data.size].every((value) => Number.isFinite(value))) return
+    if (data.size <= 0 || data.size > 1000) return
+    const app = window.PDFViewerApplication
+    if (app?.pdfDocument && data.page > app.pdfDocument.numPages) return
+    caret = { page: data.page, x: data.x, y: data.y, size: data.size }
+    app?.pdfViewer?.scrollPageIntoView?.({
+      pageNumber: data.page,
+      destArray: [null, { name: "XYZ" }, data.x, data.y + data.size, null],
+      ignoreDestinationZoom: true,
+    })
+    placeCaret()
+    requestAnimationFrame(placeCaret)
+    clearTimeout(caretTimer)
+    caretTimer = setTimeout(clearCaret, 4000)
   }
 
   function request(page) {
@@ -89,7 +157,7 @@
       return
     }
     if (data.type === "realtime-page") {
-      if (data.src && data.src !== configSrc) return
+      if (!sameSource(data.src)) return
       const canvas = ensure(data.page)
       if (!canvas || !data.bitmap) return
       const bitmap = data.bitmap
@@ -104,9 +172,13 @@
       return
     }
     if (data.type === "realtime-page-clear") {
-      if (data.src && data.src !== configSrc) return
+      if (!sameSource(data.src)) return
       requested.delete(data.page)
       clear(data.page)
+      return
+    }
+    if (data.type === "realtime-caret") {
+      showCaret(data)
       return
     }
     if (data.type === "realtime-reset") {
@@ -127,6 +199,7 @@
       if (!realtimeEnabled || !event?.pageNumber) return
       requested.delete(event.pageNumber)
       request(event.pageNumber)
+      if (caret?.page === event.pageNumber) placeCaret()
     })
     app.eventBus.on("pagesloaded", () => {
       if (!realtimeEnabled) return
@@ -135,11 +208,16 @@
       visible()
     })
     app.eventBus.on("updateviewarea", () => {
-      if (realtimeEnabled) visible()
+      if (!realtimeEnabled) return
+      visible()
+      placeCaret()
     })
   }
 
-  window.addEventListener("resize", visible)
+  window.addEventListener("resize", () => {
+    visible()
+    placeCaret()
+  })
   document.addEventListener("webviewerloaded", bind)
   bind()
 })()

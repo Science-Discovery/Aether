@@ -246,6 +246,10 @@ export namespace Latex {
     return LatexRealtime.get(id)
   }
 
+  export function realtimeSpans(id: string, file: string) {
+    return LatexRealtime.spans(id, file)
+  }
+
   export function realtimePdf(id: string, version: number) {
     return LatexRealtime.pdf(LatexRealtime.get(id), version)
   }
