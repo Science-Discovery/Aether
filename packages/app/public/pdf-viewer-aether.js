@@ -399,6 +399,7 @@
       location: typeof input?.location === "string" && input.location ? input.location : undefined,
       scale: typeof input?.scale === "string" && input.scale ? input.scale : DEFAULT_SCALE[mode],
       scrollMode: input?.scrollMode === "horizontal" || input?.scrollMode === "wrapped" ? input.scrollMode : "vertical",
+      realtime: !!input?.realtime,
       features: {
         readingMode: !!input?.features?.readingMode,
         quickReadingExit: !!input?.features?.quickReadingExit,
@@ -2424,7 +2425,7 @@
       identity(currentConfig) === identity(config) &&
       !(currentConfig.version && config.version && currentConfig.version !== config.version)
     ) {
-      const wait = RELOAD_MIN_INTERVAL - (Date.now() - reloadAt)
+      const wait = (config.realtime ? 150 : RELOAD_MIN_INTERVAL) - (Date.now() - reloadAt)
       if (wait > 0) {
         schedule(wait)
         return

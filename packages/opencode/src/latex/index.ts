@@ -11,6 +11,8 @@ import { Instance } from "@/project/instance"
 import { LatexSchema } from "./schema"
 import { LatexProject } from "./project"
 import { LatexCompiler } from "./compiler"
+import { LatexRealtime } from "./rtex/session"
+import { LatexRtex } from "./rtex/setup"
 import { LatexSync } from "./sync"
 import { PdfAnnotations } from "../pdf-annotations"
 import { Lock } from "../util/lock"
@@ -212,6 +214,54 @@ export namespace Latex {
     return LatexCompiler.status((await Config.getGlobal()).latex ?? {})
   }
 
+  export async function realtimeStatus() {
+    return LatexRealtime.status((await Config.getGlobal()).latex ?? {})
+  }
+
+  export async function realtimeOpen(input: z.infer<typeof LatexSchema.RealtimeOpen>) {
+    return LatexRealtime.open({ ...input, cfg: (await Config.getGlobal()).latex ?? {} })
+  }
+
+  export function realtimeDocument(input: z.infer<typeof LatexSchema.RealtimeDocument>) {
+    return LatexRealtime.document(input.id, input.path, input.text)
+  }
+
+  export function realtimeEdit(input: z.infer<typeof LatexSchema.RealtimeEdit>) {
+    return LatexRealtime.edit(input.id, input.path, input.start, input.end, input.text)
+  }
+
+  export function realtimeCommand(input: z.infer<typeof LatexSchema.RealtimeCommand>) {
+    return LatexRealtime.command(input.id, input.command)
+  }
+
+  export function realtimeClose(input: z.infer<typeof LatexSchema.RealtimeClose>) {
+    return LatexRealtime.close(input.id)
+  }
+
+  export const realtimeSetupStatus = LatexRtex.status
+  export const realtimeSetupStart = LatexRtex.start
+  export const realtimeSetupCancel = LatexRtex.cancel
+
+  export function realtimeGet(id: string) {
+    return LatexRealtime.get(id)
+  }
+
+  export function realtimePdf(id: string, version: number) {
+    return LatexRealtime.pdf(LatexRealtime.get(id), version)
+  }
+
+  export function realtimeImage(id: string, file: string) {
+    return LatexRealtime.image(LatexRealtime.get(id), file)
+  }
+
+  export function realtimeKpse(id: string, file: string) {
+    return LatexRealtime.kpsewhich(LatexRealtime.get(id), file)
+  }
+
+  export function realtimeFont(id: string, filename?: string, name?: string) {
+    return LatexRealtime.font(id, filename, name)
+  }
+
   export async function inspect(input: { root?: string; path?: string }) {
     const current = await state()
     const base = await LatexProject.root(input.root ?? ".")
@@ -292,6 +342,8 @@ export namespace Latex {
       if (saved && saved.binding.revision !== input.expectedRevision)
         throw new LatexSchema.Error(409, "The LaTeX binding changed. Refresh before changing it.")
       if (!saved && input.expectedRevision) throw new LatexSchema.Error(409, "The LaTeX binding no longer exists.")
+      if (input.realtime && input.program !== "lualatex")
+        throw new LatexSchema.Error(400, "Realtime preview requires LuaLaTeX.")
       const main = await LatexProject.main(root, input.main)
       const next: Record = {
         owner: root.owner,
@@ -302,6 +354,7 @@ export namespace Latex {
           main,
           driver: input.driver,
           program: input.program,
+          realtime: input.realtime ?? false,
           revision: crypto.randomUUID(),
           updatedAt: Date.now(),
         },

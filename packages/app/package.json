@@ -83,6 +83,7 @@
     "luxon": "catalog:",
     "marked": "catalog:",
     "marked-shiki": "catalog:",
+    "opentype.js": "2.0.0",
     "pdfjs-dist": "5.5.207",
     "remeda": "catalog:",
     "shiki": "catalog:",

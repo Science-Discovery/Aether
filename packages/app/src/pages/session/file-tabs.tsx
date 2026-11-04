@@ -294,8 +294,12 @@ export function FileTabContent(props: { tab: string; visible: boolean }) {
     const p = path()
     if (!p) return
     if (managed()) {
-      if (project.state.busy || project.running() || project.changed() || !file.ready() || project.conflicts().length)
+      if (project.state.busy || project.running() || !file.ready() || project.conflicts().length) return
+      if (project.state.realtime) {
+        await project.save()
         return
+      }
+      if (project.changed()) return
       await project.compile()
       return
     }

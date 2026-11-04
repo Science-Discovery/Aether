@@ -2,6 +2,9 @@ import type { Component, JSX } from "solid-js"
 import { Show } from "solid-js"
 import { ResizeHandle } from "@opencode-ai/ui/resize-handle"
 import { PdfViewerShell, type PdfViewerShellProps } from "@/components/pdf-viewer-shell-official"
+import { createRealtime } from "@/components/latex-realtime"
+import { useLanguage } from "@/context/language"
+import { useLatex } from "@/context/latex"
 import { createSizing, type Sizing } from "@/pages/session/helpers"
 
 export const QuickReadingPanel: Component<{
@@ -35,8 +38,19 @@ export const QuickReadingPanel: Component<{
   onResizeWidth?: (width: number) => void
   resizeHandleEnabled?: boolean
   sizing?: Sizing
+  realtime?: boolean
 }> = (props) => {
   const size = props.sizing ?? createSizing()
+  const latex = useLatex()
+  const language = useLanguage()
+  const live = () => props.realtime === true && latex.state.realtime && latex.state.program === "lualatex"
+  const realtime = createRealtime(live)
+  const src = () => (live() ? (realtime.src() ?? props.url) : props.url)
+  const note = () => {
+    if (realtime.error()) return realtime.error()
+    const status = realtime.status()
+    return status === language.t("latex.realtime.live") ? "" : status
+  }
 
   return (
     <div class="relative h-full shrink-0 overflow-visible bg-surface-base" style={{ width: `${props.width}px` }}>
@@ -48,22 +62,38 @@ export const QuickReadingPanel: Component<{
         }}
       >
         {props.header}
-        <div class="min-h-0 flex-1">
-          <Show when={props.url}>
+        <div class="relative min-h-0 flex-1">
+          <Show when={live() && note()}>
+            <div
+              class="pointer-events-none absolute left-2 top-2 z-10 max-w-[80%] truncate rounded border border-border-weaker-base bg-surface-base px-2 py-1 text-12-regular shadow-sm"
+              classList={{
+                "text-text-danger": !!realtime.error(),
+                "text-text-weak": !realtime.error(),
+              }}
+              role="status"
+              aria-live="polite"
+              data-component="latex-realtime-status"
+              title={note()}
+            >
+              {note()}
+            </div>
+          </Show>
+          <Show when={src()}>
             <PdfViewerShell
-              src={props.url}
-              annotationPath={props.annotationPath}
-              annotationBuild={props.annotationBuild}
+              src={src()}
+              annotationPath={live() ? undefined : props.annotationPath}
+              annotationBuild={live() ? undefined : props.annotationBuild}
               document={props.document}
               version={props.version}
               onVersionChange={props.onVersionChange}
-              reveal={props.reveal}
-              onSourceLocate={props.onSourceLocate}
-              onLocateUnavailable={props.onLocateUnavailable}
+              reveal={live() ? undefined : props.reveal}
+              onSourceLocate={live() ? undefined : props.onSourceLocate}
+              onLocateUnavailable={live() ? undefined : props.onLocateUnavailable}
               onBusyChange={props.onBusyChange}
               authHeader={props.authHeader}
               mode="full"
               class="size-full"
+              realtime={live()}
               page={props.page}
               location={props.location}
               layoutSwapped={props.layoutSwapped}
@@ -76,6 +106,8 @@ export const QuickReadingPanel: Component<{
               onStartFirstRead={props.onStartFirstRead}
               onSwapLayout={props.onSwapLayout}
               onOpenSettings={props.onOpenSettings}
+              onPost={realtime.attach}
+              onRealtimeRequest={realtime.request}
             />
           </Show>
         </div>

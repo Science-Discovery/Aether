@@ -1,9 +1,12 @@
+import path from "node:path"
 import { Hono } from "hono"
 import { describeRoute, resolver, validator } from "hono-openapi"
+import { streamSSE } from "hono/streaming"
 import z from "zod"
 import { Latex, LatexSchema } from "../../latex"
 import { LatexSetup } from "../../latex/setup"
 import { PdfAnnotations } from "../../pdf-annotations"
+import { AsyncQueue } from "../../util/queue"
 import { lazy } from "../../util/lazy"
 
 const response = (schema: z.ZodType) => ({
@@ -265,6 +268,242 @@ export const LatexRoutes = lazy(() =>
             ETag: `"${result.hash}"`,
             "X-Content-Type-Options": "nosniff",
             "Accept-Ranges": "none",
+          },
+        })
+      },
+    )
+    .get(
+      "/realtime/status",
+      describeRoute({
+        operationId: "latex.realtimeStatus",
+        summary: "Inspect the realtime TeX engine",
+        responses: { ...response(LatexSchema.RealtimeStatus), ...failure },
+      }),
+      async (c) => c.json(await Latex.realtimeStatus()),
+    )
+    .post(
+      "/realtime/setup",
+      describeRoute({
+        operationId: "latex.realtimeSetupStart",
+        summary: "Download and install the verified rtex release on this server",
+        responses: { ...response(LatexSchema.Setup), ...failure },
+      }),
+      async (c) => c.json(await Latex.realtimeSetupStart()),
+    )
+    .post(
+      "/realtime/setup/cancel",
+      describeRoute({
+        operationId: "latex.realtimeSetupCancel",
+        summary: "Cancel the current rtex installation",
+        responses: { ...response(LatexSchema.Setup), ...failure },
+      }),
+      async (c) => c.json(await Latex.realtimeSetupCancel()),
+    )
+    .post(
+      "/realtime/open",
+      describeRoute({
+        operationId: "latex.realtimeOpen",
+        summary: "Open a realtime LuaLaTeX session for a project",
+        responses: { ...response(LatexSchema.RealtimeSession), ...failure },
+      }),
+      validator("json", LatexSchema.RealtimeOpen),
+      async (c) => c.json(await Latex.realtimeOpen(c.req.valid("json"))),
+    )
+    .post(
+      "/realtime/document",
+      describeRoute({
+        operationId: "latex.realtimeDocument",
+        summary: "Replace a file in a realtime session",
+        responses: { ...response(z.object({ ok: z.literal(true) })), ...failure },
+      }),
+      validator("json", LatexSchema.RealtimeDocument),
+      async (c) => {
+        Latex.realtimeDocument(c.req.valid("json"))
+        return c.json({ ok: true as const })
+      },
+    )
+    .post(
+      "/realtime/edit",
+      describeRoute({
+        operationId: "latex.realtimeEdit",
+        summary: "Apply a byte-range edit to a realtime session",
+        responses: { ...response(z.object({ ok: z.literal(true) })), ...failure },
+      }),
+      validator("json", LatexSchema.RealtimeEdit),
+      async (c) => {
+        Latex.realtimeEdit(c.req.valid("json"))
+        return c.json({ ok: true as const })
+      },
+    )
+    .post(
+      "/realtime/command",
+      describeRoute({
+        operationId: "latex.realtimeCommand",
+        summary: "Send a command to a realtime session",
+        responses: { ...response(z.object({ ok: z.literal(true) })), ...failure },
+      }),
+      validator("json", LatexSchema.RealtimeCommand),
+      async (c) => {
+        Latex.realtimeCommand(c.req.valid("json"))
+        return c.json({ ok: true as const })
+      },
+    )
+    .post(
+      "/realtime/close",
+      describeRoute({
+        operationId: "latex.realtimeClose",
+        summary: "Close a realtime session and stop its engines",
+        responses: { ...response(z.object({ ok: z.literal(true) })), ...failure },
+      }),
+      validator("json", LatexSchema.RealtimeClose),
+      async (c) => {
+        await Latex.realtimeClose(c.req.valid("json"))
+        return c.json({ ok: true as const })
+      },
+    )
+    .get(
+      "/realtime/events",
+      describeRoute({
+        operationId: "latex.realtimeEvents",
+        summary: "Stream realtime TeX events",
+        responses: {
+          200: { description: "Server-sent events", content: { "text/event-stream": { schema: resolver(z.any()) } } },
+          ...failure,
+        },
+      }),
+      validator("query", z.object({ id: z.string().uuid() })),
+      async (c) => {
+        const session = Latex.realtimeGet(c.req.valid("query").id)
+        c.header("X-Accel-Buffering", "no")
+        c.header("X-Content-Type-Options", "nosniff")
+        return streamSSE(c, async (stream) => {
+          const queue = new AsyncQueue<string | null>()
+          let done = false
+          const stop = () => {
+            if (done) return
+            done = true
+            clearInterval(heartbeat)
+            off()
+            queue.push(null)
+          }
+          for (const event of session.events) queue.push(JSON.stringify(event))
+          const off = session.subscribe((event) => queue.push(JSON.stringify(event)))
+          const heartbeat = setInterval(() => queue.push(JSON.stringify({ event: "Ping" })), 15_000)
+          stream.onAbort(stop)
+          try {
+            for await (const data of queue) {
+              if (data === null) return
+              await stream.writeSSE({ data })
+            }
+          } finally {
+            stop()
+          }
+        })
+      },
+    )
+    .get(
+      "/realtime/pdf",
+      describeRoute({
+        operationId: "latex.realtimePdf",
+        summary: "Read one immutable realtime layout PDF",
+        responses: {
+          200: {
+            description: "PDF bytes",
+            content: { "application/pdf": { schema: { type: "string", format: "binary" } } },
+          },
+          ...failure,
+        },
+      }),
+      validator("query", z.object({ id: z.string().uuid(), version: z.coerce.number().int().nonnegative() })),
+      async (c) => {
+        const input = c.req.valid("query")
+        if (input.version < 1) return c.json({ error: "The realtime layout PDF is unavailable." }, 404)
+        const file = Latex.realtimePdf(input.id, input.version)
+        const data = await Bun.file(file)
+          .bytes()
+          .catch(() => undefined)
+        if (!data) return c.json({ error: "The realtime layout PDF is unavailable." }, 404)
+        return new Response(new Uint8Array(data), {
+          headers: {
+            "Content-Type": "application/pdf",
+            "Content-Length": String(data.length),
+            "Cache-Control": "private, max-age=3600",
+            "X-Content-Type-Options": "nosniff",
+          },
+        })
+      },
+    )
+    .get(
+      "/realtime/image",
+      describeRoute({
+        operationId: "latex.realtimeImage",
+        summary: "Read an image referenced by a realtime session",
+        responses: {
+          200: {
+            description: "Image bytes",
+            content: { "application/octet-stream": { schema: { type: "string", format: "binary" } } },
+          },
+          ...failure,
+        },
+      }),
+      validator("query", z.object({ id: z.string().uuid(), path: z.string().min(1).max(4096) })),
+      async (c) => {
+        const input = c.req.valid("query")
+        const file = Latex.realtimeImage(input.id, input.path)
+        const data = await Bun.file(file)
+          .bytes()
+          .catch(() => undefined)
+        if (!data) return c.json({ error: "The realtime image is unavailable." }, 404)
+        const ext = path.extname(file).toLowerCase()
+        const type = ext === ".png" ? "image/png" : ext === ".jpg" || ext === ".jpeg" ? "image/jpeg" : "application/pdf"
+        return new Response(new Uint8Array(data), {
+          headers: {
+            "Content-Type": type,
+            "Content-Length": String(data.length),
+            "Cache-Control": "private, max-age=3600",
+            "X-Content-Type-Options": "nosniff",
+          },
+        })
+      },
+    )
+    .get(
+      "/realtime/font",
+      describeRoute({
+        operationId: "latex.realtimeFont",
+        summary: "Read a font referenced by a realtime display list",
+        responses: {
+          200: {
+            description: "Font bytes",
+            content: { "application/octet-stream": { schema: { type: "string", format: "binary" } } },
+          },
+          ...failure,
+        },
+      }),
+      validator(
+        "query",
+        z.object({
+          id: z.string().uuid(),
+          filename: z.string().max(4096).optional(),
+          name: z.string().max(4096).optional(),
+        }),
+      ),
+      async (c) => {
+        const input = c.req.valid("query")
+        if (!input.filename && !input.name) return c.json({ error: "A font filename is required." }, 400)
+        const resource = await Latex.realtimeFont(input.id, input.filename, input.name)
+        if (resource.kind === "missing") return c.json({ error: resource.reason }, 404)
+        if (resource.kind === "type1")
+          return c.json(resource, 200, { "Cache-Control": "private, max-age=3600" })
+        const data = await Bun.file(resource.path)
+          .bytes()
+          .catch(() => undefined)
+        if (!data) return c.json({ error: "The font is unavailable." }, 404)
+        return new Response(new Uint8Array(data), {
+          headers: {
+            "Content-Type": "application/octet-stream",
+            "Content-Length": String(data.length),
+            "Cache-Control": "private, max-age=3600",
+            "X-Content-Type-Options": "nosniff",
           },
         })
       },

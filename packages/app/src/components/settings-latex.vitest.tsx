@@ -2,7 +2,7 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest"
 import { createStore } from "solid-js/store"
 import { render } from "solid-js/web"
 import type { JSX } from "solid-js"
-import type { LatexSetup, LatexStatus } from "@opencode-ai/sdk/v2"
+import type { LatexRealtimeStatus, LatexSetup, LatexStatus } from "@opencode-ai/sdk/v2"
 import { dict } from "@/i18n/en"
 import { SettingsProvider, useSettings } from "@/context/settings"
 import { removePersisted } from "@/utils/persist"
@@ -13,13 +13,16 @@ const mocks = vi.hoisted(() => ({
   status: vi.fn<(server: string) => Promise<{ data: LatexSetup }>>(),
   start: vi.fn<(server: string) => Promise<{ data: LatexSetup }>>(),
   cancel: vi.fn<(server: string) => Promise<{ data: LatexSetup }>>(),
+  rtex: vi.fn<(server: string) => Promise<{ data: LatexRealtimeStatus }>>(),
+  rtexStart: vi.fn<(server: string) => Promise<{ data: LatexSetup }>>(),
+  rtexCancel: vi.fn<(server: string) => Promise<{ data: LatexSetup }>>(),
   save: vi.fn(),
   open: vi.fn(),
 }))
 const [state, setState] = createStore({
   server: "http://first-server",
   ready: true,
-  config: { latex: { tectonic: { path: "" }, latexmk: { path: "" } } },
+  config: { latex: { tectonic: { path: "" }, latexmk: { path: "" }, rtex: { path: "" } } },
 })
 vi.mock("@/context/language", () => ({
   useLanguage: () => ({
@@ -54,6 +57,9 @@ vi.mock("@/context/global-sdk", () => ({
           setupStatus: () => mocks.status(server),
           setupStart: () => mocks.start(server),
           setupCancel: () => mocks.cancel(server),
+          realtimeStatus: () => mocks.rtex(server),
+          realtimeSetupStart: () => mocks.rtexStart(server),
+          realtimeSetupCancel: () => mocks.rtexCancel(server),
         },
       }
     },
@@ -164,7 +170,7 @@ beforeEach(() => {
   setState({
     server: "http://first-server",
     ready: true,
-    config: { latex: { tectonic: { path: "" }, latexmk: { path: "" } } },
+    config: { latex: { tectonic: { path: "" }, latexmk: { path: "" }, rtex: { path: "" } } },
   })
   mocks.compiler.mockResolvedValue({
     data: {
@@ -177,6 +183,9 @@ beforeEach(() => {
   mocks.status.mockResolvedValue(setup())
   mocks.start.mockResolvedValue(setup({ state: "downloading", downloaded: 1024, total: 4096 }))
   mocks.cancel.mockResolvedValue(setup({ state: "cancelled" }))
+  mocks.rtex.mockResolvedValue({ data: { installed: false, setup: setup().data } })
+  mocks.rtexStart.mockResolvedValue(setup({ state: "ready", path: "/managed/rtex" }))
+  mocks.rtexCancel.mockResolvedValue(setup({ state: "cancelled" }))
   host = document.createElement("div")
   document.body.append(host)
 })
@@ -251,7 +260,7 @@ test("appearance updates persist immediately and restore defaults without saving
   button("save").click()
   await tick()
   expect(mocks.save).toHaveBeenCalledExactlyOnceWith({
-    latex: { tectonic: { path: "/draft/tectonic" }, latexmk: { path: "" } },
+    latex: { tectonic: { path: "/draft/tectonic" }, latexmk: { path: "" }, rtex: { path: "" } },
   })
   expect(appearance()).toEqual({ mode: "auto", size: 14, spacing: "normal" })
 })
@@ -461,7 +470,9 @@ test("existing custom paths remain active until the user explicitly saves a chan
   input("")
   button("save").click()
   await tick()
-  expect(mocks.save).toHaveBeenCalledWith({ latex: { tectonic: { path: "" }, latexmk: { path: "" } } })
+  expect(mocks.save).toHaveBeenCalledWith({
+    latex: { tectonic: { path: "" }, latexmk: { path: "" }, rtex: { path: "" } },
+  })
   expect(host.textContent).not.toContain("A custom Tectonic path is still configured")
 })
 
@@ -479,7 +490,7 @@ test("saving latexmk after installation preserves Tectonic discovery across mana
   button("save").click()
   await tick()
   expect(mocks.save).toHaveBeenCalledExactlyOnceWith({
-    latex: { tectonic: { path: "" }, latexmk: { path: "/custom/latexmk" } },
+    latex: { tectonic: { path: "" }, latexmk: { path: "/custom/latexmk" }, rtex: { path: "" } },
   })
   mocks.start.mockResolvedValueOnce(setup({ state: "ready", path: "/managed/uuid-repaired/tectonic" }))
   button("setup-start").click()

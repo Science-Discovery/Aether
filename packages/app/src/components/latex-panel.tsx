@@ -183,6 +183,8 @@ function Workspace(props: Props) {
                 <input
                   type="checkbox"
                   checked={state.automatic}
+                  disabled={state.realtime}
+                  title={state.realtime ? language.t("latex.realtime.autosaveOff") : undefined}
                   onChange={(event) => latex.automatic(event.currentTarget.checked)}
                 />
                 {language.t("latex.automatic")}
@@ -197,14 +199,42 @@ function Workspace(props: Props) {
                 {status()}
               </span>
             </Show>
-            <Button
-              size="small"
-              data-action="latex-compile"
-              disabled={state.busy || latex.running() || latex.changed() || !file.ready() || !!latex.conflicts().length}
-              onClick={() => void latex.compile()}
+            <Show
+              when={!state.realtime}
+              fallback={
+                <Button
+                  size="small"
+                  data-action="latex-save-project"
+                  disabled={state.busy || latex.running() || !file.ready() || !!latex.conflicts().length}
+                  onClick={() => void latex.save()}
+                >
+                  {state.saving ? language.t("latex.saving") : language.t("common.save")}
+                </Button>
+              }
             >
-              {state.saving ? language.t("latex.saving") : language.t("latex.compile")}
-            </Button>
+              <Button
+                size="small"
+                data-action="latex-compile"
+                disabled={
+                  state.busy || latex.running() || latex.changed() || !file.ready() || !!latex.conflicts().length
+                }
+                onClick={() => void latex.compile()}
+              >
+                {state.saving ? language.t("latex.saving") : language.t("latex.compile")}
+              </Button>
+            </Show>
+            <Show when={state.realtime}>
+              <Button
+                size="small"
+                data-action="latex-compile"
+                disabled={
+                  state.busy || latex.running() || latex.changed() || !file.ready() || !!latex.conflicts().length
+                }
+                onClick={() => void latex.compile()}
+              >
+                {language.t("latex.compileOnly")}
+              </Button>
+            </Show>
             <Show when={latex.running()}>
               <Button size="small" variant="secondary" onClick={() => void latex.cancel()}>
                 {language.t("common.cancel")}
@@ -350,6 +380,21 @@ function Workspace(props: Props) {
                     <option value="lualatex">LuaLaTeX</option>
                   </select>
                 </label>
+                <Show when={state.program === "lualatex"}>
+                  <label class="flex items-center gap-2 text-text-weak">
+                    <input
+                      type="checkbox"
+                      data-action="latex-realtime"
+                      checked={state.realtime}
+                      disabled={state.busy || latex.running()}
+                      onChange={(event) => {
+                        latex.edit({ realtime: event.currentTarget.checked })
+                        if (state.main && state.root === state.project?.root) void latex.bind()
+                      }}
+                    />
+                    {language.t("latex.realtime.toggle")}
+                  </label>
+                </Show>
                 <Button
                   size="small"
                   data-action="latex-bind"

@@ -36,7 +36,14 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-function viewer(plain = false) {
+function viewer(
+  plain = false,
+  options: {
+    post?: (post: (message: unknown, transfer?: Transferable[]) => void) => void
+    request?: (input: { page: number; width: number; height: number; dpr: number; src?: string }) => void
+    realtime?: boolean
+  } = {},
+) {
   const source = plain
     ? { src: "http://server/paper.pdf", document: undefined, version: undefined }
     : { src: "http://server/latex/build/first/pdf", document: "paper", version: "first" }
@@ -65,6 +72,9 @@ function viewer(plain = false) {
         onSourceLocate={state.enabled ? locate : undefined}
         onLocateUnavailable={unavailable}
         onBusyChange={state.activity ? busy : undefined}
+        onPost={options.post}
+        onRealtimeRequest={options.request}
+        realtime={options.realtime}
       />
     ),
     host,
@@ -253,4 +263,22 @@ test("queued annotation writes use the returned revision and reject stale versio
       ([message]) => message.type === "annotationstatus" && message.id === 3 && message.ok === false,
     ),
   ).toBe(true)
+})
+
+test("realtime page requests reach the host and the viewer receives its post function", async () => {
+  const register = vi.fn()
+  const request = vi.fn()
+  const ctx = viewer(false, { post: register, request, realtime: true })
+  expect(register).toHaveBeenCalledTimes(1)
+  const send = register.mock.calls[0][0]
+  expect(typeof send).toBe("function")
+  const config = ctx.post.mock.calls.map(([message]) => message).find((message) => message.type === "config")
+  expect(config.config.realtime).toBe(true)
+  const src = "http://server/latex/build/first/pdf"
+  ctx.send("realtime-page-request", { page: 2, width: 600, height: 800, dpr: 2, src })
+  expect(request).toHaveBeenCalledWith({ page: 2, width: 600, height: 800, dpr: 2, src })
+  ctx.send("realtime-page-request", { page: 0, width: 600, height: 800, dpr: 2, src })
+  ctx.send("realtime-page-request", { page: 2, width: 600, height: 800, dpr: Number.NaN, src })
+  ctx.send("realtime-page-request", { page: 2, width: 600, height: 800, dpr: 2, src: 42 })
+  expect(request).toHaveBeenCalledTimes(1)
 })

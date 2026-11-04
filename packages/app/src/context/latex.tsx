@@ -25,6 +25,7 @@ export const { use: useLatex, provider: LatexProvider } = createSimpleContext({
       main: "",
       driver: "auto" as LatexBinding["driver"],
       program: "auto" as LatexBinding["program"],
+      realtime: false,
       configuring: false,
       collapsed: false,
       busy: false,
@@ -137,13 +138,15 @@ export const { use: useLatex, provider: LatexProvider } = createSimpleContext({
         main: project.binding?.main ?? project.main ?? "",
         driver: project.binding?.driver ?? "auto",
         program: project.binding?.program ?? "auto",
+        realtime: project.binding?.realtime ?? false,
+        ...(project.binding?.realtime ? { automatic: false } : {}),
         configuring: !project.binding,
         ...(!project.binding ? { collapsed: false } : {}),
       })
     }
     const schedule = () => {
       clearTimeout(timer)
-      if (!state.automatic) return
+      if (!state.automatic || state.realtime) return
       timer = setTimeout(() => void run(false), 1000)
     }
     const read = async (refresh = true, root = state.project?.root, form = false) => {
@@ -483,6 +486,7 @@ export const { use: useLatex, provider: LatexProvider } = createSimpleContext({
             main: state.main,
             driver: state.driver,
             program: state.program,
+            realtime: state.realtime,
             expectedRevision: project.binding?.revision,
           },
           { throwOnError: true },
@@ -595,6 +599,7 @@ export const { use: useLatex, provider: LatexProvider } = createSimpleContext({
             main: "",
             driver: "auto",
             program: "auto",
+            realtime: false,
             busy: false,
             saving: false,
             scanning: false,
@@ -700,6 +705,7 @@ export const { use: useLatex, provider: LatexProvider } = createSimpleContext({
       compare,
       resolve,
       pending,
+      drafts,
       conflicts,
       running,
       artifact,
@@ -719,8 +725,15 @@ export const { use: useLatex, provider: LatexProvider } = createSimpleContext({
       persist: (path: string) => modify(path, "save"),
       discard: (path: string) => modify(path, "discard"),
       reading: (value: typeof state.reading) => setState("reading", value),
-      edit: (value: Partial<Pick<typeof state, "root" | "main" | "driver" | "program">>) => {
+      edit: (value: Partial<Pick<typeof state, "root" | "main" | "driver" | "program" | "realtime">>) => {
         edits++
+        if (value.program && value.program !== "lualatex") value = { ...value, realtime: false }
+        if (value.realtime === true) {
+          setState({ ...value, automatic: false })
+          clearTimeout(timer)
+          setState("queued", false)
+          return
+        }
         setState(value)
       },
       configure: (value: boolean) => {
@@ -730,6 +743,7 @@ export const { use: useLatex, provider: LatexProvider } = createSimpleContext({
       collapse: (value: boolean) => setState("collapsed", value),
       downloads: (value: boolean) => setState("downloads", value),
       automatic: (value: boolean) => {
+        if (value && state.realtime) return
         setState("automatic", value)
         clearTimeout(timer)
         if (!value) setState("queued", false)

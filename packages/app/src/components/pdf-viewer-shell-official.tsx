@@ -26,6 +26,8 @@ type PdfAnnotationFile = {
 }
 
 export type PdfVersion = { document?: string; version?: string; src?: string }
+export type PdfViewerPost = (message: unknown, transfer?: Transferable[]) => void
+export type PdfRealtimeRequest = { page: number; width: number; height: number; dpr: number; src?: string }
 export type PdfReveal = {
   id: string
   document: string
@@ -132,6 +134,9 @@ export type PdfViewerShellProps = {
     input: { action: "copy" | "translate" | "ask"; page: number; imageDataUrl: string } & PdfVersion,
   ) => void
   onSwapLayout?: () => void
+  onPost?: (post: PdfViewerPost) => void
+  onRealtimeRequest?: (input: PdfRealtimeRequest) => void
+  realtime?: boolean
 }
 
 type ViewerMessage = PdfVersion &
@@ -170,6 +175,7 @@ type ViewerMessage = PdfVersion &
     | ({ channel: "aether-pdf-viewer"; type: "sourcelocate" } & PdfLocate)
     | ({ channel: "aether-pdf-viewer"; type: "locateunavailable" } & PdfLocateUnavailable)
     | { channel: "aether-pdf-viewer"; type: "busychange"; busy: boolean }
+    | ({ channel: "aether-pdf-viewer"; type: "realtime-page-request" } & PdfRealtimeRequest)
   )
 
 export const PdfViewerShell: Component<PdfViewerShellProps> = (props) => {
@@ -217,6 +223,7 @@ export const PdfViewerShell: Component<PdfViewerShellProps> = (props) => {
     mode: props.mode,
     viewTheme: props.viewTheme ?? viewTheme(),
     layoutSwapped: !!props.layoutSwapped,
+    realtime: !!props.realtime,
     features: {
       pdf2md: !!props.onPdfToMarkdown,
       readingMode: !!props.onOpenReadingMode,
@@ -237,10 +244,10 @@ export const PdfViewerShell: Component<PdfViewerShellProps> = (props) => {
     setViewTheme(props.viewTheme)
   })
 
-  const post = (message: unknown) => {
+  const post = (message: unknown, transfer?: Transferable[]) => {
     const frame = iframeRef?.contentWindow
     if (!frame) return
-    frame.postMessage(message, viewerMessageTargetOrigin())
+    frame.postMessage(message, viewerMessageTargetOrigin(), transfer ?? [])
   }
 
   const url = (pathname: string) => {
@@ -542,6 +549,7 @@ export const PdfViewerShell: Component<PdfViewerShellProps> = (props) => {
       lastReportedPage = undefined
       lastReportedLocation = undefined
       lastConfigKey = ""
+      props.onPost?.(post)
       sendConfig()
       return
     }
@@ -572,6 +580,22 @@ export const PdfViewerShell: Component<PdfViewerShellProps> = (props) => {
       if (props.document ? event.data.document !== props.document : event.data.src !== finalSrc()) return
       lastReportedLocation = event.data.location
       props.onLocationChange?.(event.data.location)
+      return
+    }
+
+    if (event.data.type === "realtime-page-request") {
+      const data = event.data
+      if (!Number.isInteger(data.page) || data.page < 1) return
+      if (![data.width, data.height, data.dpr].every((value) => Number.isFinite(value) && value > 0)) return
+      if (data.width > 100_000 || data.height > 100_000) return
+      if (data.src !== undefined && typeof data.src !== "string") return
+      props.onRealtimeRequest?.({
+        page: data.page,
+        width: data.width,
+        height: data.height,
+        dpr: Math.min(3, Math.max(0.25, data.dpr)),
+        src: typeof data.src === "string" ? data.src : undefined,
+      })
       return
     }
 

@@ -761,6 +761,7 @@ function SessionPageContent(props: SessionPageProps = {}) {
           quickReadingLayout.layoutMode() !== "review-right" && quickReadingLayout.layoutMode() !== "review-tree-right"
         }
         sizing={size}
+        realtime={quickReadingController.compiled()}
       />
     )
   })
