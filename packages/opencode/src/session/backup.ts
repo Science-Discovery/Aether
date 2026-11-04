@@ -118,6 +118,10 @@ export async function importSessionBackup(
     }
   })()
   const src = parsed.src
+  if (src.engine)
+    invalid(
+      "Native Codex sessions cannot be imported as independent conversations. Resume the original session instead.",
+    )
   const rows = parsed.rows
   const mids = new Map(rows.map((row) => [row.info.id, MessageID.ascending()]))
   const parts = rows.flatMap((row) => row.parts)

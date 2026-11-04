@@ -6,8 +6,18 @@ import { updateReference, type Reference } from "@/utils/ask-reference"
 import { SessionComposerRegion } from "./session-composer-region"
 
 const state = vi.hoisted(() => ({ model: undefined as ReturnType<typeof model> | undefined }))
+const native = vi.hoisted(() => ({ elicitations: vi.fn(), listen: vi.fn() }))
 
 vi.mock("@/context/prompt", () => ({ usePrompt: () => state.model!.prompt }))
+vi.mock("@/context/sync", () => ({ useSync: () => ({ data: { session: [] } }) }))
+vi.mock("@/context/sdk", () => ({
+  useSDK: () => ({
+    url: "http://localhost",
+    directory: "/project",
+    client: { native: { elicitations: native.elicitations } },
+    event: { listen: native.listen },
+  }),
+}))
 vi.mock("@/context/file-quote", () => ({ useMaybeFileQuote: () => undefined }))
 vi.mock("@/context/language", () => ({
   useLanguage: () => ({ t: (key: string, values?: { number: number }) => (values ? `${key} ${values.number}` : key) }),
@@ -128,6 +138,7 @@ function click(host: ParentNode, label: string) {
 }
 
 beforeEach(() => {
+  vi.clearAllMocks()
   state.model = model()
 })
 afterEach(() => {
@@ -138,6 +149,9 @@ describe("pending Ask references", () => {
   test("keeps mixed insertion order, expands text, flags missing images and renumbers after deletion", () => {
     state.model!.set("references", [conversation("one"), pdf("two"), conversation("three")])
     const host = mount()
+    expect(host.querySelector("[data-component='native-elicitations']")).toBeNull()
+    expect(native.elicitations).not.toHaveBeenCalled()
+    expect(native.listen).not.toHaveBeenCalled()
     const cards = () => Array.from(host.querySelectorAll<HTMLElement>("[data-reference-id]"))
     expect(cards().map((card) => card.dataset.referenceId)).toEqual(["one", "two", "three"])
     expect(cards()[1].textContent).toContain("ask.reference.title 2")

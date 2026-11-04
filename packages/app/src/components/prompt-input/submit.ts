@@ -20,10 +20,12 @@ import { claimSession } from "@/utils/session-pending"
 import { Worktree as WorktreeState } from "@/utils/worktree"
 import { buildRequestParts, type DataAttachment } from "./build-request-parts"
 import { setCursorPosition } from "./editor-dom"
-import { clonePromptParts } from "./history"
+import { clonePromptParts, type PromptHistoryEntry } from "./history"
 import { cloneReferences, canAsk, missingImages, type Reference } from "@/utils/ask-reference"
 import { referenceParts, referenceRanges, type FileQuestion, type ReadingContext } from "./ask-request"
 import { formatServerError } from "@/utils/server-errors"
+import type { NativeEngine } from "@/utils/native"
+import type { NativeDraft } from "@/context/native-run"
 
 type PendingPrompt = {
   abort: AbortController
@@ -47,6 +49,7 @@ export type FollowupDraft = {
   agent: string
   model: { providerID: string; modelID: string }
   variant?: string
+  engine?: NativeEngine
   selectedPaths?: string[]
   pdfSelectedText?: string
   references?: Reference[]
@@ -65,6 +68,7 @@ type FollowupSendInput = {
   optimisticBusy?: boolean
   before?: () => Promise<boolean> | boolean
   knowledgeBase?: { path?: string; paths?: string[]; apiKey?: string; baseURL?: string }
+  enqueue?: (draft: NativeDraft) => Promise<boolean>
 }
 
 const draftText = (prompt: Prompt) => prompt.map((part) => ("content" in part ? part.content : "")).join("")
@@ -115,6 +119,8 @@ function resolveReadingContextRange(input: {
 }
 
 export async function sendFollowupDraft(input: FollowupSendInput) {
+  if (!input.draft.engine && input.draft.prompt.some((part) => part.type === "skill"))
+    throw new Error("Codex skills require the Codex backend. Switch back to Codex or remove the skill before sending.")
   const text = draftText(input.draft.prompt)
   const images = draftImages(input.draft.prompt)
   const [, setStore] = input.globalSync.child(input.draft.sessionDirectory)
@@ -138,6 +144,7 @@ export async function sendFollowupDraft(input: FollowupSendInput) {
   const [head, ...tail] = text.split(" ")
   const cmd = head?.startsWith("/") ? head.slice(1) : undefined
   if (
+    !input.draft.engine &&
     !input.draft.references?.length &&
     !input.draft.fileQuote &&
     cmd &&
@@ -196,6 +203,18 @@ export async function sendFollowupDraft(input: FollowupSendInput) {
     pdfSelectedText: input.draft.pdfSelectedText,
   })
 
+  if (input.enqueue) {
+    const parts = requestParts.filter((part) => part.type === "text" || part.type === "file")
+    if (parts.length !== requestParts.length)
+      throw new Error("Aether agent mentions cannot be sent to a Codex conversation.")
+    if (!(await wait())) return false
+    return input.enqueue({
+      text: selection?.parts.find((part) => !part.synthetic)?.text ||
+        input.draft.extraTextParts?.find((part) => !part.synthetic)?.text || text,
+      parts,
+    })
+  }
+
   const message: Message = {
     id: messageID,
     sessionID: input.draft.sessionID,
@@ -238,7 +257,7 @@ export async function sendFollowupDraft(input: FollowupSendInput) {
       messageID,
       parts: requestParts,
       variant: input.draft.variant,
-      knowledgeBase: input.knowledgeBase,
+      knowledgeBase: input.draft.engine ? (input.knowledgeBase ?? { paths: [] }) : input.knowledgeBase,
     })
     return true
   } catch (err) {
@@ -255,10 +274,13 @@ type PromptSubmitInput = {
   autoAccept: Accessor<boolean>
   mode: Accessor<"normal" | "shell">
   working: Accessor<boolean>
+  blocked?: Accessor<boolean>
+  nativeSubmit?: (draft: NativeDraft) => Promise<boolean>
   editor: () => HTMLDivElement | undefined
   queueScroll: () => void
   promptLength: (prompt: Prompt) => number
-  addToHistory: (prompt: Prompt, mode: "normal" | "shell") => void
+  history?: () => Omit<PromptHistoryEntry, "prompt">
+  addToHistory: (prompt: Prompt, mode: "normal" | "shell", history?: Omit<PromptHistoryEntry, "prompt">) => void
   resetHistoryNavigation: () => void
   setMode: (mode: "normal" | "shell") => void
   setPopover: (popover: "at" | "slash" | null) => void
@@ -405,8 +427,10 @@ export function createPromptSubmit(input: PromptSubmitInput) {
 
   const handleSubmit = async (event: Event) => {
     event.preventDefault()
-
-    if (input.working()) {
+    if (input.blocked?.()) return
+    const native = input.working() && !!local.native.engine()
+    if (native && (!params.id || !input.nativeSubmit || submitting)) return
+    if (input.working() && !native) {
       abort()
       return
     }
@@ -432,6 +456,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
     const question = input.fileQuoteQuestion?.()
     const fileQuote = question && question.sessionID === scope.id ? { ...question } : undefined
     const currentPrompt = clonePromptParts(prompt.current(scope))
+    const history = input.history?.()
     const text = currentPrompt.map((part) => ("content" in part ? part.content : "")).join("")
     const images = input.imageAttachments().slice()
     const mode = input.mode()
@@ -448,29 +473,37 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       text.trim().length === 0 &&
       images.length === 0 &&
       input.commentCount() === 0 &&
+      !currentPrompt.some((part) => part.type === "file") &&
+      !context.length &&
       (mode !== "normal" || !refs.some((ref) => ref.question.trim()))
     ) {
       return
     }
 
-    const key = JSON.stringify(scope)
+    const key = `${connection.server}\n${JSON.stringify(scope)}`
     if (flights.has(key)) return
     flights.add(key)
     try {
-      const currentModel = local.model.current()
-      const currentAgent = local.agent.current()
-      const variant = local.model.variant.current()
-      if (!currentModel || !currentAgent) {
+      const selection = local.selection()
+      if (!selection) {
         showToast({
           title: language.t("prompt.toast.modelAgentRequired.title"),
-          description: language.t("prompt.toast.modelAgentRequired.description"),
+          description: language.t(local.native.engine() ? "native.notReady" : "prompt.toast.modelAgentRequired.description"),
         })
         return
       }
-
-      input.addToHistory(currentPrompt, mode)
-      input.resetHistoryNavigation()
-      promptProbe.start()
+      const engine = selection.engine
+      const variant = selection.variant
+      if (!engine && currentPrompt.some((part) => part.type === "skill")) {
+        showToast({ title: language.t("native.skills.onlyCodex"), variant: "error" })
+        return
+      }
+      if (engine && mode === "shell") return
+      if (!native) {
+        input.addToHistory(currentPrompt, mode, history)
+        input.resetHistoryNavigation()
+        promptProbe.start()
+      }
 
       const projectDirectory = sdk.directory
       const isNewSession = !scope.id
@@ -539,6 +572,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
           title: `New session - ${new Date().toISOString()}`,
           version: "",
           time: { created: Date.now(), updated: Date.now() },
+          engine,
         }
         seed(sessionDirectory, info)
         session = info
@@ -548,7 +582,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
         }
 
         claimed = claimSession(sessionID, () =>
-          client.session.create({ id: sessionID }).then((x) => x.data ?? undefined),
+          client.session.create({ id: sessionID, engine }).then((x) => x.data ?? undefined),
         )
       }
 
@@ -565,6 +599,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       // binds the run (busy status, tool cwd) to the wrong workspace.
       if (!isNewSession && session.directory !== projectDirectory) {
         client = sdk.createClient({ directory: session.directory, throwOnError: true })
+        sessionDirectory = session.directory
       }
 
       const recover = () => {
@@ -613,17 +648,14 @@ export function createPromptSubmit(input: PromptSubmitInput) {
         }
         seed(sessionDirectory, created)
         if (isNewSession) knowledge.rekey(NEW_SESSION_KEY, session.id)
-        if (isNewSession) {
+        if (isNewSession && !engine) {
           permission.setMode(session.id, sessionDirectory, permission.effectiveMode(undefined, projectDirectory))
         }
         return true
       }
 
-      const model = {
-        modelID: currentModel.id,
-        providerID: currentModel.provider.id,
-      }
-      const agent = currentAgent.name
+      const model = selection.model
+      const agent = selection.agent
       const openPaths = input.openTabPaths?.() ?? []
       const selText = fileCtx.selectedText()
       const draft: FollowupDraft = {
@@ -634,6 +666,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
         agent,
         model,
         variant,
+        engine,
         selectedPaths: openPaths.length > 0 ? openPaths : undefined,
         pdfSelectedText: refs.length ? undefined : selText || undefined,
         references: refs,
@@ -685,7 +718,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
         return
       }
 
-      if (!queued && !refs.length && !fileQuote && text.startsWith("/")) {
+      if (!engine && !queued && !refs.length && !fileQuote && text.startsWith("/")) {
         const [cmdName, ...args] = text.split(" ")
         const commandName = cmdName.slice(1)
         const customCommand = sync.data.command.find((c) => c.name === commandName)
@@ -824,13 +857,15 @@ export function createPromptSubmit(input: PromptSubmitInput) {
             }
           }),
         )
-        if (!isNewSession && queued && input.onQueue) {
+        if (!native && !isNewSession && queued && input.onQueue) {
           input.onQueue(draft)
           consume()
           return
         }
-        promptProbe.submit({ sessionID: session.id, directory: sessionDirectory })
-        input.onSubmit?.()
+        if (!native) {
+          promptProbe.submit({ sessionID: session.id, directory: sessionDirectory })
+          input.onSubmit?.()
+        }
         const ok = await sendFollowupDraft({
           client,
           sync,
@@ -840,6 +875,19 @@ export function createPromptSubmit(input: PromptSubmitInput) {
           optimisticBusy: sessionDirectory === projectDirectory,
           before: waitForWorktree,
           knowledgeBase,
+          enqueue: native
+            ? async (value) => {
+                if (server.current?.http.url !== connection.server || params.dir !== scope.dir || params.id !== scope.id)
+                  return false
+                const ok = await input.nativeSubmit!(value)
+                if (ok && server.current?.http.url === connection.server && params.dir === scope.dir && params.id === scope.id) {
+                  input.addToHistory(currentPrompt, "normal", history)
+                  input.resetHistoryNavigation()
+                  input.queueScroll()
+                }
+                return ok
+              }
+            : undefined,
         })
         if (ok) consume()
         if (!ok) recover()

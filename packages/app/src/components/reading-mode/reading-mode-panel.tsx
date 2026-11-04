@@ -106,14 +106,12 @@ export const ReadingModePanel: Component<{
     if (input.action !== "translate") return
 
     const meta = sessionMeta()
-    const currentModel = local.model.current()
-    const currentAgent = local.agent.current()
-    const variant = local.model.variant.current()
-    if (!meta || !currentModel || !currentAgent) {
+    const selection = local.selection()
+    if (!meta || !selection) {
       showToast({
         variant: "error",
         title: language.t("common.requestFailed"),
-        description: language.t("prompt.toast.modelAgentRequired.description"),
+        description: language.t(local.native.engine() ? "native.notReady" : "prompt.toast.modelAgentRequired.description"),
       })
       return
     }
@@ -123,12 +121,7 @@ export const ReadingModePanel: Component<{
       sessionDirectory: sdk.directory,
       prompt: DEFAULT_PROMPT,
       context: [],
-      agent: currentAgent.name,
-      model: {
-        providerID: currentModel.provider.id,
-        modelID: currentModel.id,
-      },
-      variant,
+      ...selection,
       extraTextParts: [
         {
           text: translateLabel(input.startPage, input.endPage),
@@ -189,14 +182,12 @@ export const ReadingModePanel: Component<{
     if (input.action !== "translate") return
 
     const meta = sessionMeta()
-    const currentModel = local.model.current()
-    const currentAgent = local.agent.current()
-    const variant = local.model.variant.current()
-    if (!meta || !currentModel || !currentAgent) {
+    const selection = local.selection()
+    if (!meta || !selection) {
       showToast({
         variant: "error",
         title: language.t("common.requestFailed"),
-        description: language.t("prompt.toast.modelAgentRequired.description"),
+        description: language.t(local.native.engine() ? "native.notReady" : "prompt.toast.modelAgentRequired.description"),
       })
       return
     }
@@ -213,12 +204,7 @@ export const ReadingModePanel: Component<{
         },
       ],
       context: [],
-      agent: currentAgent.name,
-      model: {
-        providerID: currentModel.provider.id,
-        modelID: currentModel.id,
-      },
-      variant,
+      ...selection,
       extraTextParts: [
         {
           text: translateImageLabel(input.page),

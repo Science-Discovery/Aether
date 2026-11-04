@@ -36,13 +36,6 @@ export type EventProviderModelsUpdated = {
   }
 }
 
-export type EventProviderUpdated = {
-  type: "provider.updated"
-  properties: {
-    [key: string]: unknown
-  }
-}
-
 export type EventDbRecoveryStarted = {
   type: "db.recovery.started"
   properties: {
@@ -124,20 +117,6 @@ export type EventServerInstanceDisposed = {
   }
 }
 
-export type EventServerConnected = {
-  type: "server.connected"
-  properties: {
-    [key: string]: unknown
-  }
-}
-
-export type EventGlobalDisposed = {
-  type: "global.disposed"
-  properties: {
-    [key: string]: unknown
-  }
-}
-
 export type EventLspClientDiagnostics = {
   type: "lsp.client.diagnostics"
   properties: {
@@ -184,6 +163,27 @@ export type EventMessagePartDelta = {
     partID: string
     field: string
     delta: string
+  }
+}
+
+export type EventProviderUpdated = {
+  type: "provider.updated"
+  properties: {
+    [key: string]: unknown
+  }
+}
+
+export type EventServerConnected = {
+  type: "server.connected"
+  properties: {
+    [key: string]: unknown
+  }
+}
+
+export type EventGlobalDisposed = {
+  type: "global.disposed"
+  properties: {
+    [key: string]: unknown
   }
 }
 
@@ -450,6 +450,13 @@ export type EventSessionPreferenceUpdated = {
   }
 }
 
+export type EventNativeElicitationChanged = {
+  type: "native.elicitation.changed"
+  properties: {
+    sessionID: string
+  }
+}
+
 export type FileDiff = {
   file: string
   before: string
@@ -468,6 +475,31 @@ export type PermissionRule = {
 }
 
 export type PermissionRuleset = Array<PermissionRule>
+
+/**
+ * Last collaboration mode dispatched to the native thread
+ */
+export type NativeMode = "default" | "plan"
+
+/**
+ * Session approval mode; omitted on legacy sessions means user
+ */
+export type NativePermission = "user" | "auto" | "full"
+
+export type NativeEngine = {
+  type: "codex"
+  model?: string
+  effort?: string
+  mode?: NativeMode
+  permission?: NativePermission
+  /**
+   * Aether research tools were registered when creating this native thread
+   */
+  research?: boolean
+  collaboration?: NativeMode
+  thread?: string
+  cursor?: string
+}
 
 export type Session = {
   id: string
@@ -498,6 +530,7 @@ export type Session = {
     archived?: number
   }
   permission?: PermissionRuleset
+  engine?: NativeEngine
   revert?: {
     messageID: string
     partID?: string
@@ -774,6 +807,12 @@ export type AssistantMessage = {
       write: number
     }
   }
+  nativeUsage?: {
+    contextWindow?: number
+    input?: number
+    total?: number
+    updatedAt: number
+  }
   structured?: unknown
   variant?: string
   finish?: string
@@ -797,12 +836,27 @@ export type EventMessageRemoved = {
   }
 }
 
+export type NativeQuestion = {
+  thread: string
+  turn: string
+  item: string
+  questions: Array<{
+    title: string
+    options?: Array<string>
+  }>
+  state: "pending" | "sending" | "answered" | "uncertain" | "failed"
+  answers?: Array<string>
+  skipped?: true
+  error?: string
+}
+
 export type TextPart = {
   id: string
   sessionID: string
   messageID: string
   type: "text"
   text: string
+  nativeQuestion?: NativeQuestion
   synthetic?: boolean
   ignored?: boolean
   time?: {
@@ -1105,7 +1159,6 @@ export type Event =
   | EventInstallationUpdated
   | EventInstallationUpdateAvailable
   | EventProviderModelsUpdated
-  | EventProviderUpdated
   | EventDbRecoveryStarted
   | EventDbRecoveryProgress
   | EventDbRecoveryCompleted
@@ -1113,14 +1166,15 @@ export type Event =
   | EventProjectUpdated
   | EventProjectRecentUpdated
   | EventServerInstanceDisposed
-  | EventServerConnected
-  | EventGlobalDisposed
   | EventLspClientDiagnostics
   | EventLspUpdated
   | EventFileWatcherUpdated
   | EventFileWatcherLimited
   | EventFileWatcherNotfound
   | EventMessagePartDelta
+  | EventProviderUpdated
+  | EventServerConnected
+  | EventGlobalDisposed
   | EventPermissionAsked
   | EventPermissionReplied
   | EventSessionStatus
@@ -1139,6 +1193,7 @@ export type Event =
   | EventMcpBrowserOpenFailed
   | EventCommandExecuted
   | EventSessionPreferenceUpdated
+  | EventNativeElicitationChanged
   | EventSessionImported
   | EventSessionDiff
   | EventSessionError
@@ -1245,6 +1300,7 @@ export type SyncEventSessionUpdated = {
         archived: number | null
       }
       permission: PermissionRuleset | null
+      engine: NativeEngine | null
       revert: {
         messageID: string
         partID?: string
@@ -1324,6 +1380,18 @@ export type ServerConfig = {
    * Seconds to wait after all browser connections close before exiting (default: 60). Set to 0 to disable auto-exit.
    */
   idleTimeout?: number
+}
+
+export type NativeCodexConfig = {
+  path?: string
+  /**
+   * Enable Codex connections (default: true)
+   */
+  enabled?: boolean
+  /**
+   * Maximum retained idle Codex processes (default: 4; 0 disables retention)
+   */
+  limit?: number
 }
 
 export type PermissionActionConfig = "ask" | "allow" | "deny"
@@ -1677,6 +1745,12 @@ export type Config = {
   $schema?: string
   logLevel?: LogLevel
   server?: ServerConfig
+  /**
+   * Native agent settings. Executable paths are read only from the user's global configuration.
+   */
+  native?: {
+    codex?: NativeCodexConfig
+  }
   /**
    * Command configuration, see https://opencode.ai/docs/commands
    */
@@ -2188,6 +2262,7 @@ export type GlobalSession = {
     archived?: number
   }
   permission?: PermissionRuleset
+  engine?: NativeEngine
   revert?: {
     messageID: string
     partID?: string
@@ -2282,10 +2357,19 @@ export type SessionGraphResult =
       message: string
     }
 
+export type NativeEngineInput = {
+  type: "codex"
+  model?: string
+  effort?: string
+  mode?: NativeMode
+  permission?: NativePermission
+}
+
 export type TextPartInput = {
   id?: string
   type: "text"
   text: string
+  nativeQuestion?: NativeQuestion
   synthetic?: boolean
   ignored?: boolean
   time?: {
@@ -2386,6 +2470,296 @@ export type ProviderAuthAuthorization = {
   url: string
   method: "auto" | "code"
   instructions: string
+}
+
+export type NativeCompactStatus = {
+  sessionID: string
+  id: string
+  threadID: string
+  state: "pending" | "complete" | "failed" | "uncertain"
+  updated: number
+  error?: string
+}
+
+export type NativeChat = {
+  id: string
+  title: string
+  updated: number
+  state: string
+  sessionID?: string
+}
+
+export type NativeChatPage = {
+  scope: string
+  chats: Array<NativeChat>
+  cursor?: string
+}
+
+export type NativeTasks = Array<{
+  thread: string
+  root: string
+  origin: string
+  parent: string
+  turn: string
+  name: string
+  state: "running" | "completed" | "failed" | "unknown"
+  output: string
+  updated: number
+  session?: string
+  questions: Array<NativeQuestion>
+}>
+
+export type NativeImage = {
+  url: string
+  name: string
+}
+
+export type NativeElicitationField = {
+  name: string
+  title: string
+  description?: string
+  type: "string" | "number" | "integer" | "boolean" | "array"
+  required: boolean
+  options?: Array<{
+    value: string
+    title: string
+  }>
+  format?: "email" | "uri" | "date" | "date-time"
+  min?: number
+  max?: number
+  default?: string | number | boolean | Array<string>
+}
+
+export type NativeElicitation =
+  | {
+      id: string
+      sessionID: string
+      threadID: string
+      server: string
+      message: string
+      expires: number
+      mode: "form"
+      fields: Array<NativeElicitationField>
+    }
+  | {
+      id: string
+      sessionID: string
+      threadID: string
+      server: string
+      message: string
+      expires: number
+      mode: "url"
+      url: string
+    }
+
+export type NativeElicitations = Array<NativeElicitation>
+
+export type NativeElicitationReceipt = {
+  id: string
+  action: "accept" | "decline" | "cancel"
+}
+
+export type NativeMcpAuthStatus = {
+  id: string
+  name?: string
+  state: "starting" | "pending" | "complete" | "failed" | "cancelled" | "expired"
+  url?: string
+  expiresAt?: number
+  error?: string
+}
+
+export type NativeMcpStatus = {
+  state: "ready" | "disabled" | "unavailable"
+  scope?: "session" | "catalog"
+  servers: Array<{
+    name: string
+    status: string
+    auth: string
+    error?: string
+    tools: Array<{
+      name: string
+      description?: string
+    }>
+  }>
+  error?: string
+}
+
+export type NativeAuthStatus = {
+  id: string
+  method: "browser" | "device"
+  state: "starting" | "pending" | "complete" | "failed" | "cancelled" | "expired"
+  url?: string
+  code?: string
+  expiresAt?: number
+  error?: string
+}
+
+export type NativeRevertPrepared = {
+  sessionID: string
+  messageID: string
+  id: string
+  threadID: string
+  turnID: string
+  turns: number
+}
+
+export type NativeRevertResult = {
+  state: "applied" | "uncertain"
+  session: Session
+  error?: string
+}
+
+export type NativeRevertStatus = {
+  sessionID: string
+  messageID: string
+  id: string
+  threadID: string
+  turnID: string
+  turns: number
+  state: "pending" | "applied" | "uncertain"
+  error?: string
+}
+
+export type NativePendingQuestions = Array<{
+  messageID: string
+  parentID: string
+  partID: string
+  question: NativeQuestion
+}>
+
+export type NativeCodexSkills = {
+  state: "ready" | "unavailable" | "disabled"
+  skills: Array<{
+    name: string
+    path: string
+    description: string
+    displayName?: string
+  }>
+  errors: Array<string>
+  error?: string
+}
+
+export type NativeUsageStatus = {
+  enabled: boolean
+  state: "available" | "unavailable" | "disabled"
+  updatedAt?: number
+  limits: Array<{
+    id: string
+    name?: string
+    primary?: {
+      usedPercent: number
+      windowDurationMins?: number
+      resetsAt?: number
+    }
+    secondary?: {
+      usedPercent: number
+      windowDurationMins?: number
+      resetsAt?: number
+    }
+  }>
+  error?: string
+}
+
+export type NativeCodexModel = {
+  id: string
+  name: string
+  default: boolean
+  efforts: Array<string>
+  effort?: string
+  images?: boolean
+}
+
+export type NativePermissionCapabilities = {
+  auto: boolean
+  error?: string
+}
+
+export type NativeModeCapabilities = {
+  steer: boolean
+  plan: boolean
+  research?: boolean
+  error?: string
+}
+
+export type NativeCodexStatus = {
+  enabled: boolean
+  installed: boolean
+  path?: string
+  version?: string
+  connected: boolean
+  auth: "chatgpt" | "apiKey" | "unknown" | "missing"
+  models: Array<NativeCodexModel>
+  permissions?: NativePermissionCapabilities
+  capabilities?: NativeModeCapabilities
+  error?: string
+}
+
+export type NativeHistoryStatus = {
+  state: "synced" | "partial" | "unavailable" | "busy" | "disabled" | "pending"
+  messages: number
+  updated?: number
+  error?: string
+}
+
+export type NativeActive = {
+  phase: "starting" | "running" | "waiting" | "stopping"
+  threadID?: string
+  turnID?: string
+  mode: NativeMode
+  steer: boolean
+  error?: string
+}
+
+export type NativeSteered = {
+  status: "accepted" | "rejected" | "uncertain"
+  messageID: string
+  turnID: string
+  error?: string
+}
+
+export type NativeQueueStatus = {
+  paused: boolean
+  reason?: string
+  items: Array<{
+    id: string
+    text: string
+    model?: string
+    effort?: string
+    attachments?: Array<{
+      filename?: string
+      mime: string
+    }>
+    state: "pending" | "dispatching" | "uncertain" | "failed"
+    turn?: string
+    delivery?: NativeSteered
+    error?: string
+    created: number
+  }>
+}
+
+export type NativeTextInput = {
+  id?: string
+  type: "text"
+  text: string
+  synthetic?: boolean
+  ignored?: boolean
+  metadata?: {
+    [key: string]: unknown
+  }
+}
+
+export type NativeFileInput = {
+  id?: string
+  type: "file"
+  mime: string
+  filename?: string
+  url: string
+  source?: FilePartSource
+}
+
+export type NativeQueueSent = {
+  queue: NativeQueueStatus
+  delivery: NativeSteered
 }
 
 export type Symbol = {
@@ -3267,6 +3641,36 @@ export type ProjectCurrentResponses = {
 }
 
 export type ProjectCurrentResponse = ProjectCurrentResponses[keyof ProjectCurrentResponses]
+
+export type ProjectOpenData = {
+  body?: {
+    directory: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/project/open"
+}
+
+export type ProjectOpenErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type ProjectOpenError = ProjectOpenErrors[keyof ProjectOpenErrors]
+
+export type ProjectOpenResponses = {
+  /**
+   * Project information
+   */
+  200: Project
+}
+
+export type ProjectOpenResponse = ProjectOpenResponses[keyof ProjectOpenResponses]
 
 export type ProjectInitGitData = {
   body?: never
@@ -4370,6 +4774,7 @@ export type SessionCreateData = {
     parentID?: string
     title?: string
     permission?: PermissionRuleset
+    engine?: NativeEngineInput
     workspaceID?: string
   }
   path?: never
@@ -4590,6 +4995,11 @@ export type SessionGetResponse = SessionGetResponses[keyof SessionGetResponses]
 export type SessionUpdateData = {
   body?: {
     title?: string
+    engine?: {
+      type: "codex"
+      permission?: NativePermission
+      mode?: NativeMode
+    }
     time?: {
       archived?: number
     }
@@ -4871,6 +5281,10 @@ export type SessionInitResponse = SessionInitResponses[keyof SessionInitResponse
 export type SessionForkData = {
   body?: {
     messageID?: string
+    /**
+     * For native Codex, retain the complete turn containing the selected message
+     */
+    after?: boolean
   }
   path: {
     sessionID: string
@@ -6188,6 +6602,1025 @@ export type ProviderOauthCallbackResponses = {
 }
 
 export type ProviderOauthCallbackResponse = ProviderOauthCallbackResponses[keyof ProviderOauthCallbackResponses]
+
+export type NativeCompactStatusData = {
+  body?: never
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+    operationId?: string
+    refresh?: boolean
+  }
+  url: "/native/codex/{sessionID}/compact"
+}
+
+export type NativeCompactStatusResponses = {
+  /**
+   * Compaction status
+   */
+  200: NativeCompactStatus | null
+}
+
+export type NativeCompactStatusResponse = NativeCompactStatusResponses[keyof NativeCompactStatusResponses]
+
+export type NativeCompactData = {
+  body?: {
+    id: string
+  }
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/native/codex/{sessionID}/compact"
+}
+
+export type NativeCompactErrors = {
+  /**
+   * Compaction cannot start
+   */
+  409: {
+    error: string
+  }
+}
+
+export type NativeCompactError = NativeCompactErrors[keyof NativeCompactErrors]
+
+export type NativeCompactResponses = {
+  /**
+   * Compaction result
+   */
+  200: NativeCompactStatus
+}
+
+export type NativeCompactResponse = NativeCompactResponses[keyof NativeCompactResponses]
+
+export type NativeChatsData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+    search?: string
+    cursor?: string
+    scope?: string
+  }
+  url: "/native/codex/chats"
+}
+
+export type NativeChatsErrors = {
+  /**
+   * Native chats unavailable
+   */
+  409: {
+    error: string
+  }
+}
+
+export type NativeChatsError = NativeChatsErrors[keyof NativeChatsErrors]
+
+export type NativeChatsResponses = {
+  /**
+   * Native chats
+   */
+  200: NativeChatPage
+}
+
+export type NativeChatsResponse = NativeChatsResponses[keyof NativeChatsResponses]
+
+export type NativeAttachChatData = {
+  body?: {
+    threadID: string
+    scope: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/native/codex/chats/attach"
+}
+
+export type NativeAttachChatErrors = {
+  /**
+   * Chat cannot be linked
+   */
+  409: {
+    error: string
+  }
+}
+
+export type NativeAttachChatError = NativeAttachChatErrors[keyof NativeAttachChatErrors]
+
+export type NativeAttachChatResponses = {
+  /**
+   * Linked Aether session
+   */
+  200: Session
+}
+
+export type NativeAttachChatResponse = NativeAttachChatResponses[keyof NativeAttachChatResponses]
+
+export type NativeTasksData = {
+  body?: never
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/native/codex/{sessionID}/tasks"
+}
+
+export type NativeTasksErrors = {
+  /**
+   * Task unavailable
+   */
+  409: {
+    error: string
+  }
+}
+
+export type NativeTasksError = NativeTasksErrors[keyof NativeTasksErrors]
+
+export type NativeTasksResponses = {
+  /**
+   * Child tasks
+   */
+  200: NativeTasks
+}
+
+export type NativeTasksResponse = NativeTasksResponses[keyof NativeTasksResponses]
+
+export type NativeReplyTaskData = {
+  body?: {
+    threadID: string
+    itemID: string
+    answers?: Array<string>
+  }
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/native/codex/{sessionID}/tasks/answer"
+}
+
+export type NativeReplyTaskErrors = {
+  /**
+   * Task unavailable
+   */
+  409: {
+    error: string
+  }
+}
+
+export type NativeReplyTaskError = NativeReplyTaskErrors[keyof NativeReplyTaskErrors]
+
+export type NativeReplyTaskResponses = {
+  /**
+   * Answer receipt
+   */
+  200: NativeQuestion
+}
+
+export type NativeReplyTaskResponse = NativeReplyTaskResponses[keyof NativeReplyTaskResponses]
+
+export type NativeOpenTaskData = {
+  body?: {
+    threadID: string
+  }
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/native/codex/{sessionID}/tasks/open"
+}
+
+export type NativeOpenTaskErrors = {
+  /**
+   * Task unavailable
+   */
+  409: {
+    error: string
+  }
+}
+
+export type NativeOpenTaskError = NativeOpenTaskErrors[keyof NativeOpenTaskErrors]
+
+export type NativeOpenTaskResponses = {
+  /**
+   * Linked child chat
+   */
+  200: Session
+}
+
+export type NativeOpenTaskResponse = NativeOpenTaskResponses[keyof NativeOpenTaskResponses]
+
+export type NativeImageData = {
+  body?: never
+  path: {
+    sessionID: string
+    messageID: string
+    partID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/native/codex/{sessionID}/message/{messageID}/image/{partID}"
+}
+
+export type NativeImageErrors = {
+  /**
+   * Image unavailable
+   */
+  409: {
+    error: string
+  }
+}
+
+export type NativeImageError = NativeImageErrors[keyof NativeImageErrors]
+
+export type NativeImageResponses = {
+  /**
+   * Image preview
+   */
+  200: NativeImage
+}
+
+export type NativeImageResponse = NativeImageResponses[keyof NativeImageResponses]
+
+export type NativeElicitationsData = {
+  body?: never
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/native/codex/{sessionID}/elicitations"
+}
+
+export type NativeElicitationsErrors = {
+  /**
+   * Request unavailable
+   */
+  409: {
+    error: string
+  }
+}
+
+export type NativeElicitationsError = NativeElicitationsErrors[keyof NativeElicitationsErrors]
+
+export type NativeElicitationsResponses = {
+  /**
+   * Pending requests
+   */
+  200: NativeElicitations
+}
+
+export type NativeElicitationsResponse = NativeElicitationsResponses[keyof NativeElicitationsResponses]
+
+export type NativeReplyElicitationData = {
+  body?: {
+    id: string
+    action: "accept" | "decline" | "cancel"
+    content?: {
+      [key: string]: string | number | boolean | Array<string>
+    } | null
+  }
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/native/codex/{sessionID}/elicitations/reply"
+}
+
+export type NativeReplyElicitationErrors = {
+  /**
+   * Request unavailable
+   */
+  409: {
+    error: string
+  }
+}
+
+export type NativeReplyElicitationError = NativeReplyElicitationErrors[keyof NativeReplyElicitationErrors]
+
+export type NativeReplyElicitationResponses = {
+  /**
+   * Reply receipt
+   */
+  200: NativeElicitationReceipt
+}
+
+export type NativeReplyElicitationResponse = NativeReplyElicitationResponses[keyof NativeReplyElicitationResponses]
+
+export type NativeReleaseData = {
+  body?: never
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/native/codex/{sessionID}/release"
+}
+
+export type NativeReleaseErrors = {
+  /**
+   * The conversation has unfinished local work
+   */
+  409: {
+    error: string
+  }
+}
+
+export type NativeReleaseError = NativeReleaseErrors[keyof NativeReleaseErrors]
+
+export type NativeReleaseResponses = {
+  /**
+   * Whether an idle Aether process was released; no external client was contacted
+   */
+  200: {
+    released: boolean
+  }
+}
+
+export type NativeReleaseResponse = NativeReleaseResponses[keyof NativeReleaseResponses]
+
+export type NativeMcpLoginData = {
+  body?: {
+    id: string
+    name: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/native/codex/mcp/login"
+}
+
+export type NativeMcpLoginErrors = {
+  /**
+   * Authorization cannot start
+   */
+  409: {
+    error: string
+  }
+}
+
+export type NativeMcpLoginError = NativeMcpLoginErrors[keyof NativeMcpLoginErrors]
+
+export type NativeMcpLoginResponses = {
+  /**
+   * MCP authorization progress
+   */
+  200: NativeMcpAuthStatus
+}
+
+export type NativeMcpLoginResponse = NativeMcpLoginResponses[keyof NativeMcpLoginResponses]
+
+export type NativeCancelMcpLoginData = {
+  body?: never
+  path: {
+    id: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/native/codex/mcp/login/{id}"
+}
+
+export type NativeCancelMcpLoginErrors = {
+  /**
+   * Attempt belongs to another project
+   */
+  404: {
+    error: string
+  }
+}
+
+export type NativeCancelMcpLoginError = NativeCancelMcpLoginErrors[keyof NativeCancelMcpLoginErrors]
+
+export type NativeCancelMcpLoginResponses = {
+  /**
+   * Final authorization status
+   */
+  200: NativeMcpAuthStatus
+}
+
+export type NativeCancelMcpLoginResponse = NativeCancelMcpLoginResponses[keyof NativeCancelMcpLoginResponses]
+
+export type NativeMcpLoginStatusData = {
+  body?: never
+  path: {
+    id: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/native/codex/mcp/login/{id}"
+}
+
+export type NativeMcpLoginStatusErrors = {
+  /**
+   * Attempt unavailable in this project
+   */
+  404: {
+    error: string
+  }
+}
+
+export type NativeMcpLoginStatusError = NativeMcpLoginStatusErrors[keyof NativeMcpLoginStatusErrors]
+
+export type NativeMcpLoginStatusResponses = {
+  /**
+   * MCP authorization progress
+   */
+  200: NativeMcpAuthStatus
+}
+
+export type NativeMcpLoginStatusResponse = NativeMcpLoginStatusResponses[keyof NativeMcpLoginStatusResponses]
+
+export type NativeMcpData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+    sessionID?: string
+    refresh?: boolean
+  }
+  url: "/native/codex/mcp"
+}
+
+export type NativeMcpResponses = {
+  /**
+   * MCP inventory
+   */
+  200: NativeMcpStatus
+}
+
+export type NativeMcpResponse = NativeMcpResponses[keyof NativeMcpResponses]
+
+export type NativeLoginData = {
+  body?: {
+    id: string
+    method: "browser" | "device"
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/native/codex/login"
+}
+
+export type NativeLoginErrors = {
+  /**
+   * Another sign-in is already in progress
+   */
+  409: {
+    error: string
+  }
+}
+
+export type NativeLoginError = NativeLoginErrors[keyof NativeLoginErrors]
+
+export type NativeLoginResponses = {
+  /**
+   * Sign-in progress and browser authorization or device-code instructions
+   */
+  200: NativeAuthStatus
+}
+
+export type NativeLoginResponse = NativeLoginResponses[keyof NativeLoginResponses]
+
+export type NativeCancelLoginData = {
+  body?: never
+  path: {
+    id: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/native/codex/login/{id}"
+}
+
+export type NativeCancelLoginResponses = {
+  /**
+   * Final sign-in status
+   */
+  200: NativeAuthStatus
+}
+
+export type NativeCancelLoginResponse = NativeCancelLoginResponses[keyof NativeCancelLoginResponses]
+
+export type NativeLoginStatusData = {
+  body?: never
+  path: {
+    id: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/native/codex/login/{id}"
+}
+
+export type NativeLoginStatusErrors = {
+  /**
+   * Sign-in attempt expired or the server restarted
+   */
+  404: {
+    error: string
+  }
+}
+
+export type NativeLoginStatusError = NativeLoginStatusErrors[keyof NativeLoginStatusErrors]
+
+export type NativeLoginStatusResponses = {
+  /**
+   * Current sign-in status
+   */
+  200: NativeAuthStatus
+}
+
+export type NativeLoginStatusResponse = NativeLoginStatusResponses[keyof NativeLoginStatusResponses]
+
+export type NativePrepareRevertData = {
+  body?: {
+    messageID: string
+  }
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/native/codex/{sessionID}/revert/prepare"
+}
+
+export type NativePrepareRevertErrors = {
+  /**
+   * History cannot be edited
+   */
+  409: {
+    error: string
+  }
+}
+
+export type NativePrepareRevertError = NativePrepareRevertErrors[keyof NativePrepareRevertErrors]
+
+export type NativePrepareRevertResponses = {
+  /**
+   * Prepared operation identity
+   */
+  200: NativeRevertPrepared
+}
+
+export type NativePrepareRevertResponse = NativePrepareRevertResponses[keyof NativePrepareRevertResponses]
+
+export type NativeRevertStatusData = {
+  body?: never
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+    operationId?: string
+  }
+  url: "/native/codex/{sessionID}/revert"
+}
+
+export type NativeRevertStatusResponses = {
+  /**
+   * Current edit status, or null before a mutation
+   */
+  200: NativeRevertStatus | null
+}
+
+export type NativeRevertStatusResponse = NativeRevertStatusResponses[keyof NativeRevertStatusResponses]
+
+export type NativeRevertData = {
+  body?: {
+    id: string
+  }
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/native/codex/{sessionID}/revert"
+}
+
+export type NativeRevertErrors = {
+  /**
+   * Edit was not dispatched
+   */
+  409: {
+    error: string
+  }
+}
+
+export type NativeRevertError = NativeRevertErrors[keyof NativeRevertErrors]
+
+export type NativeRevertResponses = {
+  /**
+   * Native edit result
+   */
+  200: NativeRevertResult
+}
+
+export type NativeRevertResponse = NativeRevertResponses[keyof NativeRevertResponses]
+
+export type NativeQuestionsData = {
+  body?: never
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/native/codex/{sessionID}/questions"
+}
+
+export type NativeQuestionsResponses = {
+  /**
+   * Unsubmitted asynchronous questions
+   */
+  200: NativePendingQuestions
+}
+
+export type NativeQuestionsResponse = NativeQuestionsResponses[keyof NativeQuestionsResponses]
+
+export type NativeReplyQuestionData = {
+  body?: {
+    threadID: string
+    answers: Array<string>
+  }
+  path: {
+    sessionID: string
+    itemID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/native/codex/{sessionID}/questions/{itemID}/reply"
+}
+
+export type NativeReplyQuestionErrors = {
+  /**
+   * Answer cannot be submitted
+   */
+  409: {
+    error: string
+  }
+}
+
+export type NativeReplyQuestionError = NativeReplyQuestionErrors[keyof NativeReplyQuestionErrors]
+
+export type NativeReplyQuestionResponses = {
+  /**
+   * Saved question and answer delivery status
+   */
+  200: NativeQuestion
+}
+
+export type NativeReplyQuestionResponse = NativeReplyQuestionResponses[keyof NativeReplyQuestionResponses]
+
+export type NativeSkipQuestionData = {
+  body?: {
+    threadID: string
+  }
+  path: {
+    sessionID: string
+    itemID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/native/codex/{sessionID}/questions/{itemID}/skip"
+}
+
+export type NativeSkipQuestionErrors = {
+  /**
+   * Skip cannot be submitted
+   */
+  409: {
+    error: string
+  }
+}
+
+export type NativeSkipQuestionError = NativeSkipQuestionErrors[keyof NativeSkipQuestionErrors]
+
+export type NativeSkipQuestionResponses = {
+  /**
+   * Saved question and skip delivery status
+   */
+  200: NativeQuestion
+}
+
+export type NativeSkipQuestionResponse = NativeSkipQuestionResponses[keyof NativeSkipQuestionResponses]
+
+export type NativeSkillsData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+    refresh?: boolean
+  }
+  url: "/native/codex/skills"
+}
+
+export type NativeSkillsResponses = {
+  /**
+   * Native skills without running inference
+   */
+  200: NativeCodexSkills
+}
+
+export type NativeSkillsResponse = NativeSkillsResponses[keyof NativeSkillsResponses]
+
+export type NativeUsageData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+    refresh?: boolean
+  }
+  url: "/native/codex/usage"
+}
+
+export type NativeUsageResponses = {
+  /**
+   * Account limits, without running inference
+   */
+  200: NativeUsageStatus
+}
+
+export type NativeUsageResponse = NativeUsageResponses[keyof NativeUsageResponses]
+
+export type NativeStatusData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+    refresh?: boolean
+  }
+  url: "/native/codex"
+}
+
+export type NativeStatusResponses = {
+  /**
+   * Codex installation and connection status
+   */
+  200: NativeCodexStatus
+}
+
+export type NativeStatusResponse = NativeStatusResponses[keyof NativeStatusResponses]
+
+export type NativeHistoryData = {
+  body?: never
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+    refresh?: boolean
+  }
+  url: "/native/codex/{sessionID}/history"
+}
+
+export type NativeHistoryResponses = {
+  /**
+   * History refresh status
+   */
+  200: NativeHistoryStatus
+}
+
+export type NativeHistoryResponse = NativeHistoryResponses[keyof NativeHistoryResponses]
+
+export type NativeRuntimeData = {
+  body?: never
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/native/codex/{sessionID}/runtime"
+}
+
+export type NativeRuntimeResponses = {
+  /**
+   * Local execution state; not Desktop ownership
+   */
+  200: {
+    active: NativeActive | null
+    queue: NativeQueueStatus
+  }
+}
+
+export type NativeRuntimeResponse = NativeRuntimeResponses[keyof NativeRuntimeResponses]
+
+export type NativeSteerData = {
+  body?: {
+    messageID: string
+    turnID: string
+    text: string
+    parts?: Array<NativeTextInput | NativeFileInput>
+  }
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/native/codex/{sessionID}/steer"
+}
+
+export type NativeSteerResponses = {
+  /**
+   * Delivery evidence; uncertain requests must not be replayed
+   */
+  200: NativeSteered
+}
+
+export type NativeSteerResponse = NativeSteerResponses[keyof NativeSteerResponses]
+
+export type NativeEnqueueData = {
+  body?: {
+    messageID: string
+    text: string
+    parts?: Array<NativeTextInput | NativeFileInput>
+    model?: string
+    effort?: string
+  }
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/native/codex/{sessionID}/queue"
+}
+
+export type NativeEnqueueErrors = {
+  /**
+   * Queue cannot accept this input
+   */
+  409: {
+    error: string
+  }
+}
+
+export type NativeEnqueueError = NativeEnqueueErrors[keyof NativeEnqueueErrors]
+
+export type NativeEnqueueResponses = {
+  /**
+   * Durable pending input
+   */
+  200: NativeQueueStatus
+}
+
+export type NativeEnqueueResponse = NativeEnqueueResponses[keyof NativeEnqueueResponses]
+
+export type NativeDequeueData = {
+  body?: never
+  path: {
+    sessionID: string
+    messageID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/native/codex/{sessionID}/queue/{messageID}"
+}
+
+export type NativeDequeueErrors = {
+  /**
+   * Message is already dispatching
+   */
+  409: {
+    error: string
+  }
+}
+
+export type NativeDequeueError = NativeDequeueErrors[keyof NativeDequeueErrors]
+
+export type NativeDequeueResponses = {
+  /**
+   * Updated queue
+   */
+  200: NativeQueueStatus
+}
+
+export type NativeDequeueResponse = NativeDequeueResponses[keyof NativeDequeueResponses]
+
+export type NativeSendQueuedData = {
+  body?: {
+    turnID: string
+  }
+  path: {
+    sessionID: string
+    messageID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/native/codex/{sessionID}/queue/{messageID}/send"
+}
+
+export type NativeSendQueuedErrors = {
+  /**
+   * Queue delivery could not be resolved
+   */
+  409: {
+    error: string
+  }
+}
+
+export type NativeSendQueuedError = NativeSendQueuedErrors[keyof NativeSendQueuedErrors]
+
+export type NativeSendQueuedResponses = {
+  /**
+   * Updated queue and native delivery evidence; uncertain input is never replayed
+   */
+  200: NativeQueueSent
+}
+
+export type NativeSendQueuedResponse = NativeSendQueuedResponses[keyof NativeSendQueuedResponses]
+
+export type NativeResumeQueueData = {
+  body?: never
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/native/codex/{sessionID}/queue/resume"
+}
+
+export type NativeResumeQueueErrors = {
+  /**
+   * Unresolved messages require review
+   */
+  409: {
+    error: string
+  }
+}
+
+export type NativeResumeQueueError = NativeResumeQueueErrors[keyof NativeResumeQueueErrors]
+
+export type NativeResumeQueueResponses = {
+  /**
+   * Queue state
+   */
+  200: NativeQueueStatus
+}
+
+export type NativeResumeQueueResponse = NativeResumeQueueResponses[keyof NativeResumeQueueResponses]
 
 export type DatabaseLegacyStatusData = {
   body?: never
@@ -9290,6 +10723,181 @@ export type MemoryDailyReflectSyncResponses = {
 
 export type MemoryDailyReflectSyncResponse = MemoryDailyReflectSyncResponses[keyof MemoryDailyReflectSyncResponses]
 
+export type MigrateSourcesData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/migrate/sources"
+}
+
+export type MigrateSourcesResponses = {
+  /**
+   * Detected sources
+   */
+  200: Array<{
+    id:
+      | "claude"
+      | "codex"
+      | "pi"
+      | "omp"
+      | "copilot"
+      | "opencode"
+      | "kilo"
+      | "qwen"
+      | "kimi"
+      | "vibe"
+      | "muse"
+      | "grok"
+      | "openhands"
+      | "qoder"
+      | "qodercn"
+      | "codebuddy"
+    name: string
+    sessions?: number
+  }>
+}
+
+export type MigrateSourcesResponse = MigrateSourcesResponses[keyof MigrateSourcesResponses]
+
+export type MigrateSessionsData = {
+  body?: never
+  path?: never
+  query: {
+    directory?: string
+    workspace?: string
+    source:
+      | "claude"
+      | "codex"
+      | "pi"
+      | "omp"
+      | "copilot"
+      | "opencode"
+      | "kilo"
+      | "qwen"
+      | "kimi"
+      | "vibe"
+      | "muse"
+      | "grok"
+      | "openhands"
+      | "qoder"
+      | "qodercn"
+      | "codebuddy"
+    limit?: number
+  }
+  url: "/migrate/sessions"
+}
+
+export type MigrateSessionsErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type MigrateSessionsError = MigrateSessionsErrors[keyof MigrateSessionsErrors]
+
+export type MigrateSessionsResponses = {
+  /**
+   * Importable sessions
+   */
+  200: Array<{
+    source:
+      | "claude"
+      | "codex"
+      | "pi"
+      | "omp"
+      | "copilot"
+      | "opencode"
+      | "kilo"
+      | "qwen"
+      | "kimi"
+      | "vibe"
+      | "muse"
+      | "grok"
+      | "openhands"
+      | "qoder"
+      | "qodercn"
+      | "codebuddy"
+    id: string
+    title?: string
+    cwd?: string
+    parentID?: string
+    updated?: number
+  }>
+}
+
+export type MigrateSessionsResponse = MigrateSessionsResponses[keyof MigrateSessionsResponses]
+
+export type MigrateImportData = {
+  body?: {
+    source:
+      | "claude"
+      | "codex"
+      | "pi"
+      | "omp"
+      | "copilot"
+      | "opencode"
+      | "kilo"
+      | "qwen"
+      | "kimi"
+      | "vibe"
+      | "muse"
+      | "grok"
+      | "openhands"
+      | "qoder"
+      | "qodercn"
+      | "codebuddy"
+    sessionID: string
+    parentSessionID?: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/migrate/import"
+}
+
+export type MigrateImportErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Conflict
+   */
+  409: {
+    name: string
+    data: {
+      message: string
+    }
+  }
+}
+
+export type MigrateImportError = MigrateImportErrors[keyof MigrateImportErrors]
+
+export type MigrateImportResponses = {
+  /**
+   * Imported session
+   */
+  200: {
+    sessionID: string
+    title: string
+    directory: string
+    fallback: boolean
+    parentID?: string
+    linked?: boolean
+    manifest: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type MigrateImportResponse = MigrateImportResponses[keyof MigrateImportResponses]
+
 export type PostVoiceTranscribeData = {
   body?: {
     providerID: string
@@ -9762,6 +11370,7 @@ export type ReadingModeSessionFromFileData = {
       autoFirstRead?: boolean
     }
     forceNew?: boolean
+    engine?: NativeEngineInput
   }
   path?: never
   query?: {
