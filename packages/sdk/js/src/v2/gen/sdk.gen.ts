@@ -5934,7 +5934,7 @@ export class Latex extends HeyApiClient {
       root?: string
       main?: string
       driver?: "auto" | "tectonic" | "latexmk"
-      program?: "auto" | "pdflatex" | "xelatex"
+      program?: "auto" | "pdflatex" | "xelatex" | "lualatex"
       expectedRevision?: string
     },
     options?: Options<never, ThrowOnError>,

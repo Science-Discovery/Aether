@@ -2102,7 +2102,7 @@ export const dict = {
   "latex.help.driver":
     "Choose Tectonic, latexmk, or automatic selection for this project. Installation is configured separately in LaTeX settings.",
   "latex.help.program":
-    "Choose the typesetting engine for latexmk. Leave this set to Automatic for Tectonic, which uses XeTeX.",
+    "Choose pdfLaTeX, XeLaTeX, or LuaLaTeX for latexmk. Leave this set to Automatic for Tectonic, which uses XeTeX.",
   "latex.help.bind":
     "Remember this project's main document, compiler and engine. After changing the folder, open it before saving these settings.",
   "latex.help.downloads":

@@ -7,7 +7,7 @@ export namespace LatexSchema {
     latexmk: z.object({ path: z.string().trim().optional() }).optional(),
   })
   export const Driver = z.enum(["auto", "tectonic", "latexmk"])
-  export const Program = z.enum(["auto", "pdflatex", "xelatex"])
+  export const Program = z.enum(["auto", "pdflatex", "xelatex", "lualatex"])
   export const Setup = z
     .object({
       state: z.enum(["idle", "downloading", "verifying", "extracting", "checking", "ready", "failed", "cancelled"]),
@@ -49,7 +49,7 @@ export namespace LatexSchema {
       sourceRevision: z.string().optional(),
       state: z.enum(["preparing", "running", "succeeded", "failed", "cancelled"]),
       driver: z.enum(["tectonic", "latexmk"]).optional(),
-      program: z.enum(["pdflatex", "xelatex"]).optional(),
+      program: z.enum(["pdflatex", "xelatex", "lualatex"]).optional(),
       createdAt: z.number(),
       startedAt: z.number().optional(),
       completedAt: z.number().optional(),

@@ -2009,7 +2009,7 @@ export const dict = {
   "latex.help.open": "读取填写的文件夹，发现工程设置和主文档候选；不会新建文件夹。",
   "latex.help.main": "编译整篇论文的 .tex 入口，路径相对于工程目录。即使正在编辑章节，也会从这个文件编译。",
   "latex.help.driver": "为当前工程选择 Tectonic、latexmk 或自动选择。安装与路径配置在「LaTeX 设置」中完成。",
-  "latex.help.program": "选择 latexmk 使用的排版引擎。Tectonic 使用 XeTeX，请保持「自动」。",
+  "latex.help.program": "为 latexmk 选择 pdfLaTeX、XeLaTeX 或 LuaLaTeX。Tectonic 使用 XeTeX，请保持「自动」。",
   "latex.help.bind": "记住当前工程的主文档、编译器和引擎。修改工程目录后，先点击「打开工程」再保存这些设置。",
   "latex.help.downloads":
     "Tectonic 提示缺少资源包时，可勾选此项后点击「保存并编译」。许可只用于这次手动编译，不延续到之后的自动编译。",

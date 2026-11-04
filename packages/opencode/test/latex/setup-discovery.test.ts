@@ -13,6 +13,20 @@ const binding = {
   updatedAt: 0,
 }
 
+test("documents requesting LuaLaTeX are not silently switched to Tectonic", async () => {
+  await using dir = await tmpdir()
+  const managed = path.join(dir.path, "managed.exe")
+  await Bun.write(managed, "fixture")
+  const discover = spyOn(LatexSetup, "executable").mockResolvedValue(managed)
+  try {
+    await expect(
+      LatexCompiler.select({ ...binding, program: "auto" }, "% !TeX program = lualatex", {}),
+    ).rejects.toThrow("requests LuaLaTeX")
+  } finally {
+    discover.mockRestore()
+  }
+})
+
 test("compiler automatically uses managed Tectonic while preserving explicit configuration", async () => {
   await using dir = await tmpdir()
   const managed = path.join(dir.path, "managed.exe")

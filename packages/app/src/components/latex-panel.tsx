@@ -347,6 +347,7 @@ function Workspace(props: Props) {
                     <option value="auto">{language.t("latex.auto")}</option>
                     <option value="pdflatex">pdfLaTeX</option>
                     <option value="xelatex">XeLaTeX</option>
+                    <option value="lualatex">LuaLaTeX</option>
                   </select>
                 </label>
                 <Button

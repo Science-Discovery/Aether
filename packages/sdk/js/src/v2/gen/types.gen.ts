@@ -2797,7 +2797,7 @@ export type LatexBinding = {
   root: string
   main: string
   driver: "auto" | "tectonic" | "latexmk"
-  program: "auto" | "pdflatex" | "xelatex"
+  program: "auto" | "pdflatex" | "xelatex" | "lualatex"
   revision: string
   updatedAt: number
 }
@@ -2823,7 +2823,7 @@ export type LatexBuild = {
   sourceRevision?: string
   state: "preparing" | "running" | "succeeded" | "failed" | "cancelled"
   driver?: "tectonic" | "latexmk"
-  program?: "pdflatex" | "xelatex"
+  program?: "pdflatex" | "xelatex" | "lualatex"
   createdAt: number
   startedAt?: number
   completedAt?: number
@@ -8124,7 +8124,7 @@ export type LatexBindData = {
     root: string
     main: string
     driver?: "auto" | "tectonic" | "latexmk"
-    program?: "auto" | "pdflatex" | "xelatex"
+    program?: "auto" | "pdflatex" | "xelatex" | "lualatex"
     expectedRevision?: string
   }
   path?: never
