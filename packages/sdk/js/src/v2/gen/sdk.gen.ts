@@ -167,6 +167,48 @@ import type {
   KnowledgeStatsResponses,
   KnowledgeSyncErrors,
   KnowledgeSyncResponses,
+  LatexAnnotateErrors,
+  LatexAnnotateResponses,
+  LatexAnnotationsErrors,
+  LatexAnnotationsResponses,
+  LatexBindErrors,
+  LatexBindResponses,
+  LatexBuildErrors,
+  LatexBuildResponses,
+  LatexCancelErrors,
+  LatexCancelResponses,
+  LatexCleanupErrors,
+  LatexCleanupResponses,
+  LatexExportAnnotationsErrors,
+  LatexExportAnnotationsResponses,
+  LatexForwardErrors,
+  LatexForwardResponses,
+  LatexGetErrors,
+  LatexGetResponses,
+  LatexInverseErrors,
+  LatexInverseResponses,
+  LatexLeaseErrors,
+  LatexLeaseResponses,
+  LatexPdfErrors,
+  LatexPdfResponses,
+  LatexProjectErrors,
+  LatexProjectResponses,
+  LatexReferenceErrors,
+  LatexReferenceResponses,
+  LatexRefreshErrors,
+  LatexRefreshResponses,
+  LatexReleaseErrors,
+  LatexReleaseResponses,
+  LatexSetupCancelErrors,
+  LatexSetupCancelResponses,
+  LatexSetupStartErrors,
+  LatexSetupStartResponses,
+  LatexSetupStatusErrors,
+  LatexSetupStatusResponses,
+  LatexStatusErrors,
+  LatexStatusResponses,
+  LatexVersionsErrors,
+  LatexVersionsResponses,
   LspStatusResponses,
   McpAddErrors,
   McpAddResponses,
@@ -5737,6 +5779,738 @@ export class Database extends HeyApiClient {
   }
 }
 
+export class Latex extends HeyApiClient {
+  /**
+   * Inspect local LaTeX compilers
+   */
+  public status<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<LatexStatusResponses, LatexStatusErrors, ThrowOnError>({
+      url: "/latex/status",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Read the local Tectonic installation state without starting a download
+   */
+  public setupStatus<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<LatexSetupStatusResponses, LatexSetupStatusErrors, ThrowOnError>({
+      url: "/latex/setup",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Download and configure the verified Tectonic release on this server
+   */
+  public setupStart<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<LatexSetupStartResponses, LatexSetupStartErrors, ThrowOnError>({
+      url: "/latex/setup",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Cancel the current Tectonic setup without changing a previous installation
+   */
+  public setupCancel<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<LatexSetupCancelResponses, LatexSetupCancelErrors, ThrowOnError>({
+      url: "/latex/setup/cancel",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Resolve a LaTeX main document and its saved binding
+   */
+  public project<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      path?: string
+      root?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "path" },
+            { in: "query", key: "root" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<LatexProjectResponses, LatexProjectErrors, ThrowOnError>({
+      url: "/latex/project",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Bind a LaTeX project to its main document
+   */
+  public bind<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      root?: string
+      main?: string
+      driver?: "auto" | "tectonic" | "latexmk"
+      program?: "auto" | "pdflatex" | "xelatex"
+      expectedRevision?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "root" },
+            { in: "body", key: "main" },
+            { in: "body", key: "driver" },
+            { in: "body", key: "program" },
+            { in: "body", key: "expectedRevision" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).put<LatexBindResponses, LatexBindErrors, ThrowOnError>({
+      url: "/latex/project",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Hash saved project files and recheck preview freshness
+   */
+  public refresh<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      root?: string
+      editors?: Array<string>
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "root" },
+            { in: "body", key: "editors" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<LatexRefreshResponses, LatexRefreshErrors, ThrowOnError>({
+      url: "/latex/project/refresh",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Compile a saved LaTeX project asynchronously
+   */
+  public build<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      root?: string
+      bindingRevision?: string
+      sourceRevision?: string
+      allowDownloads?: boolean
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "root" },
+            { in: "body", key: "bindingRevision" },
+            { in: "body", key: "sourceRevision" },
+            { in: "body", key: "allowDownloads" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<LatexBuildResponses, LatexBuildErrors, ThrowOnError>({
+      url: "/latex/build",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * List immutable PDF builds and their retention state
+   */
+  public versions<ThrowOnError extends boolean = false>(
+    parameters: {
+      directory?: string
+      workspace?: string
+      root: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "root" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<LatexVersionsResponses, LatexVersionsErrors, ThrowOnError>({
+      url: "/latex/versions",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Keep recent builds and all annotated, referenced or viewed PDFs
+   */
+  public cleanup<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      root?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "root" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<LatexCleanupResponses, LatexCleanupErrors, ThrowOnError>({
+      url: "/latex/versions/cleanup",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Read annotations bound to this immutable PDF
+   */
+  public annotations<ThrowOnError extends boolean = false>(
+    parameters: {
+      id: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "id" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<LatexAnnotationsResponses, LatexAnnotationsErrors, ThrowOnError>({
+      url: "/latex/build/{id}/annotations",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Save build annotations without overwriting concurrent edits
+   */
+  public annotate<ThrowOnError extends boolean = false>(
+    parameters: {
+      id: string
+      directory?: string
+      workspace?: string
+      data?: {
+        version: "1.2"
+        source: {
+          path: string
+          fingerprint: string
+        }
+        annotations: Array<{
+          id: string
+          type: "highlight" | "underline" | "strikeout" | "note"
+          color: "yellow" | "red" | "green" | "blue"
+          pages: Array<{
+            page: number
+            quads: Array<[number, number, number, number, number, number, number, number]>
+          }>
+          selectedText: string
+          note: string
+          createdAt: number
+          updatedAt: number
+        }>
+      }
+      revision?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "id" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "data" },
+            { in: "body", key: "revision" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).put<LatexAnnotateResponses, LatexAnnotateErrors, ThrowOnError>({
+      url: "/latex/build/{id}/annotations",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Export this PDF with its build-specific annotations
+   */
+  public exportAnnotations<ThrowOnError extends boolean = false>(
+    parameters: {
+      id: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "id" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      LatexExportAnnotationsResponses,
+      LatexExportAnnotationsErrors,
+      ThrowOnError
+    >({
+      url: "/latex/build/{id}/annotations/export",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Protect a viewed PDF for 90 seconds; renew while viewing
+   */
+  public lease<ThrowOnError extends boolean = false>(
+    parameters: {
+      id: string
+      directory?: string
+      workspace?: string
+      token?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "id" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "token" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<LatexLeaseResponses, LatexLeaseErrors, ThrowOnError>({
+      url: "/latex/build/{id}/lease",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Release this viewer's temporary PDF protection
+   */
+  public release<ThrowOnError extends boolean = false>(
+    parameters: {
+      id: string
+      token: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "id" },
+            { in: "path", key: "token" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).delete<LatexReleaseResponses, LatexReleaseErrors, ThrowOnError>({
+      url: "/latex/build/{id}/lease/{token}",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Retain the immutable PDF used by a question
+   */
+  public reference<ThrowOnError extends boolean = false>(
+    parameters: {
+      id: string
+      directory?: string
+      workspace?: string
+      reference?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "id" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "reference" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<LatexReferenceResponses, LatexReferenceErrors, ThrowOnError>({
+      url: "/latex/build/{id}/reference",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Read LaTeX build progress and diagnostics
+   */
+  public get<ThrowOnError extends boolean = false>(
+    parameters: {
+      id: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "id" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<LatexGetResponses, LatexGetErrors, ThrowOnError>({
+      url: "/latex/build/{id}",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Locate a source line in this immutable PDF build
+   */
+  public forward<ThrowOnError extends boolean = false>(
+    parameters: {
+      id: string
+      directory?: string
+      workspace?: string
+      path?: string
+      line?: number
+      column?: number
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "id" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "path" },
+            { in: "body", key: "line" },
+            { in: "body", key: "column" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<LatexForwardResponses, LatexForwardErrors, ThrowOnError>({
+      url: "/latex/build/{id}/sync/forward",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Locate a PDF user-space point in its unchanged source project
+   */
+  public inverse<ThrowOnError extends boolean = false>(
+    parameters: {
+      id: string
+      directory?: string
+      workspace?: string
+      page?: number
+      x?: number
+      y?: number
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "id" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "page" },
+            { in: "body", key: "x" },
+            { in: "body", key: "y" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<LatexInverseResponses, LatexInverseErrors, ThrowOnError>({
+      url: "/latex/build/{id}/sync/inverse",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Cancel a LaTeX build and stop its process tree
+   */
+  public cancel<ThrowOnError extends boolean = false>(
+    parameters: {
+      id: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "id" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<LatexCancelResponses, LatexCancelErrors, ThrowOnError>({
+      url: "/latex/build/{id}/cancel",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Read an immutable successful LaTeX PDF
+   */
+  public pdf<ThrowOnError extends boolean = false>(
+    parameters: {
+      id: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "id" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<LatexPdfResponses, LatexPdfErrors, ThrowOnError>({
+      url: "/latex/build/{id}/pdf",
+      ...options,
+      ...params,
+    })
+  }
+}
+
 export class PdfAnnotations extends HeyApiClient {
   /**
    * Get PDF annotations
@@ -10536,6 +11310,11 @@ export class OpencodeClient extends HeyApiClient {
   private _database?: Database
   get database(): Database {
     return (this._database ??= new Database({ client: this.client }))
+  }
+
+  private _latex?: Latex
+  get latex(): Latex {
+    return (this._latex ??= new Latex({ client: this.client }))
   }
 
   private _file?: File
