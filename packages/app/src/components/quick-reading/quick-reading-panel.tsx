@@ -84,6 +84,7 @@ export const QuickReadingPanel: Component<{
               src={src()}
               annotationPath={live() ? undefined : props.annotationPath}
               annotationBuild={live() ? undefined : props.annotationBuild}
+              annotationStore={live() && realtime.src() ? realtime.annotationStore : undefined}
               document={props.document}
               version={props.version}
               onVersionChange={props.onVersionChange}

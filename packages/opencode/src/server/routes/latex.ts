@@ -361,6 +361,40 @@ export const LatexRoutes = lazy(() =>
         return c.json(await Latex.realtimeSpans(input.id, input.path))
       },
     )
+    .get(
+      "/realtime/annotations",
+      describeRoute({
+        operationId: "latex.realtimeAnnotations",
+        summary: "Read annotations attached to a realtime document",
+        responses: {
+          ...response(z.object({ data: PdfAnnotations.File, revision: z.string() })),
+          ...failure,
+        },
+      }),
+      validator("query", z.object({ root: z.string(), main: z.string() })),
+      async (c) => c.json(await Latex.realtimeAnnotations(c.req.valid("query"))),
+    )
+    .put(
+      "/realtime/annotations",
+      describeRoute({
+        operationId: "latex.realtimeSaveAnnotations",
+        summary: "Save annotations attached to a realtime document",
+        responses: {
+          ...response(z.object({ data: PdfAnnotations.File, revision: z.string() })),
+          ...failure,
+        },
+      }),
+      validator(
+        "json",
+        z.object({
+          root: z.string(),
+          main: z.string(),
+          data: PdfAnnotations.File,
+          revision: z.string().optional(),
+        }),
+      ),
+      async (c) => c.json(await Latex.saveRealtimeAnnotations(c.req.valid("json"))),
+    )
     .post(
       "/realtime/close",
       describeRoute({

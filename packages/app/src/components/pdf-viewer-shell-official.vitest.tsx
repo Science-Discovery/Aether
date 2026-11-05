@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest"
 import { createStore } from "solid-js/store"
 import { render } from "solid-js/web"
-import { PdfViewerShell, type PdfReveal } from "./pdf-viewer-shell-official"
+import { PdfViewerShell, type PdfAnnotationStore, type PdfReveal } from "./pdf-viewer-shell-official"
 
 vi.mock("@/context/sdk", () => ({ useSDK: () => ({ url: "http://server", directory: "/paper" }) }))
 vi.mock("@/context/platform", () => ({ usePlatform: () => ({}) }))
@@ -42,6 +42,7 @@ function viewer(
     post?: (post: (message: unknown, transfer?: Transferable[]) => void) => void
     request?: (input: { page: number; width: number; height: number; dpr: number; src?: string }) => void
     realtime?: boolean
+    store?: PdfAnnotationStore
   } = {},
 ) {
   const source = plain
@@ -75,6 +76,7 @@ function viewer(
         onPost={options.post}
         onRealtimeRequest={options.request}
         realtime={options.realtime}
+        annotationStore={options.store}
       />
     ),
     host,
@@ -281,4 +283,28 @@ test("realtime page requests reach the host and the viewer receives its post fun
   ctx.send("realtime-page-request", { page: 2, width: 600, height: 800, dpr: Number.NaN, src })
   ctx.send("realtime-page-request", { page: 2, width: 600, height: 800, dpr: 2, src: 42 })
   expect(request).toHaveBeenCalledTimes(1)
+})
+
+test("a realtime annotation store loads and saves without the build endpoints", async () => {
+  const data = file("live")
+  const load = vi.fn(async () => ({ data, revision: "r0" }))
+  const save = vi.fn(async (input: { data: typeof data; revision?: string }) => ({
+    data: input.data,
+    revision: "r1",
+  }))
+  const ctx = viewer(false, { store: { load, save } })
+  ctx.show()
+  await tick()
+  expect(load).toHaveBeenCalledTimes(1)
+  const sent = ctx.post.mock.calls.map(([message]) => message).find((message) => message.type === "annotations")
+  expect(sent?.annotations).toEqual(data.annotations)
+  expect(requests).toHaveLength(0)
+  ctx.send("annotationchange", { id: 1, annotations: [] })
+  await tick()
+  expect(save).toHaveBeenCalledTimes(1)
+  expect(save.mock.calls[0][0].revision).toBe("r0")
+  expect(requests).toHaveLength(0)
+  expect(
+    ctx.post.mock.calls.some(([message]) => message.type === "annotationstatus" && message.id === 1 && message.ok),
+  ).toBe(true)
 })

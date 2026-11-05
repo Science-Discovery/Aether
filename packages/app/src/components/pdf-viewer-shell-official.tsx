@@ -17,12 +17,22 @@ export type PdfAnnotation = {
   note: string
   createdAt: number
   updatedAt: number
+  anchor?: unknown
+  anchors?: unknown
 }
 
-type PdfAnnotationFile = {
+export type PdfAnnotationFile = {
   version: "1.2"
   source: { path: string; fingerprint: string }
   annotations: PdfAnnotation[]
+}
+
+export type PdfAnnotationStore = {
+  load: () => Promise<{ data: PdfAnnotationFile; revision?: string }>
+  save: (input: { data: PdfAnnotationFile; revision?: string }) => Promise<{
+    data: PdfAnnotationFile
+    revision?: string
+  }>
 }
 
 export type PdfVersion = { document?: string; version?: string; src?: string }
@@ -109,6 +119,7 @@ export type PdfViewerShellProps = {
   layoutSwapped?: boolean
   annotationPath?: string
   annotationBuild?: string
+  annotationStore?: PdfAnnotationStore
   reveal?: PdfReveal
   onSourceLocate?: (input: PdfLocate) => void
   onLocateUnavailable?: (input: PdfLocateUnavailable) => void
@@ -232,7 +243,8 @@ export const PdfViewerShell: Component<PdfViewerShellProps> = (props) => {
       settings: !!props.onOpenSettings,
       textSelectionActions: !!props.onTextSelectionAction,
       imageSelectionActions: !!props.onImageSelectionAction,
-      annotations: !!(props.annotationPath || props.annotationBuild),
+      annotations: !!(props.annotationPath || props.annotationBuild || props.annotationStore),
+      annotationExport: !!(props.annotationPath || props.annotationBuild),
       swapLayout: !!props.onSwapLayout,
       sourceLocate: !!props.onSourceLocate,
       activity: !!props.onBusyChange,
@@ -278,7 +290,21 @@ export const PdfViewerShell: Component<PdfViewerShellProps> = (props) => {
     const id = ++serial
     setAnnotations(undefined)
     setRecord(undefined)
-    if (!source || !identity(source)) return
+    if (!source || (!identity(source) && !props.annotationStore)) return
+    if (props.annotationStore) {
+      props.annotationStore
+        .load()
+        .then((result) => {
+          if (id !== serial) return
+          setRecord({ source, revision: result.revision, pending: 0 })
+          setAnnotations(result.data)
+        })
+        .catch((err) => {
+          if (id !== serial) return
+          showToast({ variant: "error", title: "Failed to load PDF annotations", description: String(err) })
+        })
+      return
+    }
     const target = endpoint(source)
     const auth = headers()
     void fetch(target, { headers: auth })
@@ -349,36 +375,46 @@ export const PdfViewerShell: Component<PdfViewerShellProps> = (props) => {
       return
     }
     const next = { ...data, annotations: message.annotations }
-    const target = endpoint(ctx.source)
     const auth = headers()
+    const store = props.annotationStore
     ctx.pending++
     setAnnotations(next)
     saving = saving
       .then(async () => {
-        const res = await fetch(target, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json", ...auth },
-          body: JSON.stringify(
-            ctx.source.annotationBuild
-              ? { data: next, revision: ctx.revision }
-              : { path: ctx.source.annotationPath, data: next },
-          ),
-        })
-        if (!res.ok)
-          throw new Error(
-            res.status === 409
-              ? "Annotations changed in another view. Your edits are still open; reload saved annotations to resolve the conflict."
-              : `Failed to save PDF annotations (${res.status})`,
-          )
-        const result = (await res.json()) as PdfAnnotationFile | PdfAnnotations
-        const saved = "data" in result ? result.data : result
-        if ("revision" in result) ctx.revision = result.revision
+        const result = store
+          ? await store.save({ data: next, revision: ctx.revision })
+          : await (async () => {
+              const target = endpoint(ctx.source)
+              const res = await fetch(target, {
+                method: "PUT",
+                headers: { "Content-Type": "application/json", ...auth },
+                body: JSON.stringify(
+                  ctx.source.annotationBuild
+                    ? { data: next, revision: ctx.revision }
+                    : { path: ctx.source.annotationPath, data: next },
+                ),
+              })
+              if (!res.ok)
+                throw new Error(
+                  res.status === 409
+                    ? "Annotations changed in another view. Your edits are still open; reload saved annotations to resolve the conflict."
+                    : `Failed to save PDF annotations (${res.status})`,
+                )
+              const value = (await res.json()) as PdfAnnotationFile | PdfAnnotations
+              return {
+                data: "data" in value ? value.data : value,
+                revision: "revision" in value ? value.revision : ctx.revision,
+              }
+            })()
+        ctx.revision = result.revision
+        if (store) setAnnotations(result.data)
         ctx.failed = false
-        window.dispatchEvent(
-          new CustomEvent("aether:pdf-annotations", {
-            detail: { channel, path: identity(ctx.source), data: saved, revision: ctx.revision },
-          }),
-        )
+        if (!store)
+          window.dispatchEvent(
+            new CustomEvent("aether:pdf-annotations", {
+              detail: { channel, path: identity(ctx.source), data: result.data, revision: ctx.revision },
+            }),
+          )
         post({ channel: "aether-pdf-viewer", type: "annotationstatus", id: message.id, ...ctx.source, ok: true })
       })
       .catch((err) => {
@@ -396,6 +432,7 @@ export const PdfViewerShell: Component<PdfViewerShellProps> = (props) => {
       .detail
     const ctx = record()
     if (
+      props.annotationStore ||
       !ctx ||
       ctx.pending ||
       ctx.failed ||
@@ -413,6 +450,8 @@ export const PdfViewerShell: Component<PdfViewerShellProps> = (props) => {
   const exportPdf = async () => {
     const ctx = record()
     if (!ctx) return
+    if (!ctx.source.annotationPath && !ctx.source.annotationBuild)
+      throw new Error("Annotated export is unavailable in live preview.")
     const target = endpoint(ctx.source, true)
     const auth = headers()
     await saving

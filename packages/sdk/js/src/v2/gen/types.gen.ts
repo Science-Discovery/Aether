@@ -2892,6 +2892,7 @@ export type LatexAnnotations = {
       note: string
       createdAt: number
       updatedAt: number
+      anchor?: unknown
     }>
   }
   revision: string
@@ -8424,6 +8425,7 @@ export type LatexAnnotateData = {
         note: string
         createdAt: number
         updatedAt: number
+        anchor?: unknown
       }>
     }
     revision: string
@@ -9256,6 +9258,165 @@ export type LatexRealtimeSpansResponses = {
 }
 
 export type LatexRealtimeSpansResponse = LatexRealtimeSpansResponses[keyof LatexRealtimeSpansResponses]
+
+export type LatexRealtimeAnnotationsData = {
+  body?: never
+  path?: never
+  query: {
+    directory?: string
+    workspace?: string
+    root: string
+    main: string
+  }
+  url: "/latex/realtime/annotations"
+}
+
+export type LatexRealtimeAnnotationsErrors = {
+  /**
+   * Invalid project or request
+   */
+  400: unknown
+  /**
+   * Build or artifact not found
+   */
+  404: unknown
+  /**
+   * Project changed or build already running
+   */
+  409: unknown
+  /**
+   * Project exceeds snapshot limits
+   */
+  413: unknown
+  /**
+   * Compiler unavailable
+   */
+  503: unknown
+}
+
+export type LatexRealtimeAnnotationsResponses = {
+  /**
+   * LaTeX result
+   */
+  200: {
+    data: {
+      version: "1.2"
+      source: {
+        path: string
+        fingerprint: string
+      }
+      annotations: Array<{
+        id: string
+        type: "highlight" | "underline" | "strikeout" | "note"
+        color: "yellow" | "red" | "green" | "blue"
+        pages: Array<{
+          page: number
+          quads: Array<[number, number, number, number, number, number, number, number]>
+        }>
+        selectedText: string
+        note: string
+        createdAt: number
+        updatedAt: number
+        anchor?: unknown
+      }>
+    }
+    revision: string
+  }
+}
+
+export type LatexRealtimeAnnotationsResponse =
+  LatexRealtimeAnnotationsResponses[keyof LatexRealtimeAnnotationsResponses]
+
+export type LatexRealtimeSaveAnnotationsData = {
+  body?: {
+    root: string
+    main: string
+    data: {
+      version: "1.2"
+      source: {
+        path: string
+        fingerprint: string
+      }
+      annotations: Array<{
+        id: string
+        type: "highlight" | "underline" | "strikeout" | "note"
+        color: "yellow" | "red" | "green" | "blue"
+        pages: Array<{
+          page: number
+          quads: Array<[number, number, number, number, number, number, number, number]>
+        }>
+        selectedText: string
+        note: string
+        createdAt: number
+        updatedAt: number
+        anchor?: unknown
+      }>
+    }
+    revision?: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/latex/realtime/annotations"
+}
+
+export type LatexRealtimeSaveAnnotationsErrors = {
+  /**
+   * Invalid project or request
+   */
+  400: unknown
+  /**
+   * Build or artifact not found
+   */
+  404: unknown
+  /**
+   * Project changed or build already running
+   */
+  409: unknown
+  /**
+   * Project exceeds snapshot limits
+   */
+  413: unknown
+  /**
+   * Compiler unavailable
+   */
+  503: unknown
+}
+
+export type LatexRealtimeSaveAnnotationsResponses = {
+  /**
+   * LaTeX result
+   */
+  200: {
+    data: {
+      version: "1.2"
+      source: {
+        path: string
+        fingerprint: string
+      }
+      annotations: Array<{
+        id: string
+        type: "highlight" | "underline" | "strikeout" | "note"
+        color: "yellow" | "red" | "green" | "blue"
+        pages: Array<{
+          page: number
+          quads: Array<[number, number, number, number, number, number, number, number]>
+        }>
+        selectedText: string
+        note: string
+        createdAt: number
+        updatedAt: number
+        anchor?: unknown
+      }>
+    }
+    revision: string
+  }
+}
+
+export type LatexRealtimeSaveAnnotationsResponse =
+  LatexRealtimeSaveAnnotationsResponses[keyof LatexRealtimeSaveAnnotationsResponses]
 
 export type LatexRealtimeCloseData = {
   body?: {
@@ -10267,6 +10428,7 @@ export type FilePdfAnnotationsUpdateData = {
         note: string
         createdAt: number
         updatedAt: number
+        anchor?: unknown
       }>
     }
   }
@@ -10313,6 +10475,7 @@ export type FilePdfAnnotationsUpdateResponses = {
       note: string
       createdAt: number
       updatedAt: number
+      anchor?: unknown
     }>
   }
 }

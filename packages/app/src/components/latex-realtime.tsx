@@ -14,7 +14,9 @@ import { fontKey, type FontResource } from "./latex-realtime/fontKey"
 import { charAtOffset, caretAt, clickedChar, matchScore, sourceOffset, unitRows } from "./latex-realtime/glyph"
 import { PreviewModel } from "./latex-realtime/model"
 import type { DisplayList, RtexEvent } from "./latex-realtime/protocol"
+import { anchorsFor, pageBlocks, reproject, same } from "./latex-realtime/annotations"
 import { glyphTextOf, type GlyphText } from "./latex-realtime/text"
+import type { PdfAnnotationFile, PdfAnnotationStore } from "./pdf-viewer-shell-official"
 import {
   byteOffset,
   hitTest,
@@ -44,6 +46,7 @@ export type RealtimeController = {
   attach: (post: RealtimePost) => void
   request: (input: RealtimeRequest) => void
   locate: (input: RealtimeLocate) => Promise<RealtimeSource | undefined>
+  annotationStore: PdfAnnotationStore
 }
 
 export function createRealtime(active: Accessor<boolean>): RealtimeController {
@@ -90,9 +93,9 @@ export function createRealtime(active: Accessor<boolean>): RealtimeController {
   const root = () => latex.state.project?.root ?? "."
   const main = () => latex.state.project?.binding?.main ?? latex.state.main
 
-  async function call<T>(path: string, body?: unknown): Promise<T> {
+  async function call<T>(path: string, body?: unknown, method?: "POST" | "PUT"): Promise<T> {
     const response = await fetch(`${global.url}${path}`, {
-      method: body === undefined ? "GET" : "POST",
+      method: method ?? (body === undefined ? "GET" : "POST"),
       headers: headers(),
       body: body === undefined ? undefined : JSON.stringify(body),
     })
@@ -466,6 +469,50 @@ export function createRealtime(active: Accessor<boolean>): RealtimeController {
     return result?.spans ?? []
   }
 
+  const emptyAnnotations = (): PdfAnnotationFile => ({
+    version: "1.2",
+    source: { path: "realtime", fingerprint: "realtime" },
+    annotations: [],
+  })
+
+  async function loadAnnotations() {
+    if (!session()) return { data: emptyAnnotations(), revision: "0" }
+    const project = root()
+    const name = main()
+    const result = await call<{ data: PdfAnnotationFile; revision: string }>(
+      `/latex/realtime/annotations?root=${encodeURIComponent(project)}&main=${encodeURIComponent(name)}`,
+    )
+    if (!model.hasLayout) return result
+    const annotations = reproject(model, result.data.annotations)
+    if (same(annotations, result.data.annotations)) return result
+    const next = { ...result.data, annotations }
+    const saved = await call<{ data: PdfAnnotationFile; revision: string }>(
+      "/latex/realtime/annotations",
+      { root: project, main: name, data: next, revision: result.revision },
+      "PUT",
+    ).catch(() => undefined)
+    return saved ?? { data: next, revision: result.revision }
+  }
+
+  async function saveAnnotations(input: { data: PdfAnnotationFile; revision?: string }) {
+    if (!session()) return input
+    const data = {
+      ...input.data,
+      annotations: input.data.annotations.map((item) => {
+        if (item.anchor || item.anchors) return item
+        const anchors = anchorsFor(model, item)
+        return anchors.length ? { ...item, anchors } : item
+      }),
+    }
+    return call<{ data: PdfAnnotationFile; revision: string }>(
+      "/latex/realtime/annotations",
+      { root: root(), main: main(), data, revision: input.revision },
+      "PUT",
+    )
+  }
+
+  const annotationStore: PdfAnnotationStore = { load: loadAnnotations, save: saveAnnotations }
+
   function sources() {
     const project = latex.state.project
     const root = project?.root ?? "."
@@ -655,8 +702,16 @@ export function createRealtime(active: Accessor<boolean>): RealtimeController {
       loaded = true
       sizes.set(input.page, input)
       void render(input.page).catch(() => undefined)
+      post?.({
+        channel: CHANNEL,
+        type: "realtime-blocks",
+        src: input.src,
+        page: input.page,
+        blocks: pageBlocks(model, input.page),
+      })
       if (pendingReveal) void flushReveal()
     },
     locate,
+    annotationStore,
   }
 }

@@ -193,6 +193,8 @@ import type {
   LatexPdfResponses,
   LatexProjectErrors,
   LatexProjectResponses,
+  LatexRealtimeAnnotationsErrors,
+  LatexRealtimeAnnotationsResponses,
   LatexRealtimeCloseErrors,
   LatexRealtimeCloseResponses,
   LatexRealtimeCommandErrors,
@@ -211,6 +213,8 @@ import type {
   LatexRealtimeOpenResponses,
   LatexRealtimePdfErrors,
   LatexRealtimePdfResponses,
+  LatexRealtimeSaveAnnotationsErrors,
+  LatexRealtimeSaveAnnotationsResponses,
   LatexRealtimeSetupCancelErrors,
   LatexRealtimeSetupCancelResponses,
   LatexRealtimeSetupStartErrors,
@@ -6194,6 +6198,7 @@ export class Latex extends HeyApiClient {
           note: string
           createdAt: number
           updatedAt: number
+          anchor?: unknown
         }>
       }
       revision?: string
@@ -6834,6 +6839,107 @@ export class Latex extends HeyApiClient {
   }
 
   /**
+   * Read annotations attached to a realtime document
+   */
+  public realtimeAnnotations<ThrowOnError extends boolean = false>(
+    parameters: {
+      directory?: string
+      workspace?: string
+      root: string
+      main: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "root" },
+            { in: "query", key: "main" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<
+      LatexRealtimeAnnotationsResponses,
+      LatexRealtimeAnnotationsErrors,
+      ThrowOnError
+    >({
+      url: "/latex/realtime/annotations",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Save annotations attached to a realtime document
+   */
+  public realtimeSaveAnnotations<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      root?: string
+      main?: string
+      data?: {
+        version: "1.2"
+        source: {
+          path: string
+          fingerprint: string
+        }
+        annotations: Array<{
+          id: string
+          type: "highlight" | "underline" | "strikeout" | "note"
+          color: "yellow" | "red" | "green" | "blue"
+          pages: Array<{
+            page: number
+            quads: Array<[number, number, number, number, number, number, number, number]>
+          }>
+          selectedText: string
+          note: string
+          createdAt: number
+          updatedAt: number
+          anchor?: unknown
+        }>
+      }
+      revision?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "root" },
+            { in: "body", key: "main" },
+            { in: "body", key: "data" },
+            { in: "body", key: "revision" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).put<
+      LatexRealtimeSaveAnnotationsResponses,
+      LatexRealtimeSaveAnnotationsErrors,
+      ThrowOnError
+    >({
+      url: "/latex/realtime/annotations",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
    * Close a realtime session and stop its engines
    */
   public realtimeClose<ThrowOnError extends boolean = false>(
@@ -7062,6 +7168,7 @@ export class PdfAnnotations extends HeyApiClient {
           note: string
           createdAt: number
           updatedAt: number
+          anchor?: unknown
         }>
       }
     },

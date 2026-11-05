@@ -96,6 +96,10 @@
   let captureBox = null
   let captureModeActive = false
   let captureDrag = null
+  let blockStart = null
+  let blockHighlight = null
+  const blocks = new Map()
+  const pdfBlocksLoaded = new Set()
   let suppressBroadcastUntil = 0
 
   const ERROR_OVERLAY_ID = "aether-pdf-viewer-error-overlay"
@@ -408,6 +412,7 @@
         textSelectionActions: !!input?.features?.textSelectionActions,
         imageSelectionActions: !!input?.features?.imageSelectionActions,
         annotations: !!input?.features?.annotations,
+        annotationExport: !!input?.features?.annotationExport,
         swapLayout: !!input?.features?.swapLayout,
         sourceLocate: !!input?.features?.sourceLocate,
         activity: !!input?.features?.activity,
@@ -525,6 +530,29 @@
   function hideSelectionUi() {
     hideSelectionMenu()
     hideSelectionHint(true)
+    clearBlockHighlight()
+  }
+
+  function clearBlockHighlight() {
+    blockHighlight?.remove()
+    blockHighlight = null
+  }
+
+  function showBlockHighlight(page, quad) {
+    clearBlockHighlight()
+    const element = document.querySelector(`.page[data-page-number="${page}"]`)
+    const rect = blockClientRect(page, quad)
+    if (!element || !rect) return
+    const bounds = element.getBoundingClientRect()
+    const node = document.createElement("div")
+    node.className = "aetherBlockSelection"
+    node.setAttribute("aria-hidden", "true")
+    node.style.left = `${rect.left - bounds.left}px`
+    node.style.top = `${rect.top - bounds.top}px`
+    node.style.width = `${rect.width}px`
+    node.style.height = `${rect.height}px`
+    element.appendChild(node)
+    blockHighlight = node
   }
 
   function clearTextSelection() {
@@ -541,14 +569,15 @@
   }
 
   function createAnnotation(type) {
-    if (!selectionState || selectionState.kind !== "text" || !selectionState.pages?.length) return
+    if (!selectionState || !selectionState.pages?.length) return
+    if (selectionState.kind !== "text" && selectionState.kind !== "block") return
     const now = Date.now()
     const item = {
       id: crypto.randomUUID(),
       type: type,
       color: annotationDefaults[type],
       pages: selectionState.pages,
-      selectedText: selectionState.text,
+      selectedText: selectionState.kind === "text" ? selectionState.text : "",
       note: "",
       createdAt: now,
       updatedAt: now,
@@ -818,12 +847,160 @@
     selectionMenu.style.left = left + "px"
   }
 
+  function findBlock(page, x, y) {
+    const list = blocks.get(page)
+    if (!list) return
+    let best
+    for (const block of list) {
+      const quad = block?.quad
+      if (!Array.isArray(quad) || quad.length < 8) continue
+      const xs = [quad[0], quad[2], quad[4], quad[6]]
+      const ys = [quad[1], quad[3], quad[5], quad[7]]
+      const left = Math.min(...xs)
+      const right = Math.max(...xs)
+      const top = Math.min(...ys)
+      const bottom = Math.max(...ys)
+      if (x < left || x > right || y < top || y > bottom) continue
+      const area = (right - left) * (bottom - top)
+      if (!best || area < best.area) best = { block, area }
+    }
+    return best?.block
+  }
+
+  function blockClientRect(page, quad) {
+    const element = document.querySelector(`.page[data-page-number="${page}"]`)
+    const view = window.PDFViewerApplication?.pdfViewer?.getPageView?.(page - 1)
+    if (!element || !view?.viewport) return
+    const box = pageContentRect(element)
+    if (!box.width || !box.height) return
+    const points = viewportQuad(view.viewport, quad)
+    const xs = points.map((point) => (point[0] * box.width) / view.viewport.width)
+    const ys = points.map((point) => (point[1] * box.height) / view.viewport.height)
+    return {
+      left: box.left + Math.min(...xs),
+      top: box.top + Math.min(...ys),
+      width: Math.max(...xs) - Math.min(...xs),
+      height: Math.max(...ys) - Math.min(...ys),
+    }
+  }
+
+  async function loadPdfBlocks(page) {
+    if (currentConfig?.realtime || !currentConfig?.features?.annotations) return
+    if (pdfBlocksLoaded.has(page)) return
+    const document = window.PDFViewerApplication?.pdfDocument
+    const ops = window.pdfjsLib?.OPS
+    if (!document || !ops) return
+    const source = currentConfig?.src
+    pdfBlocksLoaded.add(page)
+    try {
+      const proxy = await document.getPage(page)
+      const list = await proxy.getOperatorList()
+      if (currentConfig?.src !== source || currentConfig?.realtime) return
+      const mul = (m, n) => [
+        m[0] * n[0] + m[2] * n[1],
+        m[1] * n[0] + m[3] * n[1],
+        m[0] * n[2] + m[2] * n[3],
+        m[1] * n[2] + m[3] * n[3],
+        m[0] * n[4] + m[2] * n[5] + m[4],
+        m[1] * n[4] + m[3] * n[5] + m[5],
+      ]
+      const apply = (m, x, y) => [m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5]]
+      const images = new Set(
+        [ops.paintImageXObject, ops.paintJpegXObject, ops.paintInlineImageXObject, ops.paintImageMaskXObject].filter(
+          (value) => typeof value === "number",
+        ),
+      )
+      const result = []
+      const seen = new Set()
+      let matrix = [1, 0, 0, 1, 0, 0]
+      const stack = []
+      for (let i = 0; i < list.fnArray.length; i++) {
+        const fn = list.fnArray[i]
+        const args = list.argsArray[i]
+        if (fn === ops.save) {
+          stack.push(matrix)
+          continue
+        }
+        if (fn === ops.restore) {
+          matrix = stack.pop() || [1, 0, 0, 1, 0, 0]
+          continue
+        }
+        if (fn === ops.transform) {
+          const value = Array.isArray(args) ? args : []
+          if (value.length === 6 && value.every(Number.isFinite)) matrix = mul(matrix, value)
+          continue
+        }
+        if (fn === ops.paintFormXObjectBegin) {
+          stack.push(matrix)
+          const value = Array.isArray(args?.[0]) ? args[0] : []
+          if (value.length === 6 && value.every(Number.isFinite)) matrix = mul(matrix, value)
+          continue
+        }
+        if (fn === ops.paintFormXObjectEnd) {
+          matrix = stack.pop() || [1, 0, 0, 1, 0, 0]
+          continue
+        }
+        if (!images.has(fn)) continue
+        const points = [
+          [0, 0],
+          [1, 0],
+          [0, 1],
+          [1, 1],
+        ].map(([x, y]) => apply(matrix, x, y))
+        const xs = points.map((point) => point[0])
+        const ys = points.map((point) => point[1])
+        const left = Math.min(...xs)
+        const right = Math.max(...xs)
+        const top = Math.max(...ys)
+        const bottom = Math.min(...ys)
+        if (right - left <= 0 || top - bottom <= 0) continue
+        const quad = [left, bottom, right, bottom, left, top, right, top]
+        const key = JSON.stringify(quad)
+        if (seen.has(key)) continue
+        seen.add(key)
+        result.push({ kind: "image", quad })
+      }
+      blocks.set(page, result)
+    } catch (_) {
+      /* no block selection on this page */
+    }
+  }
+
+  function selectBlock(page, block) {
+    const rect = blockClientRect(page, block.quad)
+    if (!rect) return
+    clearTextSelection()
+    ensureSelectionUi()
+    hideSelectionHint()
+    selectionState = {
+      kind: "block",
+      page,
+      pages: [{ page, quads: [block.quad] }],
+      text: "",
+      rect,
+    }
+    selectionMenu.querySelectorAll("button").forEach((button) => {
+      button.hidden = false
+    })
+    selectionMenu.querySelectorAll("button:not([data-annotation])").forEach((button) => {
+      button.hidden = true
+    })
+    selectionMenu.querySelectorAll("[data-annotation]").forEach((button) => {
+      button.hidden = !annotationsEnabled()
+    })
+    selectionMenu.hidden = false
+    positionSelectionMenu(rect)
+    showBlockHighlight(page, block.quad)
+    activity()
+  }
+
   function updateSelectionUi() {
     if (!selectionActionsEnabled()) {
       hideSelectionUi()
       return
     }
 
+    if (selectionState?.kind === "block") return
     if (captureModeActive || captureDrag) {
       hideSelectionMenu()
       return
@@ -846,7 +1023,10 @@
       rect: context.rect,
     }
     activity()
-    selectionMenu.querySelectorAll("[data-annotation]").forEach(function (button) {
+    selectionMenu.querySelectorAll("button").forEach((button) => {
+      button.hidden = false
+    })
+    selectionMenu.querySelectorAll("[data-annotation]").forEach((button) => {
       button.hidden = !annotationsEnabled()
     })
     selectionMenu.hidden = false
@@ -1436,9 +1616,9 @@
     }
 
     const exportAnnotations = document.getElementById("aetherExportAnnotations")
-    if (exportAnnotations) exportAnnotations.hidden = !config.features.annotations
+    if (exportAnnotations) exportAnnotations.hidden = !config.features.annotationExport
     const exportAnnotationsSecondary = document.getElementById("aetherExportAnnotationsSecondary")
-    if (exportAnnotationsSecondary) exportAnnotationsSecondary.hidden = !config.features.annotations
+    if (exportAnnotationsSecondary) exportAnnotationsSecondary.hidden = !config.features.annotationExport
 
     if (config.mode === "compact" && outerContainer) {
       outerContainer.classList.remove("sidebarOpen", "sidebarMoving", "sidebarResizing")
@@ -2000,7 +2180,10 @@
 
     eventBus.on("pagerendered", function (evt) {
       if (evt?.error && visible().includes(evt.pageNumber)) paintError(evt.error)
-      if (!evt?.error && !evt?.cssTransform) painted.add(evt.pageNumber)
+      if (!evt?.error && !evt?.cssTransform) {
+        painted.add(evt.pageNumber)
+        void loadPdfBlocks(evt.pageNumber)
+      }
       requestAnimationFrame(function () {
         announce()
         renderAnnotations()
@@ -2241,9 +2424,7 @@
       openAnnotationEditor(item.id, event.clientX, event.clientY)
     })
     document.addEventListener("keyup", function (event) {
-      if (captureModeActive && event.key === "Escape") {
-        setCaptureMode(false)
-      }
+      if (event.key === "Escape" && captureModeActive) setCaptureMode(false)
       scheduleSelectionUiUpdate()
     })
     document.addEventListener("pointerdown", function (event) {
@@ -2270,7 +2451,16 @@
       if (selectionMenu?.contains(event.target)) return
       if (annotationEditor?.contains(event.target)) return
       closeAnnotationEditor()
+      selectionState = undefined
+      blockStart = null
       hideSelectionUi()
+      if (annotationsEnabled() && event.button === 0) {
+        const target = point(event)
+        if (target) {
+          const block = findBlock(target.page, target.x, target.y)
+          if (block) blockStart = { page: target.page, block, x: event.clientX, y: event.clientY }
+        }
+      }
     })
     document.addEventListener("pointermove", function (event) {
       if (!captureDrag) return
@@ -2281,6 +2471,19 @@
       if (!captureDrag) return
       event.preventDefault()
       void finalizeCapture(event)
+    })
+    document.addEventListener("pointerup", function (event) {
+      if (!blockStart) return
+      const start = blockStart
+      blockStart = null
+      if (captureModeActive || event.button !== 0) return
+      const target = point(event)
+      const moved = Math.hypot(event.clientX - start.x, event.clientY - start.y)
+      const under = target && target.page === start.page ? findBlock(target.page, target.x, target.y) : undefined
+      if (moved > 8 && under !== start.block) return
+      selectBlock(start.page, start.block)
+      event.preventDefault()
+      event.stopImmediatePropagation()
     })
     document.getElementById("viewerContainer")?.addEventListener("scroll", function () {
       hideSelectionUi()
@@ -2374,6 +2577,9 @@
     annotated = false
     dirty = false
     revision = 0
+    blocks.clear()
+    pdfBlocksLoaded.clear()
+    blockStart = null
     hideViewerError()
     sidebarState = { initialized: false, userClosed: true }
     hideSelectionUi()
@@ -2501,6 +2707,14 @@
 
       if (event.data.type === "themechange") {
         applyTheme()
+        return
+      }
+
+      if (event.data.type === "realtime-blocks") {
+        if (event.data.src !== currentConfig?.src) return
+        const page = Number(event.data.page)
+        if (!Number.isInteger(page) || page < 1) return
+        blocks.set(page, Array.isArray(event.data.blocks) ? event.data.blocks : [])
         return
       }
 

@@ -28,6 +28,14 @@ export namespace Latex {
     lastSuccessful: z.string().optional(),
   })
   type Record = z.infer<typeof record>
+  const realtimeStored = z.object({
+    owner: z.string(),
+    key: z.string(),
+    main: z.string(),
+    revision: z.string(),
+    data: PdfAnnotations.File,
+  })
+  type RealtimeStored = z.infer<typeof realtimeStored>
   const stored = z.object({
     owner: z.string(),
     key: z.string(),
@@ -105,6 +113,8 @@ export namespace Latex {
   const artifact = (root: LatexProject.Root, id: string) => path.join(home(root), "artifacts", `${id}.pdf`)
   const mapping = (root: LatexProject.Root, id: string) => path.join(home(root), "sync", `${id}.json`)
   const annotation = (root: LatexProject.Root, id: string) => path.join(home(root), "annotations", `${id}.json`)
+  const realtimeNote = (root: LatexProject.Root, main: string) =>
+    path.join(home(root), "realtime-annotations", `${LatexProject.hash(`${root.key}\0${main}`)}.json`)
   const mutex = (root: LatexProject.Root) => `latex-artifacts:${root.owner}`
   const identifier = z.string().uuid()
   const waiting = (build: LatexSchema.Build) => build.state === "preparing" || build.state === "running"
@@ -852,6 +862,65 @@ export namespace Latex {
     using lock = await Lock.read(mutex(root))
     const result = await published(root, id, await state())
     return PdfAnnotations.render(result.bytes, (await notes(root, result.data)).data.annotations)
+  }
+
+  function realtimeSource(root: LatexProject.Root, main: string) {
+    return { path: `realtime:${root.key}:${main}`, fingerprint: "realtime" }
+  }
+
+  async function readRealtime(root: LatexProject.Root, main: string): Promise<RealtimeStored> {
+    const file = realtimeNote(root, main)
+    const raw: unknown = await Bun.file(file)
+      .json()
+      .catch((err: NodeJS.ErrnoException) => {
+        if (err.code === "ENOENT") return undefined
+        throw new LatexSchema.Error(409, "The live preview annotations cannot be read.")
+      })
+    const source = realtimeSource(root, main)
+    if (raw === undefined)
+      return {
+        owner: root.owner,
+        key: root.key,
+        main,
+        revision: "0",
+        data: { version: "1.2" as const, source, annotations: [] as PdfAnnotations.Item[] },
+      }
+    const parsed = realtimeStored.safeParse(raw)
+    if (
+      !parsed.success ||
+      parsed.data.owner !== root.owner ||
+      parsed.data.key !== root.key ||
+      parsed.data.main !== main ||
+      parsed.data.data.source.path !== source.path
+    )
+      throw new LatexSchema.Error(409, "The saved live preview annotations do not match this document.")
+    return parsed.data
+  }
+
+  export async function realtimeAnnotations(input: { root: string; main: string }) {
+    const root = await LatexProject.root(input.root)
+    const main = await LatexProject.main(root, input.main)
+    using lock = await Lock.read(mutex(root))
+    const value = await readRealtime(root, main)
+    return { data: value.data, revision: value.revision }
+  }
+
+  export async function saveRealtimeAnnotations(input: {
+    root: string
+    main: string
+    data: PdfAnnotations.File
+    revision?: string
+  }) {
+    const root = await LatexProject.root(input.root)
+    const main = await LatexProject.main(root, input.main)
+    using lock = await Lock.write(mutex(root))
+    const value = await readRealtime(root, main)
+    if (input.revision !== undefined && input.revision !== value.revision)
+      throw new LatexSchema.Error(409, "Live preview annotations changed. Reload before saving.")
+    const data = PdfAnnotations.File.parse({ ...input.data, source: realtimeSource(root, main) })
+    const next = { ...value, data, revision: crypto.randomUUID() }
+    await write(realtimeNote(root, main), next)
+    return { data: next.data, revision: next.revision }
   }
 
   export async function lease(id: string, token?: string) {
