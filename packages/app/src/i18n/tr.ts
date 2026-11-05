@@ -294,13 +294,6 @@ export const dict = {
   "prompt.attachment.remove": "Eki kaldır",
   "prompt.action.send": "Gönder",
   "prompt.action.stop": "Durdur",
-  "prompt.action.steer": "Yönlendir",
-  "prompt.steer.placeholder": "Yönlendirme ekle...",
-  "prompt.steer.send": "Gönder",
-  "prompt.steer.toast.failed.title": "Yönlendirme başarısız",
-  "prompt.steer.toast.failed.description": "Yönlendirme mesajı eklenemedi",
-  "prompt.steer.toast.notBusy.title": "Oturum aktif değil",
-  "prompt.steer.toast.notBusy.description": "Yönlendirme yalnızca AI yanıt verirken çalışır",
 
   "prompt.toast.pasteUnsupported.title": "Desteklenmeyen ek",
   "prompt.toast.pasteUnsupported.description": "Buraya yalnızca resimler, PDF'ler veya metin dosyaları eklenebilir.",

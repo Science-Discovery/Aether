@@ -69,7 +69,7 @@ describe("native engine integration", () => {
     })
   })
 
-  test("steer API rejects native sessions before appending unsent context", async () => {
+  test("removed steer API returns 404 without appending context", async () => {
     await using dir = await tmpdir()
     await Instance.provide({
       directory: dir.path,
@@ -83,8 +83,7 @@ describe("native engine integration", () => {
             body: JSON.stringify({ text: "Do not lose this context" }),
           },
         )
-        expect(response.status).toBe(400)
-        expect((await response.json()).name).toBe("NativeSessionUnsupported")
+        expect(response.status).toBe(404)
         expect(await Session.messages({ sessionID: session.id })).toEqual([])
       },
     })
