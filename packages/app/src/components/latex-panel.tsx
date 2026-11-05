@@ -2,7 +2,7 @@ import { createEffect, createMemo, createUniqueId, For, on, onCleanup, Show, typ
 import { createStore } from "solid-js/store"
 import type { LatexBinding } from "@opencode-ai/sdk/v2"
 import { Button } from "@opencode-ai/ui/button"
-import { Icon } from "@opencode-ai/ui/icon"
+import { Icon, type IconProps } from "@opencode-ai/ui/icon"
 import { IconButton } from "@opencode-ai/ui/icon-button"
 import { Select } from "@opencode-ai/ui/select"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
@@ -13,7 +13,7 @@ import { useLanguage } from "@/context/language"
 import { useLatex } from "@/context/latex"
 import { useSDK } from "@/context/sdk"
 import { formatServerError } from "@/utils/server-errors"
-import { SettingsLatex } from "./settings-latex"
+import { DialogSettings } from "./dialog-settings"
 import { DialogLatexHelp } from "./dialog-latex-help"
 
 type Props = {
@@ -32,6 +32,35 @@ export function LatexPanel(props: Props) {
     <Show when={props.enabled} fallback={props.children}>
       <Workspace {...props} />
     </Show>
+  )
+}
+
+function Action(props: {
+  icon: IconProps["name"]
+  label: string
+  action: string
+  variant?: "primary" | "secondary" | "ghost"
+  disabled?: boolean
+  expanded?: boolean
+  controls?: string
+  onClick: () => void
+}) {
+  return (
+    <Tooltip placement="top" gutter={4} value={props.label}>
+      <span class="inline-flex">
+        <IconButton
+          icon={props.icon}
+          variant={props.variant ?? "ghost"}
+          size="small"
+          data-action={props.action}
+          aria-label={props.label}
+          aria-expanded={props.expanded}
+          aria-controls={props.controls}
+          disabled={props.disabled}
+          onClick={props.onClick}
+        />
+      </span>
+    </Tooltip>
   )
 }
 
@@ -135,12 +164,7 @@ function Workspace(props: Props) {
       (path) => onCleanup(() => latex.composing(path, false)),
     ),
   )
-  const settings = () =>
-    dialog.show(() => (
-      <Dialog size="large">
-        <SettingsLatex />
-      </Dialog>
-    ))
+  const settings = () => dialog.show(() => <DialogSettings tab="latex" />)
   const selectDriver = (value: LatexBinding["driver"]) => {
     setForm("driver", value)
     setForm("dirty", "driver", true)
@@ -541,29 +565,37 @@ function Workspace(props: Props) {
                 {status()}
               </span>
             </Show>
-            <Button
-              size="small"
-              data-action="latex-compile"
+            <Action
+              icon="play"
+              action="latex-compile"
+              label={state.saving ? language.t("latex.saving") : language.t("latex.compile")}
+              variant="primary"
               disabled={state.busy || latex.running() || latex.changed() || !file.ready() || !!latex.conflicts().length}
               onClick={() => void latex.compile()}
-            >
-              {state.saving ? language.t("latex.saving") : language.t("latex.compile")}
-            </Button>
+            />
             <Show when={latex.running()}>
-              <Button size="small" variant="secondary" onClick={() => void latex.cancel()}>
-                {language.t("common.cancel")}
-              </Button>
+              <Action
+                icon="stop"
+                action="latex-cancel"
+                label={language.t("common.cancel")}
+                onClick={() => void latex.cancel()}
+              />
             </Show>
             <Show when={!state.collapsed}>
-              <Button size="small" variant="secondary" onClick={() => void latex.refresh()} disabled={state.busy}>
-                {language.t("latex.refresh")}
-              </Button>
-              <Button size="small" variant="secondary" onClick={settings}>
-                {language.t("latex.settings")}
-              </Button>
-              <Button size="small" variant="secondary" onClick={latex.show}>
-                {language.t("latex.preview")}
-              </Button>
+              <Action
+                icon="refresh"
+                action="latex-refresh"
+                label={language.t("latex.refresh")}
+                disabled={state.busy}
+                onClick={() => void latex.refresh()}
+              />
+              <Action
+                icon="settings-gear"
+                action="latex-settings"
+                label={language.t("latex.settings")}
+                onClick={settings}
+              />
+              <Action icon="eye" action="latex-preview" label={language.t("latex.preview")} onClick={latex.show} />
               <Show when={props.onLocate}>
                 <Button
                   size="small"
@@ -575,52 +607,38 @@ function Workspace(props: Props) {
                   {language.t("latex.sync.locate")}
                 </Button>
               </Show>
-              <Button size="small" variant="secondary" data-action="latex-help" onClick={help}>
-                {language.t("latex.help")}
-              </Button>
+              <Action icon="help" action="latex-help" label={language.t("latex.help")} onClick={help} />
             </Show>
           </div>
           <div class="flex shrink-0 items-center gap-2">
             <Show when={!state.collapsed}>{props.actions}</Show>
-            <Tooltip placement="top" gutter={4} value={hint("latex.fileDiscard")}>
-              <span class="inline-flex">
-                <IconButton
-                  icon="close"
-                  variant="ghost"
-                  size="small"
-                  data-action="latex-discard"
-                  aria-label={language.t("latex.fileDiscard")}
-                  disabled={disabled()}
-                  onClick={() => void latex.discard(props.path)}
-                />
-              </span>
-            </Tooltip>
-            <Tooltip placement="top" gutter={4} value={hint("latex.fileSave")}>
-              <span class="inline-flex">
-                <IconButton
-                  icon="check"
-                  variant="ghost"
-                  size="small"
-                  data-action="latex-save"
-                  aria-label={language.t("latex.fileSave")}
-                  disabled={disabled()}
-                  onClick={() => void latex.persist(props.path)}
-                />
-              </span>
-            </Tooltip>
-            <Button
-              size="small"
-              variant="secondary"
-              data-action="latex-collapse"
-              aria-expanded={!state.collapsed}
-              aria-controls={controls}
+            <Action
+              icon="close"
+              action="latex-discard"
+              label={hint("latex.fileDiscard")}
+              variant="ghost"
+              disabled={disabled()}
+              onClick={() => void latex.discard(props.path)}
+            />
+            <Action
+              icon="check"
+              action="latex-save"
+              label={hint("latex.fileSave")}
+              variant="ghost"
+              disabled={disabled()}
+              onClick={() => void latex.persist(props.path)}
+            />
+            <Action
+              icon={state.collapsed ? "chevron-double-down" : "chevron-double-up"}
+              action="latex-collapse"
+              label={language.t(state.collapsed ? "latex.expand" : "latex.collapse")}
+              expanded={!state.collapsed}
+              controls={controls}
               onClick={() => {
                 if (!state.collapsed) latex.configure(false)
                 latex.collapse(!state.collapsed)
               }}
-            >
-              {language.t(state.collapsed ? "latex.expand" : "latex.collapse")}
-            </Button>
+            />
           </div>
         </div>
         <div id={controls} hidden={state.collapsed} data-component="latex-toolbar-details">

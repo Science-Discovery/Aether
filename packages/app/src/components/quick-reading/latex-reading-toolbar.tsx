@@ -1,6 +1,7 @@
 import { createMemo, For, Show } from "solid-js"
-import { Button } from "@opencode-ai/ui/button"
+import { IconButton } from "@opencode-ai/ui/icon-button"
 import { Select } from "@opencode-ai/ui/select"
+import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { showToast } from "@opencode-ai/ui/toast"
 import { useLanguage } from "@/context/language"
 import type { useLatexReading } from "@/pages/session/use-latex-reading"
@@ -101,29 +102,33 @@ export function LatexReadingToolbar(props: {
                 }}
               />
             </div>
-            <Button
-              size="small"
-              variant="ghost"
-              data-action="latex-export"
-              disabled={!props.reading.state.displayed}
-              title={props.reading.outdated() ? language.t("latex.preview.outdated") : undefined}
-              onClick={() => {
-                if (props.reading.outdated())
-                  showToast({
-                    title: language.t("latex.preview.export"),
-                    description: language.t("latex.preview.outdated"),
-                  })
-                void props.download().catch((error: unknown) =>
-                  showToast({
-                    variant: "error",
-                    title: language.t("common.requestFailed"),
-                    description: String(error),
-                  }),
-                )
-              }}
-            >
-              {language.t("latex.preview.export")}
-            </Button>
+            <Tooltip placement="top" gutter={4} value={language.t("latex.preview.export")}>
+              <span class="inline-flex">
+                <IconButton
+                  icon="download"
+                  size="small"
+                  variant="ghost"
+                  data-action="latex-export"
+                  aria-label={language.t("latex.preview.export")}
+                  disabled={!props.reading.state.displayed}
+                  title={props.reading.outdated() ? language.t("latex.preview.outdated") : undefined}
+                  onClick={() => {
+                    if (props.reading.outdated())
+                      showToast({
+                        title: language.t("latex.preview.export"),
+                        description: language.t("latex.preview.outdated"),
+                      })
+                    void props.download().catch((error: unknown) =>
+                      showToast({
+                        variant: "error",
+                        title: language.t("common.requestFailed"),
+                        description: String(error),
+                      }),
+                    )
+                  }}
+                />
+              </span>
+            </Tooltip>
           </div>
         </Show>
         <Show when={props.reading.slow()}>

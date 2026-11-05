@@ -197,7 +197,6 @@ export function SettingsLatex() {
       <LatexAppearance />
       <section class="flex flex-col gap-4 border-t border-border-weak-base pt-5" data-component="latex-compilers">
         <h3 class="text-14-medium text-text-strong">{language.t("latex.compilers")}</h3>
-        <p class="text-12-regular text-text-weak">{language.t("latex.settingsHelp")}</p>
         <For each={["tectonic", "latexmk"] as const}>
           {(driver) => (
             <div
@@ -227,17 +226,12 @@ export function SettingsLatex() {
               <Show
                 when={driver === "tectonic"}
                 fallback={
-                  <div class="text-12-regular text-text-weak">
-                    <p>{language.t("latex.setup.latexmk")}</p>
-                    <div class="mt-1 flex flex-wrap gap-3">
-                      <Link href="https://www.tug.org/texlive/acquire-netinstall.html">TeX Live</Link>
-                      <Link href="https://miktex.org/download">MiKTeX</Link>
-                    </div>
+                  <div class="flex flex-wrap gap-3 text-12-regular text-text-weak">
+                    <Link href="https://www.tug.org/texlive/acquire-netinstall.html">TeX Live</Link>
+                    <Link href="https://miktex.org/download">MiKTeX</Link>
                   </div>
                 }
               >
-                <p class="text-12-regular text-text-weak">{language.t("latex.setup.help")}</p>
-                <p class="text-12-regular text-text-weak">{language.t("latex.setup.packages")}</p>
                 <div class="flex flex-wrap items-center gap-2">
                   <Show
                     when={running()}
@@ -326,7 +320,6 @@ export function SettingsLatex() {
         </For>
         <div class="flex flex-col gap-2 rounded-md border border-border-weak-base p-4" data-component="latex-rtex">
           <h4 class="text-13-medium text-text-strong">Realtime TeX</h4>
-          <p class="text-12-regular text-text-weak">{language.t("latex.setup.rtex.help")}</p>
           <TextField
             label={`rtex — ${language.t("latex.executable")}`}
             value={state.rtex}
