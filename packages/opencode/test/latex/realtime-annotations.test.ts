@@ -54,4 +54,24 @@ describe("realtime annotations", () => {
       },
     })
   })
+
+  test("clears live annotations when no build snapshot is restored", async () => {
+    await using dir = await tmpdir()
+    await Bun.write(
+      path.join(dir.path, "main.tex"),
+      "\\documentclass{article}\n\\begin{document}\nHello\n\\end{document}\n",
+    )
+    await Instance.provide({
+      directory: dir.path,
+      fn: async () => {
+        const empty = await Latex.realtimeAnnotations({ root: ".", main: "main.tex" })
+        await Latex.saveRealtimeAnnotations({ root: ".", main: "main.tex", data: file(), revision: empty.revision })
+        const restored = await Latex.restoreRealtimeAnnotations({ root: ".", main: "main.tex" })
+        expect(restored.data.annotations).toEqual([])
+        const read = await Latex.realtimeAnnotations({ root: ".", main: "main.tex" })
+        expect(read.data.annotations).toEqual([])
+        await Instance.dispose()
+      },
+    })
+  })
 })

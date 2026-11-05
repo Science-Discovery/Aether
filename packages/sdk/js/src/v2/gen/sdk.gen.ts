@@ -213,6 +213,8 @@ import type {
   LatexRealtimeOpenResponses,
   LatexRealtimePdfErrors,
   LatexRealtimePdfResponses,
+  LatexRealtimeRestoreAnnotationsErrors,
+  LatexRealtimeRestoreAnnotationsResponses,
   LatexRealtimeSaveAnnotationsErrors,
   LatexRealtimeSaveAnnotationsResponses,
   LatexRealtimeSetupCancelErrors,
@@ -6047,6 +6049,7 @@ export class Latex extends HeyApiClient {
       bindingRevision?: string
       sourceRevision?: string
       allowDownloads?: boolean
+      realtimeSnapshot?: boolean
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -6061,6 +6064,7 @@ export class Latex extends HeyApiClient {
             { in: "body", key: "bindingRevision" },
             { in: "body", key: "sourceRevision" },
             { in: "body", key: "allowDownloads" },
+            { in: "body", key: "realtimeSnapshot" },
           ],
         },
       ],
@@ -6199,6 +6203,7 @@ export class Latex extends HeyApiClient {
           createdAt: number
           updatedAt: number
           anchor?: unknown
+          anchors?: unknown
         }>
       }
       revision?: string
@@ -6902,6 +6907,7 @@ export class Latex extends HeyApiClient {
           createdAt: number
           updatedAt: number
           anchor?: unknown
+          anchors?: unknown
         }>
       }
       revision?: string
@@ -6929,6 +6935,49 @@ export class Latex extends HeyApiClient {
       ThrowOnError
     >({
       url: "/latex/realtime/annotations",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Restore a saved realtime annotation snapshot into the live session
+   */
+  public realtimeRestoreAnnotations<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      root?: string
+      main?: string
+      buildId?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "root" },
+            { in: "body", key: "main" },
+            { in: "body", key: "buildId" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      LatexRealtimeRestoreAnnotationsResponses,
+      LatexRealtimeRestoreAnnotationsErrors,
+      ThrowOnError
+    >({
+      url: "/latex/realtime/restore",
       ...options,
       ...params,
       headers: {
@@ -7169,6 +7218,7 @@ export class PdfAnnotations extends HeyApiClient {
           createdAt: number
           updatedAt: number
           anchor?: unknown
+          anchors?: unknown
         }>
       }
     },

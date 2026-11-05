@@ -2,11 +2,14 @@ import { createEffect, createMemo, createSignal } from "solid-js"
 import { useNavigate } from "@solidjs/router"
 import { base64Encode } from "@opencode-ai/util/encode"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
+import { Button } from "@opencode-ai/ui/button"
+import { Dialog } from "@opencode-ai/ui/dialog"
 import { showToast } from "@opencode-ai/ui/toast"
 import { DialogQuickReadingSettings } from "@/components/quick-reading/dialog-quick-reading-settings"
 import { DEFAULT_PROMPT } from "@/context/prompt"
 import { useGlobalSync } from "@/context/global-sync"
 import { useLanguage } from "@/context/language"
+import { useLatex } from "@/context/latex"
 import { useLocal } from "@/context/local"
 import { useQuickReadingMode } from "@/context/quick-reading-mode"
 import { useSDK } from "@/context/sdk"
@@ -37,6 +40,7 @@ export function useQuickReadingController(_options: Options) {
   const sync = useSync()
   const navigate = useNavigate()
   const platform = usePlatform()
+  const rootLatex = useLatex()
   const latex = useLatexReading()
   const navigation = useLatexNavigation(latex)
   const { params, view, reading } = useSessionLayout()
@@ -91,6 +95,49 @@ export function useQuickReadingController(_options: Options) {
     quickReading.unbind()
     reading().close()
     if (!view().reviewPanel.opened()) view().reviewPanel.open()
+  }
+
+  const switchBuild = (id: string) => {
+    if (!rootLatex.state.realtime) {
+      latex.select(id)
+      return
+    }
+    const off = async () => {
+      rootLatex.edit({ realtime: false })
+      await rootLatex.bind()
+      latex.select(id)
+    }
+    dialog.show(() => (
+      <Dialog title={language.t("latex.realtime.leaveTitle")}>
+        <div class="flex flex-col gap-3 p-4">
+          <p class="text-12-regular text-text-weak">{language.t("latex.realtime.leaveBody")}</p>
+          <div class="flex justify-end gap-2">
+            <Button variant="ghost" onClick={() => dialog.close()}>
+              {language.t("common.cancel")}
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={() => {
+                dialog.close()
+                void off()
+              }}
+            >
+              {language.t("latex.realtime.discardSwitch")}
+            </Button>
+            <Button
+              onClick={() => {
+                dialog.close()
+                void rootLatex.compileVersion().then((ok) => {
+                  if (ok) void off()
+                })
+              }}
+            >
+              {language.t("latex.realtime.saveSwitch")}
+            </Button>
+          </div>
+        </div>
+      </Dialog>
+    ))
   }
 
   const focusPromptInput = () => {
@@ -408,6 +455,8 @@ export function useQuickReadingController(_options: Options) {
     handlePageChange,
     handleLocationChange,
     locateSource: navigation.source,
+    switchBuild,
+    realtime: () => rootLatex.state.realtime,
     toggleLayoutSwapped,
     pdfFileName,
     totalPages,

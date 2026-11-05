@@ -19,6 +19,7 @@ const mocks = vi.hoisted(() => ({
   locate: vi.fn(),
   write: vi.fn<(input: { path: string; content: string; expectedChecksum?: string }) => Promise<unknown>>(),
   read: vi.fn<(input: { path: string }) => Promise<{ data: { type: "text"; content: string } }>>(),
+  dialog: vi.fn(),
 }))
 const [buffer, setBuffer] = createStore({ drafts: [] as LatexDraft[], disk: {} as Record<string, string> })
 const [state, setState] = createStore({
@@ -66,7 +67,7 @@ vi.mock("@/context/language", () => ({
       ),
   }),
 }))
-vi.mock("@opencode-ai/ui/context/dialog", () => ({ useDialog: () => ({ show: () => undefined }) }))
+vi.mock("@opencode-ai/ui/context/dialog", () => ({ useDialog: () => ({ show: mocks.dialog }) }))
 vi.mock("@opencode-ai/ui/dialog", () => ({ Dialog: (props: { children?: JSX.Element }) => props.children }))
 vi.mock("@opencode-ai/ui/resize-handle", () => ({ ResizeHandle: () => null }))
 vi.mock("./settings-latex", () => ({ SettingsLatex: () => null }))
@@ -1214,4 +1215,22 @@ test("project settings apply only when saved and dismissing the dropdown discard
   button("latex.bind").click()
   expect(latex.state.main).toBe("draft.tex")
   expect(mocks.bind).toHaveBeenCalledTimes(1)
+})
+
+test("leaving live preview with unsaved changes asks to save a version or discard", async () => {
+  const live = bound()
+  live.binding = { ...live.binding!, program: "lualatex", realtime: true }
+  mocks.project.mockResolvedValue({ data: live })
+  mocks.refresh.mockResolvedValue({ data: live })
+  mount()
+  await tick()
+  latex.realtimeDirty(true)
+  host.querySelector<HTMLButtonElement>('[data-action="latex-project-settings"]')!.click()
+  await tick()
+  const toggle = host.querySelector<HTMLInputElement>('[data-action="latex-realtime"]')!
+  toggle.checked = false
+  toggle.dispatchEvent(new Event("change", { bubbles: true }))
+  button("latex.bind").click()
+  await tick()
+  expect(mocks.dialog).toHaveBeenCalledTimes(1)
 })

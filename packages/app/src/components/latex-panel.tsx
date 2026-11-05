@@ -151,18 +151,76 @@ function Workspace(props: Props) {
     setForm("dirty", "program", true)
     if (value !== "lualatex") setForm("realtime", false)
   }
-  const save = async () => {
+  const apply = async (realtime: boolean) => {
     latex.edit({
       root: form.root,
       main: form.main,
       driver: form.driver,
       program: form.program,
-      realtime: form.program === "lualatex" ? form.realtime : false,
+      realtime: realtime && form.program === "lualatex",
     })
     if (form.driver !== "tectonic") latex.downloads(false)
     await latex.bind()
   }
+  const save = async () => {
+    const realtime = form.program === "lualatex" ? form.realtime : false
+    if (state.realtime && !realtime) {
+      await leaveRealtime()
+      return
+    }
+    await apply(realtime)
+  }
   const help = () => dialog.show(() => <DialogLatexHelp />)
+  const leaveRealtime = async () => {
+    if (latex.current() && !state.realtimeDirty) {
+      await apply(false)
+      return
+    }
+    latex.configure(false)
+    dialog.show(() => (
+      <Dialog title={language.t("latex.realtime.leaveTitle")}>
+        <div class="flex flex-col gap-3 p-4">
+          <p class="text-12-regular text-text-weak">{language.t("latex.realtime.leaveBody")}</p>
+          <div class="flex justify-end gap-2">
+            <Button
+              variant="ghost"
+              onClick={() => {
+                dialog.close()
+                setForm("realtime", true)
+              }}
+            >
+              {language.t("common.cancel")}
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={() => {
+                dialog.close()
+                void apply(false)
+              }}
+            >
+              {language.t("latex.realtime.discardSwitch")}
+            </Button>
+            <Button
+              onClick={() => {
+                dialog.close()
+                void (async () => {
+                  if (form.program !== "lualatex") {
+                    await apply(false)
+                    return
+                  }
+                  await apply(true)
+                  const ok = await latex.compileVersion()
+                  if (ok) await apply(false)
+                })()
+              }}
+            >
+              {language.t("latex.realtime.saveSwitch")}
+            </Button>
+          </div>
+        </div>
+      </Dialog>
+    ))
+  }
   const reading = () =>
     state.reading.root === state.project?.root && state.reading.main === state.project?.binding?.main
       ? state.reading
@@ -483,42 +541,14 @@ function Workspace(props: Props) {
                 {status()}
               </span>
             </Show>
-            <Show
-              when={!state.realtime}
-              fallback={
-                <Button
-                  size="small"
-                  data-action="latex-save-project"
-                  disabled={state.busy || latex.running() || !file.ready() || !!latex.conflicts().length}
-                  onClick={() => void latex.save()}
-                >
-                  {state.saving ? language.t("latex.saving") : language.t("common.save")}
-                </Button>
-              }
+            <Button
+              size="small"
+              data-action="latex-compile"
+              disabled={state.busy || latex.running() || latex.changed() || !file.ready() || !!latex.conflicts().length}
+              onClick={() => void latex.compile()}
             >
-              <Button
-                size="small"
-                data-action="latex-compile"
-                disabled={
-                  state.busy || latex.running() || latex.changed() || !file.ready() || !!latex.conflicts().length
-                }
-                onClick={() => void latex.compile()}
-              >
-                {state.saving ? language.t("latex.saving") : language.t("latex.compile")}
-              </Button>
-            </Show>
-            <Show when={state.realtime}>
-              <Button
-                size="small"
-                data-action="latex-compile"
-                disabled={
-                  state.busy || latex.running() || latex.changed() || !file.ready() || !!latex.conflicts().length
-                }
-                onClick={() => void latex.compile()}
-              >
-                {language.t("latex.compileOnly")}
-              </Button>
-            </Show>
+              {state.saving ? language.t("latex.saving") : language.t("latex.compile")}
+            </Button>
             <Show when={latex.running()}>
               <Button size="small" variant="secondary" onClick={() => void latex.cancel()}>
                 {language.t("common.cancel")}

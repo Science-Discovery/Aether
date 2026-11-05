@@ -26,6 +26,7 @@ export const { use: useLatex, provider: LatexProvider } = createSimpleContext({
       driver: "auto" as LatexBinding["driver"],
       program: "auto" as LatexBinding["program"],
       realtime: false,
+      realtimeDirty: false,
       configuring: false,
       collapsed: false,
       busy: false,
@@ -49,6 +50,7 @@ export const { use: useLatex, provider: LatexProvider } = createSimpleContext({
     let selection = 0
     let edits = 0
     let attempt = ""
+    let snapshotBuild: string | undefined
     let target: { path: string; root?: string } | undefined
     let timer: ReturnType<typeof setTimeout> | undefined
     let watcher: ReturnType<typeof setTimeout> | undefined
@@ -378,11 +380,15 @@ export const { use: useLatex, provider: LatexProvider } = createSimpleContext({
               bindingRevision: binding,
               sourceRevision: project.freshness.sourceRevision,
               allowDownloads: downloads,
+              realtimeSnapshot: state.realtime,
             },
             { throwOnError: true },
           )
         ).data
-        if (version === epoch && build) setState("project", "latest", build)
+        if (version === epoch && build) {
+          if (state.realtime) snapshotBuild = build.id
+          setState("project", "latest", build)
+        }
       } catch (cause) {
         if (version === epoch) error(cause)
       } finally {
@@ -393,6 +399,26 @@ export const { use: useLatex, provider: LatexProvider } = createSimpleContext({
       }
     }
     const show = () => setState("preview", state.preview + 1)
+    const compileVersion = async () => {
+      const before = state.project?.latest?.id
+      await run(true)
+      const id = state.project?.latest?.id
+      if (!id || id === before) return false
+      for (let tries = 0; tries < 2400; tries++) {
+        const result = await sdk.client.latex.get({ id }, { throwOnError: true }).catch(() => undefined)
+        const build = result?.data
+        if (!build) return false
+        if (!["preparing", "running"].includes(build.state)) {
+          await read(false)
+          if (build.state !== "succeeded") return false
+          snapshotBuild = undefined
+          setState("realtimeDirty", false)
+          return true
+        }
+        await new Promise((resolve) => setTimeout(resolve, 500))
+      }
+      return false
+    }
     const activate = async (path: string, root?: string) => {
       if (!source(path)) return
       if (root === undefined && state.project && contains(state.project.root, path)) {
@@ -419,6 +445,7 @@ export const { use: useLatex, provider: LatexProvider } = createSimpleContext({
       clearTimeout(timer)
       edits = 0
       attempt = ""
+      snapshotBuild = undefined
       setState({
         path,
         project: undefined,
@@ -431,6 +458,7 @@ export const { use: useLatex, provider: LatexProvider } = createSimpleContext({
         blocked: [],
         composing: [],
         downloads: false,
+        realtimeDirty: false,
       })
       show()
       const project = await read(true, root, true)
@@ -588,6 +616,7 @@ export const { use: useLatex, provider: LatexProvider } = createSimpleContext({
           selection++
           edits = 0
           attempt = ""
+          snapshotBuild = undefined
           target = undefined
           clearTimeout(timer)
           clearTimeout(watcher)
@@ -600,6 +629,7 @@ export const { use: useLatex, provider: LatexProvider } = createSimpleContext({
             driver: "auto",
             program: "auto",
             realtime: false,
+            realtimeDirty: false,
             busy: false,
             saving: false,
             scanning: false,
@@ -670,6 +700,10 @@ export const { use: useLatex, provider: LatexProvider } = createSimpleContext({
           void read(false)
             .then((project) => {
               if (project && !["preparing", "running"].includes(project.latest?.state ?? "")) {
+                if (snapshotBuild && project.latest?.id === snapshotBuild && project.latest.state === "succeeded") {
+                  snapshotBuild = undefined
+                  setState("realtimeDirty", false)
+                }
                 if (state.queued) schedule()
                 void refresh()
               }
@@ -721,7 +755,9 @@ export const { use: useLatex, provider: LatexProvider } = createSimpleContext({
           nonce: state.locating.nonce + 1,
         }),
       compile: () => run(true),
+      compileVersion,
       save: () => run(true, false),
+      realtimeDirty: (value: boolean) => setState("realtimeDirty", value),
       persist: (path: string) => modify(path, "save"),
       discard: (path: string) => modify(path, "discard"),
       reading: (value: typeof state.reading) => setState("reading", value),

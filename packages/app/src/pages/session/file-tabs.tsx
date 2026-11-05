@@ -296,7 +296,7 @@ export function FileTabContent(props: { tab: string; visible: boolean }) {
     if (managed()) {
       if (project.state.busy || project.running() || !file.ready() || project.conflicts().length) return
       if (project.state.realtime) {
-        await project.save()
+        await project.compile()
         return
       }
       if (project.changed()) return

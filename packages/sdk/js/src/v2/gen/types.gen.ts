@@ -2893,6 +2893,7 @@ export type LatexAnnotations = {
       createdAt: number
       updatedAt: number
       anchor?: unknown
+      anchors?: unknown
     }>
   }
   revision: string
@@ -8233,6 +8234,7 @@ export type LatexBuildData = {
     bindingRevision: string
     sourceRevision?: string
     allowDownloads?: boolean
+    realtimeSnapshot?: boolean
   }
   path?: never
   query?: {
@@ -8426,6 +8428,7 @@ export type LatexAnnotateData = {
         createdAt: number
         updatedAt: number
         anchor?: unknown
+        anchors?: unknown
       }>
     }
     revision: string
@@ -9318,6 +9321,7 @@ export type LatexRealtimeAnnotationsResponses = {
         createdAt: number
         updatedAt: number
         anchor?: unknown
+        anchors?: unknown
       }>
     }
     revision: string
@@ -9350,6 +9354,7 @@ export type LatexRealtimeSaveAnnotationsData = {
         createdAt: number
         updatedAt: number
         anchor?: unknown
+        anchors?: unknown
       }>
     }
     revision?: string
@@ -9409,6 +9414,7 @@ export type LatexRealtimeSaveAnnotationsResponses = {
         createdAt: number
         updatedAt: number
         anchor?: unknown
+        anchors?: unknown
       }>
     }
     revision: string
@@ -9417,6 +9423,77 @@ export type LatexRealtimeSaveAnnotationsResponses = {
 
 export type LatexRealtimeSaveAnnotationsResponse =
   LatexRealtimeSaveAnnotationsResponses[keyof LatexRealtimeSaveAnnotationsResponses]
+
+export type LatexRealtimeRestoreAnnotationsData = {
+  body?: {
+    root: string
+    main: string
+    buildId?: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/latex/realtime/restore"
+}
+
+export type LatexRealtimeRestoreAnnotationsErrors = {
+  /**
+   * Invalid project or request
+   */
+  400: unknown
+  /**
+   * Build or artifact not found
+   */
+  404: unknown
+  /**
+   * Project changed or build already running
+   */
+  409: unknown
+  /**
+   * Project exceeds snapshot limits
+   */
+  413: unknown
+  /**
+   * Compiler unavailable
+   */
+  503: unknown
+}
+
+export type LatexRealtimeRestoreAnnotationsResponses = {
+  /**
+   * LaTeX result
+   */
+  200: {
+    data: {
+      version: "1.2"
+      source: {
+        path: string
+        fingerprint: string
+      }
+      annotations: Array<{
+        id: string
+        type: "highlight" | "underline" | "strikeout" | "note"
+        color: "yellow" | "red" | "green" | "blue"
+        pages: Array<{
+          page: number
+          quads: Array<[number, number, number, number, number, number, number, number]>
+        }>
+        selectedText: string
+        note: string
+        createdAt: number
+        updatedAt: number
+        anchor?: unknown
+        anchors?: unknown
+      }>
+    }
+    revision: string
+  }
+}
+
+export type LatexRealtimeRestoreAnnotationsResponse =
+  LatexRealtimeRestoreAnnotationsResponses[keyof LatexRealtimeRestoreAnnotationsResponses]
 
 export type LatexRealtimeCloseData = {
   body?: {
@@ -10429,6 +10506,7 @@ export type FilePdfAnnotationsUpdateData = {
         createdAt: number
         updatedAt: number
         anchor?: unknown
+        anchors?: unknown
       }>
     }
   }
@@ -10476,6 +10554,7 @@ export type FilePdfAnnotationsUpdateResponses = {
       createdAt: number
       updatedAt: number
       anchor?: unknown
+      anchors?: unknown
     }>
   }
 }

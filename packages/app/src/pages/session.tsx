@@ -731,7 +731,12 @@ function SessionPageContent(props: SessionPageProps = {}) {
         onBusyChange={quickReadingController.navigation.busy}
         header={
           <Show when={quickReadingController.compiled() && !desktopReviewOpen()}>
-            <LatexReadingToolbar reading={quickReadingController.latex} download={quickReadingController.download} />
+            <LatexReadingToolbar
+              reading={quickReadingController.latex}
+              download={quickReadingController.download}
+              realtime={quickReadingController.realtime()}
+              onSwitchBuild={quickReadingController.switchBuild}
+            />
           </Show>
         }
         authHeader={quickReadingController.authHeader()}
@@ -2749,6 +2754,8 @@ function SessionPageContent(props: SessionPageProps = {}) {
               <LatexReadingToolbar
                 reading={quickReadingController.latex}
                 download={quickReadingController.download}
+                realtime={quickReadingController.realtime()}
+                onSwitchBuild={quickReadingController.switchBuild}
                 embedded={paired()}
                 collapsed={paired() && latex.state.collapsed}
               />

@@ -45,7 +45,11 @@ export const QuickReadingPanel: Component<{
   const latex = useLatex()
   const language = useLanguage()
   const live = () => props.realtime === true && latex.state.realtime && latex.state.program === "lualatex"
-  const realtime = createRealtime(live)
+  const realtime = createRealtime(
+    live,
+    () => props.version,
+    (value) => latex.realtimeDirty(value),
+  )
   const src = () => (live() ? (realtime.src() ?? props.url) : props.url)
   const note = () => {
     if (realtime.error()) return realtime.error()

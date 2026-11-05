@@ -1992,10 +1992,16 @@ export const dict = {
   "latex.compileOnly": "Compile",
   "latex.realtime.exit": "Normal PDF",
   "latex.realtime.autosaveOff":
-    "Automatic save and compile is off while live preview is enabled. Compile manually for the final PDF.",
+    "Timed automatic compilation is off while live preview is enabled. Saving or compiling creates a stable version.",
+  "latex.realtime.leaveTitle": "Save a version before leaving live preview?",
+  "latex.realtime.leaveBody":
+    "Leaving live preview without a version discards the current live annotation changes. A saved version is a stable full compile and gets its own annotation snapshot.",
+  "latex.realtime.saveSwitch": "Save version and switch",
+  "latex.realtime.discardSwitch": "Switch without saving",
   "latex.realtime.starting": "Starting realtime LuaLaTeX…",
   "latex.realtime.idle": "Realtime preview",
   "latex.realtime.live": "Live",
+  "latex.realtime.unsaved": "Live (unsaved)",
   "latex.realtime.converging": "Updating pages…",
   "latex.realtime.waiting": "Waiting for the next full pass",
   "latex.realtime.diagnostics": "{{count}} diagnostic(s)",

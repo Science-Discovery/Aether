@@ -49,7 +49,11 @@ export type RealtimeController = {
   annotationStore: PdfAnnotationStore
 }
 
-export function createRealtime(active: Accessor<boolean>): RealtimeController {
+export function createRealtime(
+  active: Accessor<boolean>,
+  version: Accessor<string | undefined>,
+  onDirty: (value: boolean) => void,
+): RealtimeController {
   const global = useGlobalSDK()
   const sdk = useSDK()
   const file = useFile()
@@ -84,6 +88,9 @@ export function createRealtime(active: Accessor<boolean>): RealtimeController {
   let loaded = false
   let generation = 0
   let pendingReveal: RealtimeSource | undefined
+  let snapshotBuild = ""
+  let notesKey = ""
+  let notes: { data: PdfAnnotationFile; revision: string } | undefined
 
   const headers = () => ({
     ...global.auth(),
@@ -115,12 +122,13 @@ export function createRealtime(active: Accessor<boolean>): RealtimeController {
 
   async function open(owner: number) {
     if (session()) return
-    const version = epoch
+    snapshotBuild = version() ?? ""
+    const start = epoch
     setError("")
     setStatus(language.t("latex.realtime.starting"))
     try {
       const value = await call<{ id: string }>("/latex/realtime/open", { root: root(), main: main() })
-      if (version !== epoch || owner !== lifecycle || disposed) {
+      if (start !== epoch || owner !== lifecycle || disposed) {
         void call("/latex/realtime/close", { id: value.id }).catch(() => undefined)
         return
       }
@@ -133,7 +141,7 @@ export function createRealtime(active: Accessor<boolean>): RealtimeController {
       })
       sendDrafts()
     } catch (cause) {
-      if (version !== epoch || owner !== lifecycle || disposed) return
+      if (start !== epoch || owner !== lifecycle || disposed) return
       setStatus("")
       setError(cause instanceof Error ? cause.message : String(cause))
     }
@@ -157,11 +165,15 @@ export function createRealtime(active: Accessor<boolean>): RealtimeController {
     loaded = false
     generation++
     pendingReveal = undefined
+    snapshotBuild = ""
+    notesKey = ""
+    notes = undefined
     loading.clear()
     sent.clear()
     baselines.clear()
     setStatus("")
     setError("")
+    onDirty(false)
     post?.({ channel: CHANNEL, type: "realtime-reset" })
     if (id) await call("/latex/realtime/close", { id }).catch(() => undefined)
   }
@@ -476,26 +488,38 @@ export function createRealtime(active: Accessor<boolean>): RealtimeController {
   })
 
   async function loadAnnotations() {
-    if (!session()) return { data: emptyAnnotations(), revision: "0" }
+    const id = session()
+    if (!id) return { data: emptyAnnotations(), revision: "0" }
+    if (!snapshotBuild) snapshotBuild = version() ?? ""
     const project = root()
     const name = main()
-    const result = await call<{ data: PdfAnnotationFile; revision: string }>(
-      `/latex/realtime/annotations?root=${encodeURIComponent(project)}&main=${encodeURIComponent(name)}`,
-    )
-    if (!model.hasLayout) return result
-    const annotations = reproject(model, result.data.annotations)
-    if (same(annotations, result.data.annotations)) return result
-    const next = { ...result.data, annotations }
+    const key = `${id}|${snapshotBuild}|${project}|${name}`
+    if (notesKey !== key) {
+      notes = await call<{ data: PdfAnnotationFile; revision: string }>("/latex/realtime/restore", {
+        root: project,
+        main: name,
+        buildId: snapshotBuild || undefined,
+      })
+      notesKey = key
+      onDirty(false)
+    }
+    const current = notes ?? { data: emptyAnnotations(), revision: "0" }
+    if (!model.hasLayout) return current
+    const annotations = reproject(model, current.data.annotations)
+    if (same(annotations, current.data.annotations)) return current
+    const data = { ...current.data, annotations }
     const saved = await call<{ data: PdfAnnotationFile; revision: string }>(
       "/latex/realtime/annotations",
-      { root: project, main: name, data: next, revision: result.revision },
+      { root: project, main: name, data, revision: current.revision },
       "PUT",
     ).catch(() => undefined)
-    return saved ?? { data: next, revision: result.revision }
+    notes = saved ?? { data, revision: current.revision }
+    return notes
   }
 
   async function saveAnnotations(input: { data: PdfAnnotationFile; revision?: string }) {
     if (!session()) return input
+    onDirty(true)
     const data = {
       ...input.data,
       annotations: input.data.annotations.map((item) => {
@@ -504,11 +528,14 @@ export function createRealtime(active: Accessor<boolean>): RealtimeController {
         return anchors.length ? { ...item, anchors } : item
       }),
     }
-    return call<{ data: PdfAnnotationFile; revision: string }>(
+    const saved = await call<{ data: PdfAnnotationFile; revision: string }>(
       "/latex/realtime/annotations",
       { root: root(), main: main(), data, revision: input.revision },
       "PUT",
     )
+    notes = saved
+    notesKey = `${session()}|${snapshotBuild}|${root()}|${main()}`
+    return saved
   }
 
   const annotationStore: PdfAnnotationStore = { load: loadAnnotations, save: saveAnnotations }

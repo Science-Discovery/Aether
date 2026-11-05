@@ -396,6 +396,19 @@ export const LatexRoutes = lazy(() =>
       async (c) => c.json(await Latex.saveRealtimeAnnotations(c.req.valid("json"))),
     )
     .post(
+      "/realtime/restore",
+      describeRoute({
+        operationId: "latex.realtimeRestoreAnnotations",
+        summary: "Restore a saved realtime annotation snapshot into the live session",
+        responses: {
+          ...response(z.object({ data: PdfAnnotations.File, revision: z.string() })),
+          ...failure,
+        },
+      }),
+      validator("json", z.object({ root: z.string(), main: z.string(), buildId: z.string().uuid().optional() })),
+      async (c) => c.json(await Latex.restoreRealtimeAnnotations(c.req.valid("json"))),
+    )
+    .post(
       "/realtime/close",
       describeRoute({
         operationId: "latex.realtimeClose",

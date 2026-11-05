@@ -185,6 +185,7 @@ export namespace LatexSchema {
     bindingRevision: z.string(),
     sourceRevision: z.string().optional(),
     allowDownloads: z.boolean().default(false),
+    realtimeSnapshot: z.boolean().default(false),
   })
   export const Refresh = z.object({
     root: z.string(),

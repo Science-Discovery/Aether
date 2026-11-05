@@ -10,6 +10,8 @@ export function LatexReadingToolbar(props: {
   download: () => Promise<void>
   collapsed?: boolean
   embedded?: boolean
+  realtime?: boolean
+  onSwitchBuild?: (id: string) => void
 }) {
   const language = useLanguage()
   const status = () =>
@@ -18,14 +20,34 @@ export function LatexReadingToolbar(props: {
       : props.reading.outdated()
         ? language.t("latex.preview.stale")
         : language.t("latex.preview")
-  const versions = createMemo(() => ["latest", ...props.reading.state.versions.map((item) => item.build.id)])
+  const REALTIME = "__realtime__"
+  const versions = createMemo(() => [
+    ...(props.realtime ? [REALTIME] : []),
+    "latest",
+    ...props.reading.state.versions.map((item) => item.build.id),
+  ])
+  const current = () => (props.realtime ? REALTIME : props.reading.state.selected || "latest")
   const versionLabel = (value: string) => {
+    if (value === REALTIME) return language.t("latex.realtime.unsaved")
     if (value === "latest") return language.t("latex.preview.latest")
     const item = props.reading.state.versions.find((entry) => entry.build.id === value)
     if (!item) return value
     return `${new Date(item.build.completedAt ?? item.build.createdAt).toLocaleString(language.intl())}${
       item.annotationCount ? ` · ${language.t("latex.preview.annotated")} (${item.annotationCount})` : ""
     }`
+  }
+  let opened = false
+  let openedAt = 0
+  const select = (id: string, native = false) => {
+    if (!native && !opened && Date.now() - openedAt > 2000) return
+    openedAt = 0
+    if (id === REALTIME) return
+    if (!props.realtime && id === props.reading.state.selected) return
+    if (props.realtime) {
+      props.onSwitchBuild?.(id)
+      return
+    }
+    props.reading.select(id)
   }
   return (
     <Show when={!props.collapsed || props.reading.slow() || props.reading.state.error}>
@@ -48,9 +70,12 @@ export function LatexReadingToolbar(props: {
                 tabIndex={-1}
                 class="sr-only"
                 aria-label={language.t("latex.preview.versions")}
-                value={props.reading.state.selected}
-                onChange={(event) => props.reading.select(event.currentTarget.value)}
+                value={current()}
+                onChange={(event) => select(event.currentTarget.value, true)}
               >
+                <Show when={props.realtime}>
+                  <option value={REALTIME}>{versionLabel(REALTIME)}</option>
+                </Show>
                 <option value="">{language.t("latex.preview.latest")}</option>
                 <For each={props.reading.state.versions}>
                   {(item) => <option value={item.build.id}>{versionLabel(item.build.id)}</option>}
@@ -58,10 +83,14 @@ export function LatexReadingToolbar(props: {
               </select>
               <Select
                 options={versions()}
-                current={props.reading.state.selected || "latest"}
+                current={current()}
                 value={(value) => value}
                 label={(value) => versionLabel(value)}
-                onSelect={(value) => props.reading.select(!value || value === "latest" ? "" : value)}
+                onOpenChange={(open) => {
+                  opened = open
+                  if (open) openedAt = Date.now()
+                }}
+                onSelect={(value) => select(!value ? "" : value === "latest" ? "" : value)}
                 size="small"
                 variant="secondary"
                 triggerVariant="settings"

@@ -60,7 +60,13 @@ async function marker(file: string) {
   throw new Error("Fixture process did not start")
 }
 const start = (binding: LatexSchema.Binding, sourceRevision?: string) =>
-  Latex.start({ root: binding.root, bindingRevision: binding.revision, sourceRevision, allowDownloads: false })
+  Latex.start({
+    root: binding.root,
+    bindingRevision: binding.revision,
+    sourceRevision,
+    allowDownloads: false,
+    realtimeSnapshot: false,
+  })
 
 describe("LaTeX compiler lifecycle", () => {
   test("publishes build-bound source positions, verifies freshness and survives scratch removal and instance reload", async () => {
@@ -417,6 +423,72 @@ describe("LaTeX compiler lifecycle", () => {
           expect(build.driver).toBe("latexmk")
           expect(build.program).toBe("lualatex")
           expect((await marker(path.join(dir.path, "marker.json"))).args).toContain("-lualatex")
+          await Instance.dispose()
+        },
+      })
+    } finally {
+      await Bun.write(file, previous)
+      Config.global.reset()
+    }
+  })
+
+  test("a realtime-origin build snapshots build and live annotations", async () => {
+    await using dir = await tmpdir()
+    await Bun.write(path.join(dir.path, "main.tex"), "\\documentclass{article}")
+    const previous = await Bun.file(file).text()
+    await Bun.write(file, JSON.stringify({ latex: { tectonic: { path: executable }, latexmk: { path: latexmk } } }))
+    Config.global.reset()
+    try {
+      await Instance.provide({
+        directory: dir.path,
+        fn: async () => {
+          const bound = (await Latex.bind({ root: ".", main: "main.tex", driver: "latexmk", program: "lualatex" }))
+            .binding!
+          const empty = await Latex.realtimeAnnotations({ root: ".", main: "main.tex" })
+          await Latex.saveRealtimeAnnotations({
+            root: ".",
+            main: "main.tex",
+            revision: empty.revision,
+            data: {
+              version: "1.2",
+              source: { path: "live", fingerprint: "live" },
+              annotations: [
+                {
+                  id: "one",
+                  type: "highlight",
+                  color: "yellow",
+                  pages: [{ page: 1, quads: [[1, 2, 3, 2, 1, 4, 3, 4]] }],
+                  selectedText: "Hello",
+                  note: "",
+                  createdAt: 1,
+                  updatedAt: 1,
+                  anchors: [{ kind: "page", page: 1, rect: { x: 0.1, y: 0.2, w: 0.3, h: 0.1 } }],
+                },
+              ],
+            },
+          })
+          const build = await terminal(
+            (
+              await Latex.start({
+                root: ".",
+                bindingRevision: bound.revision,
+                allowDownloads: false,
+                realtimeSnapshot: true,
+              })
+            ).id,
+          )
+          expect(build.state).toBe("succeeded")
+          expect(build.program).toBe("lualatex")
+          const annotations = await Latex.annotations(build.id)
+          expect(annotations.data.annotations).toHaveLength(1)
+          expect(annotations.data.source.path).toBe(`latex-build:${build.id}`)
+          const restored = await Latex.restoreRealtimeAnnotations({
+            root: ".",
+            main: "main.tex",
+            buildId: build.id,
+          })
+          expect(restored.data.annotations[0]).toMatchObject({ id: "one", selectedText: "Hello" })
+          expect(restored.data.annotations[0].anchors).toHaveLength(1)
           await Instance.dispose()
         },
       })
