@@ -1,5 +1,6 @@
-import { For, Show } from "solid-js"
+import { createMemo, For, Show } from "solid-js"
 import { Button } from "@opencode-ai/ui/button"
+import { Select } from "@opencode-ai/ui/select"
 import { showToast } from "@opencode-ai/ui/toast"
 import { useLanguage } from "@/context/language"
 import type { useLatexReading } from "@/pages/session/use-latex-reading"
@@ -17,6 +18,15 @@ export function LatexReadingToolbar(props: {
       : props.reading.outdated()
         ? language.t("latex.preview.stale")
         : language.t("latex.preview")
+  const versions = createMemo(() => ["latest", ...props.reading.state.versions.map((item) => item.build.id)])
+  const versionLabel = (value: string) => {
+    if (value === "latest") return language.t("latex.preview.latest")
+    const item = props.reading.state.versions.find((entry) => entry.build.id === value)
+    if (!item) return value
+    return `${new Date(item.build.completedAt ?? item.build.createdAt).toLocaleString(language.intl())}${
+      item.annotationCount ? ` · ${language.t("latex.preview.annotated")} (${item.annotationCount})` : ""
+    }`
+  }
   return (
     <Show when={!props.collapsed || props.reading.slow() || props.reading.state.error}>
       <div
@@ -32,27 +42,40 @@ export function LatexReadingToolbar(props: {
             >
               {props.embedded ? language.t("latex.preview") : status()}
             </span>
-            <select
-              class="min-w-0 max-w-full flex-1 basis-40 rounded border border-border-base bg-surface-base px-2 py-1"
-              aria-label={language.t("latex.preview.versions")}
-              value={props.reading.state.selected}
-              onChange={(event) => props.reading.select(event.currentTarget.value)}
-            >
-              <option value="">{language.t("latex.preview.latest")}</option>
-              <For each={props.reading.state.versions}>
-                {(item) => (
-                  <option value={item.build.id}>
-                    {new Date(item.build.completedAt ?? item.build.createdAt).toLocaleString(language.intl())}
-                    {item.annotationCount
-                      ? ` · ${language.t("latex.preview.annotated")} (${item.annotationCount})`
-                      : ""}
-                  </option>
-                )}
-              </For>
-            </select>
+            <div class="min-w-0 flex-1 basis-40">
+              <select
+                aria-hidden="true"
+                tabIndex={-1}
+                class="sr-only"
+                aria-label={language.t("latex.preview.versions")}
+                value={props.reading.state.selected}
+                onChange={(event) => props.reading.select(event.currentTarget.value)}
+              >
+                <option value="">{language.t("latex.preview.latest")}</option>
+                <For each={props.reading.state.versions}>
+                  {(item) => <option value={item.build.id}>{versionLabel(item.build.id)}</option>}
+                </For>
+              </select>
+              <Select
+                options={versions()}
+                current={props.reading.state.selected || "latest"}
+                value={(value) => value}
+                label={(value) => versionLabel(value)}
+                onSelect={(value) => props.reading.select(!value || value === "latest" ? "" : value)}
+                size="small"
+                variant="secondary"
+                triggerVariant="settings"
+                triggerStyle={{ width: "100%" }}
+                triggerProps={{
+                  "aria-label": language.t("latex.preview.versions"),
+                  "data-action": "latex-version",
+                }}
+              />
+            </div>
             <Button
               size="small"
               variant="ghost"
+              data-action="latex-export"
               disabled={!props.reading.state.displayed}
               title={props.reading.outdated() ? language.t("latex.preview.outdated") : undefined}
               onClick={() => {

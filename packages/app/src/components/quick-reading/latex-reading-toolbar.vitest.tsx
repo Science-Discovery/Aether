@@ -16,8 +16,8 @@ vi.mock("@/context/language", () => ({
 }))
 vi.mock("@opencode-ai/ui/toast", () => ({ showToast: mocks.toast }))
 vi.mock("@opencode-ai/ui/button", () => ({
-  Button: (props: ComponentProps<"button">) => (
-    <button disabled={props.disabled} title={props.title} onClick={props.onClick}>
+  Button: (props: ComponentProps<"button"> & { "data-action"?: string }) => (
+    <button data-action={props["data-action"]} disabled={props.disabled} title={props.title} onClick={props.onClick}>
       {props.children}
     </button>
   ),
@@ -140,7 +140,7 @@ test("standalone reading updates its existing fixed-width caption without adding
 
 test("exporting an outdated displayed PDF keeps the version warning at the export action", () => {
   setState({ collapsed: false, displayed: "" })
-  const button = host.querySelector("button")!
+  const button = host.querySelector<HTMLButtonElement>('[data-action="latex-export"]')!
   expect(button.disabled).toBe(true)
   setState({ displayed: "build-1", outdated: true })
   expect(button.title).toBe(dict["latex.preview.outdated"])
