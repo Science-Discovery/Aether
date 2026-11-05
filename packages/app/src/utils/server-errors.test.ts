@@ -1,6 +1,34 @@
 import { describe, expect, test } from "bun:test"
 import type { ConfigInvalidError, ProviderModelNotFoundError } from "./server-errors"
 import { formatServerError, parseReadableConfigInvalidError } from "./server-errors"
+import { dict as en } from "@/i18n/en"
+import { dict as zh } from "@/i18n/zh"
+import { dict as zht } from "@/i18n/zht"
+
+describe("session split errors", () => {
+  test("translates busy, task-session and changed-tree failures in all three supported dictionaries", () => {
+    for (const dict of [en, zh, zht] as Record<string, string>[]) {
+      const translate = (key: string) => dict[key] ?? key
+      expect(
+        formatServerError({ name: "SessionBusyError", data: { message: "Session child is busy" } }, translate),
+      ).toBe(dict["error.chain.session.busy"])
+      expect(
+        formatServerError(
+          { name: "SessionDetachError", data: { message: "Task subagent sessions cannot be detached." } },
+          translate,
+        ),
+      ).toBe(dict["error.chain.session.detachTask"])
+      for (const action of ["forking", "detaching"]) {
+        expect(
+          formatServerError(
+            { name: "SessionDetachError", data: { message: `Session tree changed while ${action}. Please retry.` } },
+            translate,
+          ),
+        ).toBe(dict["error.chain.session.treeChanged"])
+      }
+    }
+  })
+})
 
 function fill(text: string, vars?: Record<string, string | number>) {
   if (!vars) return text

@@ -1,9 +1,28 @@
 import { describe, expect, test } from "bun:test"
 import type { Session } from "@opencode-ai/sdk/v2/client"
-import { loadRootSessionsWithFallback } from "./session-load"
+import { loadRootSessionsWithFallback, mergeSessions } from "./session-load"
 
 const session = (id: string) => ({ id, title: id }) as Session
 type Query = { directory: string; roots: true; limit?: number }
+
+describe("mergeSessions", () => {
+  test("keeps a detached root when an older root/tree request finishes and removes duplicate rows", () => {
+    const child = { ...session("child"), parentID: "parent", treeID: "old", time: { created: 1, updated: 1 } }
+    const root = { ...session("child"), treeID: "new", time: { created: 1, updated: 2 } }
+    const parent = { ...session("parent"), time: { created: 1, updated: 1 } }
+    const merged = mergeSessions([child, parent, child], [root, parent])
+    expect(merged.map((session) => session.id)).toEqual(["child", "parent"])
+    expect(merged[0]).toEqual(root)
+    expect(merged.filter((session) => !session.parentID)).toHaveLength(2)
+  })
+
+  test("keeps newer API metadata and filters archived rows", () => {
+    const old = { ...session("child"), parentID: "parent", time: { created: 1, updated: 1 } }
+    const root = { ...session("child"), time: { created: 1, updated: 2 } }
+    const archived = { ...session("archived"), time: { created: 1, updated: 3, archived: 3 } }
+    expect(mergeSessions([root, archived], [old])).toEqual([root])
+  })
+})
 
 describe("loadRootSessionsWithFallback", () => {
   test("returns limited result on first success", async () => {

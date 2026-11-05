@@ -123,6 +123,25 @@ export function formatServerError(error: unknown, translate?: Translator, fallba
   if (isProviderModelNotFoundErrorLike(error)) return parseReadableProviderModelNotFoundError(error, translate)
   if (isWorktreeErrorLike(error)) return parseWorktreeError(error, translate)
   if (isNamedErrorLike(error)) {
+    if (error.name === "SessionBusyError") {
+      return tr(
+        translate,
+        "error.chain.session.busy",
+        "This session or one of its branches is running or awaiting an answer. Finish or stop it and try again.",
+      )
+    }
+    if (error.name === "SessionDetachError") {
+      if (error.data.message === "Task subagent sessions cannot be detached.") {
+        return tr(
+          translate,
+          "error.chain.session.detachTask",
+          "Task subagent sessions cannot be split into independent sessions.",
+        )
+      }
+      if (/^Session tree changed while (detaching|forking)\. Please retry\.$/.test(error.data.message ?? "")) {
+        return tr(translate, "error.chain.session.treeChanged", "The conversation tree changed. Please try again.")
+      }
+    }
     const raw = error.data.message
     const msg = typeof raw === "string" ? raw.trim() : undefined
     if (msg)

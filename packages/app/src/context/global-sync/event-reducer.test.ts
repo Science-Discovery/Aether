@@ -175,6 +175,59 @@ describe("applyGlobalEvent", () => {
 })
 
 describe("applyDirectoryEvent", () => {
+  test("detach response and events count the new root once without replacing newer metadata or history", () => {
+    const child = { ...rootSession({ id: "child", parentID: "parent" }), treeID: "old", forkParentSessionID: "parent" }
+    const root = { ...rootSession({ id: "child" }), treeID: "new", time: { created: 1, updated: 2 } }
+    const message = userMessage("message", "child")
+    for (const type of ["session.updated", "session.created"]) {
+      const [store, setStore] = createStore(
+        baseState({
+          session: [{ ...child, time: { ...child.time } }, rootSession({ id: "parent" })],
+          sessionTotal: 1,
+          message: { child: [message] },
+        }),
+      )
+      const apply = (type: string, info: Session) =>
+        applyDirectoryEvent({
+          event: { type, properties: { info } },
+          store,
+          setStore,
+          push() {},
+          directory: "/tmp",
+          loadLsp() {},
+        })
+      // The response is applied through session.updated too, in either arrival order.
+      apply(type, root)
+      apply("session.updated", child)
+      apply("session.created", child)
+      apply("session.updated", root)
+      expect(store.sessionTotal).toBe(2)
+      expect(store.session.map((session) => session.id)).toEqual(["child", "parent"])
+      expect(store.session[0]?.parentID).toBeUndefined()
+      expect(store.session[0]?.forkParentSessionID).toBeUndefined()
+      expect(store.session[0]?.treeID).toBe("new")
+      expect(store.message.child).toEqual([message])
+    }
+  })
+
+  test("independent fork responses and created events insert and count a single root in either order", () => {
+    for (const order of ["session.updated", "session.created"]) {
+      const [store, setStore] = createStore(baseState())
+      for (const type of [order, "session.created", "session.updated"]) {
+        applyDirectoryEvent({
+          event: { type, properties: { info: rootSession({ id: "fork" }) } },
+          store,
+          setStore,
+          push() {},
+          directory: "/tmp",
+          loadLsp() {},
+        })
+      }
+      expect(store.session.map((session) => session.id)).toEqual(["fork"])
+      expect(store.sessionTotal).toBe(1)
+    }
+  })
+
   test("inserts root sessions in sorted order and updates sessionTotal", () => {
     const [store, setStore] = createStore(
       baseState({
