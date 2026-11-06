@@ -42,6 +42,7 @@ export type SessionPreference = {
 
 export type State = {
   status: "loading" | "partial" | "complete"
+  modelReady?: boolean
   agent: Agent[]
   command: Command[]
   project: string

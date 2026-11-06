@@ -29,6 +29,14 @@ import { Auth } from "@/auth"
 
 const log = Log.create({ service: "cron" })
 
+function failure(err: unknown) {
+  if (err === null) return "null"
+  if (Provider.NoModelConfiguredError.isInstance(err)) return err.data.message
+  if (Provider.ModelNotFoundError.isInstance(err))
+    return `Model ${err.data.providerID}/${err.data.modelID} is unavailable. Select a model and try again.`
+  return err instanceof Error ? err.message : String(err)
+}
+
 type Definition = CronSchema.Definition
 type State = CronSchema.State
 type Run = CronSchema.Run
@@ -195,8 +203,10 @@ const defaultAgentDispatcher: AgentDispatcher = {
         const session = await Session.create({
           title: input.definition.name,
         })
-        void SessionPrompt.prompt({
+        const prompt: SessionPrompt.PromptInput = {
           sessionID: session.id,
+          model: payloadModel(input.definition),
+          agent: payloadAgent(input.definition),
           parts: [
             {
               type: "text",
@@ -204,7 +214,9 @@ const defaultAgentDispatcher: AgentDispatcher = {
               metadata: cronMetadata(input.definition.id, input.run_id),
             },
           ],
-        }).catch((error) => {
+        }
+        await SessionPrompt.resolve(prompt)
+        void SessionPrompt.prompt(prompt).catch((error) => {
           log.error("isolated cron prompt failed", {
             job_id: input.definition.id,
             run_id: input.run_id,
@@ -239,8 +251,10 @@ const defaultAgentDispatcher: AgentDispatcher = {
           createdSessionID = created.id
         }
 
-        void SessionPrompt.prompt({
+        const prompt: SessionPrompt.PromptInput = {
           sessionID: targetID,
+          model: payloadModel(input.definition),
+          agent: payloadAgent(input.definition),
           parts: [
             {
               type: "text",
@@ -248,7 +262,9 @@ const defaultAgentDispatcher: AgentDispatcher = {
               metadata: cronMetadata(input.definition.id, input.run_id),
             },
           ],
-        }).catch((error) => {
+        }
+        await SessionPrompt.resolve(prompt)
+        void SessionPrompt.prompt(prompt).catch((error) => {
           log.error("session cron prompt failed", {
             job_id: input.definition.id,
             run_id: input.run_id,
@@ -1076,7 +1092,7 @@ async function execute(definition: Definition, trigger: CronSchema.TriggerReason
     return run
   } catch (error) {
     const finishedAt = Date.now()
-    const message = error instanceof Error ? error.message : String(error)
+    const message = failure(error)
     const run: Run = {
       run_id: runID,
       job_id: definition.id,
@@ -1216,7 +1232,7 @@ function applyAssistantContext(input: {
 }
 
 function invalidAssistantResult(summary: string, error: unknown) {
-  const detail = error instanceof Error ? error.message : String(error)
+  const detail = failure(error)
   return {
     action: "reject" as const,
     summary: `${summary} (${detail})`,

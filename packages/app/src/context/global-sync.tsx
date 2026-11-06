@@ -5,6 +5,7 @@ import type {
   ProjectRecent,
   ProviderAuthResponse,
   ProviderListResponse,
+  Session,
   Todo,
 } from "@opencode-ai/sdk/v2/client"
 import { showToast } from "@opencode-ai/ui/toast"
@@ -33,11 +34,13 @@ import { createReconnectTracker } from "./global-sync/reconnect"
 import * as Status from "./global-sync/status"
 import { createRefreshQueue } from "./global-sync/queue"
 import { createProviderRefresh } from "./global-sync/provider-refresh"
+import { createConfigRefresh } from "./global-sync/config-refresh"
 import { clearSessionPrefetchDirectory, resetSessionPrefetch } from "./global-sync/session-prefetch"
 import {
   estimateRootSessionTotal,
   loadDescendantsForRoots,
   loadRootSessionsWithFallback,
+  mergeSessions,
   planSessionLoad,
 } from "./global-sync/session-load"
 import { trimSessions } from "./global-sync/session-trim"
@@ -96,6 +99,11 @@ function createGlobalSync() {
   })
 
   let active = true
+  const refreshConfig = createConfigRefresh({
+    active: () => active,
+    load: () => globalSDK.client.global.config.get().then((x) => x.data),
+    apply: (config) => setGlobalStore("config", reconcile(config)),
+  })
   let projectWritten = false
   let recentWritten = false
   let bootedAt = 0
@@ -301,9 +309,8 @@ function createGlobalSync() {
     directory = normalizeDir(directory)
     const pending = sessionLoads.get(directory)
     if (pending) {
-      if (!opts?.collapse) return pending
-      // Re-trim strictly once the in-flight load settles: the pending call was
-      // started without collapse options and must not swallow them.
+      if (!opts?.collapse && !opts?.force) return pending
+      // Apply an explicit refresh or collapse after the in-flight snapshot settles.
       return pending.then(() => loadSessions(directory, opts))
     }
 
@@ -364,9 +371,8 @@ function createGlobalSync() {
         const limit = store.limit
         // Preserve sessions that arrived via SSE while this API call was in-flight.
         // Without this, reconcile() would overwrite them since the API snapshot predates their creation.
-        const apiIds = new Set(nonArchived.map((s) => s.id))
-        const sseSessions = store.session.filter((s) => !s.time?.archived && !apiIds.has(s.id))
-        const sessions = trimSessions([...nonArchived, ...sseSessions], {
+        const merged = mergeSessions(nonArchived, store.session)
+        const sessions = trimSessions(merged, {
           limit,
           permission: store.permission,
           keep: viewingIDs(),
@@ -374,11 +380,14 @@ function createGlobalSync() {
         })
         setStore(
           "sessionTotal",
-          estimateRootSessionTotal({
-            count: nonArchivedRoots.length,
-            limit: x.limit,
-            limited: x.limited,
-          }),
+          Math.max(
+            merged.filter((session) => !session.parentID).length,
+            estimateRootSessionTotal({
+              count: nonArchivedRoots.length,
+              limit: x.limit,
+              limited: x.limited,
+            }),
+          ),
         )
         setStore("session", reconcile(sessions, { key: "id" }))
         cleanupDroppedSessionCaches(store, setStore, sessions, setSessionTodo)
@@ -406,16 +415,36 @@ function createGlobalSync() {
   async function loadActiveMetadata(directory: string) {
     directory = normalizeDir(directory)
     if (!directory) return
+    const failed = (err: unknown) => {
+      showToast({
+        variant: "error",
+        title: language.t("toast.project.reloadFailed.title", { project: getFilename(directory) }),
+        description: formatServerError(err, language.t),
+        actions: [{ label: language.t("directory.retry"), onClick: () => loadActiveMetadata(directory) }],
+      })
+    }
+    const booted = await bootstrapInstance(directory).then(
+      () => true,
+      (err) => {
+        failed(err)
+        return false
+      },
+    )
+    if (!booted) return
     const [, setStore] = children.child(directory, { bootstrap: false })
     const sdk = sdkFor(directory)
-    await Promise.allSettled([
+    const selection = Promise.all([
       retry(() => sdk.app.agents().then((x) => setStore("agent", normalizeAgentList(x.data)))),
-      retry(() => sdk.command.list().then((x) => setStore("command", x.data ?? []))),
       retry(() => sdk.config.get().then((x) => setStore("config", x.data!))),
       retry(() => providers.child(directory)),
+    ]).then(() => setStore("modelReady", true))
+    const settled = await Promise.allSettled([
+      selection,
+      retry(() => sdk.command.list().then((x) => setStore("command", x.data ?? []))),
       retry(() => sdk.mcp.status().then((x) => setStore("mcp", x.data!))),
       retry(() => sdk.lsp.status().then((x) => setStore("lsp", x.data!))),
     ])
+    if (settled[0].status === "rejected") failed(settled[0].reason)
   }
 
   async function bootstrapInstance(directory: string) {
@@ -473,6 +502,9 @@ function createGlobalSync() {
           queue.refresh()
         },
         providers: refreshProviders,
+        config: () => {
+          void refreshConfig().catch((error) => console.error("Failed to refresh feature configuration", error))
+        },
         setGlobalProject: setProjects,
       })
       if (event.type === "project.updated" || event.type === "project.recent.updated") {
@@ -544,6 +576,7 @@ function createGlobalSync() {
       await bootstrapGlobal({
         globalSDK: globalSDK.client,
         provider: providers.global,
+        config: refreshConfig,
         requestFailedTitle: language.t("common.requestFailed"),
         translate: language.t,
         formatMoreCount: (count) => language.t("common.moreCountSuffix", { count }),
@@ -632,6 +665,16 @@ function createGlobalSync() {
   }
 
   const updateConfig = async (config: Config) => {
+    if (
+      Object.keys(config).length > 0 &&
+      Object.keys(config).every((key) => key === "skills" || key === "knowledge") &&
+      Object.keys(config.skills ?? {}).every((key) => key === "evolution_enabled") &&
+      Object.keys(config.knowledge ?? {}).every((key) => key === "enabled")
+    ) {
+      await globalSDK.client.global.config.update({ config })
+      await refreshConfig()
+      return
+    }
     const provider = ["provider", "provider_remove", "enabled_providers", "disabled_providers", "disabled_models"].some(
       (key) => key in config,
     )
@@ -670,6 +713,21 @@ function createGlobalSync() {
     },
     provider: {
       refresh: refreshProviders,
+    },
+    session: {
+      update(info: Session) {
+        const directory = normalizeDir(info.directory)
+        const [store, setStore] = children.child(directory, { bootstrap: false })
+        applyDirectoryEvent({
+          event: { type: "session.updated", properties: { info } },
+          store,
+          setStore,
+          directory,
+          push() {},
+          loadLsp() {},
+          setSessionTodo,
+        })
+      },
     },
     project: projectApi,
     todo: {

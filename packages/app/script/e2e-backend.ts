@@ -2,6 +2,7 @@ import { rmSync } from "node:fs"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 import { create, rmOpts, sweep } from "../e2e/sandbox"
+import { config } from "../e2e/model"
 
 const appDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..")
 const repoDir = path.resolve(appDir, "../..")
@@ -35,6 +36,7 @@ Object.assign(process.env, {
   // enabled mobile bridge on the host leaks into the e2e backend and kills it.
   ...(process.platform === "win32" ? { APPDATA: path.join(sandbox, "appdata") } : {}),
   OPENCODE_MODELS_PATH: path.join(opencodeDir, "test", "tool", "fixtures", "models-api.json"),
+  OPENCODE_CONFIG_CONTENT: config(process.env.OPENCODE_E2E_LLM_URL),
   ANTHROPIC_API_KEY: "",
   OPENCODE_CLIENT: "app",
   OPENCODE_STRICT_CONFIG_DEPS: "true",

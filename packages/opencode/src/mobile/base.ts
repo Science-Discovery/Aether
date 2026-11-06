@@ -12,9 +12,8 @@ import { Project } from "@/project/project"
 import { Session } from "@/session"
 import { SessionPrompt } from "@/session/prompt"
 import { SessionCompaction } from "@/session/compaction"
-import { Native } from "@/native/schema"
 import { MessageV2 } from "@/session/message-v2"
-import { PartID, SessionID } from "@/session/schema"
+import { SessionID } from "@/session/schema"
 import { SessionStatus } from "@/session/status"
 import { Provider } from "@/provider/provider"
 import { ProviderID } from "@/provider/schema"
@@ -38,6 +37,15 @@ function isSessionNotFound(err: unknown): boolean {
     typeof err.data?.message === "string" &&
     err.data.message.startsWith("Session not found:")
   )
+}
+
+function failure(err: unknown) {
+  if (err === null) return "null"
+  if (isSessionNotFound(err)) return "会话已不存在"
+  if (Provider.NoModelConfiguredError.isInstance(err)) return "请先连接提供商并选择模型，然后重试。"
+  if (Provider.ModelNotFoundError.isInstance(err))
+    return `模型 ${err.data.providerID}/${err.data.modelID} 已不可用，请重新选择模型。`
+  return err instanceof Error ? err.message : String(err)
 }
 
 function localISOString(d = new Date()): string {
@@ -70,10 +78,10 @@ export function sessionTitle(name: string, now = new Date(), rand: () => number 
 }
 
 const HELP_TEXT =
-  "📋 可用命令：\n\n/n, /new            开启新对话\n/stop               停止当前执行\n/steer <text>       在AI回复时追加引导\n/c, /compact        压缩当前上下文\n\n/m, /model          查看可用模型\n/m l                查看全部模型\n/m n                切换编号模型\n\n/a, /agent          查看当前模式\n/a n ； /a <name>    切换指定模式\n\n/variant            查看思考等级\n/variant n          切换编号思考等级\n\n/autoaccept         查看审批模式\n/autoaccept n       切换编号审批模式\n\n/p, /project        查看最近项目\n/p l                查看全部项目\n/p n                切换编号项目\n/p <path>           切换到指定路径\n\n/s, /session        查看最近会话\n/s l                查看最近30个会话\n/s n                切换编号会话\n\n/header             切换回复头部显示\n\n/h, /help           显示帮助信息\n/help list          显示全部命令"
+  "📋 可用命令：\n\n/n, /new            开启新对话\n/stop               停止当前执行\n/c, /compact        压缩当前上下文\n\n/m, /model          查看可用模型\n/m l                查看全部模型\n/m n                切换编号模型\n\n/a, /agent          查看当前模式\n/a n ； /a <name>    切换指定模式\n\n/variant            查看思考等级\n/variant n          切换编号思考等级\n\n/autoaccept         查看审批模式\n/autoaccept n       切换编号审批模式\n\n/p, /project        查看最近项目\n/p l                查看全部项目\n/p n                切换编号项目\n/p <path>           切换到指定路径\n\n/s, /session        查看最近会话\n/s l                查看最近30个会话\n/s n                切换编号会话\n\n/header             切换回复头部显示\n\n/h, /help           显示帮助信息\n/help list          显示全部命令"
 
 const HELP_LIST_TEXT =
-  "📋 全部命令：\n\n/n, /new\n  开启新对话，清空当前会话上下文\n\n/stop\n  停止当前执行中的任务\n\n/steer <text>\n  在AI正在回复时追加引导信息，影响下一轮处理\n\n/c, /compact\n  压缩当前会话上下文\n\n/m, /model\n  查看可用模型\n/m l, /model list\n  查看全部模型（l = list）\n/m n, /model n\n  切换到编号 n 的模型（n 为全量模型编号）\n\n/a, /agent\n  查看当前模式\n/a n, /agent n\n  按编号切换模式\n/a <name>, /agent <name>\n  按名称切换模式（如 build、plan、docs）\n\n/variant\n  查看当前模型可用的思考等级\n/variant n\n  按编号切换思考等级\n/variant <name>\n  按名称切换思考等级\n\n/autoaccept\n  查看审批模式\n/autoaccept n\n  按编号切换审批模式（1=auto, 2=ask）\n/autoaccept <name>\n  切换审批模式（name 可选：auto、ask）\n\n/p, /project\n  查看最近项目\n/p l, /project list\n  查看全部项目（l = list）\n/p n, /project n\n  切换到编号 n 的项目\n/p <path>, /project <path>\n  切换到指定路径（如 /p E:\\work\\foo 或 /p /home/user/foo）\n/project hide n\n  隐藏编号 n 的项目，重新在桌面端或消息端使用后自动恢复\n\n/s, /session\n  查看最近会话\n/s l, /session list\n  查看当前项目下最近30个会话（l = list）\n/s n, /session n\n  切换到当前项目下编号 n 的会话\n\n/header\n  切换回复头部信息的显示/隐藏（默认显示）\n\n/h, /help\n  显示常用命令\n/help list\n  显示全部命令"
+  "📋 全部命令：\n\n/n, /new\n  开启新对话，清空当前会话上下文\n\n/stop\n  停止当前执行中的任务\n\n/c, /compact\n  压缩当前会话上下文\n\n/m, /model\n  查看可用模型\n/m l, /model list\n  查看全部模型（l = list）\n/m n, /model n\n  切换到编号 n 的模型（n 为全量模型编号）\n\n/a, /agent\n  查看当前模式\n/a n, /agent n\n  按编号切换模式\n/a <name>, /agent <name>\n  按名称切换模式（如 build、plan、docs）\n\n/variant\n  查看当前模型可用的思考等级\n/variant n\n  按编号切换思考等级\n/variant <name>\n  按名称切换思考等级\n\n/autoaccept\n  查看审批模式\n/autoaccept n\n  按编号切换审批模式（1=auto, 2=ask）\n/autoaccept <name>\n  切换审批模式（name 可选：auto、ask）\n\n/p, /project\n  查看最近项目\n/p l, /project list\n  查看全部项目（l = list）\n/p n, /project n\n  切换到编号 n 的项目\n/p <path>, /project <path>\n  切换到指定路径（如 /p E:\\work\\foo 或 /p /home/user/foo）\n/project hide n\n  隐藏编号 n 的项目，重新在桌面端或消息端使用后自动恢复\n\n/s, /session\n  查看最近会话\n/s l, /session list\n  查看当前项目下最近30个会话（l = list）\n/s n, /session n\n  切换到当前项目下编号 n 的会话\n\n/header\n  切换回复头部信息的显示/隐藏（默认显示）\n\n/h, /help\n  显示常用命令\n/help list\n  显示全部命令"
 
 export interface ModelRef {
   providerID: string
@@ -421,14 +429,18 @@ export abstract class MobileManagerBase {
 
   protected async buildModelList(): Promise<ModelEntry[]> {
     try {
-      const providers = await this.provide(this._initialDir, () => Provider.list())
+      const [providers, connected] = await this.provide(this._initialDir, () =>
+        Promise.all([Provider.list(), Provider.connected()]),
+      )
       const entries: ModelEntry[] = []
       let index = 1
       for (const [providerID, info] of Object.entries(providers)) {
-        const modelValues = Object.entries(info.models)
-        const defaultModelId = modelValues.filter(([_, m]) => !m.disabled).map(([id]) => id)[0]
+        if (!connected.includes(ProviderID.make(providerID))) continue
+        const modelValues = Object.entries(info.models).filter(
+          ([_, model]) => !model.disabled && model.capabilities.input.text && model.capabilities.output.text,
+        )
+        const defaultModelId = modelValues[0]?.[0]
         for (const [modelID, model] of modelValues) {
-          if (model.disabled) continue
           entries.push({
             index,
             providerID,
@@ -481,6 +493,13 @@ export abstract class MobileManagerBase {
     const model = this.resolveModel(scope)
     if (!model) return raw
     const { providerID, modelID } = model
+
+    const available = await Provider.getModel(providerID, modelID).catch((err) => {
+      if (Provider.ModelNotFoundError.isInstance(err) || Provider.NoModelConfiguredError.isInstance(err))
+        return undefined
+      throw err
+    })
+    if (!available) return raw
 
     const provider = await Provider.getProvider(providerID)
     if (!provider) return raw
@@ -681,7 +700,7 @@ export abstract class MobileManagerBase {
 
       await this.autoUnhide()
 
-      if (isSlash && cmd !== "/stop" && cmd !== "/compact" && cmd !== "/c" && cmd !== "/steer") {
+      if (isSlash && cmd !== "/stop" && cmd !== "/compact" && cmd !== "/c") {
         await this.handleCommand(text, reply, chatId, rootId)
         return
       }
@@ -742,40 +761,6 @@ export abstract class MobileManagerBase {
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err)
           await this.replySession(scope, reply, `命令执行出错: ${msg}`)
-        }
-        return
-      }
-
-      if (cmd === "/steer") {
-        const steerText = text.trim().slice(6).trim()
-        if (!steerText) {
-          await this.replySession(scope, reply, "用法：/steer <引导文本>\n在AI正在回复时追加引导信息，影响下一轮处理。")
-          return
-        }
-        const active = this._activePrompt.get(scope)
-        if (!active) {
-          await this.replySession(scope, reply, "当前没有正在执行的对话，/steer 只能在AI正在回复时使用。")
-          return
-        }
-        try {
-          await this.provide(active.directory, async () => {
-            Native.guard(await Session.get(SessionID.make(active.sessionId)), "Steering an active turn")
-            const msgs = await MessageV2.filterCompacted(MessageV2.stream(SessionID.make(active.sessionId)))
-            const lastUser = msgs.findLast((msg) => msg.info.role === "user")
-            if (!lastUser) throw new Error("no user message")
-            await Session.updatePart({
-              id: PartID.ascending(),
-              messageID: lastUser.info.id,
-              sessionID: SessionID.make(active.sessionId),
-              type: "text",
-              text: "-用户补充：" + steerText,
-              metadata: { steer: true },
-            })
-          })
-          await this.replySession(scope, reply, "✅ 已追加引导信息，AI将在下一轮处理中看到。")
-        } catch (err) {
-          const msg = err instanceof Error ? err.message : String(err)
-          await this.replySession(scope, reply, `❌ 追加引导失败: ${msg}`)
         }
         return
       }
@@ -858,7 +843,7 @@ export abstract class MobileManagerBase {
       }
       console.error(`[${this.adapter.platform}] handleMessage error:`, err)
       try {
-        const errMsg = isSessionNotFound(err) ? "会话已不存在" : err instanceof Error ? err.message : String(err)
+        const errMsg = failure(err)
         await this.replySession(scope, reply, `处理消息时出错: ${errMsg}`)
       } catch (e2) {
         console.error(`[${this.adapter.platform}] failed to send error reply:`, e2)
@@ -976,7 +961,7 @@ export abstract class MobileManagerBase {
           } catch {}
         }
       }
-      const errMsg = isSessionNotFound(err) ? "会话已不存在" : err instanceof Error ? err.message : String(err)
+      const errMsg = failure(err)
       await this.replySession(scope, reply, `处理消息时出错: ${errMsg}`).catch(() => {})
     } finally {
       this._activePrompt.delete(scope)
@@ -1163,7 +1148,7 @@ export abstract class MobileManagerBase {
       }
     } catch (err) {
       console.error(`[${this.adapter.platform}] handleCommand error:`, err)
-      const errMsg = err instanceof Error ? err.message : String(err)
+      const errMsg = failure(err)
       await this.adapter.replyText(targetId, `命令执行出错: ${errMsg}`).catch(() => {})
     }
   }

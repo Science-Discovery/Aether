@@ -148,12 +148,22 @@ export const SettingsGeneral: Component = () => {
 
   const currentModel = createMemo(() => {
     const val = globalSync.data.config.model ?? ""
-    return modelOptions().find((o) => o.value === val) ?? modelOptions()[0]
+    return (
+      modelOptions().find((o) => o.value === val) ??
+      (globalSync.ready && models.ready() && val
+        ? { value: val, label: `${val} (${language.t("prompt.model.unavailable")})`, providerID: val.split("/")[0] }
+        : modelOptions()[0])
+    )
   })
 
   const currentSmallModel = createMemo(() => {
     const val = globalSync.data.config.small_model ?? ""
-    return modelOptions().find((o) => o.value === val) ?? modelOptions()[0]
+    return (
+      modelOptions().find((o) => o.value === val) ??
+      (globalSync.ready && models.ready() && val
+        ? { value: val, label: `${val} (${language.t("prompt.model.unavailable")})`, providerID: val.split("/")[0] }
+        : modelOptions()[0])
+    )
   })
 
   const voiceModelOptions = createMemo(() => {
@@ -611,6 +621,47 @@ export const SettingsGeneral: Component = () => {
               checked={settings.general.branchesTab()}
               onChange={(checked) => settings.general.setBranchesTab(checked)}
             />
+          </div>
+        </SettingsRow>
+
+        <SettingsRow
+          title={language.t("settings.general.row.detached.title")}
+          description={language.t("settings.general.row.detached.description")}
+        >
+          <Switch
+            data-action="settings-fork-detached"
+            checked={settings.general.detached()}
+            onChange={(checked) => settings.general.setDetached(checked)}
+          />
+        </SettingsRow>
+
+        <SettingsRow
+          title={language.t("settings.general.row.autoCollapse.title")}
+          description={language.t("settings.general.row.autoCollapse.description")}
+        >
+          <div data-action="settings-feed-auto-collapse">
+            <Switch
+              checked={settings.general.autoCollapse()}
+              onChange={(checked) => settings.general.setAutoCollapse(checked)}
+              hideLabel
+            >
+              {language.t("settings.general.row.autoCollapse.title")}
+            </Switch>
+          </div>
+        </SettingsRow>
+
+        <SettingsRow
+          title={language.t("settings.general.row.collapseLongUserMessages.title")}
+          description={language.t("settings.general.row.collapseLongUserMessages.description")}
+        >
+          <div data-action="settings-collapse-long-user-messages">
+            <Switch
+              checked={settings.general.collapseLongUserMessages()}
+              onChange={(checked) => settings.general.setCollapseLongUserMessages(checked)}
+              hideLabel
+            >
+              {language.t("settings.general.row.collapseLongUserMessages.title")}
+            </Switch>
           </div>
         </SettingsRow>
 

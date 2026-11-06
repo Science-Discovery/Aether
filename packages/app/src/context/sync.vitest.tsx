@@ -63,6 +63,14 @@ function setup() {
   const get = vi.fn(async () => ({ data: session }))
   hooks.global = () => ({
     child: () => [store, setStore],
+    session: {
+      update: (info: Session) => {
+        const index = store.session.findIndex((item) => item.id === info.id)
+        if (index >= 0 && store.session[index].time.updated > info.time.updated) return
+        if (index >= 0) setStore("session", index, info)
+        else setStore("session", (items) => [...items, info])
+      },
+    },
     onReconnect: reconnect.listen,
     todo: { set: () => undefined },
   })

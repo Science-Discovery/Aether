@@ -4968,6 +4968,56 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BadRequestError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFoundError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "message": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "message"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "data"
+                  ]
+                }
+              }
+            }
           }
         },
         "requestBody": {
@@ -4979,6 +5029,9 @@
                   "messageID": {
                     "type": "string",
                     "pattern": "^msg.*"
+                  },
+                  "detached": {
+                    "type": "boolean"
                   }
                 }
               }
@@ -6676,102 +6729,6 @@
           {
             "lang": "js",
             "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.permission.respond({\n  ...\n})"
-          }
-        ]
-      }
-    },
-    "/session/{sessionID}/steer": {
-      "post": {
-        "operationId": "session.steer",
-        "parameters": [
-          {
-            "in": "query",
-            "name": "directory",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "in": "query",
-            "name": "workspace",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "sessionID",
-            "schema": {
-              "type": "string",
-              "pattern": "^ses.*"
-            },
-            "required": true
-          }
-        ],
-        "summary": "Add steer text",
-        "description": "Append a steer/supplement text to the last user message in a session, visible to the AI from the next iteration.",
-        "responses": {
-          "200": {
-            "description": "Steer text added",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "ok": {
-                      "type": "boolean"
-                    }
-                  },
-                  "required": [
-                    "ok"
-                  ]
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Bad request",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/BadRequestError"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/NotFoundError"
-                }
-              }
-            }
-          }
-        },
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "text": {
-                    "type": "string",
-                    "minLength": 1
-                  }
-                },
-                "required": [
-                  "text"
-                ]
-              }
-            }
-          }
-        },
-        "x-codeSamples": [
-          {
-            "lang": "js",
-            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.session.steer({\n  ...\n})"
           }
         ]
       }
@@ -11255,6 +11212,155 @@
         ]
       }
     },
+    "/file/preview/resource": {
+      "get": {
+        "operationId": "file.previewResource",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "directory",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "workspace",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "summary": "Read a local preview resource",
+        "description": "Read CSS, image, or font bytes confined to the current workspace for an isolated document preview.",
+        "responses": {
+          "200": {
+            "description": "Preview resource bytes"
+          },
+          "400": {
+            "description": "Invalid preview path or query",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "data": {
+                          "type": "object",
+                          "propertyNames": {
+                            "type": "string"
+                          },
+                          "additionalProperties": {}
+                        },
+                        "error": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "additionalProperties": {}
+                          }
+                        },
+                        "success": {
+                          "type": "boolean",
+                          "const": false
+                        }
+                      },
+                      "required": [
+                        "data",
+                        "error",
+                        "success"
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Resource is outside the validated workspace",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Preview resource not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Unsupported preview resource type",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.file.previewResource({\n  ...\n})"
+          }
+        ]
+      }
+    },
     "/file/raw": {
       "get": {
         "operationId": "file.raw",
@@ -13418,6 +13524,24 @@
                 }
               }
             }
+          },
+          "403": {
+            "description": "Knowledge base feature is disabled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
           }
         },
         "requestBody": {
@@ -14235,6 +14359,24 @@
               }
             }
           },
+          "403": {
+            "description": "Knowledge base feature is disabled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
           "404": {
             "description": "知识库不存在"
           }
@@ -14337,6 +14479,24 @@
               }
             }
           },
+          "403": {
+            "description": "Knowledge base feature is disabled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
           "404": {
             "description": "知识库不存在"
           }
@@ -14428,6 +14588,24 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/BadRequestError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Knowledge base feature is disabled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
                 }
               }
             }
@@ -14601,6 +14779,24 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/BadRequestError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Knowledge base feature is disabled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
                 }
               }
             }
@@ -19868,6 +20064,106 @@
           }
         ]
       }
+    },
+    "/session/{sessionID}/detach": {
+      "post": {
+        "operationId": "session.detach",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "directory",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "workspace",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "sessionID",
+            "schema": {
+              "type": "string",
+              "pattern": "^ses.*"
+            },
+            "required": true
+          }
+        ],
+        "summary": "Detach session subtree",
+        "description": "Move an idle fork and its descendants into an independent active or archived session tree.",
+        "responses": {
+          "200": {
+            "description": "Independent session subtree root",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Session"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BadRequestError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFoundError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "message": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "message"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "data"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.session.detach({\n  ...\n})"
+          }
+        ]
+      }
     }
   },
   "components": {
@@ -21916,6 +22212,9 @@
                     "$ref": "#/components/schemas/ProviderAuthError"
                   },
                   {
+                    "$ref": "#/components/schemas/NoModelConfiguredError"
+                  },
+                  {
                     "$ref": "#/components/schemas/UnknownError"
                   },
                   {
@@ -22385,6 +22684,9 @@
             "anyOf": [
               {
                 "$ref": "#/components/schemas/ProviderAuthError"
+              },
+              {
+                "$ref": "#/components/schemas/NoModelConfiguredError"
               },
               {
                 "$ref": "#/components/schemas/UnknownError"
@@ -23717,6 +24019,9 @@
           },
           {
             "$ref": "#/components/schemas/Event.global.disposed"
+          },
+          {
+            "$ref": "#/components/schemas/Event.global.config.updated"
           },
           {
             "$ref": "#/components/schemas/Event.lsp.client.diagnostics"
@@ -25565,7 +25870,7 @@
                 }
               },
               "evolution_enabled": {
-                "description": "Global master switch for skill self-evolution. When false, no project triggers background review (default: true)",
+                "description": "Server-global master switch for skill self-evolution. Requires explicit true in global config (default: false)",
                 "type": "boolean"
               },
               "creation_nudge_interval": {
@@ -26037,6 +26342,15 @@
                 "type": "integer",
                 "exclusiveMinimum": 0,
                 "maximum": 9007199254740991
+              }
+            }
+          },
+          "knowledge": {
+            "type": "object",
+            "properties": {
+              "enabled": {
+                "description": "Server-global master switch for knowledge base processing and search (default: false)",
+                "type": "boolean"
               }
             }
           }
@@ -28624,6 +28938,47 @@
           "name",
           "extensions",
           "enabled"
+        ]
+      },
+      "Event.global.config.updated": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "global.config.updated"
+          },
+          "properties": {
+            "type": "object",
+            "properties": {}
+          }
+        },
+        "required": [
+          "type",
+          "properties"
+        ]
+      },
+      "NoModelConfiguredError": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "const": "NoModelConfiguredError"
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "message"
+            ]
+          }
+        },
+        "required": [
+          "name",
+          "data"
         ]
       }
     }

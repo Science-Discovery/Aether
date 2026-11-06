@@ -65,9 +65,15 @@ export const DialogSettings: Component<{ tab?: string }> = (props) => {
                       <Icon name="open-file" />
                       {language.t("latex.settings")}
                     </Tabs.Trigger>
+                  </div>
+                </div>
+
+                <div class="flex flex-col gap-1.5 border-t border-border-weak-base pt-3">
+                  <Tabs.SectionTitle>{language.t("settings.section.custom")}</Tabs.SectionTitle>
+                  <div class="flex flex-col gap-1.5 w-full">
                     <Tabs.Trigger value="knowledge">
-                      <Icon name="brain" />
-                      Knowledge
+                      <Icon name="book-open" />
+                      {language.t("knowledgeBase.title")}
                     </Tabs.Trigger>
                     <Tabs.Trigger value="skills">
                       <Icon name="checklist" />

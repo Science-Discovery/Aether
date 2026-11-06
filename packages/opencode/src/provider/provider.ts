@@ -53,12 +53,23 @@ import { Installation } from "../installation"
 import { ModelID, ProviderID } from "./schema"
 import { CodexModels } from "../plugin/codex-models"
 import { ProviderEvent } from "./event"
+import { NoModelConfiguredError as NoModel } from "./error"
 
 const DEFAULT_CHUNK_TIMEOUT = 600_000
 const DEFAULT_REQUEST_TIMEOUT = 300_000
 
 export namespace Provider {
   const log = Log.create({ service: "provider" })
+
+  export const NoModelConfiguredError = NoModel
+
+  function credential(value: unknown) {
+    return typeof value === "string" && value.trim() !== "" && value.trim() !== "public"
+  }
+
+  function chat(model: Model) {
+    return !model.disabled && model.capabilities.input.text && model.capabilities.output.text
+  }
 
   function shouldUseCopilotResponsesApi(modelID: string): boolean {
     const match = /^gpt-(\d+)/.exec(modelID)
@@ -228,28 +239,6 @@ export namespace Provider {
             "anthropic-beta": "interleaved-thinking-2025-05-14,fine-grained-tool-streaming-2025-05-14",
           },
         },
-      }
-    },
-    async opencode(input) {
-      const hasKey = await (async () => {
-        const env = Env.all()
-        if (input.env.some((item) => env[item])) return true
-        if (await Auth.get(input.id)) return true
-        const config = await Config.get()
-        if (config.provider?.["opencode"]?.options?.apiKey) return true
-        return false
-      })()
-
-      if (!hasKey) {
-        for (const [key, value] of Object.entries(input.models)) {
-          if (value.cost.input === 0) continue
-          delete input.models[key]
-        }
-      }
-
-      return {
-        autoload: Object.keys(input.models).length > 0,
-        options: hasKey ? {} : { apiKey: "public" },
       }
     },
     openai: async () => {
@@ -1006,7 +995,8 @@ export namespace Provider {
   const state = Instance.state(async () => {
     using _ = log.time("state")
     const config = await Config.get()
-    const modelsDev = await ModelsDev.get()
+    const catalog = await ModelsDev.catalog()
+    const modelsDev = catalog.data
     const database = mapValues(modelsDev, fromModelsDevProvider)
     let subscription: Record<string, CodexModels.Metadata> | undefined
 
@@ -1212,7 +1202,8 @@ export namespace Provider {
     }
 
     // load apikeys
-    for (const [id, provider] of Object.entries(await Auth.all())) {
+    const auth = await Auth.all()
+    for (const [id, provider] of Object.entries(auth)) {
       const providerID = ProviderID.make(id)
       if (disabled.has(providerID)) continue
       live(providerID)
@@ -1292,10 +1283,27 @@ export namespace Provider {
         continue
       }
 
+      const token = auth[providerID]
+      if (
+        providerID === ProviderID.opencode &&
+        !credential(provider.options.apiKey) &&
+        !credential(provider.key) &&
+        !provider.env.some((name) => credential(env[name])) &&
+        !(token && (token.type !== "api" || credential(token.key)))
+      ) {
+        delete providers[providerID]
+        connected.delete(providerID)
+        continue
+      }
+
       const configProvider = config.provider?.[providerID]
 
       for (const [modelID, model] of Object.entries(provider.models)) {
         model.api.id = model.api.id ?? model.id ?? modelID
+        if (providerID === ProviderID.opencode && catalog.excluded.has(model.api.id)) {
+          delete provider.models[modelID]
+          continue
+        }
         const cfg = configProvider?.models?.[modelID]
         const metadata = providerID === ProviderID.openai ? subscription?.[model.api.id] : undefined
         if (metadata) {
@@ -1397,6 +1405,7 @@ export namespace Provider {
       sdk,
       modelLoaders,
       varsLoaders,
+      excluded: catalog.excluded,
     }
   })
 
@@ -1615,10 +1624,15 @@ export namespace Provider {
 
   export async function getLanguage(model: Model): Promise<LanguageModelV2> {
     const s = await state()
+    if (model.providerID === ProviderID.opencode && s.excluded.has(model.api.id)) {
+      throw new ModelNotFoundError({ providerID: model.providerID, modelID: model.id, suggestions: [] })
+    }
+    const current = await getModel(model.providerID, model.id)
+    if (current.api.id !== model.api.id || current.api.npm !== model.api.npm || current.api.url !== model.api.url) {
+      throw new ModelNotFoundError({ providerID: model.providerID, modelID: model.id, suggestions: [] })
+    }
     const key = `${model.providerID}/${model.id}`
     if (s.models.has(key)) return s.models.get(key)!
-    if (s.providers[model.providerID]?.models[model.id]?.disabled)
-      throw new ModelNotFoundError({ providerID: model.providerID, modelID: model.id, suggestions: [], disabled: true })
 
     const url = e2eURL()
     if (url) {
@@ -1675,7 +1689,8 @@ export namespace Provider {
 
     if (cfg.small_model) {
       const parsed = parseModel(cfg.small_model)
-      return getModel(parsed.providerID, parsed.modelID)
+      const model = await getModel(parsed.providerID, parsed.modelID)
+      return chat(model) ? model : undefined
     }
 
     const provider = await state().then((state) => state.providers[providerID])
@@ -1699,7 +1714,7 @@ export namespace Provider {
       for (const item of priority) {
         if (providerID === ProviderID.amazonBedrock) {
           const crossRegionPrefixes = ["global.", "us.", "eu."]
-          const candidates = Object.keys(provider.models).filter((m) => m.includes(item))
+          const candidates = Object.keys(provider.models).filter((m) => m.includes(item) && chat(provider.models[m]))
 
           // Model selection priority:
           // 1. global. prefix (works everywhere)
@@ -1721,7 +1736,7 @@ export namespace Provider {
           if (unprefixed) return getModel(providerID, ModelID.make(unprefixed))
         } else {
           for (const model of Object.keys(provider.models)) {
-            if (model.includes(item)) return getModel(providerID, ModelID.make(model))
+            if (model.includes(item) && chat(provider.models[model])) return getModel(providerID, ModelID.make(model))
           }
         }
       }
@@ -1742,7 +1757,15 @@ export namespace Provider {
 
   export async function defaultModel() {
     const cfg = await Config.get()
-    if (cfg.model) return parseModel(cfg.model)
+    const active = new Set(await connected())
+    if (cfg.model) {
+      const model = parseModel(cfg.model)
+      const current = await getModel(model.providerID, model.modelID)
+      if (!active.has(model.providerID) || !chat(current)) {
+        throw new ModelNotFoundError({ ...model, suggestions: [] })
+      }
+      return model
+    }
 
     const providers = await list()
     const recent = (await Filesystem.readJson<{ recent?: { providerID: ProviderID; modelID: ModelID }[] }>(
@@ -1752,17 +1775,31 @@ export namespace Provider {
       .catch(() => [])) as { providerID: ProviderID; modelID: ModelID }[]
     for (const entry of recent) {
       const provider = providers[entry.providerID]
+      if (
+        entry.providerID === ProviderID.opencode &&
+        (!active.has(entry.providerID) || !provider?.models[entry.modelID] || !chat(provider.models[entry.modelID]))
+      ) {
+        throw new ModelNotFoundError({
+          ...entry,
+          suggestions: [],
+          ...(provider?.models[entry.modelID]?.disabled ? { disabled: true } : {}),
+        })
+      }
       if (!provider) continue
+      if (!active.has(entry.providerID)) continue
       if (!provider.models[entry.modelID]) continue
-      if (provider.models[entry.modelID].disabled) continue
+      if (!chat(provider.models[entry.modelID])) continue
       return { providerID: entry.providerID, modelID: entry.modelID }
     }
 
-    const provider = Object.values(providers).find((p) => !cfg.provider || Object.keys(cfg.provider).includes(p.id))
-    if (!provider) throw new Error("no providers found")
-    const enabled = Object.values(provider.models).filter((m) => !m.disabled)
+    const candidates = Object.values(providers).filter((p) => active.has(p.id) && Object.values(p.models).some(chat))
+    const provider = candidates.find((p) => cfg.provider?.[p.id]) ?? candidates[0]
+    if (!provider)
+      throw new NoModelConfiguredError({ message: "No model configured. Connect a provider and select a model." })
+    const enabled = Object.values(provider.models).filter(chat)
     const [model] = sort(enabled)
-    if (!model) throw new Error("no models found")
+    if (!model)
+      throw new NoModelConfiguredError({ message: "No model configured. Connect a provider and select a model." })
     return {
       providerID: provider.id,
       modelID: model.id,

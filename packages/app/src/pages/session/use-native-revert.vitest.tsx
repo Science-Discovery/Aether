@@ -4,6 +4,7 @@ import { createStore, produce } from "solid-js/store"
 import { render } from "solid-js/web"
 import type { Message, Part, Session } from "@opencode-ai/sdk/v2"
 import type { Prompt } from "@/context/prompt"
+import type { Reference } from "@/utils/ask-reference"
 import { sanitizePromptState } from "@/context/prompt-persist"
 import { extractPromptFromParts } from "@/utils/prompt"
 import { base64Encode } from "@opencode-ai/util/encode"
@@ -23,6 +24,7 @@ const mocks = vi.hoisted(() => ({
 let id = () => "source"
 let drafts: Record<string, Prompt> = {}
 let context: { key: string }[] = []
+let refs: Reference[] = []
 let sessions: Session[] = []
 let parts: Part[] = []
 let messages: Message[] = []
@@ -37,6 +39,17 @@ const prepared = {
 const applied = { ...prepared, state: "applied" as const }
 const cleanups: VoidFunction[] = []
 const text = (content: string): Prompt => [{ type: "text", content, start: 0, end: content.length }]
+const ref: Reference = {
+  id: "quote",
+  version: 1,
+  kind: "conversation",
+  messageID: "reply",
+  start: 0,
+  end: 6,
+  text: "Quoted",
+  summary: "Quoted",
+  question: "Explain",
+}
 vi.mock("@solidjs/router", () => ({
   useParams: () => ({
     get id() {
@@ -78,13 +91,11 @@ vi.mock("@/context/prompt", () => ({
     ready: () => true,
     dirty: () => !!drafts[id()]?.some((part) => part.type !== "text" || !!part.content.trim()),
     context: { items: () => context },
+    references: { items: () => refs },
     set: mocks.set,
   }),
 }))
-vi.mock("@/context/conversation-quote", () => ({ useMaybeConversationQuote: () => undefined }))
 vi.mock("@/context/file-quote", () => ({ useMaybeFileQuote: () => undefined }))
-vi.mock("@/context/quick-reading-mode", () => ({ useMaybeQuickReadingMode: () => undefined }))
-vi.mock("@/context/reading-mode", () => ({ useMaybeReadingMode: () => undefined }))
 vi.mock("@/context/language", () => ({ useLanguage: () => ({ t: (key: string) => key }) }))
 vi.mock("@opencode-ai/ui/toast", () => ({ showToast: mocks.toast }))
 vi.mock("@opencode-ai/ui/context/dialog", () => ({ useDialog: () => ({ show: mocks.show, close: mocks.close }) }))
@@ -97,6 +108,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   drafts = {}
   context = []
+  refs = []
   sessions = ["source", "other"].map(
     (id): Session => ({
       id,
@@ -188,7 +200,7 @@ test("requires confirmation and preserves the question before reverting within t
   expect(result.notice()).toBe(false)
 })
 
-test("rejects an existing draft or selected context before preparing a destructive operation", async () => {
+test("rejects an existing draft, selected context or reference before preparing a destructive operation", async () => {
   const { result } = mount()
   await ready(result)
   drafts.source = text("Keep this draft")
@@ -196,9 +208,13 @@ test("rejects an existing draft or selected context before preparing a destructi
   drafts.source = []
   context = [{ key: "selection" }]
   await result.edit(input)
+  context = []
+  refs = [ref]
+  await result.edit(input)
   expect(mocks.prepare).not.toHaveBeenCalled()
   expect(mocks.set).not.toHaveBeenCalled()
-  expect(mocks.toast).toHaveBeenCalledTimes(2)
+  expect(mocks.toast).toHaveBeenCalledTimes(3)
+  expect(refs).toEqual([ref])
 })
 
 test("restores an explicit native skill path when editing a message", async () => {
@@ -277,6 +293,18 @@ test("does not overwrite a draft written while confirmation is open", async () =
   confirm().click()
   expect(mocks.revert).not.toHaveBeenCalled()
   expect(drafts.source).toEqual(text("New draft"))
+})
+
+test("keeps references added while confirmation is open and does not revert", async () => {
+  const { result } = mount()
+  await ready(result)
+  await result.edit(input)
+  refs = [ref]
+  confirm().click()
+  expect(mocks.revert).not.toHaveBeenCalled()
+  expect(mocks.set).not.toHaveBeenCalled()
+  expect(refs).toEqual([ref])
+  expect(mocks.toast).toHaveBeenCalledWith({ title: "native.revert.changed" })
 })
 
 test("does not open an old confirmation after switching sessions", async () => {

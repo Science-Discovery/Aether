@@ -95,6 +95,8 @@ import type {
   FilePdfToMarkdownProgressResponses,
   FilePdfToMarkdownResponses,
   FilePickFolderResponses,
+  FilePreviewResourceErrors,
+  FilePreviewResourceResponses,
   FileRawErrors,
   FileRawResponses,
   FileReadResponses,
@@ -427,7 +429,10 @@ import type {
   SessionDeleteMessageErrors,
   SessionDeleteMessageResponses,
   SessionDeleteResponses,
+  SessionDetachErrors,
+  SessionDetachResponses,
   SessionDiffResponses,
+  SessionForkErrors,
   SessionForkResponses,
   SessionGetErrors,
   SessionGetResponses,
@@ -458,8 +463,6 @@ import type {
   SessionShellResponses,
   SessionStatusErrors,
   SessionStatusResponses,
-  SessionSteerErrors,
-  SessionSteerResponses,
   SessionSummarizeErrors,
   SessionSummarizeResponses,
   SessionTodoErrors,
@@ -3236,6 +3239,38 @@ export class Session2 extends HeyApiClient {
   }
 
   /**
+   * Detach session subtree
+   *
+   * Move an idle fork and its descendants into an independent active or archived session tree.
+   */
+  public detach<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<SessionDetachResponses, SessionDetachErrors, ThrowOnError>({
+      url: "/session/{sessionID}/detach",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
    * Fork session
    *
    * Create a new session by forking an existing session at a specific message point.
@@ -3246,6 +3281,7 @@ export class Session2 extends HeyApiClient {
       directory?: string
       workspace?: string
       messageID?: string
+      detached?: boolean
       after?: boolean
     },
     options?: Options<never, ThrowOnError>,
@@ -3259,12 +3295,13 @@ export class Session2 extends HeyApiClient {
             { in: "query", key: "directory" },
             { in: "query", key: "workspace" },
             { in: "body", key: "messageID" },
+            { in: "body", key: "detached" },
             { in: "body", key: "after" },
           ],
         },
       ],
     )
-    return (options?.client ?? this.client).post<SessionForkResponses, unknown, ThrowOnError>({
+    return (options?.client ?? this.client).post<SessionForkResponses, SessionForkErrors, ThrowOnError>({
       url: "/session/{sessionID}/fork",
       ...options,
       ...params,
@@ -3865,45 +3902,6 @@ export class Session2 extends HeyApiClient {
       url: "/session/{sessionID}/unrevert",
       ...options,
       ...params,
-    })
-  }
-
-  /**
-   * Add steer text
-   *
-   * Append a steer/supplement text to the last user message in a session, visible to the AI from the next iteration.
-   */
-  public steer<ThrowOnError extends boolean = false>(
-    parameters: {
-      sessionID: string
-      directory?: string
-      workspace?: string
-      text?: string
-    },
-    options?: Options<never, ThrowOnError>,
-  ) {
-    const params = buildClientParams(
-      [parameters],
-      [
-        {
-          args: [
-            { in: "path", key: "sessionID" },
-            { in: "query", key: "directory" },
-            { in: "query", key: "workspace" },
-            { in: "body", key: "text" },
-          ],
-        },
-      ],
-    )
-    return (options?.client ?? this.client).post<SessionSteerResponses, SessionSteerErrors, ThrowOnError>({
-      url: "/session/{sessionID}/steer",
-      ...options,
-      ...params,
-      headers: {
-        "Content-Type": "application/json",
-        ...options?.headers,
-        ...params.headers,
-      },
     })
   }
 
@@ -8060,6 +8058,38 @@ export class File extends HeyApiClient {
         ...options?.headers,
         ...params.headers,
       },
+    })
+  }
+
+  /**
+   * Read a local preview resource
+   *
+   * Read CSS, image, or font bytes confined to the current workspace for an isolated document preview.
+   */
+  public previewResource<ThrowOnError extends boolean = false>(
+    parameters: {
+      directory?: string
+      workspace?: string
+      path: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "path" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<FilePreviewResourceResponses, FilePreviewResourceErrors, ThrowOnError>({
+      url: "/file/preview/resource",
+      ...options,
+      ...params,
     })
   }
 

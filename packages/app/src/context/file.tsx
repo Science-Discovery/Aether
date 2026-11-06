@@ -78,6 +78,9 @@ const image = new Set([
 ])
 
 const binary = new Set([
+  "docx",
+  "xlsx",
+  "pptx",
   "pdf",
   "exe",
   "dll",

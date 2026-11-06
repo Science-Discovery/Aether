@@ -127,8 +127,6 @@ export const dict = {
   "dialog.model.manage.description": "Personalizar qué modelos aparecen en el selector de modelos.",
   "dialog.model.manage.provider.toggle": "Alternar todos los modelos de {{provider}}",
 
-  "dialog.model.unpaid.freeModels.title": "Modelos gratuitos proporcionados por Aether",
-  "dialog.model.unpaid.addMore.title": "Añadir más modelos de proveedores populares",
 
   "dialog.provider.viewAll": "Ver más proveedores",
 
@@ -289,13 +287,6 @@ export const dict = {
   "prompt.attachment.remove": "Eliminar adjunto",
   "prompt.action.send": "Enviar",
   "prompt.action.stop": "Detener",
-  "prompt.action.steer": "Guiar",
-  "prompt.steer.placeholder": "Agregar guía...",
-  "prompt.steer.send": "Enviar",
-  "prompt.steer.toast.failed.title": "Guía fallida",
-  "prompt.steer.toast.failed.description": "Error al agregar mensaje de guía",
-  "prompt.steer.toast.notBusy.title": "Sesión no activa",
-  "prompt.steer.toast.notBusy.description": "Guía solo funciona mientras la AI responde",
 
   "prompt.toast.pasteUnsupported.title": "Adjunto no compatible",
   "prompt.toast.pasteUnsupported.description": "Solo se pueden adjuntar imágenes, PDFs o archivos de texto aquí.",
@@ -713,8 +704,8 @@ export const dict = {
   "sidebar.workspaces.enable": "Habilitar espacios de trabajo",
   "sidebar.workspaces.disable": "Deshabilitar espacios de trabajo",
   "sidebar.gettingStarted.title": "Empezando",
-  "sidebar.gettingStarted.line1": "Aether incluye modelos gratuitos para que puedas empezar inmediatamente.",
-  "sidebar.gettingStarted.line2": "Conecta cualquier proveedor para usar modelos, inc. Claude, GPT, Gemini etc.",
+  "sidebar.gettingStarted.line1": "Conecta un proveedor y selecciona un modelo antes de iniciar una conversación.",
+  "sidebar.gettingStarted.line2": "Puedes explorar proyectos y el historial de conversaciones sin un modelo.",
   "sidebar.project.recentSessions": "Sesiones recientes",
   "sidebar.project.viewAllSessions": "Ver todas las sesiones",
   "sidebar.project.clearNotifications": "Borrar notificaciones",

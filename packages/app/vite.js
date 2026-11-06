@@ -4,6 +4,7 @@ import tailwindcss from "@tailwindcss/vite"
 import { fileURLToPath } from "url"
 import { join } from "path"
 import { homedir } from "os"
+import previews from "./vite-preview.js"
 
 function readServePort() {
   if (process.env.VITE_OPENCODE_SERVER_PORT) return process.env.VITE_OPENCODE_SERVER_PORT
@@ -89,7 +90,7 @@ const theme = fileURLToPath(new URL("./public/oc-theme-preload.js", import.meta.
 export default [
   {
     name: "aether-desktop:config",
-    config() {
+    config(_, ctx) {
       const port = readServePort()
       const basePath = readBasePath()
       const routerBase = readRouterBase(basePath)
@@ -99,6 +100,7 @@ export default [
       env.VITE_BASE_PATH = routerBase
       return {
         ...(basePath ? { base: basePath } : {}),
+        ...(ctx.command === "serve" ? { optimizeDeps: previews } : {}),
         define: Object.fromEntries(Object.entries(env).map(([k, v]) => [`import.meta.env.${k}`, JSON.stringify(v)])),
         resolve: {
           alias: {

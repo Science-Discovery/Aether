@@ -128,6 +128,8 @@ export const dict = {
   "ui.permission.allowOnce": "允许一次",
 
   "ui.message.expand": "展开消息",
+  "ui.message.showMore": "显示更多",
+  "ui.message.showLess": "收起",
   "ui.message.collapse": "收起消息",
   "ui.message.copy": "复制",
   "ui.message.copyMessage": "复制消息",

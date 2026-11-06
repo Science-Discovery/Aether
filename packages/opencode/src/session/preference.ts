@@ -141,7 +141,12 @@ export namespace SessionPreference {
       }
     }
     const { Provider } = await import("@/provider/provider")
-    const fallback = await Provider.defaultModel()
+    const fallback = await Provider.defaultModel().catch((err) => {
+      if (Provider.NoModelConfiguredError.isInstance(err)) return undefined
+      if (Provider.ModelNotFoundError.isInstance(err) && err.data.providerID === "opencode") return err.data
+      throw err
+    })
+    if (!fallback) return
     await update({
       sessionID: id,
       model: { providerID: ProviderID.make(fallback.providerID), modelID: ModelID.make(fallback.modelID) },

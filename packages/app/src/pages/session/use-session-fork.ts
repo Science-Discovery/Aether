@@ -8,12 +8,14 @@ import { usePrompt } from "@/context/prompt"
 import { useLanguage } from "@/context/language"
 import { extractPromptFromParts } from "@/utils/prompt"
 import { formatServerError } from "@/utils/server-errors"
+import { useSettings } from "@/context/settings"
 
 export function useSessionFork() {
   const sdk = useSDK()
   const sync = useSync()
   const prompt = usePrompt()
   const language = useLanguage()
+  const settings = useSettings()
   const params = useParams()
   const navigate = useNavigate()
   let busy = false
@@ -68,7 +70,10 @@ export function useSessionFork() {
     }
     busy = true
     await sdk.client.session
-      .fork({ ...input, ...(native ? { after: !restore } : {}) }, { throwOnError: true })
+      .fork(
+        { ...input, ...(native ? { after: !restore } : settings.general.detached() ? { detached: true } : {}) },
+        { throwOnError: true },
+      )
       .then((result) => {
         if (disposed || stamp !== revision || scope !== `${sdk.url}\n${sdk.directory}\n${params.id}`) return
         const next = result.data

@@ -35,12 +35,15 @@ export interface Settings {
     followup: "queue" | "steer"
     reviewBatch: number
     branchesTab: boolean
+    detached: boolean
     debugBar: boolean
     branchGraphCompact: boolean
     branchGraphFontSize: "xs" | "sm" | "md" | "lg" | "xl"
     branchGraphRowDensity: "xcompact" | "compact" | "normal" | "relaxed" | "xrelaxed"
     branchGraphOrderMode: "sequence" | "time"
     showReasoningSummaries: boolean
+    autoCollapse: boolean
+    collapseLongUserMessages: boolean
     shellToolPartsExpanded: boolean
     editToolPartsExpanded: boolean
     autoGitInit: boolean
@@ -72,15 +75,18 @@ const defaultSettings: Settings = {
     followup: "steer",
     reviewBatch: 10,
     branchesTab: true,
+    detached: false,
     debugBar: false,
     branchGraphCompact: false,
     branchGraphFontSize: "lg",
     branchGraphRowDensity: "xcompact",
     branchGraphOrderMode: "time",
     showReasoningSummaries: false,
+    autoCollapse: true,
+    collapseLongUserMessages: true,
     shellToolPartsExpanded: true,
     editToolPartsExpanded: false,
-    autoGitInit: true,
+    autoGitInit: false,
   },
   updates: {
     startup: true,
@@ -216,6 +222,10 @@ export const { use: useSettings, provider: SettingsProvider } = createSimpleCont
         setBranchesTab(value: boolean) {
           setStore("general", "branchesTab", value)
         },
+        detached: withFallback(() => store.general?.detached, defaultSettings.general.detached),
+        setDetached(value: boolean) {
+          setStore("general", "detached", value)
+        },
         debugBar: withFallback(() => store.general?.debugBar, defaultSettings.general.debugBar),
         setDebugBar(value: boolean) {
           setStore("general", "debugBar", value)
@@ -254,6 +264,17 @@ export const { use: useSettings, provider: SettingsProvider } = createSimpleCont
         ),
         setShowReasoningSummaries(value: boolean) {
           setStore("general", "showReasoningSummaries", value)
+        },
+        autoCollapse: withFallback(() => store.general?.autoCollapse, defaultSettings.general.autoCollapse),
+        setAutoCollapse(value: boolean) {
+          setStore("general", "autoCollapse", value)
+        },
+        collapseLongUserMessages: withFallback(
+          () => store.general?.collapseLongUserMessages,
+          defaultSettings.general.collapseLongUserMessages,
+        ),
+        setCollapseLongUserMessages(value: boolean) {
+          setStore("general", "collapseLongUserMessages", value)
         },
         shellToolPartsExpanded: withFallback(
           () => store.general?.shellToolPartsExpanded,

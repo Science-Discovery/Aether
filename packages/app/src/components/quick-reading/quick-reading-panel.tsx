@@ -1,4 +1,6 @@
 import type { Component, JSX } from "solid-js"
+import { usePrompt } from "@/context/prompt"
+import { useParams } from "@solidjs/router"
 import { Show } from "solid-js"
 import { ResizeHandle } from "@opencode-ai/ui/resize-handle"
 import { PdfViewerShell, type PdfViewerShellProps } from "@/components/pdf-viewer-shell-official"
@@ -11,6 +13,7 @@ export const QuickReadingPanel: Component<{
   url: string
   authHeader?: string
   annotationPath?: string
+  askPath?: string
   annotationBuild?: string
   document?: string
   version?: string
@@ -41,6 +44,8 @@ export const QuickReadingPanel: Component<{
   sizing?: Sizing
   realtime?: boolean
 }> = (props) => {
+  const prompt = usePrompt()
+  const params = useParams()
   const size = props.sizing ?? createSizing()
   const latex = useLatex()
   const language = useLanguage()
@@ -86,6 +91,10 @@ export const QuickReadingPanel: Component<{
           <Show when={src()}>
             <PdfViewerShell
               src={src()}
+              askScope={params.id}
+              askPath={props.askPath ?? props.annotationPath}
+              references={prompt.references.items()}
+              onReferenceEdit={(id, question) => prompt.references.update(id, question)}
               annotationPath={live() ? undefined : props.annotationPath}
               annotationBuild={live() ? undefined : props.annotationBuild}
               annotationStore={live() && realtime.src() ? realtime.annotationStore : undefined}

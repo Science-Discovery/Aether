@@ -187,6 +187,13 @@ export type EventGlobalDisposed = {
   }
 }
 
+export type EventGlobalConfigUpdated = {
+  type: "global.config.updated"
+  properties: {
+    [key: string]: unknown
+  }
+}
+
 export type PermissionRequest = {
   id: string
   sessionID: string
@@ -586,6 +593,13 @@ export type ProviderAuthError = {
   }
 }
 
+export type NoModelConfiguredError = {
+  name: "NoModelConfiguredError"
+  data: {
+    message: string
+  }
+}
+
 export type UnknownError = {
   name: "UnknownError"
   data: {
@@ -645,6 +659,7 @@ export type EventSessionError = {
     sessionID?: string
     error?:
       | ProviderAuthError
+      | NoModelConfiguredError
       | UnknownError
       | MessageOutputLengthError
       | MessageAbortedError
@@ -780,6 +795,7 @@ export type AssistantMessage = {
   }
   error?:
     | ProviderAuthError
+    | NoModelConfiguredError
     | UnknownError
     | MessageOutputLengthError
     | MessageAbortedError
@@ -1175,6 +1191,7 @@ export type Event =
   | EventProviderUpdated
   | EventServerConnected
   | EventGlobalDisposed
+  | EventGlobalConfigUpdated
   | EventPermissionAsked
   | EventPermissionReplied
   | EventSessionStatus
@@ -1803,7 +1820,7 @@ export type Config = {
      */
     evolution_disabled_files?: Array<string>
     /**
-     * Global master switch for skill self-evolution. When false, no project triggers background review (default: true)
+     * Server-global master switch for skill self-evolution. Requires explicit true in global config (default: false)
      */
     evolution_enabled?: boolean
     /**
@@ -1826,6 +1843,12 @@ export type Config = {
      * Whether the skill curator runs its periodic maintenance (counting usage, marking stale, archiving unused skills). Default: true.
      */
     curator_enabled?: boolean
+  }
+  knowledge?: {
+    /**
+     * Server-global master switch for knowledge base processing and search (default: false)
+     */
+    enabled?: boolean
   }
   watcher?: {
     ignore?: Array<string>
@@ -5439,9 +5462,53 @@ export type SessionInitResponses = {
 
 export type SessionInitResponse = SessionInitResponses[keyof SessionInitResponses]
 
+export type SessionDetachData = {
+  body?: never
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/session/{sessionID}/detach"
+}
+
+export type SessionDetachErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+  /**
+   * Conflict
+   */
+  409: {
+    name: string
+    data: {
+      message: string
+    }
+  }
+}
+
+export type SessionDetachError = SessionDetachErrors[keyof SessionDetachErrors]
+
+export type SessionDetachResponses = {
+  /**
+   * Independent session subtree root
+   */
+  200: Session
+}
+
+export type SessionDetachResponse = SessionDetachResponses[keyof SessionDetachResponses]
+
 export type SessionForkData = {
   body?: {
     messageID?: string
+    detached?: boolean
     /**
      * For native Codex, retain the complete turn containing the selected message
      */
@@ -5456,6 +5523,28 @@ export type SessionForkData = {
   }
   url: "/session/{sessionID}/fork"
 }
+
+export type SessionForkErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+  /**
+   * Conflict
+   */
+  409: {
+    name: string
+    data: {
+      message: string
+    }
+  }
+}
+
+export type SessionForkError = SessionForkErrors[keyof SessionForkErrors]
 
 export type SessionForkResponses = {
   /**
@@ -6134,44 +6223,6 @@ export type PermissionRespondResponses = {
 }
 
 export type PermissionRespondResponse = PermissionRespondResponses[keyof PermissionRespondResponses]
-
-export type SessionSteerData = {
-  body?: {
-    text: string
-  }
-  path: {
-    sessionID: string
-  }
-  query?: {
-    directory?: string
-    workspace?: string
-  }
-  url: "/session/{sessionID}/steer"
-}
-
-export type SessionSteerErrors = {
-  /**
-   * Bad request
-   */
-  400: BadRequestError
-  /**
-   * Not found
-   */
-  404: NotFoundError
-}
-
-export type SessionSteerError = SessionSteerErrors[keyof SessionSteerErrors]
-
-export type SessionSteerResponses = {
-  /**
-   * Steer text added
-   */
-  200: {
-    ok: boolean
-  }
-}
-
-export type SessionSteerResponse = SessionSteerResponses[keyof SessionSteerResponses]
 
 export type SessionPreferenceGetData = {
   body?: never
@@ -10603,6 +10654,63 @@ export type FilePdfAnnotationsExportResponses = {
   200: unknown
 }
 
+export type FilePreviewResourceData = {
+  body?: never
+  path?: never
+  query: {
+    directory?: string
+    workspace?: string
+    path: string
+  }
+  url: "/file/preview/resource"
+}
+
+export type FilePreviewResourceErrors = {
+  /**
+   * Invalid preview path or query
+   */
+  400:
+    | {
+        error: string
+      }
+    | {
+        data: {
+          [key: string]: unknown
+        }
+        error: Array<{
+          [key: string]: unknown
+        }>
+        success: false
+      }
+  /**
+   * Resource is outside the validated workspace
+   */
+  403: {
+    error: string
+  }
+  /**
+   * Preview resource not found
+   */
+  404: {
+    error: string
+  }
+  /**
+   * Unsupported preview resource type
+   */
+  415: {
+    error: string
+  }
+}
+
+export type FilePreviewResourceError = FilePreviewResourceErrors[keyof FilePreviewResourceErrors]
+
+export type FilePreviewResourceResponses = {
+  /**
+   * Preview resource bytes
+   */
+  200: unknown
+}
+
 export type FileRawData = {
   body?: never
   path?: never
@@ -11480,6 +11588,12 @@ export type KnowledgeCreateErrors = {
    * Bad request
    */
   400: BadRequestError
+  /**
+   * Knowledge base feature is disabled
+   */
+  403: {
+    error: string
+  }
 }
 
 export type KnowledgeCreateError = KnowledgeCreateErrors[keyof KnowledgeCreateErrors]
@@ -11752,6 +11866,12 @@ export type KnowledgeConfigUpdateErrors = {
    */
   400: BadRequestError
   /**
+   * Knowledge base feature is disabled
+   */
+  403: {
+    error: string
+  }
+  /**
    * 知识库不存在
    */
   404: unknown
@@ -11827,10 +11947,18 @@ export type KnowledgeImportData = {
 
 export type KnowledgeImportErrors = {
   /**
+   * Knowledge base feature is disabled
+   */
+  403: {
+    error: string
+  }
+  /**
    * 知识库不存在
    */
   404: unknown
 }
+
+export type KnowledgeImportError = KnowledgeImportErrors[keyof KnowledgeImportErrors]
 
 export type KnowledgeImportResponses = {
   /**
@@ -11865,6 +11993,12 @@ export type KnowledgeSyncErrors = {
    * Bad request
    */
   400: BadRequestError
+  /**
+   * Knowledge base feature is disabled
+   */
+  403: {
+    error: string
+  }
   /**
    * 知识库不存在
    */
@@ -11913,6 +12047,12 @@ export type KnowledgeSearchErrors = {
    * Bad request
    */
   400: BadRequestError
+  /**
+   * Knowledge base feature is disabled
+   */
+  403: {
+    error: string
+  }
   /**
    * 知识库不存在
    */

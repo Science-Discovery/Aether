@@ -3,11 +3,8 @@ import { useSpring } from "@opencode-ai/ui/motion-spring"
 import { createEffect, on, Component, Show, For, onCleanup, createMemo, createSignal } from "solid-js"
 import { createStore } from "solid-js/store"
 import { useLocal } from "@/context/local"
-import { useMaybeConversationQuote } from "@/context/conversation-quote"
 import { useMaybeFileQuote } from "@/context/file-quote"
 import { selectionFromLines, type SelectedLineRange, useFile } from "@/context/file"
-import { useMaybeQuickReadingMode } from "@/context/quick-reading-mode"
-import { useMaybeReadingMode } from "@/context/reading-mode"
 import {
   ContentPart,
   DEFAULT_PROMPT,
@@ -34,7 +31,7 @@ import { Select } from "@opencode-ai/ui/select"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { Popover } from "@opencode-ai/ui/popover"
 import { ModelSelectorPopover } from "@/components/dialog-select-model"
-import { DialogSelectModelUnpaid } from "@/components/dialog-select-model-unpaid"
+import { DialogSelectProvider } from "@/components/dialog-select-provider"
 import { DialogReadingMode } from "@/components/dialog-reading-mode"
 import { useProviders } from "@/hooks/use-providers"
 import { useCommand, parseKeybind } from "@/context/command"
@@ -58,7 +55,8 @@ import {
   type PromptHistoryStoredEntry,
   promptLength,
 } from "./prompt-input/history"
-import { createPromptSubmit, type FollowupDraft } from "./prompt-input/submit"
+import { canAsk, cloneReferences, missingImages } from "@/utils/ask-reference"
+import { createPromptSubmit, type FollowupEdit, type FollowupDraft } from "./prompt-input/submit"
 import { PromptPopover, type AtOption, type SlashCommand } from "./prompt-input/slash-popover"
 import { PromptContextItems } from "./prompt-input/context-items"
 import { PromptImageAttachments } from "./prompt-input/image-attachments"
@@ -67,11 +65,10 @@ import { promptPlaceholder } from "./prompt-input/placeholder"
 import { ImagePreview } from "@opencode-ai/ui/image-preview"
 import { FileIcon } from "@opencode-ai/ui/file-icon"
 import { KnowledgeButton } from "@/components/knowledge-button"
+import { FeatureButtons } from "@/components/prompt-input/feature-buttons"
 import { openSafeZoneOnboarding, useSafeZoneOnboarding } from "@/components/dialog-safe-zone"
-import { DialogEvolvedSkills } from "@/skill-evolution/dialog-evolved-skills"
 import { createWorkingState, type ChildrenSource } from "@/utils/working-state"
 import { childMapByParent } from "@/pages/layout/helpers"
-import { SteerButton } from "@/components/steer-button"
 import { VoiceInputButton, type VoiceInputAPI } from "@/components/voice-input-button"
 import { VariantSelect } from "./prompt-input/variant-select"
 import { EngineSelect, NativeModels } from "./native-controls"
@@ -93,7 +90,7 @@ interface PromptInputProps {
   ref?: (el: HTMLDivElement) => void
   newSessionWorktree?: string
   onNewSessionWorktreeReset?: () => void
-  edit?: { id: string; prompt: Prompt; context: FollowupDraft["context"] }
+  edit?: FollowupEdit
   onEditLoaded?: () => void
   shouldQueue?: () => boolean
   onQueue?: (draft: FollowupDraft) => void
@@ -141,10 +138,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
   const sdk = useSDK()
   const sync = useSync()
   const local = useLocal()
-  const quote = useMaybeConversationQuote()
   const fileQuote = useMaybeFileQuote()
-  const quickReadingMode = useMaybeQuickReadingMode()
-  const readingMode = useMaybeReadingMode()
   const files = useFile()
   const prompt = usePrompt()
   const layout = useLayout()
@@ -386,6 +380,19 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     return prompt.context.items().filter((item) => !!item.comment?.trim()).length
   })
 
+  const sendable = createMemo(() => {
+    const refs = prompt.references.items()
+    if (missingImages(refs)) return false
+    if (!refs.length) return prompt.dirty() || commentCount() > 0
+    return canAsk(
+      prompt
+        .current()
+        .map((part) => ("content" in part ? part.content : ""))
+        .join(""),
+      refs,
+    )
+  })
+
   const contextItems = createMemo(() => {
     const items = prompt.context.items()
     if (store.mode !== "shell") return items
@@ -402,7 +409,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
 
   const [history, setHistory] = persisted(
     {
-      ...Persist.global("prompt-history", ["prompt-history.v1"]),
+      ...Persist.serverGlobal("prompt-history", ["prompt-history.v1"]),
       migrate: migratePromptHistory,
       sanitize: migratePromptHistory,
     },
@@ -497,6 +504,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     const length = position === "start" ? 0 : promptLength(p)
     setStore("applyingHistory", true)
     applyHistoryComments(entry.comments)
+    prompt.references.replace(entry.references ?? [])
     prompt.set(p, length)
     requestAnimationFrame(() => {
       editorRef.focus()
@@ -1236,10 +1244,19 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     return true
   }
 
-  const addToHistory = (prompt: Prompt, mode: "normal" | "shell") => {
+  const historyReferences = () => prompt.references.items()
+
+  const addToHistory = (prompt: Prompt, mode: "normal" | "shell", entry?: Omit<PromptHistoryEntry, "prompt">) => {
     const currentHistory = mode === "shell" ? shellHistory : history
     const setCurrentHistory = mode === "shell" ? setShellHistory : setHistory
-    const next = prependHistoryEntry(currentHistory.entries, prompt, mode === "shell" ? [] : historyComments())
+    const next = prependHistoryEntry(
+      currentHistory.entries,
+      prompt,
+      mode === "shell" ? [] : (entry?.comments ?? historyComments()),
+      undefined,
+      mode === "shell" ? [] : (entry?.references ?? historyReferences()),
+      entry?.scope ?? { dir: params.dir!, id: params.id },
+    )
     if (next === currentHistory.entries) return
     setCurrentHistory("entries", next)
   }
@@ -1271,6 +1288,10 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
         setStore("popover", null)
         setStore("historyIndex", -1)
         setStore("savedPrompt", null)
+        prompt.references.replace(edit.references ?? [])
+        fileQuote?.setQuestion(
+          edit.fileQuote ? { ...edit.fileQuote, createdAt: edit.fileQuote.createdAt ?? Date.now() } : null,
+        )
         prompt.set(edit.prompt, promptLength(edit.prompt))
         requestAnimationFrame(() => {
           editorRef.focus()
@@ -1290,6 +1311,8 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
       historyIndex: store.historyIndex,
       currentPrompt: prompt.current(),
       currentComments: historyComments(),
+      currentReferences: prompt.references.items(),
+      scope: { dir: params.dir!, id: params.id },
       savedPrompt: store.savedPrompt,
     })
     if (!result.handled) return false
@@ -1355,6 +1378,11 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     editor: () => editorRef,
     queueScroll,
     promptLength,
+    history: () => ({
+      comments: historyComments(),
+      references: cloneReferences(prompt.references.items()),
+      scope: { dir: params.dir!, id: params.id },
+    }),
     addToHistory,
     resetHistoryNavigation: () => {
       resetHistoryNavigation(true)
@@ -1368,17 +1396,10 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     onAbort: props.onAbort,
     onSubmit: props.onSubmit,
     openTabPaths: recent,
-    conversationQuoteQuestions: () => quote?.store.pendingQuestions ?? [],
-    onConversationQuoteClear: (id) => quote?.clearPendingQuestions(id),
     fileQuoteQuestion: () => fileQuote?.store.question ?? null,
-    onFileQuoteClear: () => fileQuote?.setQuestion(null),
-    quickReadingQuestion: () => quickReadingMode?.store.pendingQuestion ?? null,
-    quickReadingSettings: () => quickReadingMode?.store.snapshot.settings,
-    onQuickReadingQuestionClear: () => quickReadingMode?.setPendingQuestion(null),
-    readingQuestion: () => readingMode?.store.pendingQuestion ?? null,
-    readingSessionMeta: () => readingMode?.store.sessionMeta,
-    readingTotalPages: () => readingMode?.store.totalPages,
-    onReadingQuestionClear: () => readingMode?.setPendingQuestion(null),
+    onFileQuoteClear: (question) => {
+      if (JSON.stringify(fileQuote?.store.question) === JSON.stringify(question)) fileQuote?.setQuestion(null)
+    },
   })
 
   const handleKeyDown = (event: KeyboardEvent) => {
@@ -1673,7 +1694,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
               }}
               style={{ "padding-bottom": space }}
             />
-            <Show when={!prompt.dirty()}>
+            <Show when={isPromptEqual(prompt.current(), DEFAULT_PROMPT)}>
               <div
                 class="absolute top-0 inset-x-0 pl-3 pr-2 pt-2 text-14-regular text-text-weak pointer-events-none whitespace-nowrap truncate"
                 classList={{ "font-mono!": store.mode === "shell" }}
@@ -1722,7 +1743,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                   />
                 </Tooltip>
               </Show>
-              <Tooltip placement="top" inactive={!prompt.dirty() && !working()} value={tip()}>
+              <Tooltip placement="top" inactive={!sendable() && !working()} value={tip()}>
                 <IconButton
                   data-action="prompt-submit"
                   type="submit"
@@ -1730,8 +1751,8 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                     props.blocked ||
                     store.mode !== "normal" ||
                     (!!local.native.engine() &&
-                      (run.busy() || !local.native.enabled() || (running() && !prompt.dirty()))) ||
-                    (!prompt.dirty() && !working() && commentCount() === 0)
+                      (run.busy() || !local.native.enabled() || (running() && !sendable()))) ||
+                    (!sendable() && !working())
                   }
                   tabIndex={store.mode === "normal" ? undefined : -1}
                   icon={working() && !local.native.engine() ? "stop" : "arrow-up"}
@@ -1844,7 +1865,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                     </div>
                     <div data-component="prompt-model-control">
                       <Show
-                        when={providers.paid().length > 0}
+                        when={providers.chat().length > 0}
                         fallback={
                           <TooltipKeybind
                             placement="top"
@@ -1859,7 +1880,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                               size="normal"
                               class="min-w-0 max-w-[320px] text-13-regular text-text-base group"
                               style={control()}
-                              onClick={() => dialog.show(() => <DialogSelectModelUnpaid model={local.model} />)}
+                              onClick={() => dialog.show(() => <DialogSelectProvider />)}
                             >
                               <Show when={local.model.current()?.provider?.id}>
                                 <ProviderIcon
@@ -1868,9 +1889,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                                   style={{ "will-change": "opacity", transform: "translateZ(0)" }}
                                 />
                               </Show>
-                              <span class="truncate">
-                                {local.model.current()?.name ?? language.t("dialog.model.select.title")}
-                              </span>
+                              <span class="truncate">{language.t("prompt.model.connect")}</span>
                               <Icon name="chevron-down" size="small" class="shrink-0" />
                             </Button>
                           </TooltipKeybind>
@@ -1901,7 +1920,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                               />
                             </Show>
                             <span class="truncate">
-                              {local.model.current()?.name ?? language.t("dialog.model.select.title")}
+                              {local.model.current()?.name ?? language.t("prompt.model.connect")}
                             </span>
                             <Icon name="chevron-down" size="small" class="shrink-0" />
                           </ModelSelectorPopover>
@@ -1969,28 +1988,15 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                         />
                       </Button>
                     </TooltipKeybind>
-                    <SteerButton />
-                    <div
+                    <FeatureButtons
+                      sessionID={params.id}
                       style={{
                         opacity: buttonsSpring(),
                         transform: `scale(${0.95 + buttonsSpring() * 0.05})`,
                         filter: `blur(${(1 - buttonsSpring()) * 2}px)`,
                         "pointer-events": buttonsSpring() > 0.5 ? "auto" : "none",
                       }}
-                    >
-                      <KnowledgeButton sessionID={params.id} />
-                    </div>
-                    <Tooltip placement="top" gutter={4} value={language.t("evolvedSkills.title")}>
-                      <Button
-                        variant="ghost"
-                        size="normal"
-                        class="h-7 w-7 p-0 flex items-center justify-center text-icon-weak shrink-0"
-                        onClick={() => dialog.show(() => <DialogEvolvedSkills />)}
-                        aria-label={language.t("evolvedSkills.title")}
-                      >
-                        <Icon name="list-square" class="size-4" />
-                      </Button>
-                    </Tooltip>
+                    />
                   </div>
                 </Show>
               </div>

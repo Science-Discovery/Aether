@@ -5,6 +5,8 @@ import type { Provider } from "../../src/provider/provider"
 import { ModelID, ProviderID } from "../../src/provider/schema"
 import { SessionID, MessageID, PartID } from "../../src/session/schema"
 import { Question } from "../../src/question"
+import { NoModelConfiguredError } from "../../src/provider/error"
+import { SessionRetry } from "../../src/session/retry"
 
 const sessionID = SessionID.make("session")
 const providerID = ProviderID.make("test")
@@ -841,6 +843,16 @@ describe("session.message-v2.toModelMessage", () => {
 })
 
 describe("session.message-v2.fromError", () => {
+  test("preserves missing-model errors through serialization without retrying", () => {
+    const error = new NoModelConfiguredError({ message: "Connect a provider and select a model." })
+    for (const input of [error, error.toObject()]) {
+      const result = MessageV2.fromError(input, { providerID })
+      expect(result).toEqual(error.toObject())
+      expect(MessageV2.Assistant.shape.error.parse(result)).toEqual(error.toObject())
+      expect(SessionRetry.retryable(result)).toBeUndefined()
+    }
+  })
+
   test("serializes context_length_exceeded as ContextOverflowError", () => {
     const input = {
       type: "error",

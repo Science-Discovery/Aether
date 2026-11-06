@@ -127,8 +127,6 @@ export const dict = {
   "dialog.model.manage.description": "Prilagodi koji se modeli prikazuju u izborniku modela.",
   "dialog.model.manage.provider.toggle": "Uključi/isključi sve {{provider}} modele",
 
-  "dialog.model.unpaid.freeModels.title": "Besplatni modeli koje obezbjeđuje Aether",
-  "dialog.model.unpaid.addMore.title": "Dodaj još modela od popularnih provajdera",
 
   "dialog.provider.viewAll": "Prikaži više provajdera",
 
@@ -703,8 +701,8 @@ export const dict = {
   "sidebar.workspaces.enable": "Omogući radne prostore",
   "sidebar.workspaces.disable": "Onemogući radne prostore",
   "sidebar.gettingStarted.title": "Početak",
-  "sidebar.gettingStarted.line1": "Aether uključuje besplatne modele, tako da možeš odmah početi.",
-  "sidebar.gettingStarted.line2": "Poveži bilo kojeg provajdera da koristiš modele, npr. Claude, GPT, Gemini itd.",
+  "sidebar.gettingStarted.line1": "Poveži provajdera i odaberi model prije početka razgovora.",
+  "sidebar.gettingStarted.line2": "Projekte i historiju razgovora možeš pregledati i bez modela.",
   "sidebar.project.recentSessions": "Nedavne sesije",
   "sidebar.project.viewAllSessions": "Prikaži sve sesije",
   "sidebar.project.clearNotifications": "Očisti obavijesti",

@@ -57,12 +57,7 @@ export const SettingsSkills: Component = () => {
   const navigate = useNavigate()
   const [saving, setSaving] = createSignal(false)
 
-  // Master switch: unset means on, only an explicit false turns it off (mirrors
-  // the backend ConfigReader.isEvolutionEnabled default).
-  const evolutionEnabled = createMemo(() => {
-    const cfg = globalSync.data.config as any
-    return cfg.skills?.evolution_enabled !== false
-  })
+  const evolutionEnabled = createMemo(() => globalSync.data.config.skills?.evolution_enabled === true)
 
   // Per-project output directories (read-only). Refetched whenever the dialog mounts.
   const [outputDirs] = createResource(async () => {
@@ -121,7 +116,7 @@ export const SettingsSkills: Component = () => {
       await globalSync.updateConfig({ skills: { evolution_enabled: enabled } } as any)
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
-      showToast({ title: "Request failed", description: message })
+      showToast({ title: language.t("common.requestFailed"), description: message })
     } finally {
       setSaving(false)
     }
@@ -211,7 +206,10 @@ export const SettingsSkills: Component = () => {
               checked={evolutionEnabled()}
               disabled={saving()}
               onChange={(checked) => void updateEvolutionEnabled(checked)}
-            />
+              hideLabel
+            >
+              {language.t("settingsSkills.evolutionEnabled")}
+            </Switch>
           </SettingsRow>
 
           <SettingsRow
@@ -257,25 +255,25 @@ export const SettingsSkills: Component = () => {
             description={language.t("settingsSkills.reviewMaxStepCharsDescription")}
           >
             <div class="flex items-center gap-1.5">
-            <input
-              type="number"
-              min={0.001}
-              step={0.001}
-              value={currentReviewMaxStepChars() / CHARS_PER_K}
-              disabled={saving() || !evolutionEnabled()}
-              onBlur={(e) => {
-                // Input is in "k" (thousands); store the real char count (×1000).
-                // parseFloat (not parseInt) so fractional k like 0.001 survives;
-                // Math.round keeps the stored char count an integer.
-                const k = parseFloat(e.currentTarget.value)
-                const chars = Math.round(k * CHARS_PER_K)
-                if (!isNaN(k) && k >= 0.001 && chars !== currentReviewMaxStepChars()) {
-                  void updateReviewMaxStepChars(chars)
-                }
-              }}
-              class="h-9 w-24 rounded-md border border-border-base bg-surface-base px-3 text-14-regular text-text-strong focus:outline-none focus:ring-2 focus:ring-border-focus disabled:opacity-50"
-            />
-            <span class="text-14-regular text-text-weak">k</span>
+              <input
+                type="number"
+                min={0.001}
+                step={0.001}
+                value={currentReviewMaxStepChars() / CHARS_PER_K}
+                disabled={saving() || !evolutionEnabled()}
+                onBlur={(e) => {
+                  // Input is in "k" (thousands); store the real char count (×1000).
+                  // parseFloat (not parseInt) so fractional k like 0.001 survives;
+                  // Math.round keeps the stored char count an integer.
+                  const k = parseFloat(e.currentTarget.value)
+                  const chars = Math.round(k * CHARS_PER_K)
+                  if (!isNaN(k) && k >= 0.001 && chars !== currentReviewMaxStepChars()) {
+                    void updateReviewMaxStepChars(chars)
+                  }
+                }}
+                class="h-9 w-24 rounded-md border border-border-base bg-surface-base px-3 text-14-regular text-text-strong focus:outline-none focus:ring-2 focus:ring-border-focus disabled:opacity-50"
+              />
+              <span class="text-14-regular text-text-weak">k</span>
             </div>
           </SettingsRow>
 
@@ -284,25 +282,25 @@ export const SettingsSkills: Component = () => {
             description={language.t("settingsSkills.reviewMaxTotalCharsDescription")}
           >
             <div class="flex items-center gap-1.5">
-            <input
-              type="number"
-              min={0.001}
-              step={0.001}
-              value={currentReviewMaxTotalChars() / CHARS_PER_K}
-              disabled={saving() || !evolutionEnabled()}
-              onBlur={(e) => {
-                // Input is in "k" (thousands); store the real char count (×1000).
-                // parseFloat (not parseInt) so fractional k like 0.001 survives;
-                // Math.round keeps the stored char count an integer.
-                const k = parseFloat(e.currentTarget.value)
-                const chars = Math.round(k * CHARS_PER_K)
-                if (!isNaN(k) && k >= 0.001 && chars !== currentReviewMaxTotalChars()) {
-                  void updateReviewMaxTotalChars(chars)
-                }
-              }}
-              class="h-9 w-24 rounded-md border border-border-base bg-surface-base px-3 text-14-regular text-text-strong focus:outline-none focus:ring-2 focus:ring-border-focus disabled:opacity-50"
-            />
-            <span class="text-14-regular text-text-weak">k</span>
+              <input
+                type="number"
+                min={0.001}
+                step={0.001}
+                value={currentReviewMaxTotalChars() / CHARS_PER_K}
+                disabled={saving() || !evolutionEnabled()}
+                onBlur={(e) => {
+                  // Input is in "k" (thousands); store the real char count (×1000).
+                  // parseFloat (not parseInt) so fractional k like 0.001 survives;
+                  // Math.round keeps the stored char count an integer.
+                  const k = parseFloat(e.currentTarget.value)
+                  const chars = Math.round(k * CHARS_PER_K)
+                  if (!isNaN(k) && k >= 0.001 && chars !== currentReviewMaxTotalChars()) {
+                    void updateReviewMaxTotalChars(chars)
+                  }
+                }}
+                class="h-9 w-24 rounded-md border border-border-base bg-surface-base px-3 text-14-regular text-text-strong focus:outline-none focus:ring-2 focus:ring-border-focus disabled:opacity-50"
+              />
+              <span class="text-14-regular text-text-weak">k</span>
             </div>
           </SettingsRow>
 
@@ -337,40 +335,40 @@ export const SettingsSkills: Component = () => {
             </Match>
             <Match when={true}>
               <div class="flex flex-col rounded-lg border border-border-weak-base">
-              <For each={outputDirs()}>
-                {(item) => (
-                  <div class="flex flex-wrap items-center gap-3 px-3 py-2.5 border-b border-border-weak-base last:border-none sm:flex-nowrap">
-                    <div class="flex min-w-0 flex-1 flex-col gap-0.5">
-                      <Show when={item.projectPath}>
-                        <span class="text-13-medium text-text-strong truncate" title={item.projectPath}>
-                          {item.projectPath}
+                <For each={outputDirs()}>
+                  {(item) => (
+                    <div class="flex flex-wrap items-center gap-3 px-3 py-2.5 border-b border-border-weak-base last:border-none sm:flex-nowrap">
+                      <div class="flex min-w-0 flex-1 flex-col gap-0.5">
+                        <Show when={item.projectPath}>
+                          <span class="text-13-medium text-text-strong truncate" title={item.projectPath}>
+                            {item.projectPath}
+                          </span>
+                        </Show>
+                        <span class="text-11-regular text-text-subtle truncate font-mono" title={item.evolutionDir}>
+                          {item.evolutionDir}
                         </span>
-                      </Show>
-                      <span class="text-11-regular text-text-subtle truncate font-mono" title={item.evolutionDir}>
-                        {item.evolutionDir}
-                      </span>
+                      </div>
+                      <button
+                        class="shrink-0 h-8 px-3 rounded-md border border-border-base text-12-regular text-text-base hover:bg-surface-hover transition-colors"
+                        onClick={() => void copyDir(item.evolutionDir)}
+                      >
+                        {language.t("settingsSkills.copyDir")}
+                      </button>
+                      <button
+                        class="shrink-0 h-8 px-3 rounded-md border border-border-base text-12-regular text-text-base hover:bg-surface-hover transition-colors"
+                        onClick={() => void openDir(item.evolutionDir)}
+                      >
+                        {language.t("settingsSkills.openDir")}
+                      </button>
+                      <button
+                        class="shrink-0 h-8 px-3 rounded-md border border-border-base text-12-regular text-text-base hover:bg-surface-hover transition-colors"
+                        onClick={() => openAsProject(item.evolutionDir)}
+                      >
+                        {language.t("settingsSkills.openAsProject")}
+                      </button>
                     </div>
-                    <button
-                      class="shrink-0 h-8 px-3 rounded-md border border-border-base text-12-regular text-text-base hover:bg-surface-hover transition-colors"
-                      onClick={() => void copyDir(item.evolutionDir)}
-                    >
-                      {language.t("settingsSkills.copyDir")}
-                    </button>
-                    <button
-                      class="shrink-0 h-8 px-3 rounded-md border border-border-base text-12-regular text-text-base hover:bg-surface-hover transition-colors"
-                      onClick={() => void openDir(item.evolutionDir)}
-                    >
-                      {language.t("settingsSkills.openDir")}
-                    </button>
-                    <button
-                      class="shrink-0 h-8 px-3 rounded-md border border-border-base text-12-regular text-text-base hover:bg-surface-hover transition-colors"
-                      onClick={() => openAsProject(item.evolutionDir)}
-                    >
-                      {language.t("settingsSkills.openAsProject")}
-                    </button>
-                  </div>
-                )}
-              </For>
+                  )}
+                </For>
               </div>
             </Match>
           </SolidSwitch>

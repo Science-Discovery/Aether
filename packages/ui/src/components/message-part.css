@@ -146,6 +146,48 @@
     max-width: 100%;
   }
 
+  [data-slot="user-message-viewport"] {
+    overflow: hidden;
+
+    &[data-collapsed="true"] {
+      max-height: 10lh;
+    }
+  }
+
+  [data-slot="user-message-content"] {
+    display: flow-root;
+  }
+
+  [data-slot="user-message-toggle"] {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    min-height: 26px;
+    margin-top: 8px;
+    padding: 0 2px;
+    border: none;
+    border-radius: 3px;
+    background: transparent;
+    color: var(--text-weak);
+    font: inherit;
+    white-space: normal;
+    cursor: pointer;
+    user-select: none;
+
+    &:hover {
+      color: var(--text-strong);
+    }
+
+    &:focus-visible {
+      outline: 1px solid var(--border-interactive-base);
+      outline-offset: 2px;
+    }
+
+    &[aria-expanded="true"] [data-component="icon"] {
+      transform: rotate(180deg);
+    }
+  }
+
   [data-slot="user-message-copy-wrapper"] {
     min-height: 24px;
     margin-top: 4px;
