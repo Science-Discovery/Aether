@@ -414,6 +414,17 @@ export namespace Acp {
 
   export async function probe(id: Engine.ID): Promise<Engine.Status> {
     const def = get(id)!
+    if (id === "dsh") {
+      const resolved = await resolve("dsh")
+      if (!resolved)
+        return { id, name: def.name, installed: false, protocol: def.protocol, error: "Executable not found" }
+      const file = resolved.args[0] ?? resolved.path
+      const version = await fs
+        .readFile(path.join(path.dirname(file), "..", "package.json"), "utf8")
+        .then((text) => (JSON.parse(text) as { version?: string }).version)
+        .catch(() => undefined)
+      return { id, name: def.name, installed: true, path: file, version, protocol: def.protocol }
+    }
     const file = await resolve(id)
     if (!file) return { id, name: def.name, installed: false, protocol: def.protocol, error: "Executable not found" }
     let handle: Handle | undefined
@@ -425,7 +436,7 @@ export namespace Acp {
           protocolVersion: 1,
           clientCapabilities: { fs: { readTextFile: true, writeTextFile: false }, terminal: false },
         }),
-        Bun.sleep(id === "dsh" ? 30_000 : 6_000).then(() => {
+        Bun.sleep(6_000).then(() => {
           throw new Error("ACP initialization timed out")
         }),
       ])
@@ -433,7 +444,7 @@ export namespace Acp {
         id,
         name: def.name,
         installed: true,
-        path: id === "dsh" ? file.args[0] : file.path,
+        path: file.path,
         version: init.agentInfo?.version,
         protocol: def.protocol,
       }
@@ -442,7 +453,7 @@ export namespace Acp {
         id,
         name: def.name,
         installed: true,
-        path: id === "dsh" ? file.args[0] : file.path,
+        path: file.path,
         protocol: def.protocol,
         error: error instanceof Error ? error.message : "ACP initialization failed",
       }
