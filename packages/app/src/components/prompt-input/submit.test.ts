@@ -7,6 +7,8 @@ import { readFileQuoteMetadata } from "@/utils/comment-note"
 import { Worktree } from "@/utils/worktree"
 import type { NativeEngine } from "@/utils/native"
 import type { NativeDraft } from "@/context/native-run"
+import type { E2EWindow } from "@/testing/terminal"
+import type { PromptSendState } from "@/testing/prompt"
 
 let createPromptSubmit: typeof import("./submit").createPromptSubmit
 
@@ -233,7 +235,10 @@ beforeAll(async () => {
       context: {
         add: () => undefined,
         remove: (key: string, input?: PromptScope) => {
-          contexts.set(scope(input), (contexts.get(scope(input)) ?? []).filter((item) => item.key !== key))
+          contexts.set(
+            scope(input),
+            (contexts.get(scope(input)) ?? []).filter((item) => item.key !== key),
+          )
         },
         items: (input?: PromptScope) => {
           accesses.push("context.items")
@@ -400,6 +405,7 @@ beforeEach(() => {
 
 afterEach(() => {
   globalThis.fetch = fetcher
+  delete (window as E2EWindow).__opencode_e2e
 })
 
 function nativeSubmit(overrides: Partial<Parameters<typeof createPromptSubmit>[0]> = {}) {
@@ -432,6 +438,81 @@ function nativeSubmit(overrides: Partial<Parameters<typeof createPromptSubmit>[0
     ...overrides,
   })
 }
+
+describe("accepted submission notifications", () => {
+  test.each(["shell", "command", "normal", "native", "active", "queue"])(
+    "publishes exactly once for dispatched %s input while supplementary and queued drafts keep their own flow",
+    async (kind) => {
+      const probe = { enabled: true, sent: undefined as PromptSendState | undefined }
+      ;(window as E2EWindow).__opencode_e2e = { prompt: probe }
+      params.id = "existing"
+      if (kind === "native" || kind === "active") engine = { type: "codex", model: "native-model" }
+      if (kind === "command") {
+        commands.push({ name: "custom" })
+        value()[0] = { type: "text", content: "/custom example", start: 0, end: 15 }
+      }
+      const notice = mock(() => undefined)
+      const submit = nativeSubmit({
+        mode: () => (kind === "shell" ? "shell" : "normal"),
+        working: () => kind === "active",
+        shouldQueue: () => kind === "queue",
+        onQueue: () => undefined,
+        nativeSubmit: async () => true,
+        onSubmit: notice,
+      })
+      await submit.handleSubmit({ preventDefault() {} } as Event)
+      await flush()
+      const count = kind === "active" || kind === "queue" ? 0 : 1
+      expect(notice).toHaveBeenCalledTimes(count)
+      expect(probe.sent?.count ?? 0).toBe(count)
+      if (count) expect(probe.sent).toMatchObject({ sessionID: "existing", directory: "/repo/main" })
+      expect(sentShell).toHaveLength(kind === "shell" ? 1 : 0)
+      expect(invoked).toHaveLength(kind === "command" ? 1 : 0)
+      expect(prompted).toHaveLength(kind === "normal" || kind === "native" ? 1 : 0)
+    },
+  )
+
+  test.each(["shell", "command"])("waits for session creation before publishing %s dispatch", async (kind) => {
+    const probe = { enabled: true, sent: undefined as PromptSendState | undefined }
+    ;(window as E2EWindow).__opencode_e2e = { prompt: probe }
+    const pending = Promise.withResolvers<void>()
+    claim = pending.promise
+    if (kind === "command") {
+      commands.push({ name: "custom" })
+      value()[0] = { type: "text", content: "/custom example", start: 0, end: 15 }
+    }
+    const notice = mock(() => undefined)
+    const submit = nativeSubmit({ mode: () => (kind === "shell" ? "shell" : "normal"), onSubmit: notice })
+    const sending = submit.handleSubmit({ preventDefault() {} } as Event)
+    await flush()
+    expect(notice).not.toHaveBeenCalled()
+    expect(probe.sent?.count ?? 0).toBe(0)
+    expect(sentShell).toHaveLength(0)
+    expect(invoked).toHaveLength(0)
+    pending.resolve()
+    await sending
+    expect(notice).toHaveBeenCalledTimes(1)
+    expect(probe.sent?.count).toBe(1)
+  })
+
+  test.each(["shell", "command"])("does not publish %s dispatch when session creation fails", async (kind) => {
+    const probe = { enabled: true, sent: undefined as PromptSendState | undefined }
+    ;(window as E2EWindow).__opencode_e2e = { prompt: probe }
+    failCreate = new Error("create failed")
+    if (kind === "command") {
+      commands.push({ name: "custom" })
+      value()[0] = { type: "text", content: "/custom example", start: 0, end: 15 }
+    }
+    const notice = mock(() => undefined)
+    await nativeSubmit({ mode: () => (kind === "shell" ? "shell" : "normal"), onSubmit: notice }).handleSubmit({
+      preventDefault() {},
+    } as Event)
+    expect(notice).not.toHaveBeenCalled()
+    expect(probe.sent?.count ?? 0).toBe(0)
+    expect(sentShell).toHaveLength(0)
+    expect(invoked).toHaveLength(0)
+  })
+})
 
 describe("native prompt submission", () => {
   test("preserves the draft without sending, enqueuing or aborting while a native revert is unresolved", async () => {
@@ -503,12 +584,25 @@ describe("native prompt submission", () => {
     engine = { type: "codex", model: "native-model" }
     params.id = "existing"
     value().push({ type: "file", path: "notes.txt", content: "@notes", start: 2, end: 8 })
-    references.set(scope(), [{
-      id: "screenshot", version: 1, kind: "pdf", path: "/paper.pdf", filename: "paper.pdf", mode: "quick",
-      startPage: 3, endPage: 3, selection: "region", content: "image", question: "Explain",
-      image: "data:image/png;base64,aGVsbG8=", text: "", summary: "Screenshot",
-      settings: { questionPrompt: "{selected_content}\n{user_question}" },
-    }])
+    references.set(scope(), [
+      {
+        id: "screenshot",
+        version: 1,
+        kind: "pdf",
+        path: "/paper.pdf",
+        filename: "paper.pdf",
+        mode: "quick",
+        startPage: 3,
+        endPage: 3,
+        selection: "region",
+        content: "image",
+        question: "Explain",
+        image: "data:image/png;base64,aGVsbG8=",
+        text: "",
+        summary: "Screenshot",
+        settings: { questionPrompt: "{selected_content}\n{user_question}" },
+      },
+    ])
     const sent: NativeDraft[] = []
     const submit = nativeSubmit({
       working: () => true,
@@ -710,36 +804,59 @@ describe("native prompt submission", () => {
     expect(prompted).toEqual([])
   })
 
-  test.each([false, true])("sends mixed references with only per-item questions in native execution: %s", async (active) => {
-    engine = { type: "codex", model: "native-model" }
-    params.id = "existing"
-    value().splice(0, value().length, { type: "text", content: "", start: 0, end: 0 })
-    references.set(scope(), [reference("conversation"), {
-      id: "image", version: 1, kind: "pdf", path: "/paper.pdf", filename: "paper.pdf", mode: "quick",
-      startPage: 3, endPage: 3, selection: "region", content: "image", question: "Describe this image",
-      image: "data:image/png;base64,aGVsbG8=", text: "", summary: "Screenshot",
-      settings: { questionPrompt: "{selected_content}\n{user_question}" },
-    }])
-    const sent: NativeDraft[] = []
-    const submit = nativeSubmit({
-      working: () => active,
-      nativeSubmit: async (draft) => {
-        sent.push(draft)
-        return true
-      },
-    })
-    await submit.handleSubmit({ preventDefault() {} } as Event)
-    const parts = (active ? sent[0]?.parts : prompted[0]?.parts) as Array<{ type: string; text?: string; filename?: string }>
-    expect(parts).toEqual(expect.arrayContaining([
-      expect.objectContaining({ type: "text", text: expect.stringContaining("[Question 1]\nWhy?") }),
-      expect.objectContaining({ type: "text", text: expect.stringContaining("[Question 2]\nDescribe this image") }),
-      expect.objectContaining({ type: "file", filename: "reference-2-page-3.png" }),
-    ]))
-    expect(references.get(scope())).toEqual([])
-    expect(aborted).toBe(0)
-    expect(prompted).toHaveLength(active ? 0 : 1)
-    expect(sent).toHaveLength(active ? 1 : 0)
-  })
+  test.each([false, true])(
+    "sends mixed references with only per-item questions in native execution: %s",
+    async (active) => {
+      engine = { type: "codex", model: "native-model" }
+      params.id = "existing"
+      value().splice(0, value().length, { type: "text", content: "", start: 0, end: 0 })
+      references.set(scope(), [
+        reference("conversation"),
+        {
+          id: "image",
+          version: 1,
+          kind: "pdf",
+          path: "/paper.pdf",
+          filename: "paper.pdf",
+          mode: "quick",
+          startPage: 3,
+          endPage: 3,
+          selection: "region",
+          content: "image",
+          question: "Describe this image",
+          image: "data:image/png;base64,aGVsbG8=",
+          text: "",
+          summary: "Screenshot",
+          settings: { questionPrompt: "{selected_content}\n{user_question}" },
+        },
+      ])
+      const sent: NativeDraft[] = []
+      const submit = nativeSubmit({
+        working: () => active,
+        nativeSubmit: async (draft) => {
+          sent.push(draft)
+          return true
+        },
+      })
+      await submit.handleSubmit({ preventDefault() {} } as Event)
+      const parts = (active ? sent[0]?.parts : prompted[0]?.parts) as Array<{
+        type: string
+        text?: string
+        filename?: string
+      }>
+      expect(parts).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ type: "text", text: expect.stringContaining("[Question 1]\nWhy?") }),
+          expect.objectContaining({ type: "text", text: expect.stringContaining("[Question 2]\nDescribe this image") }),
+          expect.objectContaining({ type: "file", filename: "reference-2-page-3.png" }),
+        ]),
+      )
+      expect(references.get(scope())).toEqual([])
+      expect(aborted).toBe(0)
+      expect(prompted).toHaveLength(active ? 0 : 1)
+      expect(sent).toHaveLength(active ? 1 : 0)
+    },
+  )
 
   test("keeps native reference edits and additions while the queued snapshot awaits acknowledgement", async () => {
     engine = { type: "codex", model: "native-model" }
@@ -763,9 +880,11 @@ describe("native prompt submission", () => {
     await sending
     expect(references.get(scope())?.map((ref) => ref.question)).toEqual(["Edited question", "Why?"])
     expect(value()[0]).toMatchObject({ content: "New draft" })
-    expect(sent[0].parts).toEqual(expect.arrayContaining([
-      expect.objectContaining({ type: "text", text: expect.stringContaining("Original question") }),
-    ]))
+    expect(sent[0].parts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ type: "text", text: expect.stringContaining("Original question") }),
+      ]),
+    )
   })
 
   test("records the submitted native history snapshot while references change during acknowledgement", async () => {
@@ -794,12 +913,14 @@ describe("native prompt submission", () => {
     receipt.resolve(true)
     await sending
     expect(reads).toBe(1)
-    expect(entries).toEqual([{
-      prompt: [{ type: "text", content: "ls", start: 0, end: 2 }],
-      references: [reference("a", "Original question")],
-      comments: [],
-      scope: { dir: "/repo/main", id: "existing" },
-    }])
+    expect(entries).toEqual([
+      {
+        prompt: [{ type: "text", content: "ls", start: 0, end: 2 }],
+        references: [reference("a", "Original question")],
+        comments: [],
+        scope: { dir: "/repo/main", id: "existing" },
+      },
+    ])
     expect(references.get(scope())?.map((ref) => ref.question)).toEqual(["Edited question", "Why?"])
     expect(value()[0]).toMatchObject({ content: "New draft" })
   })
@@ -821,9 +942,9 @@ describe("native prompt submission", () => {
       if (kind === "context") contexts.set(scope(), [{ type: "file", path: "notes.txt", key: "context" }])
       await submit.handleSubmit({ preventDefault() {} } as Event)
       const parts = (active ? sent.at(-1)?.parts : prompted.at(-1)?.parts) as Array<{ type: string; url?: string }>
-      expect(parts).toEqual(expect.arrayContaining([
-        expect.objectContaining({ type: "file", url: "file:///repo/main/notes.txt" }),
-      ]))
+      expect(parts).toEqual(
+        expect.arrayContaining([expect.objectContaining({ type: "file", url: "file:///repo/main/notes.txt" })]),
+      )
       expect(contexts.get(scope()) ?? []).toEqual([])
       expect(value()[0]).toMatchObject({ content: "" })
     }

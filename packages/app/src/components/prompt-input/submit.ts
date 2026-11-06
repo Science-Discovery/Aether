@@ -209,8 +209,10 @@ export async function sendFollowupDraft(input: FollowupSendInput) {
       throw new Error("Aether agent mentions cannot be sent to a Codex conversation.")
     if (!(await wait())) return false
     return input.enqueue({
-      text: selection?.parts.find((part) => !part.synthetic)?.text ||
-        input.draft.extraTextParts?.find((part) => !part.synthetic)?.text || text,
+      text:
+        selection?.parts.find((part) => !part.synthetic)?.text ||
+        input.draft.extraTextParts?.find((part) => !part.synthetic)?.text ||
+        text,
       parts,
     })
   }
@@ -488,7 +490,9 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       if (!selection) {
         showToast({
           title: language.t("prompt.toast.modelAgentRequired.title"),
-          description: language.t(local.native.engine() ? "native.notReady" : "prompt.toast.modelAgentRequired.description"),
+          description: language.t(
+            local.native.engine() ? "native.notReady" : "prompt.toast.modelAgentRequired.description",
+          ),
         })
         return
       }
@@ -673,6 +677,12 @@ export function createPromptSubmit(input: PromptSubmitInput) {
         fileQuote,
       }
 
+      const notify = () => {
+        if (native) return
+        promptProbe.submit({ sessionID: session.id, directory: sessionDirectory })
+        input.onSubmit?.()
+      }
+
       const clearInput = () => {
         if (server.current?.http.url !== connection.server) return
         prompt.reset(scope)
@@ -699,6 +709,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
 
       if (mode === "shell") {
         if (!(await waitForSession())) return
+        notify()
         clearInput()
         client.session
           .shell({
@@ -724,6 +735,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
         const customCommand = sync.data.command.find((c) => c.name === commandName)
         if (customCommand) {
           if (!(await waitForSession())) return
+          notify()
           clearInput()
           client.session
             .command({
@@ -862,10 +874,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
           consume()
           return
         }
-        if (!native) {
-          promptProbe.submit({ sessionID: session.id, directory: sessionDirectory })
-          input.onSubmit?.()
-        }
+        notify()
         const ok = await sendFollowupDraft({
           client,
           sync,
@@ -877,10 +886,19 @@ export function createPromptSubmit(input: PromptSubmitInput) {
           knowledgeBase,
           enqueue: native
             ? async (value) => {
-                if (server.current?.http.url !== connection.server || params.dir !== scope.dir || params.id !== scope.id)
+                if (
+                  server.current?.http.url !== connection.server ||
+                  params.dir !== scope.dir ||
+                  params.id !== scope.id
+                )
                   return false
                 const ok = await input.nativeSubmit!(value)
-                if (ok && server.current?.http.url === connection.server && params.dir === scope.dir && params.id === scope.id) {
+                if (
+                  ok &&
+                  server.current?.http.url === connection.server &&
+                  params.dir === scope.dir &&
+                  params.id === scope.id
+                ) {
                   input.addToHistory(currentPrompt, "normal", history)
                   input.resetHistoryNavigation()
                   input.queueScroll()

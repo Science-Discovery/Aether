@@ -5,6 +5,7 @@ import { ReadingModeProvider } from "@/context/reading-mode"
 import { ReadingModePanel } from "@/components/reading-mode/reading-mode-panel"
 import { TerminalProvider } from "@/context/terminal"
 import { FileProvider } from "@/context/file"
+import { LatexProvider } from "@/context/latex"
 import { PromptProvider } from "@/context/prompt"
 import { CommentsProvider } from "@/context/comments"
 import { useLayout } from "@/context/layout"
@@ -295,43 +296,45 @@ const ReadingSession: Component = () => {
     <ReadingModeProvider>
       <TerminalProvider>
         <FileProvider>
-          <PromptProvider>
-            <CommentsProvider>
-              <div ref={containerRef} class="size-full overflow-hidden">
-                <SessionPage
-                  readingPane={
-                    <ReadingModePanel
-                      sessionID={params.id!}
-                      width={pdfPixelWidth()}
-                      minWidth={pdfMinWidth()}
-                      maxWidth={Math.max(pdfMinWidth(), pdfMaxWidth())}
-                      layoutSwapped={layoutSwapped()}
-                      onSwapLayout={handleSwapLayout}
-                      onResizeWidth={handleResizeWidth}
-                      resizeHandleEnabled={mode() !== "review-right" && mode() !== "review-tree-right"}
-                      sizing={sizing}
-                    />
-                  }
-                  readingPanePosition={layoutSwapped() ? "after" : "before"}
-                  readingPaneWidth={pdfPixelWidth()}
-                  readingCompositeWidth={compositePixelWidth()}
-                  readingCompositeMinWidth={compositeResizeBounds().min}
-                  readingCompositeMaxWidth={compositeResizeBounds().max}
-                  onReadingCompositeResize={handleResizeCompositeWidth}
-                  readingSessionResizeSize={chatPixelWidth()}
-                  readingSessionResizeMin={sessionResizeBounds().min}
-                  readingSessionResizeMax={sessionResizeBounds().max}
-                  onReadingSessionResize={handleResizeSessionWidth}
-                  readingReviewOpen={reviewOpen()}
-                  readingFileTreeOpen={fileTreeOpen()}
-                  readingSidePanelWidth={sidePanelWidth()}
-                  readingFileTreeWidth={fileTreePixelWidth()}
-                  readingFileTreeResizable={false}
-                  readingSizing={sizing}
-                />
-              </div>
-            </CommentsProvider>
-          </PromptProvider>
+          <LatexProvider>
+            <PromptProvider>
+              <CommentsProvider>
+                <div ref={containerRef} class="size-full overflow-hidden">
+                  <SessionPage
+                    readingPane={
+                      <ReadingModePanel
+                        sessionID={params.id!}
+                        width={pdfPixelWidth()}
+                        minWidth={pdfMinWidth()}
+                        maxWidth={Math.max(pdfMinWidth(), pdfMaxWidth())}
+                        layoutSwapped={layoutSwapped()}
+                        onSwapLayout={handleSwapLayout}
+                        onResizeWidth={handleResizeWidth}
+                        resizeHandleEnabled={mode() !== "review-right" && mode() !== "review-tree-right"}
+                        sizing={sizing}
+                      />
+                    }
+                    readingPanePosition={layoutSwapped() ? "after" : "before"}
+                    readingPaneWidth={pdfPixelWidth()}
+                    readingCompositeWidth={compositePixelWidth()}
+                    readingCompositeMinWidth={compositeResizeBounds().min}
+                    readingCompositeMaxWidth={compositeResizeBounds().max}
+                    onReadingCompositeResize={handleResizeCompositeWidth}
+                    readingSessionResizeSize={chatPixelWidth()}
+                    readingSessionResizeMin={sessionResizeBounds().min}
+                    readingSessionResizeMax={sessionResizeBounds().max}
+                    onReadingSessionResize={handleResizeSessionWidth}
+                    readingReviewOpen={reviewOpen()}
+                    readingFileTreeOpen={fileTreeOpen()}
+                    readingSidePanelWidth={sidePanelWidth()}
+                    readingFileTreeWidth={fileTreePixelWidth()}
+                    readingFileTreeResizable={false}
+                    readingSizing={sizing}
+                  />
+                </div>
+              </CommentsProvider>
+            </PromptProvider>
+          </LatexProvider>
         </FileProvider>
       </TerminalProvider>
     </ReadingModeProvider>
