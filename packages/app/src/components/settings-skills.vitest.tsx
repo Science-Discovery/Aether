@@ -12,8 +12,14 @@ const state = vi.hoisted(() => ({
   openProjectCalls: [] as string[],
   navigateCalls: [] as string[],
   evolutionEnabled: undefined as boolean | undefined,
+  rejectConfig: false,
+  errors: [] as unknown[],
   dirs: [
-    { directory: "/data/skill-evolution/p1", evolutionDir: "/data/skill-evolution/p1", projectPath: "/home/u/code/test" },
+    {
+      directory: "/data/skill-evolution/p1",
+      evolutionDir: "/data/skill-evolution/p1",
+      projectPath: "/home/u/code/test",
+    },
   ],
 }))
 
@@ -29,8 +35,10 @@ vi.mock("@/context/global-sync", async () => {
   return {
     useGlobalSync: () => ({
       data,
+      ready: true,
       set: (...input: unknown[]) => (setData as (...args: unknown[]) => unknown)(...input),
       updateConfig: async (config: { skills?: Record<string, unknown> }) => {
+        if (state.rejectConfig) throw new Error("save failed")
         state.configUpdates.push(config)
         if (config.skills) setData("config", "skills", (prev) => ({ ...prev, ...config.skills }))
         return data.config
@@ -80,7 +88,7 @@ vi.mock("@opencode-ai/ui/switch", () => ({
 }))
 
 vi.mock("@opencode-ai/ui/toast", () => ({
-  showToast: () => {},
+  showToast: (error: unknown) => state.errors.push(error),
 }))
 
 vi.mock("@/context/language", () => ({
@@ -104,6 +112,7 @@ vi.mock("@opencode-ai/util/encode", () => ({
 }))
 
 import { SettingsSkills } from "./settings-skills"
+import { useGlobalSync } from "@/context/global-sync"
 
 function mount() {
   const host = document.createElement("div")
@@ -127,6 +136,9 @@ beforeEach(() => {
   state.copyCalls = []
   state.openProjectCalls = []
   state.navigateCalls = []
+  state.rejectConfig = false
+  state.errors = []
+  useGlobalSync().set("config", "skills", { evolution_enabled: undefined })
   // jsdom's navigator.clipboard is a read-only getter, so define it instead of
   // assigning. Captures writeText calls so we can assert copy works.
   Object.defineProperty(navigator, "clipboard", {
@@ -141,10 +153,10 @@ describe("SettingsSkills", () => {
   test("renders without crashing and shows the master switch", async () => {
     const { host, off } = mount()
     await flush()
-    // Master switch present, defaults to on (evolution_enabled unset → on)
+    // An unset master switch requires explicit opt-in.
     const sw = host.querySelector('[role="switch"]')
     expect(sw).not.toBeNull()
-    expect(sw?.getAttribute("aria-checked")).toBe("true")
+    expect(sw?.getAttribute("aria-checked")).toBe("false")
     off()
   })
 
@@ -221,12 +233,36 @@ describe("SettingsSkills", () => {
   })
 
   test("toggling the master switch off writes evolution_enabled=false", async () => {
+    useGlobalSync().set("config", "skills", { evolution_enabled: true })
     const { host, off } = mount()
     await flush()
     const sw = host.querySelector('[role="switch"]') as HTMLButtonElement
     sw.click()
     await flush()
     expect(state.configUpdates).toContainEqual({ skills: { evolution_enabled: false } })
+    off()
+  })
+
+  test("enables evolution only after a successful save", async () => {
+    const { host, off } = mount()
+    await flush()
+    const sw = host.querySelector('[role="switch"]') as HTMLButtonElement
+    sw.click()
+    await flush()
+    expect(state.configUpdates).toEqual([{ skills: { evolution_enabled: true } }])
+    expect(sw.getAttribute("aria-checked")).toBe("true")
+    off()
+  })
+
+  test("failed save keeps the previous state and reports the error", async () => {
+    state.rejectConfig = true
+    const { host, off } = mount()
+    await flush()
+    const sw = host.querySelector('[role="switch"]') as HTMLButtonElement
+    sw.click()
+    await flush()
+    expect(sw.getAttribute("aria-checked")).toBe("false")
+    expect(state.errors).toEqual([{ title: "common.requestFailed", description: "save failed" }])
     off()
   })
 })

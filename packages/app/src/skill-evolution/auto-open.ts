@@ -17,6 +17,7 @@ const normalizeSep = (p: string) => p.replace(/\\/g, "/").replace(/\/+$/, "").to
  */
 export function setupSkillEvolutionAutoOpen(globalSync: GlobalSync, server: Server): void {
   createEffect(() => {
+    if (globalSync.data.config.skills?.evolution_enabled !== true) return
     const data = globalSync.data.path.data
     if (!data) return
     const target = normalizeSep(`${data}${SKILL_EVOLUTION_SUBPATH}`)

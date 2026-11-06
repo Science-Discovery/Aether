@@ -22,6 +22,8 @@ export function createAutoScroll(options: AutoScrollOptions) {
   const [store, setStore] = createStore({
     contentRef: undefined as HTMLElement | undefined,
     userScrolled: false,
+    // Keep an explicit display interaction paused even before it creates overflow.
+    held: false,
   })
 
   const active = () => options.working() || settling
@@ -79,7 +81,7 @@ export function createAutoScroll(options: AutoScrollOptions) {
   const scrollToBottom = (force: boolean) => {
     if (!force && !active()) return
 
-    if (force && store.userScrolled) setStore("userScrolled", false)
+    if (force) setStore({ userScrolled: false, held: false })
 
     const el = scroll
     if (!el) return
@@ -97,11 +99,12 @@ export function createAutoScroll(options: AutoScrollOptions) {
     scrollToBottomNow("auto")
   }
 
-  const stop = () => {
+  const stop = (force = false) => {
     const el = scroll
     if (!el) return
-    if (!canScroll(el)) {
-      if (store.userScrolled) setStore("userScrolled", false)
+    if (force) setStore("held", true)
+    if (!force && !canScroll(el)) {
+      if (store.userScrolled && !store.held) setStore("userScrolled", false)
       return
     }
     if (store.userScrolled) return
@@ -127,12 +130,12 @@ export function createAutoScroll(options: AutoScrollOptions) {
     if (!el) return
 
     if (!canScroll(el)) {
-      if (store.userScrolled) setStore("userScrolled", false)
+      if (store.userScrolled && !store.held) setStore("userScrolled", false)
       return
     }
 
     if (distanceFromBottom(el) < threshold()) {
-      if (store.userScrolled) setStore("userScrolled", false)
+      if (store.userScrolled) setStore({ userScrolled: false, held: false })
       return
     }
 
@@ -174,7 +177,7 @@ export function createAutoScroll(options: AutoScrollOptions) {
     () => {
       const el = scroll
       if (el && !canScroll(el)) {
-        if (store.userScrolled) setStore("userScrolled", false)
+        if (store.userScrolled && !store.held) setStore("userScrolled", false)
         return
       }
       if (!active()) return

@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import type { Prompt } from "@/context/prompt"
+import type { Reference } from "@/utils/ask-reference"
 import {
   canNavigateHistoryAtCursor,
   clonePromptParts,
@@ -31,6 +32,24 @@ const comment = (id: string, value = "note"): PromptHistoryComment => ({
   origin: "review",
   preview: "const a = 1",
 })
+const reference = (): Extract<Reference, { kind: "pdf" }> => ({
+  id: "ref",
+  version: 2,
+  kind: "pdf",
+  question: "Why is this important?",
+  text: "The finding",
+  summary: "The finding",
+  path: "/papers/paper.pdf",
+  filename: "paper.pdf",
+  mode: "classic",
+  sourceSession: "source",
+  startPage: 2,
+  endPage: 3,
+  selection: "pages:2,3",
+  content: "text",
+  settings: { questionPrompt: "Explain", contextPageRange: 1 },
+})
+const scope = { dir: "workspace", id: "session" }
 
 describe("prompt-input history", () => {
   test("prependHistoryEntry skips empty prompt and deduplicates consecutive entries", () => {
@@ -193,5 +212,105 @@ describe("prompt-input history", () => {
     expect(canNavigateHistoryAtCursor("down", "abc", 3, true)).toBe(true)
     expect(canNavigateHistoryAtCursor("up", "abc", 1, true)).toBe(false)
     expect(canNavigateHistoryAtCursor("down", "abc", 1, true)).toBe(false)
+  })
+
+  test("stores reference-only questions with their scope and deduplicates without depending on ID or version", () => {
+    const ref = reference()
+    const entries = prependHistoryEntry([], DEFAULT_PROMPT, [], undefined, [ref], scope)
+    expect(entries).toHaveLength(1)
+    const entry = normalizePromptHistoryEntry(entries[0]!)
+    expect(entry.references).toEqual([ref])
+    expect(entry.scope).toEqual(scope)
+    expect(
+      prependHistoryEntry(entries, DEFAULT_PROMPT, [], undefined, [{ ...ref, id: "new", version: 4 }], scope),
+    ).toBe(entries)
+    expect(
+      prependHistoryEntry(entries, DEFAULT_PROMPT, [], undefined, [{ ...ref, question: "Another question" }], scope),
+    ).toHaveLength(2)
+    expect(prependHistoryEntry(entries, DEFAULT_PROMPT, [], undefined, [ref], { ...scope, id: "other" })).toHaveLength(
+      2,
+    )
+  })
+
+  test("restores source metadata only to the same scope and skips foreign reference-only entries", () => {
+    const refs = [reference()]
+    const entries = prependHistoryEntry([text("older")], DEFAULT_PROMPT, [], undefined, refs, scope)
+    const input = {
+      direction: "up" as const,
+      entries,
+      historyIndex: -1,
+      currentPrompt: DEFAULT_PROMPT,
+      currentComments: [],
+      savedPrompt: null,
+    }
+    const same = navigatePromptHistory({ ...input, scope })
+    if (!same.handled) throw new Error("expected history entry")
+    expect(same.entry.references).toEqual(refs)
+    const other = navigatePromptHistory({ ...input, scope: { ...scope, id: "other" } })
+    if (!other.handled) throw new Error("expected older entry")
+    expect(other.entry.prompt).toEqual(text("older"))
+    expect(other.entry.references).toEqual([])
+    const mixed = navigatePromptHistory({
+      ...input,
+      entries: prependHistoryEntry([], text("Explain these"), [], undefined, refs, scope),
+      scope: { dir: "another", id: scope.id },
+    })
+    if (!mixed.handled) throw new Error("expected text entry")
+    expect(mixed.entry.prompt).toEqual(text("Explain these"))
+    expect(mixed.entry.references).toEqual([])
+  })
+
+  test("keeps live screenshot drafts when navigating back but omits their data from stored history", () => {
+    const ref = { ...reference(), content: "image" as const, image: "data:image/png;base64,large" }
+    const entries = prependHistoryEntry([], text("Previous"), [], undefined, [ref], scope)
+    expect(JSON.stringify(entries)).not.toContain("base64")
+    const up = navigatePromptHistory({
+      direction: "up",
+      entries,
+      historyIndex: -1,
+      currentPrompt: DEFAULT_PROMPT,
+      currentComments: [],
+      currentReferences: [ref],
+      scope,
+      savedPrompt: null,
+    })
+    if (!up.handled) throw new Error("expected history entry")
+    expect(up.entry.references[0]).toEqual({ ...ref, image: undefined })
+    ref.settings.contextPageRange = 2
+    const down = navigatePromptHistory({
+      direction: "down",
+      entries,
+      historyIndex: up.historyIndex,
+      currentPrompt: DEFAULT_PROMPT,
+      currentComments: [],
+      scope,
+      savedPrompt: up.savedPrompt,
+    })
+    if (!down.handled) throw new Error("expected draft")
+    expect(down.entry.references[0]).toEqual({ ...ref, settings: { ...ref.settings, contextPageRange: 1 } })
+    const other = navigatePromptHistory({
+      direction: "down",
+      entries,
+      historyIndex: up.historyIndex,
+      currentPrompt: DEFAULT_PROMPT,
+      currentComments: [],
+      scope: { ...scope, id: "other" },
+      savedPrompt: up.savedPrompt,
+    })
+    if (!other.handled) throw new Error("expected draft")
+    expect(other.entry.references).toEqual([])
+  })
+
+  test("migrates reference history without persisting screenshot data or losing source bindings", () => {
+    const ref = { ...reference(), content: "image" as const, image: "data:image/png;base64,large" }
+    const migrated = migratePromptHistory({
+      entries: [{ prompt: DEFAULT_PROMPT, comments: [], references: [ref], scope }, text("legacy")],
+    }) as { entries: PromptHistoryStoredEntry[] }
+    expect(migrated.entries).toHaveLength(2)
+    const entry = normalizePromptHistoryEntry(migrated.entries[0]!)
+    expect(entry.scope).toEqual(scope)
+    expect(entry.references).toEqual([{ ...ref, image: undefined }])
+    expect(normalizePromptHistoryEntry(migrated.entries[1]!).references).toEqual([])
+    expect(JSON.stringify(migrated)).not.toContain("base64")
   })
 })

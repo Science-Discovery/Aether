@@ -4,6 +4,7 @@ import { createStore, reconcile } from "solid-js/store"
 type TurnCollapseInput = {
   session: () => string | undefined
   ready: () => boolean
+  auto: () => boolean
   rendered: () => string[]
   turns: () => string[]
 }
@@ -18,6 +19,7 @@ export function createTurnCollapse(input: TurnCollapseInput) {
     prev: {} as Record<string, string[]>,
     tail: {} as Record<string, string | undefined>,
     map: {} as Record<string, Record<string, true>>,
+    manual: {} as Record<string, Record<string, boolean>>,
   })
 
   createEffect(
@@ -28,6 +30,7 @@ export function createTurnCollapse(input: TurnCollapseInput) {
       setState("prev", id, [])
       setState("tail", id, undefined)
       setState("map", id, reconcile({}))
+      setState("manual", id, reconcile({}))
     }),
   )
 
@@ -64,6 +67,10 @@ export function createTurnCollapse(input: TurnCollapseInput) {
     const seen = new Set(ids)
     const add = next.slice(0, off).filter((item) => seen.has(item) && item !== tail)
     if (add.length === 0) return
+    if (state.mode[id] === "closed") {
+      setState("manual", id, reconcile({ ...(state.manual[id] ?? {}), ...folded(add) }))
+      return
+    }
     setState("map", id, reconcile({ ...(state.map[id] ?? {}), ...folded(add) }))
   })
 
@@ -85,7 +92,10 @@ export function createTurnCollapse(input: TurnCollapseInput) {
   const collapsed = createMemo(() => {
     const id = input.session()
     if (!id) return {}
-    return state.map[id] ?? {}
+    return {
+      ...(input.auto() && state.mode[id] === "default" ? state.map[id] : {}),
+      ...state.manual[id],
+    }
   })
 
   return {
@@ -93,27 +103,19 @@ export function createTurnCollapse(input: TurnCollapseInput) {
     set: (messageID: string, value: boolean) => {
       const id = input.session()
       if (!id) return
-      const current = state.map[id] ?? {}
-      if (value) {
-        setState("map", id, reconcile({ ...current, [messageID]: true }))
-        return
-      }
-      if (!current[messageID]) return
-      const next = { ...current }
-      delete next[messageID]
-      setState("map", id, reconcile(next))
+      setState("manual", id, messageID, value)
     },
     all: () => {
       const id = input.session()
       if (!id) return
       setState("mode", id, "closed")
-      setState("map", id, reconcile(folded(input.turns())))
+      setState("manual", id, reconcile(folded(input.turns())))
     },
     none: () => {
       const id = input.session()
       if (!id) return
       setState("mode", id, "open")
-      setState("map", id, reconcile({}))
+      setState("manual", id, reconcile({}))
     },
   }
 }

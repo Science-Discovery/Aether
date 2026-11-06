@@ -12,6 +12,7 @@ import { ProjectIdentity } from "@/project/identity"
 import { Project } from "@/project/project"
 import { ProjectID } from "@/project/schema"
 import { SessionID } from "@/session/schema"
+import { ConfigReader } from "./config-reader"
 
 const log = Log.create({ service: "skill-evolution.review-agent" })
 
@@ -43,9 +44,7 @@ function evolutionSubProjectId(folderName: string): ProjectID {
 function findEvolutionSession(projectId: ProjectID, sessionTitle: string): SessionID | undefined {
   const db = Database.projectClient(projectId)
   const row = db.$client
-    .prepare(
-      "SELECT id FROM session WHERE project_id = ? AND title = ? ORDER BY time_created DESC LIMIT 1",
-    )
+    .prepare("SELECT id FROM session WHERE project_id = ? AND title = ? ORDER BY time_created DESC LIMIT 1")
     .get(projectId, sessionTitle) as { id: string } | undefined
 
   if (!row) return undefined
@@ -127,9 +126,7 @@ export function serializeHistory(messages: ReadonlyArray<MessageSnapshot>): stri
       } else if (part.type === "tool") {
         const state = part.state as { input?: unknown; output?: unknown } | undefined
         const hasInput = state?.input !== undefined && state.input !== null
-        const inputStr = hasInput
-          ? truncateForReview(JSON.stringify(state!.input), MAX_TOOL_INPUT_CHARS)
-          : ""
+        const inputStr = hasInput ? truncateForReview(JSON.stringify(state!.input), MAX_TOOL_INPUT_CHARS) : ""
         const outputStr =
           typeof state?.output === "string" ? truncateForReview(state.output, MAX_TOOL_OUTPUT_CHARS) : ""
         const open = `    <tool_call name="${escapeXml(part.tool ?? "")}" id="${part.callID ?? ""}"`
@@ -220,9 +217,7 @@ export async function collectSkillInventory(folderName: string): Promise<SkillSu
 /** Render the sub-project skill inventory block for the review prompt. */
 export function serializeSkillInventory(skills: ReadonlyArray<SkillSummary>): string {
   if (skills.length === 0) return "Existing skills in this project: (none yet)"
-  const lines = [
-    "Existing skills in this project (prefer EDITING one of these over creating a near-duplicate):",
-  ]
+  const lines = ["Existing skills in this project (prefer EDITING one of these over creating a near-duplicate):"]
   for (const s of skills) {
     const cat = s.category ? ` [${s.category}]` : ""
     const desc = s.description ? `: ${s.description}` : ""
@@ -241,9 +236,7 @@ export async function buildReviewPrompt(
 ): Promise<string> {
   const categories = await collectCategories(folderName)
   const categoryHint =
-    categories.length > 0
-      ? categories.map((c) => `  - ${c}`).join("\n") + "\n"
-      : "  (no existing categories yet)\n"
+    categories.length > 0 ? categories.map((c) => `  - ${c}`).join("\n") + "\n" : "  (no existing categories yet)\n"
   const inventoryBlock = serializeSkillInventory(await collectSkillInventory(folderName))
   const sections = [serializeHistory(messages), "", SKILL_REVIEW_PROMPT_BASE + categoryHint, "", inventoryBlock]
   const warning = buildEvolutionLockWarning(evolutionDisabledSkillNames)
@@ -270,7 +263,7 @@ function buildEvolutionLockWarning(names: ReadonlyArray<string>): string | undef
     "For each skill named above you MUST:",
     "- DO NOT modify it (no patch/edit/delete/rollback/write_file on it) — the user explicitly opted out of changes.",
     "- DO NOT create a new skill that duplicates its purpose under a different name — that would circumvent the opt-out.",
-    "Treat these as read-only. If your only worthwhile change would touch one of them, respond \"Nothing to save.\" instead.",
+    'Treat these as read-only. If your only worthwhile change would touch one of them, respond "Nothing to save." instead.',
   ].join("\n")
 }
 
@@ -289,6 +282,10 @@ export async function spawnReview(input: {
   const folderName = input.projectDirectory
     ? Spawner.skillFolderName(input.projectDirectory, input.projectId)
     : input.projectId
+  if (!(await ConfigReader.isEvolutionEnabled())) {
+    pendingReviews.delete(folderName)
+    return
+  }
 
   if (runningReviews.has(folderName)) {
     const queue = pendingReviews.get(folderName) ?? []
@@ -326,9 +323,7 @@ export async function spawnReview(input: {
     const cfg = await MainConfig.get()
     const evoDisabledPaths = new Set((cfg.skills?.evolution_disabled_files ?? []).map((p) => path.resolve(p)))
     const evolutionDisabledNames = evoDisabledPaths.size
-      ? (await MainSkill.all())
-          .filter((s) => evoDisabledPaths.has(path.resolve(s.location)))
-          .map((s) => s.name)
+      ? (await MainSkill.all()).filter((s) => evoDisabledPaths.has(path.resolve(s.location))).map((s) => s.name)
       : []
 
     const prompt = await buildReviewPrompt(messages, folderName, evolutionDisabledNames)
@@ -417,15 +412,17 @@ export async function spawnReview(input: {
           ToolRegistry.unregisterSession(reviewSessionId)
         }
       },
-    }).catch((err) => {
-      log.error("review session failed", { error: err, reviewSessionId })
-    }).finally(() => {
-      runningReviews.delete(folderName)
-      const queue = pendingReviews.get(folderName)
-      const next = queue?.shift()
-      if (queue && queue.length === 0) pendingReviews.delete(folderName)
-      if (next) spawnReview(next)
     })
+      .catch((err) => {
+        log.error("review session failed", { error: err, reviewSessionId })
+      })
+      .finally(() => {
+        runningReviews.delete(folderName)
+        const queue = pendingReviews.get(folderName)
+        const next = queue?.shift()
+        if (queue && queue.length === 0) pendingReviews.delete(folderName)
+        if (next) spawnReview(next)
+      })
   } catch (err) {
     runningReviews.delete(folderName)
     log.error("failed to spawn review session", { error: err, sessionID: input.sessionID })

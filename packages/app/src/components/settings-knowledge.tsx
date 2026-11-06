@@ -1,10 +1,15 @@
-import { Component, Show, For, createMemo, createSignal, onMount } from "solid-js"
+import { Component, Show, For, createEffect, createMemo, createSignal, onMount } from "solid-js"
+import { createStore } from "solid-js/store"
 import { Button } from "@opencode-ai/ui/button"
 import { Icon } from "@opencode-ai/ui/icon"
 import { Select } from "@opencode-ai/ui/select"
+import { Switch } from "@opencode-ai/ui/switch"
+import { showToast } from "@opencode-ai/ui/toast"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { useKnowledge } from "@/context/knowledge"
 import { useGlobalSDK } from "@/context/global-sdk"
+import { useGlobalSync } from "@/context/global-sync"
+import { useLanguage } from "@/context/language"
 import { useServer } from "@/context/server"
 import { useProviders } from "@/hooks/use-providers"
 import {
@@ -16,13 +21,32 @@ import {
   toEmbeddingProvider,
 } from "@/utils/knowledge-embedding"
 import { DialogSelectDirectory } from "./dialog-select-directory"
+import { KnowledgeStatus } from "./knowledge-status"
 
 export const SettingsKnowledge: Component = () => {
   const knowledge = useKnowledge()
   const dialog = useDialog()
   const sdk = useGlobalSDK()
+  const sync = useGlobalSync()
+  const language = useLanguage()
   const server = useServer()
   const providers = useProviders()
+  const [state, setState] = createStore({ saving: false })
+  const active = () => knowledge.available() && knowledge.ready()
+
+  const toggle = (enabled: boolean) => {
+    if (state.saving) return
+    setState("saving", true)
+    void sync
+      .updateConfig({ knowledge: { enabled } })
+      .catch((err: unknown) => {
+        showToast({
+          title: language.t("common.requestFailed"),
+          description: err instanceof Error ? err.message : String(err),
+        })
+      })
+      .finally(() => setState("saving", false))
+  }
 
   const [syncing, setSyncing] = createSignal<string | null>(null)
   const [error, setError] = createSignal("")
@@ -53,11 +77,17 @@ export const SettingsKnowledge: Component = () => {
     const lastConfig = knowledge.getLastConfig()
     if (lastConfig) {
       // Restore provider and trigger selection
-      if (lastConfig.provider) {
+      if (active() && lastConfig.provider) {
         void handleProviderSelect(lastConfig.provider, lastConfig.model)
       }
     }
     void knowledge.refreshAllStats()
+  })
+
+  createEffect(() => {
+    if (knowledge.available()) return
+    run += 1
+    setLoadingModels(false)
   })
 
   const fetchProviderConnection = async (id: string) => {
@@ -107,7 +137,7 @@ export const SettingsKnowledge: Component = () => {
   }
 
   const handleProviderSelect = async (id: string | undefined, pick?: string) => {
-    if (!id) return
+    if (!id || !active()) return
     const cur = ++run
     setSelectedProviderID(id)
     setNewProviderType(id === "local" ? "local" : toEmbeddingProvider(id))
@@ -151,6 +181,7 @@ export const SettingsKnowledge: Component = () => {
   }
 
   const handleAddKnowledgeBase = async () => {
+    if (!active()) return
     setError("")
     setSuccess("")
 
@@ -227,6 +258,7 @@ export const SettingsKnowledge: Component = () => {
   }
 
   const handleSync = async (id: string) => {
+    if (!active()) return
     setError("")
     setSuccess("")
     setSyncing(id)
@@ -255,6 +287,7 @@ export const SettingsKnowledge: Component = () => {
   }
 
   const handleSelect = (id: string) => {
+    if (!active()) return
     knowledge.toggleActive(id)
     const kb = knowledge.knowledgeBases().find((k) => k.id === id)
     if (kb) {
@@ -266,14 +299,25 @@ export const SettingsKnowledge: Component = () => {
     <div class="flex flex-col h-full overflow-y-auto no-scrollbar px-4 pb-10 sm:px-10 sm:pb-10">
       <div class="sticky top-0 z-10 bg-[linear-gradient(to_bottom,var(--surface-stronger-non-alpha)_calc(100%_-_24px),transparent)]">
         <div class="flex flex-col gap-1 pt-6 pb-8 max-w-[720px]">
-          <h2 class="text-16-medium text-text-strong">Knowledge Base</h2>
-          <p class="text-14-regular text-text-weak">
-            Configure local folders as knowledge bases for RAG-powered context in conversations.
-          </p>
+          <h2 class="text-16-medium text-text-strong">{language.t("knowledgeBase.title")}</h2>
+          <p class="text-14-regular text-text-weak">{language.t("knowledge.settings.description")}</p>
         </div>
       </div>
 
       <div class="flex flex-col gap-6 max-w-[720px]">
+        <div class="flex items-center gap-4 rounded-lg bg-surface-base px-4 py-3">
+          <div class="flex min-w-0 flex-1 flex-col gap-0.5">
+            <span class="text-14-medium text-text-strong">{language.t("knowledge.settings.enabled")}</span>
+            <span class="text-12-regular text-text-weak">{language.t("knowledge.settings.enabledDescription")}</span>
+          </div>
+          <Switch checked={knowledge.available()} disabled={state.saving || !sync.ready} onChange={toggle} hideLabel>
+            {language.t("knowledge.settings.enabled")}
+          </Switch>
+        </div>
+        <Show when={!knowledge.available()}>
+          <p class="text-12-regular text-text-weak">{language.t("knowledge.disabled")}</p>
+        </Show>
+        <KnowledgeStatus />
         <Show when={knowledge.knowledgeBases().length > 0}>
           <div class="flex flex-col gap-3">
             <h3 class="text-14-medium text-text-strong">Knowledge Bases</h3>
@@ -315,7 +359,7 @@ export const SettingsKnowledge: Component = () => {
                             e.stopPropagation()
                             handleSync(kb.id)
                           }}
-                          disabled={isSyncing()}
+                          disabled={isSyncing() || !active()}
                           class="h-7 px-2"
                         >
                           <Icon name="arrow-down-to-line" class="size-3.5" />
@@ -341,7 +385,7 @@ export const SettingsKnowledge: Component = () => {
         </Show>
 
         <Show when={!showAddForm()}>
-          <Button variant="secondary" onClick={() => setShowAddForm(true)} class="w-fit">
+          <Button variant="secondary" onClick={() => setShowAddForm(true)} disabled={!active()} class="w-fit">
             <Icon name="plus" class="size-4 mr-1" />
             Add Knowledge Base
           </Button>
@@ -508,7 +552,7 @@ export const SettingsKnowledge: Component = () => {
             <Button
               variant="primary"
               onClick={handleAddKnowledgeBase}
-              disabled={!newPath() || syncing() === "new"}
+              disabled={!active() || !newPath() || syncing() === "new"}
               class="w-fit mt-2"
             >
               {syncing() === "new" ? "Adding..." : "Add & Sync"}

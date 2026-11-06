@@ -78,6 +78,7 @@ function showErrors(input: {
 export async function bootstrapGlobal(input: {
   globalSDK: OpencodeClient
   provider: () => Promise<unknown>
+  config?: () => Promise<void>
   requestFailedTitle: string
   translate: (key: string, vars?: Record<string, string | number>) => string
   formatMoreCount: (count: number) => string
@@ -91,10 +92,12 @@ export async function bootstrapGlobal(input: {
         }),
       ),
     () =>
-      retry(() =>
-        input.globalSDK.global.config.get().then((x) => {
-          input.setGlobalStore("config", x.data!)
-        }),
+      retry(
+        input.config ??
+          (() =>
+            input.globalSDK.global.config.get().then((x) => {
+              input.setGlobalStore("config", x.data!)
+            })),
       ),
     () => retry(input.provider),
   ]
