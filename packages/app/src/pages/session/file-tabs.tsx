@@ -1,5 +1,18 @@
 import type { PdfTextSelection, PdfImageSelection } from "@/components/pdf-viewer-shell-official"
-import { batch, createEffect, createMemo, createSignal, Match, on, onCleanup, Show, Switch } from "solid-js"
+import {
+  batch,
+  createEffect,
+  createMemo,
+  createRoot,
+  createSignal,
+  lazy,
+  Match,
+  on,
+  onCleanup,
+  Show,
+  Suspense,
+  Switch,
+} from "solid-js"
 import { createStore } from "solid-js/store"
 import { Dynamic } from "solid-js/web"
 import { Button } from "@opencode-ai/ui/button"
@@ -31,6 +44,7 @@ import {
   restoreActiveTasks,
 } from "@/components/pdf-convert-progress"
 import { useSDK } from "@/context/sdk"
+import { usePlatform } from "@/context/platform"
 import { selectionFromLines, useFile, type FileSelection, type SelectedLineRange } from "@/context/file"
 import { useComments } from "@/context/comments"
 import { useMaybeFileQuote } from "@/context/file-quote"
@@ -56,6 +70,16 @@ import { sendFollowupDraft, type FollowupDraft } from "@/components/prompt-input
 import { createReadingQuoteMetadata, summarizeReadingQuoteText } from "@/utils/comment-note"
 import { Identifier } from "@/utils/id"
 import { formatServerError } from "@/utils/server-errors"
+import { draft as previewDraft, preview } from "@/utils/file-preview"
+import { read as previewRead } from "@/utils/preview-read"
+
+const FilePreview = lazy(() => import("@/components/file-preview"))
+
+function label(locale: string) {
+  if (locale === "zh") return { preview: "预览", source: "源码" }
+  if (locale === "zht") return { preview: "預覽", source: "原始碼" }
+  return { preview: "Preview", source: "Source" }
+}
 
 function FileCommentMenu(props: {
   moreLabel: string
@@ -104,6 +128,7 @@ export function FileTabContent(props: { tab: string; visible: boolean }) {
   const sync = useSync()
   const fileComponent = useFileComponent()
   const sdk = useSDK()
+  const platform = usePlatform()
   const server = useServer()
   const terminal = useTerminal()
   const dialog = useDialog()
@@ -113,6 +138,7 @@ export function FileTabContent(props: { tab: string; visible: boolean }) {
   const [isStale, setIsStale] = createSignal(false)
   const [needsConfirm, setNeedsConfirm] = createSignal(false)
   const [wordWrap, setWordWrapSignal] = createSignal(false)
+  const [mode, setMode] = createStore({ source: false })
 
   // Build fetchApi for progress recovery and modal actions.
   const fetchApi = (urlPath: string, options: RequestInit = {}): Promise<Response> => {
@@ -202,6 +228,7 @@ export function FileTabContent(props: { tab: string; visible: boolean }) {
   const startEditing = () => {
     const p = path()
     if (!p) return
+    if (kind() === "html") setMode("source", true)
     // 进入编辑模式前，从预览视口中心提取文本锚点（用于定位到编辑器对应位置）
     if (scroll) {
       const maxScroll = scroll.scrollHeight - scroll.clientHeight
@@ -232,6 +259,7 @@ export function FileTabContent(props: { tab: string; visible: boolean }) {
   const restoreDraft = () => {
     const p = path()
     if (!p) return
+    if (kind() === "html") setMode("source", true)
     setEditContentSignal(editorValue({ draft: file.draft(p), content: contents() }))
     setIsStale(false)
     setNeedsConfirm(file.draftBase(p) === undefined)
@@ -367,6 +395,9 @@ export function FileTabContent(props: { tab: string; visible: boolean }) {
   }
 
   const path = createMemo(() => file.pathFromTab(props.tab))
+  const kind = createMemo(() => preview(path() ?? ""))
+  const editing = createMemo(() => isEditing() && (kind() !== "html" || mode.source))
+  const raw = createMemo(() => kind() !== "html" || mode.source)
   const latex = createMemo(() => source(path() ?? ""))
   const managed = createMemo(() => latex() && project.state.path === path() && !!project.state.project?.binding)
   createEffect(
@@ -434,6 +465,7 @@ export function FileTabContent(props: { tab: string; visible: boolean }) {
     if (!p) return false
     return p.split(".").pop()?.toLowerCase() === "pdf"
   })
+  const full = createMemo(() => isPDF() || (!!kind() && (kind() !== "html" || !mode.source)))
 
   const rawPreviewUrl = createMemo(() => {
     const p = path()
@@ -456,6 +488,43 @@ export function FileTabContent(props: { tab: string; visible: boolean }) {
     if (!http?.password) return undefined
     return `Basic ${btoa(`${http.username ?? "opencode"}:${http.password}`)}`
   })
+
+  const draft = (p: string) =>
+    previewDraft({
+      value: file.draft(p),
+      base: file.draftBase(p),
+      content: file.get(p)?.content?.content,
+      editing: !!file.isEditing(p),
+    })
+  const read = async (p: string, signal: AbortSignal) => {
+    const auth = pdfAuthHeader()
+    const response = await (platform.fetch ?? globalThis.fetch)(
+      `${sdk.url}/file/preview/resource?path=${encodeURIComponent(p)}&directory=${encodeURIComponent(sdk.directory)}`,
+      {
+        signal,
+        headers: auth ? { Authorization: auth } : undefined,
+      },
+    )
+    if (!response.ok) throw new Error(`HTTP ${response.status}: ${p}`)
+    return {
+      data: await previewRead(response, signal),
+      mime: response.headers.get("Content-Type") ?? "application/octet-stream",
+    }
+  }
+  const subscribe = (paths: () => ReadonlySet<string>, callback: () => void) => {
+    const stop = sdk.event.listen((event) => {
+      if (event.details.type !== "file.watcher.updated") return
+      if (paths().has(file.normalize(event.details.properties.file))) callback()
+    })
+    const dispose = createRoot((dispose) => {
+      createEffect(on(() => JSON.stringify([...paths()].sort().map((p) => [p, draft(p)])), callback, { defer: true }))
+      return dispose
+    })
+    return () => {
+      stop()
+      dispose()
+    }
+  }
 
   const openPdfToMarkdown = () => {
     const p = path()
@@ -1307,6 +1376,32 @@ export function FileTabContent(props: { tab: string; visible: boolean }) {
   }
 
   const renderFile = (source: string) => {
+    const format = kind()
+    if (format && (format !== "html" || !mode.source)) {
+      return (
+        <div class="size-full min-h-0 overflow-hidden" data-file-content>
+          <Suspense
+            fallback={
+              <div role="status" class="p-4 text-text-weak">
+                {language.t("common.loading")}…
+              </div>
+            }
+          >
+            <FilePreview
+              kind={format}
+              path={path() ?? ""}
+              src={rawPreviewUrl()}
+              auth={pdfAuthHeader()}
+              version={state()?.version ?? 0}
+              source={draft(path() ?? "") ?? source}
+              read={read}
+              draft={draft}
+              subscribe={subscribe}
+            />
+          </Suspense>
+        </div>
+      )
+    }
     if (isImageFile()) {
       return <FileImage src={rawPreviewUrl()} path={path() ?? ""} auth={pdfAuthHeader()} />
     }
@@ -1463,6 +1558,26 @@ export function FileTabContent(props: { tab: string; visible: boolean }) {
 
   const actions = () => (
     <div class="flex shrink-0 justify-end gap-1.5">
+      <Show when={kind() === "html"}>
+        <div class="mr-auto flex items-center gap-1" role="group" aria-label="HTML">
+          <Button
+            size="small"
+            variant={mode.source ? "ghost" : "secondary"}
+            aria-pressed={!mode.source}
+            onClick={() => setMode("source", false)}
+          >
+            {label(language.locale()).preview}
+          </Button>
+          <Button
+            size="small"
+            variant={mode.source ? "secondary" : "ghost"}
+            aria-pressed={mode.source}
+            onClick={() => setMode("source", true)}
+          >
+            {label(language.locale()).source}
+          </Button>
+        </div>
+      </Show>
       <Show when={!isEditing() && isPython()}>
         <IconButton
           icon="console"
@@ -1473,7 +1588,7 @@ export function FileTabContent(props: { tab: string; visible: boolean }) {
           disabled={isRunning()}
         />
       </Show>
-      <Show when={isTextFile()}>
+      <Show when={isTextFile() && raw()}>
         <Tooltip placement="top" gutter={4} value={wordWrap() ? "关闭自动换行" : "开启自动换行"}>
           <IconButton
             icon="align-right"
@@ -1486,9 +1601,9 @@ export function FileTabContent(props: { tab: string; visible: boolean }) {
       </Show>
       <Show when={!latex()}>
         <Show
-          when={isEditing() && isTextFile()}
+          when={editing() && isTextFile()}
           fallback={
-            <Show when={isTextFile() && !isStale()}>
+            <Show when={isTextFile() && raw() && !isStale()}>
               <IconButton
                 icon="pencil-line"
                 variant="ghost"
@@ -1526,8 +1641,8 @@ export function FileTabContent(props: { tab: string; visible: boolean }) {
       value={props.tab}
       classList={{
         "relative flex h-full min-h-0 flex-col overflow-hidden contain-strict": true,
-        // PDFs fill the tab flush; LaTeX supplies its own toolbar padding.
-        "mt-3": !isPDF() && !latex(),
+        // Document previews fill the tab flush; LaTeX supplies its own toolbar padding.
+        "mt-3": !full() && !latex(),
       }}
     >
       <Show when={state()?.loaded && (isTextFile() || isPython()) && (!latex() || isStale())}>
@@ -1561,10 +1676,10 @@ export function FileTabContent(props: { tab: string; visible: boolean }) {
         onLocate={() => project.locate(path() ?? "")}
       >
         <Show
-          when={isEditing()}
+          when={editing()}
           fallback={
             <Show
-              when={isPDF()}
+              when={full()}
               fallback={
                 <ScrollView
                   class="h-full min-h-0 flex-1"

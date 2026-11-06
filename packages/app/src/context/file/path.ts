@@ -106,7 +106,7 @@ export function createPathHelpers(scope: () => string) {
     const root = scope()
 
     // Tab URLs are encoded, but file-tree and watcher paths are literal names.
-    // A decoded tab path also passes through normalize again when loading it.
+    // Decode only file URLs, once, before reusing their paths.
     const source = input.startsWith("file://") ? decodeFilePath(stripQueryAndHash(stripFileProtocol(input))) : input
     let path = unquoteGitPath(source)
 

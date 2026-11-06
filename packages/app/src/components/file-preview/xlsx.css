@@ -1,0 +1,147 @@
+.xlsx-preview {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-base);
+  background: var(--background-base);
+}
+.xlsx-loading {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  font-size: 13px;
+  color: var(--text-weak);
+}
+.xlsx-viewport {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  background: #fff;
+  outline-offset: -2px;
+}
+.xlsx-canvas {
+  position: relative;
+}
+.xlsx-columns {
+  position: sticky;
+  top: 0;
+  height: 28px;
+  z-index: 4;
+}
+.xlsx-rows {
+  position: sticky;
+  left: 0;
+  width: 48px;
+  height: 0;
+  z-index: 3;
+}
+.xlsx-heading,
+.xlsx-corner {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface-raised-base, #eee);
+  color: var(--text-weak);
+  border: 1px solid var(--border-weak-base, #ccc);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  user-select: none;
+}
+.xlsx-heading {
+  position: absolute;
+}
+.xlsx-columns .xlsx-heading {
+  height: 28px;
+}
+.xlsx-rows .xlsx-heading {
+  width: 48px;
+}
+.xlsx-corner {
+  position: sticky;
+  left: 0;
+  width: 48px;
+  height: 28px;
+  z-index: 5;
+}
+.xlsx-cell {
+  box-sizing: border-box;
+  position: absolute;
+  display: flex;
+  align-items: flex-end;
+  padding: 1px 4px;
+  overflow: hidden;
+  white-space: pre;
+  border-right: 1px solid #ddd;
+  border-bottom: 1px solid #ddd;
+  color: #111;
+  background: #fff;
+  font-family: Calibri, Arial, sans-serif;
+  font-size: 14.6667px;
+  line-height: 1.15;
+}
+.xlsx-value {
+  width: 100%;
+  overflow: hidden;
+}
+.xlsx-warning {
+  padding: 5px 10px;
+  font-size: 12px;
+  color: var(--text-weak);
+  flex-shrink: 0;
+}
+.xlsx-cell[data-unformatted="true"]::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 0;
+  height: 0;
+  border-top: 5px solid #ad7000;
+  border-left: 5px solid transparent;
+}
+.xlsx-formula {
+  font-family: var(--font-family-mono, monospace);
+}
+.xlsx-uncalculated {
+  color: #8a4a00;
+}
+.xlsx-image {
+  position: absolute;
+  z-index: 1;
+  max-width: none;
+  object-fit: fill;
+}
+.xlsx-sheets {
+  display: flex;
+  flex-shrink: 0;
+  gap: 2px;
+  padding: 4px;
+  overflow: auto;
+  border-top: 1px solid var(--border-weak-base);
+}
+.xlsx-sheets button {
+  flex-shrink: 0;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 4px 10px;
+  border-radius: 4px;
+  font-size: 13px;
+  color: var(--text-weak);
+}
+.xlsx-sheets button:hover {
+  background: var(--surface-base-hover);
+}
+.xlsx-sheets button[aria-selected="true"] {
+  background: var(--surface-base-active);
+  color: var(--text-strong);
+}
