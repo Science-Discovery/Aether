@@ -6,10 +6,7 @@ import { Button } from "@opencode-ai/ui/button"
 import { Dialog } from "@opencode-ai/ui/dialog"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { showToast } from "@opencode-ai/ui/toast"
-import { useMaybeConversationQuote } from "@/context/conversation-quote"
 import { useMaybeFileQuote } from "@/context/file-quote"
-import { useMaybeQuickReadingMode } from "@/context/quick-reading-mode"
-import { useMaybeReadingMode } from "@/context/reading-mode"
 import { useLanguage } from "@/context/language"
 import { usePrompt } from "@/context/prompt"
 import { useSDK } from "@/context/sdk"
@@ -24,10 +21,7 @@ export function useNativeRevert() {
   const prompt = usePrompt()
   const dialog = useDialog()
   const language = useLanguage()
-  const quote = useMaybeConversationQuote()
   const file = useMaybeFileQuote()
-  const quick = useMaybeQuickReadingMode()
-  const reading = useMaybeReadingMode()
   type Status = NonNullable<Awaited<ReturnType<typeof sdk.client.native.revertStatus>>["data"]>
   const [state, setState] = createStore<{
     key: string
@@ -53,10 +47,8 @@ export function useNativeRevert() {
   const occupied = () =>
     prompt.dirty() ||
     prompt.context.items().length > 0 ||
-    !!quote?.store.pendingQuestions.some((item) => item.sessionID === params.id) ||
-    file?.store.question?.sessionID === params.id ||
-    quick?.store.pendingQuestion?.sessionID === params.id ||
-    !!reading?.store.pendingQuestion
+    prompt.references.items().length > 0 ||
+    file?.store.question?.sessionID === params.id
 
   async function history(id: string, scope: string, stamp: number, operation: string) {
     if (!valid(stamp, scope) || seen.get(scope) === operation) return

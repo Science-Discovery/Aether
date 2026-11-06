@@ -4,13 +4,12 @@ import { base64Encode } from "@opencode-ai/util/encode"
 import { Binary } from "@opencode-ai/util/binary"
 import { useNavigate, useParams } from "@solidjs/router"
 import type { Accessor } from "solid-js"
-import type { FileSelection } from "@/context/file"
 import { useFile } from "@/context/file"
 import { useGlobalSync } from "@/context/global-sync"
 import { useLanguage } from "@/context/language"
 import { useLocal } from "@/context/local"
 import { usePermission } from "@/context/permission"
-import { DEFAULT_PROMPT, type ContextItem, type ImageAttachmentPart, type Prompt, usePrompt } from "@/context/prompt"
+import { type ContextItem, type ImageAttachmentPart, type Prompt, usePrompt } from "@/context/prompt"
 import { useSDK } from "@/context/sdk"
 import { useServer } from "@/context/server"
 import { useSync } from "@/context/sync"
@@ -21,13 +20,9 @@ import { claimSession } from "@/utils/session-pending"
 import { Worktree as WorktreeState } from "@/utils/worktree"
 import { buildRequestParts, type DataAttachment } from "./build-request-parts"
 import { setCursorPosition } from "./editor-dom"
-import {
-  createFileQuoteMetadata,
-  createReadingQuoteMetadata,
-  formatReadingPageRange,
-  summarizeReadingQuoteText,
-} from "@/utils/comment-note"
-import { createConversationQuoteMetadata } from "@/utils/conversation-quote-metadata"
+import { clonePromptParts, type PromptHistoryEntry } from "./history"
+import { cloneReferences, canAsk, missingImages, type Reference } from "@/utils/ask-reference"
+import { referenceParts, referenceRanges, type FileQuestion, type ReadingContext } from "./ask-request"
 import { formatServerError } from "@/utils/server-errors"
 import type { NativeEngine } from "@/utils/native"
 import type { NativeDraft } from "@/context/native-run"
@@ -57,7 +52,12 @@ export type FollowupDraft = {
   engine?: NativeEngine
   selectedPaths?: string[]
   pdfSelectedText?: string
+  references?: Reference[]
+  sources?: ReadingContext[]
+  fileQuote?: FileQuestion
 }
+
+export type FollowupEdit = { id: string } & Pick<FollowupDraft, "prompt" | "context" | "references" | "fileQuote">
 
 type FollowupSendInput = {
   client: ReturnType<typeof useSDK>["client"]
@@ -74,7 +74,6 @@ type FollowupSendInput = {
 const draftText = (prompt: Prompt) => prompt.map((part) => ("content" in part ? part.content : "")).join("")
 
 const draftImages = (prompt: Prompt) => prompt.filter((part): part is ImageAttachmentPart => part.type === "image")
-const capture = <T>(value: T): T => JSON.parse(JSON.stringify(value))
 
 function buildAuthHeaders(input: { username?: string; password?: string; json?: boolean }) {
   const headers: Record<string, string> = {}
@@ -85,71 +84,6 @@ function buildAuthHeaders(input: { username?: string; password?: string; json?: 
     headers["Content-Type"] = "application/json"
   }
   return headers
-}
-
-function fillReadingQuestionPrompt(
-  template: string,
-  input: {
-    selectedContent: string
-    userQuestion: string
-    contextPages: string
-    selectedPages?: string
-    contextRange?: string
-  },
-) {
-  return template
-    .replaceAll("{selected_content}", input.selectedContent)
-    .replaceAll("{user_question}", input.userQuestion)
-    .replaceAll("{context_pages}", input.contextPages)
-    .replaceAll("{selected_pages}", input.selectedPages ?? "")
-    .replaceAll("{context_range}", input.contextRange ?? "")
-}
-
-function describeReadingSelection(input: {
-  startPage: number
-  endPage?: number
-  kind: "text-question" | "image-question"
-  text?: string
-}) {
-  if (input.kind === "image-question") {
-    return `用户选中的是一张来自 PDF 第 ${formatReadingPageRange(input)} 页的截图区域，请结合截图与上下文回答。`
-  }
-  return input.text ?? ""
-}
-
-function fillConversationQuotePrompt(input: { selectedContent: string[]; userQuestion: string }) {
-  return [
-    "The user selected one or more passages from previous assistant replies and wants to ask a follow-up question about them.",
-    "",
-    ...input.selectedContent.flatMap((text, idx) => [`[Quoted assistant content ${idx + 1}]`, text, ""]),
-    "",
-    "[User question]",
-    input.userQuestion,
-    "",
-    "Answer the user's question based on the quoted assistant content. If the quoted content is incomplete or ambiguous, say so clearly.",
-  ].join("\n")
-}
-
-function fileQuoteLocation(path: string, startLine?: number, endLine?: number) {
-  if (startLine === undefined) return path
-  return endLine !== undefined && endLine !== startLine ? `${path}:${startLine}-${endLine}` : `${path}:${startLine}`
-}
-
-function fillFileQuotePrompt(input: { location: string; selectedContent: string; userQuestion: string }) {
-  return [
-    "The user selected content from a file in their project and wants to ask a follow-up question about it.",
-    "",
-    `[Selected content from ${input.location}]`,
-    input.selectedContent,
-    "",
-    "[User question]",
-    input.userQuestion,
-    "",
-    "Answer the user's question based on the selected content.",
-    "The quote is taken as displayed; if the file is viewed in a rendered form (e.g. Markdown preview), it may differ from the raw source - read the file for exact content.",
-    "If the selected content is incomplete or ambiguous, say so clearly.",
-    "When answering, cite the file and line numbers.",
-  ].join("\n")
 }
 
 function blobToDataUrl(blob: Blob) {
@@ -209,7 +143,13 @@ export async function sendFollowupDraft(input: FollowupSendInput) {
 
   const [head, ...tail] = text.split(" ")
   const cmd = head?.startsWith("/") ? head.slice(1) : undefined
-  if (!input.draft.engine && cmd && input.sync.data.command.find((item) => item.name === cmd)) {
+  if (
+    !input.draft.engine &&
+    !input.draft.references?.length &&
+    !input.draft.fileQuote &&
+    cmd &&
+    input.sync.data.command.find((item) => item.name === cmd)
+  ) {
     setBusy()
     try {
       if (!(await wait())) {
@@ -239,14 +179,23 @@ export async function sendFollowupDraft(input: FollowupSendInput) {
     }
   }
 
+  const quoted = !!input.draft.references?.length || !!input.draft.fileQuote
+  const selection = quoted
+    ? referenceParts({
+        refs: input.draft.references ?? [],
+        text,
+        contexts: input.draft.sources,
+        file: input.draft.fileQuote,
+      })
+    : undefined
   const messageID = input.messageID ?? Identifier.ascending("message")
   const { requestParts, optimisticParts } = buildRequestParts({
     prompt: input.draft.prompt,
     context: input.draft.context,
     images,
-    attachments: input.draft.attachments,
-    text,
-    extraTextParts: input.draft.extraTextParts,
+    attachments: [...(input.draft.attachments ?? []), ...(selection?.attachments ?? [])],
+    text: quoted ? "" : text,
+    extraTextParts: [...(input.draft.extraTextParts ?? []), ...(selection?.parts ?? [])],
     sessionID: input.draft.sessionID,
     messageID,
     sessionDirectory: input.draft.sessionDirectory,
@@ -258,8 +207,12 @@ export async function sendFollowupDraft(input: FollowupSendInput) {
     const parts = requestParts.filter((part) => part.type === "text" || part.type === "file")
     if (parts.length !== requestParts.length)
       throw new Error("Aether agent mentions cannot be sent to a Codex conversation.")
+    if (!(await wait())) return false
     return input.enqueue({
-      text: input.draft.extraTextParts?.find((part) => !part.synthetic)?.text || text,
+      text:
+        selection?.parts.find((part) => !part.synthetic)?.text ||
+        input.draft.extraTextParts?.find((part) => !part.synthetic)?.text ||
+        text,
       parts,
     })
   }
@@ -328,7 +281,8 @@ type PromptSubmitInput = {
   editor: () => HTMLDivElement | undefined
   queueScroll: () => void
   promptLength: (prompt: Prompt) => number
-  addToHistory: (prompt: Prompt, mode: "normal" | "shell") => void
+  history?: () => Omit<PromptHistoryEntry, "prompt">
+  addToHistory: (prompt: Prompt, mode: "normal" | "shell", history?: Omit<PromptHistoryEntry, "prompt">) => void
   resetHistoryNavigation: () => void
   setMode: (mode: "normal" | "shell") => void
   setPopover: (popover: "at" | "slash" | null) => void
@@ -339,79 +293,8 @@ type PromptSubmitInput = {
   onAbort?: () => void
   onSubmit?: () => void
   openTabPaths?: Accessor<string[]>
-  conversationQuoteQuestions?: Accessor<QuoteQuestion[]>
-  onConversationQuoteClear?: (sessionID?: string) => void
-  fileQuoteQuestion?: Accessor<FileQuoteQuestion>
-  onFileQuoteClear?: () => void
-  quickReadingQuestion?: Accessor<QuickQuestion>
-  quickReadingSettings?: Accessor<QuestionSettings | undefined>
-  onQuickReadingQuestionClear?: () => void
-  readingQuestion?: Accessor<ReadingQuestion>
-  readingSessionMeta?: Accessor<ReadingMeta | null | undefined>
-  readingTotalPages?: Accessor<number | undefined>
-  onReadingQuestionClear?: () => void
-}
-
-type QuoteQuestion = {
-  sessionID: string
-  sourceMessageID: string
-  text: string
-  summary: string
-}
-
-type FileQuoteQuestion = {
-  sessionID: string
-  path: string
-  startLine?: number
-  endLine?: number
-  text: string
-  summary: string
-} | null
-
-type QuestionSettings = {
-  questionPrompt: string
-}
-
-type ReadingSettings = QuestionSettings & {
-  contextPageRange: 0 | 1 | 2
-}
-
-type ReadingMeta = {
-  pdfFileName: string
-  settings: ReadingSettings
-}
-
-type TextQuestion = {
-  kind: "text-question"
-  startPage: number
-  endPage: number
-  text: string
-}
-
-type ImageQuestion = {
-  kind: "image-question"
-  page: number
-  text: string
-  imageDataUrl: string
-}
-
-type ReadingQuestion = TextQuestion | ImageQuestion | null
-
-type QuickQuestion =
-  | ((TextQuestion | ImageQuestion) & {
-      sessionID: string
-      pdfFileName: string
-      source?: import("@/utils/pdf-source").LatexQuote
-    })
-  | null
-
-type CommentItem = {
-  path: string
-  selection?: FileSelection
-  comment?: string
-  commentID?: string
-  commentOrigin?: "review" | "file"
-  preview?: string
+  fileQuoteQuestion?: Accessor<FileQuestion | null>
+  onFileQuoteClear?: (question: FileQuestion) => void
 }
 
 export function createPromptSubmit(input: PromptSubmitInput) {
@@ -438,7 +321,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
   }
 
   let submitting = false
-  const preparing = new Set<string>()
+  const flights = new Set<string>()
 
   const abort = async () => {
     const sessionID = params.id
@@ -464,32 +347,6 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       .catch(() => {})
   }
 
-  const restoreCommentItems = (items: CommentItem[]) => {
-    for (const item of items) {
-      prompt.context.add({
-        type: "file",
-        path: item.path,
-        selection: item.selection,
-        comment: item.comment,
-        commentID: item.commentID,
-        commentOrigin: item.commentOrigin,
-        preview: item.preview,
-      })
-    }
-  }
-
-  const removeCommentItems = (items: { key: string }[]) => {
-    for (const item of items) {
-      prompt.context.remove(item.key)
-    }
-  }
-
-  const clearContext = () => {
-    for (const item of prompt.context.items()) {
-      prompt.context.remove(item.key)
-    }
-  }
-
   const seed = (dir: string, info: Session) => {
     const [, setStore] = globalSync.child(dir)
     setStore("session", (list: Session[]) => {
@@ -509,18 +366,20 @@ export function createPromptSubmit(input: PromptSubmitInput) {
     setStore("session", (list: Session[]) => list.filter((item) => item.id !== id))
   }
 
-  const fetchReadingContextPages = async (input: {
-    sessionID: string
-    startPage: number
-    endPage?: number
-    range: 0 | 1 | 2
-    totalPages?: number
-  }) => {
+  const fetchReadingContextPages = async (
+    input: {
+      sessionID: string
+      startPage: number
+      endPage?: number
+      range: 0 | 1 | 2
+      totalPages?: number
+    },
+    connection: { url: string; headers: Record<string, string> },
+  ) => {
     const { startPage, endPage } = resolveReadingContextRange(input)
-    const http = server.current?.http
-    const response = await fetch(`${sdk.url}/reading-mode/page-text`, {
+    const response = await fetch(`${connection.url}/reading-mode/page-text`, {
       method: "POST",
-      headers: buildAuthHeaders({ username: http?.username, password: http?.password, json: true }),
+      headers: connection.headers,
       body: JSON.stringify({
         sessionID: input.sessionID,
         startPage,
@@ -538,18 +397,20 @@ export function createPromptSubmit(input: PromptSubmitInput) {
     }
   }
 
-  const fetchReadingContextPdf = async (input: {
-    sessionID: string
-    startPage: number
-    endPage?: number
-    range: 0 | 1 | 2
-    totalPages?: number
-  }) => {
+  const fetchReadingContextPdf = async (
+    input: {
+      sessionID: string
+      startPage: number
+      endPage?: number
+      range: 0 | 1 | 2
+      totalPages?: number
+    },
+    connection: { url: string; headers: Record<string, string> },
+  ) => {
     const { startPage, endPage } = resolveReadingContextRange(input)
-    const http = server.current?.http
-    const response = await fetch(`${sdk.url}/reading-mode/page-pdf`, {
+    const response = await fetch(`${connection.url}/reading-mode/page-pdf`, {
       method: "POST",
-      headers: buildAuthHeaders({ username: http?.username, password: http?.password, json: true }),
+      headers: connection.headers,
       body: JSON.stringify({
         sessionID: input.sessionID,
         startPage,
@@ -566,13 +427,12 @@ export function createPromptSubmit(input: PromptSubmitInput) {
     }
   }
 
-  const submit = async (event: Event) => {
+  const handleSubmit = async (event: Event) => {
     event.preventDefault()
-
-    const queued = input.working() && !!local.native.engine()
-    const scope = `${sdk.url}\n${sdk.directory}\n${params.id ?? ""}`
-    if (queued && (!params.id || !input.nativeSubmit || submitting)) return
-    if (input.working() && !queued) {
+    if (input.blocked?.()) return
+    const native = input.working() && !!local.native.engine()
+    if (native && (!params.id || !input.nativeSubmit || submitting)) return
+    if (input.working() && !native) {
       abort()
       return
     }
@@ -585,807 +445,477 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       return
     }
 
-    const currentPrompt = capture(prompt.current())
+    const scope = { dir: params.dir!, id: params.id }
+    const connection = {
+      url: sdk.url,
+      server: server.current?.http.url,
+      headers: buildAuthHeaders({ ...server.current?.http, json: true }),
+    }
+    const refs = cloneReferences(prompt.references.items(scope))
+    const context = prompt.context
+      .items(scope)
+      .map((item) => ({ ...item, selection: item.selection ? { ...item.selection } : undefined }))
+    const question = input.fileQuoteQuestion?.()
+    const fileQuote = question && question.sessionID === scope.id ? { ...question } : undefined
+    const currentPrompt = clonePromptParts(prompt.current(scope))
+    const history = input.history?.()
     const text = currentPrompt.map((part) => ("content" in part ? part.content : "")).join("")
     const images = input.imageAttachments().slice()
     const mode = input.mode()
+    const queued = mode === "normal" && !!input.shouldQueue?.()
 
+    if (mode === "normal" && refs.length && (!canAsk(text, refs) || missingImages(refs))) {
+      showToast({
+        title: language.t("common.requestFailed"),
+        description: language.t(missingImages(refs) ? "ask.send.missingImage" : "ask.send.questionRequired"),
+      })
+      return
+    }
     if (
       text.trim().length === 0 &&
       images.length === 0 &&
       input.commentCount() === 0 &&
       !currentPrompt.some((part) => part.type === "file") &&
-      !prompt.context.items().length
+      !context.length &&
+      (mode !== "normal" || !refs.some((ref) => ref.question.trim()))
     ) {
       return
     }
 
-    const selection = local.selection()
-    if (!selection) {
-      showToast({
-        title: language.t("prompt.toast.modelAgentRequired.title"),
-        description: language.t(
-          local.native.engine() ? "native.notReady" : "prompt.toast.modelAgentRequired.description",
-        ),
-      })
-      return
-    }
-    const engine = selection.engine
-    if (!engine && currentPrompt.some((part) => part.type === "skill")) {
-      showToast({ title: language.t("native.skills.onlyCodex"), variant: "error" })
-      return
-    }
-    if (engine && mode === "shell") return
-    const variant = selection.variant
+    const key = `${connection.server}\n${JSON.stringify(scope)}`
+    if (flights.has(key)) return
+    flights.add(key)
+    try {
+      const selection = local.selection()
+      if (!selection) {
+        showToast({
+          title: language.t("prompt.toast.modelAgentRequired.title"),
+          description: language.t(
+            local.native.engine() ? "native.notReady" : "prompt.toast.modelAgentRequired.description",
+          ),
+        })
+        return
+      }
+      const engine = selection.engine
+      const variant = selection.variant
+      if (!engine && currentPrompt.some((part) => part.type === "skill")) {
+        showToast({ title: language.t("native.skills.onlyCodex"), variant: "error" })
+        return
+      }
+      if (engine && mode === "shell") return
+      if (!native) {
+        input.addToHistory(currentPrompt, mode, history)
+        input.resetHistoryNavigation()
+        promptProbe.start()
+      }
 
-    if (!queued) {
-      input.addToHistory(currentPrompt, mode)
-      input.resetHistoryNavigation()
-      promptProbe.start()
-    }
+      const projectDirectory = sdk.directory
+      const isNewSession = !scope.id
+      const worktreeSelection = input.newSessionWorktree?.() || "main"
+      const existing = input.info()
 
-    const projectDirectory = sdk.directory
-    const isNewSession = !params.id
-    const worktreeSelection = input.newSessionWorktree?.() || "main"
+      let sessionDirectory = projectDirectory
+      let client = sdk.client
 
-    let sessionDirectory = projectDirectory
-    let client = sdk.client
+      if (isNewSession) {
+        if (submitting) return
+        submitting = true
+        try {
+          if (worktreeSelection === "create") {
+            const createdWorktree = await client.worktree
+              .create({ directory: projectDirectory })
+              .then((x) => x.data)
+              .catch((err) => {
+                showToast({
+                  title: language.t("prompt.toast.worktreeCreateFailed.title"),
+                  description: errorMessage(err),
+                })
+                return undefined
+              })
 
-    if (isNewSession) {
-      if (submitting) return
-      submitting = true
-      try {
-        if (worktreeSelection === "create") {
-          const createdWorktree = await client.worktree
-            .create({ directory: projectDirectory })
-            .then((x) => x.data)
-            .catch((err) => {
+            if (server.current?.http.url !== connection.server) return
+            if (!createdWorktree?.directory) {
               showToast({
                 title: language.t("prompt.toast.worktreeCreateFailed.title"),
-                description: errorMessage(err),
+                description: language.t("common.requestFailed"),
               })
-              return undefined
-            })
-
-          if (!createdWorktree?.directory) {
-            showToast({
-              title: language.t("prompt.toast.worktreeCreateFailed.title"),
-              description: language.t("common.requestFailed"),
-            })
-            return
+              return
+            }
+            WorktreeState.pending(createdWorktree.directory)
+            sessionDirectory = createdWorktree.directory
           }
-          WorktreeState.pending(createdWorktree.directory)
-          sessionDirectory = createdWorktree.directory
-        }
 
-        if (worktreeSelection !== "main" && worktreeSelection !== "create") {
-          sessionDirectory = worktreeSelection
-        }
+          if (worktreeSelection !== "main" && worktreeSelection !== "create") {
+            sessionDirectory = worktreeSelection
+          }
 
-        if (sessionDirectory !== projectDirectory) {
-          client = sdk.createClient({
-            directory: sessionDirectory,
-            throwOnError: true,
-          })
-          globalSync.child(sessionDirectory)
-        }
+          if (sessionDirectory !== projectDirectory) {
+            client = sdk.createClient({
+              directory: sessionDirectory,
+              throwOnError: true,
+            })
+            globalSync.child(sessionDirectory)
+          }
 
-        input.onNewSessionWorktreeReset?.()
-      } finally {
-        submitting = false
+          input.onNewSessionWorktreeReset?.()
+        } finally {
+          submitting = false
+        }
       }
-    }
 
-    let session = input.info()
-    let claimed: Promise<Session | undefined> | undefined
+      let session = existing
+      let claimed: Promise<Session | undefined> | undefined
 
-    if (!session && isNewSession) {
-      const sessionID = Identifier.descending("session")
-      const info: Session = {
-        id: sessionID,
-        slug: "",
-        projectID: globalSync.child(sessionDirectory)[0].project,
-        directory: sessionDirectory,
-        title: `New session - ${new Date().toISOString()}`,
-        version: "",
-        time: { created: Date.now(), updated: Date.now() },
-        engine,
-      }
-      seed(sessionDirectory, info)
-      session = info
-      local.session.promote(sessionDirectory, sessionID)
-      navigate(`/${base64Encode(sessionDirectory)}/session/${sessionID}`)
-
-      claimed = claimSession(sessionID, () =>
-        client.session.create({ id: sessionID, engine }).then((x) => x.data ?? undefined),
-      )
-    }
-
-    if (!session) {
-      showToast({
-        title: language.t("prompt.toast.promptSendFailed.title"),
-        description: language.t("prompt.toast.promptSendFailed.description"),
-      })
-      return
-    }
-
-    // Existing sessions must be prompted in their own directory's instance, not
-    // whichever workspace the user is currently viewing. Otherwise the server
-    // binds the run (busy status, tool cwd) to the wrong workspace.
-    if (!isNewSession && session.directory !== projectDirectory) {
-      client = sdk.createClient({ directory: session.directory, throwOnError: true })
-      if (queued) sessionDirectory = session.directory
-    }
-
-    const waitForSession = async () => {
-      if (!claimed) return true
-      let created: Session | undefined
-      try {
-        created = await claimed
-      } catch (err) {
-        unseed(sessionDirectory, session.id)
-        if (params.id === session.id) {
-          navigate(`/${base64Encode(projectDirectory)}/session`, { replace: true })
+      if (!session && isNewSession) {
+        const sessionID = Identifier.descending("session")
+        const info: Session = {
+          id: sessionID,
+          slug: "",
+          projectID: globalSync.child(sessionDirectory)[0].project,
+          directory: sessionDirectory,
+          title: `New session - ${new Date().toISOString()}`,
+          version: "",
+          time: { created: Date.now(), updated: Date.now() },
+          engine,
         }
+        seed(sessionDirectory, info)
+        session = info
+        local.session.promote(sessionDirectory, sessionID)
+        if (params.dir === scope.dir && params.id === scope.id && server.current?.http.url === connection.server) {
+          navigate(`/${base64Encode(sessionDirectory)}/session/${sessionID}`)
+        }
+
+        claimed = claimSession(sessionID, () =>
+          client.session.create({ id: sessionID, engine }).then((x) => x.data ?? undefined),
+        )
+      }
+
+      if (!session) {
         showToast({
-          title: language.t("prompt.toast.sessionCreateFailed.title"),
-          description: errorMessage(err),
+          title: language.t("prompt.toast.promptSendFailed.title"),
+          description: language.t("prompt.toast.promptSendFailed.description"),
         })
-        removeOptimisticMessage()
-        restoreCommentItems(commentItems)
-        restoreInput()
-        return false
+        return
       }
-      if (!created) return false
-      if (created.id !== session.id) {
-        unseed(sessionDirectory, session.id)
-        if (params.id === session.id) {
-          navigate(`/${base64Encode(sessionDirectory)}/session/${created.id}`, { replace: true })
-        }
-        Object.assign(session, created)
-        draft.sessionID = created.id
+
+      // Existing sessions must be prompted in their own directory's instance, not
+      // whichever workspace the user is currently viewing. Otherwise the server
+      // binds the run (busy status, tool cwd) to the wrong workspace.
+      if (!isNewSession && session.directory !== projectDirectory) {
+        client = sdk.createClient({ directory: session.directory, throwOnError: true })
+        sessionDirectory = session.directory
       }
-      seed(sessionDirectory, created)
-      if (isNewSession) knowledge.rekey(NEW_SESSION_KEY, session.id)
-      if (isNewSession && !engine) {
-        permission.setMode(session.id, sessionDirectory, permission.effectiveMode(undefined, projectDirectory))
+
+      const recover = () => {
+        if (!isNewSession || server.current?.http.url !== connection.server) return
+        const target = { dir: base64Encode(sessionDirectory), id: session.id }
+        if (params.dir !== target.dir || params.id !== target.id) return
+        if (prompt.current(target).some((part) => part.type !== "text" || part.content.length > 0)) return
+        if (prompt.references.items(target).length || prompt.context.items(target).length) return
+        if (input.fileQuoteQuestion?.()?.sessionID === target.id) return
+        navigate(`/${scope.dir}/session`, { replace: true })
       }
-      return true
-    }
 
-    const model = selection.model
-    const agent = selection.agent
-    const context = capture(prompt.context.items())
-    const openPaths = input.openTabPaths?.() ?? []
-    const selText = fileCtx.selectedText()
-    const quoteQuestions = capture(
-      input.conversationQuoteQuestions?.().filter((item) => item.sessionID === params.id) ?? [],
-    )
-    const readingQuestion = capture(input.readingQuestion?.() ?? null)
-    const quickReadingPendingQuestion = capture(input.quickReadingQuestion?.() ?? null)
-    const quickReadingQuestion =
-      quickReadingPendingQuestion?.sessionID === params.id ? quickReadingPendingQuestion : null
-    const fileQuotePendingQuestion = capture(input.fileQuoteQuestion?.() ?? null)
-    const fileQuoteQuestion = fileQuotePendingQuestion?.sessionID === params.id ? fileQuotePendingQuestion : null
-    const draft: FollowupDraft = {
-      sessionID: session.id,
-      sessionDirectory,
-      prompt: currentPrompt,
-      context,
-      agent,
-      model,
-      variant,
-      engine,
-      selectedPaths: openPaths.length > 0 ? openPaths : undefined,
-      pdfSelectedText: selText || undefined,
-    }
-
-    const clearInput = () => {
-      if (queued) return
-      prompt.reset()
-      input.setMode("normal")
-      input.setPopover(null)
-    }
-
-    const restoreInput = () => {
-      if (queued) return
-      prompt.set(currentPrompt, input.promptLength(currentPrompt))
-      input.setMode(mode)
-      input.setPopover(null)
-      requestAnimationFrame(() => {
-        const editor = input.editor()
-        if (!editor) return
-        editor.focus()
-        setCursorPosition(editor, input.promptLength(currentPrompt))
-        input.queueScroll()
-      })
-    }
-
-    if (!queued && !isNewSession && mode === "normal" && input.shouldQueue?.()) {
-      input.onQueue?.(draft)
-      clearContext()
-      clearInput()
-      return
-    }
-
-    if (!queued) {
-      promptProbe.submit({ sessionID: session.id, directory: sessionDirectory })
-      input.onSubmit?.()
-    }
-
-    if (mode === "shell") {
-      if (!(await waitForSession())) return
-      clearInput()
-      client.session
-        .shell({
-          sessionID: session.id,
-          agent,
-          model,
-          command: text,
-        })
-        .catch((err) => {
+      const waitForSession = async () => {
+        if (server.current?.http.url !== connection.server) return false
+        if (!claimed) return true
+        let created: Session | undefined
+        try {
+          created = await claimed
+        } catch (err) {
+          if (server.current?.http.url !== connection.server) return false
+          unseed(sessionDirectory, session.id)
+          recover()
           showToast({
-            title: language.t("prompt.toast.shellSendFailed.title"),
+            title: language.t("prompt.toast.sessionCreateFailed.title"),
             description: errorMessage(err),
           })
-          restoreInput()
-        })
-      return
-    }
+          return false
+        }
+        if (server.current?.http.url !== connection.server) return false
+        if (!created) {
+          unseed(sessionDirectory, session.id)
+          recover()
+          return false
+        }
+        if (created.id !== session.id) {
+          unseed(sessionDirectory, session.id)
+          if (
+            params.dir === base64Encode(sessionDirectory) &&
+            params.id === session.id &&
+            server.current?.http.url === connection.server
+          ) {
+            navigate(`/${base64Encode(sessionDirectory)}/session/${created.id}`, { replace: true })
+          }
+          Object.assign(session, created)
+          draft.sessionID = created.id
+        }
+        seed(sessionDirectory, created)
+        if (isNewSession) knowledge.rekey(NEW_SESSION_KEY, session.id)
+        if (isNewSession && !engine) {
+          permission.setMode(session.id, sessionDirectory, permission.effectiveMode(undefined, projectDirectory))
+        }
+        return true
+      }
 
-    if (!engine && quoteQuestions.length === 0 && !readingQuestion && !quickReadingQuestion && text.startsWith("/")) {
-      const [cmdName, ...args] = text.split(" ")
-      const commandName = cmdName.slice(1)
-      const customCommand = sync.data.command.find((c) => c.name === commandName)
-      if (customCommand) {
+      const model = selection.model
+      const agent = selection.agent
+      const openPaths = input.openTabPaths?.() ?? []
+      const selText = fileCtx.selectedText()
+      const draft: FollowupDraft = {
+        sessionID: session.id,
+        sessionDirectory,
+        prompt: currentPrompt,
+        context,
+        agent,
+        model,
+        variant,
+        engine,
+        selectedPaths: openPaths.length > 0 ? openPaths : undefined,
+        pdfSelectedText: refs.length ? undefined : selText || undefined,
+        references: refs,
+        fileQuote,
+      }
+
+      const notify = () => {
+        if (native) return
+        promptProbe.submit({ sessionID: session.id, directory: sessionDirectory })
+        input.onSubmit?.()
+      }
+
+      const clearInput = () => {
+        if (server.current?.http.url !== connection.server) return
+        prompt.reset(scope)
+        if (params.dir !== scope.dir || params.id !== scope.id) return
+        input.setMode("normal")
+        input.setPopover(null)
+      }
+
+      const restoreInput = () => {
+        if (server.current?.http.url !== connection.server) return
+        if (prompt.current(scope).some((part) => part.type !== "text" || part.content.trim())) return
+        prompt.set(currentPrompt, input.promptLength(currentPrompt), scope)
+        if (params.dir !== scope.dir || params.id !== scope.id) return
+        input.setMode(mode)
+        input.setPopover(null)
+        requestAnimationFrame(() => {
+          const editor = input.editor()
+          if (!editor) return
+          editor.focus()
+          setCursorPosition(editor, input.promptLength(currentPrompt))
+          input.queueScroll()
+        })
+      }
+
+      if (mode === "shell") {
         if (!(await waitForSession())) return
+        notify()
         clearInput()
         client.session
-          .command({
+          .shell({
             sessionID: session.id,
-            command: commandName,
-            arguments: args.join(" "),
             agent,
-            model: `${model.providerID}/${model.modelID}`,
-            variant,
-            parts: images.map((attachment) => ({
-              id: Identifier.ascending("part"),
-              type: "file" as const,
-              mime: attachment.mime,
-              url: attachment.dataUrl,
-              filename: attachment.filename,
-            })),
+            model,
+            command: text,
           })
           .catch((err) => {
             showToast({
-              title: language.t("prompt.toast.commandSendFailed.title"),
-              description: formatServerError(err, language.t, language.t("common.requestFailed")),
+              title: language.t("prompt.toast.shellSendFailed.title"),
+              description: errorMessage(err),
             })
             restoreInput()
+            recover()
           })
         return
       }
-    }
 
-    const commentItems = context.filter((item) => item.type === "file" && !!item.comment?.trim())
-    const messageID = Identifier.ascending("message")
-
-    const removeOptimisticMessage = () => {
-      sync.session.optimistic.remove({
-        directory: sessionDirectory,
-        sessionID: session.id,
-        messageID,
-      })
-    }
-
-    if (!queued) removeCommentItems(commentItems)
-    clearInput()
-
-    const waitForWorktree = async () => {
-      const worktree = WorktreeState.get(sessionDirectory)
-      if (!worktree || worktree.status !== "pending") return true
-
-      if (sessionDirectory === projectDirectory) {
-        sync.set("session_status", session.id, { type: "busy" })
-      }
-
-      const controller = new AbortController()
-      const cleanup = () => {
-        if (sessionDirectory === projectDirectory) {
-          sync.set("session_status", session.id, { type: "idle" })
-        }
-        removeOptimisticMessage()
-        restoreCommentItems(commentItems)
-        restoreInput()
-      }
-
-      pending.set(session.id, { abort: controller, cleanup })
-
-      const abortWait = new Promise<Awaited<ReturnType<typeof WorktreeState.wait>>>((resolve) => {
-        if (controller.signal.aborted) {
-          resolve({ status: "failed", message: "aborted" })
+      if (!engine && !queued && !refs.length && !fileQuote && text.startsWith("/")) {
+        const [cmdName, ...args] = text.split(" ")
+        const commandName = cmdName.slice(1)
+        const customCommand = sync.data.command.find((c) => c.name === commandName)
+        if (customCommand) {
+          if (!(await waitForSession())) return
+          notify()
+          clearInput()
+          client.session
+            .command({
+              sessionID: session.id,
+              command: commandName,
+              arguments: args.join(" "),
+              agent,
+              model: `${model.providerID}/${model.modelID}`,
+              variant,
+              parts: images.map((attachment) => ({
+                id: Identifier.ascending("part"),
+                type: "file" as const,
+                mime: attachment.mime,
+                url: attachment.dataUrl,
+                filename: attachment.filename,
+              })),
+            })
+            .catch((err) => {
+              showToast({
+                title: language.t("prompt.toast.commandSendFailed.title"),
+                description: formatServerError(err, language.t, language.t("common.requestFailed")),
+              })
+              restoreInput()
+              recover()
+            })
           return
         }
-        controller.signal.addEventListener(
-          "abort",
-          () => {
-            resolve({ status: "failed", message: "aborted" })
-          },
-          { once: true },
-        )
-      })
+      }
 
-      const timeoutMs = 5 * 60 * 1000
-      const timer = { id: undefined as number | undefined }
-      const timeout = new Promise<Awaited<ReturnType<typeof WorktreeState.wait>>>((resolve) => {
-        timer.id = window.setTimeout(() => {
-          resolve({
-            status: "failed",
-            message: language.t("workspace.error.stillPreparing"),
-          })
-        }, timeoutMs)
-      })
+      const messageID = Identifier.ascending("message")
 
-      const result = await Promise.race([WorktreeState.wait(sessionDirectory), abortWait, timeout]).finally(() => {
-        if (timer.id === undefined) return
-        clearTimeout(timer.id)
-      })
-      pending.delete(session.id)
-      if (controller.signal.aborted) return false
-      if (result.status === "failed") throw new Error(result.message)
-      return true
-    }
+      const waitForWorktree = async () => {
+        const worktree = WorktreeState.get(sessionDirectory)
+        if (!worktree || worktree.status !== "pending") return true
 
-    const kbKey = isNewSession ? NEW_SESSION_KEY : session.id
-    const activeKbs = knowledge.activeKnowledgeBases(kbKey)
-    const knowledgeBase =
-      activeKbs.length > 0
-        ? {
-            paths: activeKbs.map((kb) => kb.path),
-            apiKey: activeKbs[0]!.apiKey,
-            baseURL: activeKbs[0]!.baseURL,
-          }
-        : undefined
-
-    const rejectQuestion = () => {
-      if (!queued) restoreCommentItems(commentItems)
-      restoreInput()
-      showToast({
-        title: language.t("prompt.toast.promptSendFailed.title"),
-        description: language.t("prompt.toast.promptSendFailed.description"),
-      })
-    }
-
-    const enqueue = queued
-      ? async (value: NativeDraft) => {
-          if (scope !== `${sdk.url}\n${sdk.directory}\n${params.id ?? ""}`) return false
-          if (!(await input.nativeSubmit!(value))) return false
-          if (scope !== `${sdk.url}\n${sdk.directory}\n${params.id ?? ""}`) return true
-          input.addToHistory(currentPrompt, "normal")
-          input.resetHistoryNavigation()
-          if (JSON.stringify(prompt.current()) === JSON.stringify(currentPrompt)) {
-            prompt.reset()
-            input.setPopover(null)
-          }
-          for (const item of context) {
-            const current = prompt.context.items().find((value) => value.key === item.key)
-            if (JSON.stringify(current) === JSON.stringify(item)) prompt.context.remove(item.key)
-          }
-          input.queueScroll()
-          return true
+        if (sessionDirectory === projectDirectory) {
+          sync.set("session_status", session.id, { type: "busy" })
         }
-      : undefined
 
-    const sendQuestionDraft = (draft: FollowupDraft, onSent: () => void) => {
-      const sent = sendFollowupDraft({
-        client,
-        sync,
-        globalSync,
-        draft,
-        messageID,
-        optimisticBusy: sessionDirectory === projectDirectory,
-        before: waitForWorktree,
-        knowledgeBase,
-        enqueue,
-      })
-        .then((ok) => {
-          if (ok) {
-            if (!queued || scope === `${sdk.url}\n${sdk.directory}\n${params.id ?? ""}`) onSent()
-            return
-          }
-          if (!queued) restoreCommentItems(commentItems)
-          restoreInput()
-        })
-        .catch((err) => {
-          if (!queued) pending.delete(session.id)
-          if (!queued && sessionDirectory === projectDirectory) {
+        const controller = new AbortController()
+        const cleanup = () => {
+          if (sessionDirectory === projectDirectory) {
             sync.set("session_status", session.id, { type: "idle" })
           }
-          showToast({
-            title: language.t("prompt.toast.promptSendFailed.title"),
-            description: errorMessage(err),
-          })
-          if (!queued) {
-            removeOptimisticMessage()
-            restoreCommentItems(commentItems)
-          }
-          restoreInput()
-        })
-      if (queued) return sent
-    }
-
-    if (mode === "normal" && quoteQuestions.length > 0) {
-      const typed = text.trim()
-      if (!typed) {
-        rejectQuestion()
-        return
-      }
-
-      const requestDraft: FollowupDraft = {
-        sessionID: session.id,
-        sessionDirectory,
-        prompt: [
-          DEFAULT_PROMPT[0]!,
-          ...currentPrompt.filter((part) => part.type !== "text" && part.type !== "image"),
-          ...images,
-        ],
-        context,
-        agent,
-        model,
-        variant,
-        engine,
-        selectedPaths: openPaths.length > 0 ? openPaths : undefined,
-        extraTextParts: [
-          {
-            text: typed,
-            ignored: true,
-          },
-          {
-            text: fillConversationQuotePrompt({
-              selectedContent: quoteQuestions.map((item) => item.text),
-              userQuestion: typed,
-            }),
-            synthetic: true,
-          },
-          ...quoteQuestions.map((item) => ({
-            text: "",
-            synthetic: true,
-            ignored: true,
-            metadata: createConversationQuoteMetadata({
-              kind: "conversation-quote" as const,
-              source: "assistant" as const,
-              action: "ask" as const,
-              sourceMessageID: item.sourceMessageID,
-              summary: item.summary,
-              fullText: item.text,
-            }),
-          })),
-        ],
-      }
-
-      return sendQuestionDraft(requestDraft, () => {
-        if (
-          JSON.stringify(input.conversationQuoteQuestions?.().filter((item) => item.sessionID === session.id) ?? []) ===
-          JSON.stringify(quoteQuestions)
-        )
-          input.onConversationQuoteClear?.(session.id)
-      })
-    }
-
-    if (mode === "normal" && quickReadingQuestion) {
-      const typedQuestion = text.trim()
-      const settings = input.quickReadingSettings?.()
-      if (!typedQuestion || !settings) {
-        rejectQuestion()
-        return
-      }
-
-      const requestDraft: FollowupDraft = {
-        sessionID: session.id,
-        sessionDirectory,
-        prompt: [
-          DEFAULT_PROMPT[0]!,
-          ...currentPrompt.filter((part) => part.type !== "text" && part.type !== "image"),
-          ...images,
-        ],
-        attachments:
-          quickReadingQuestion.kind === "image-question"
-            ? [
-                {
-                  filename: `pdf-region-page-${quickReadingQuestion.page}.png`,
-                  mime: "image/png",
-                  dataUrl: quickReadingQuestion.imageDataUrl,
-                },
-              ]
-            : undefined,
-        context,
-        agent,
-        model,
-        variant,
-        engine,
-        selectedPaths: openPaths.length > 0 ? openPaths : undefined,
-        extraTextParts: [
-          {
-            text: typedQuestion,
-            ignored: true,
-          },
-          {
-            text: fillReadingQuestionPrompt(settings.questionPrompt, {
-              selectedContent:
-                quickReadingQuestion.kind === "image-question"
-                  ? `The user selected a screenshot region from page ${quickReadingQuestion.page} of ${quickReadingQuestion.pdfFileName}.`
-                  : `The user selected text from pages ${formatReadingPageRange({ startPage: quickReadingQuestion.startPage, endPage: quickReadingQuestion.endPage })} of ${quickReadingQuestion.pdfFileName}.\n\n${quickReadingQuestion.text}`,
-              userQuestion: typedQuestion,
-              contextPages: "",
-            }),
-            synthetic: true,
-          },
-          ...(quickReadingQuestion.kind === "text-question"
-            ? [
-                {
-                  text: "",
-                  synthetic: true,
-                  ignored: true,
-                  metadata: createReadingQuoteMetadata({
-                    mode: "quick",
-                    action: "ask",
-                    contentType: "text",
-                    pdfFileName: quickReadingQuestion.pdfFileName,
-                    startPage: quickReadingQuestion.startPage,
-                    endPage: quickReadingQuestion.endPage,
-                    summary: summarizeReadingQuoteText(quickReadingQuestion.text),
-                    fullText: quickReadingQuestion.text,
-                    source: quickReadingQuestion.source,
-                  }),
-                },
-              ]
-            : [
-                {
-                  text: "",
-                  synthetic: true,
-                  ignored: true,
-                  metadata: createReadingQuoteMetadata({
-                    mode: "quick",
-                    action: "ask",
-                    contentType: "image",
-                    pdfFileName: quickReadingQuestion.pdfFileName,
-                    startPage: quickReadingQuestion.page,
-                    summary: `Page ${quickReadingQuestion.page}`,
-                    source: quickReadingQuestion.source,
-                  }),
-                },
-              ]),
-        ],
-      }
-
-      return sendQuestionDraft(requestDraft, () => {
-        if (JSON.stringify(input.quickReadingQuestion?.()) === JSON.stringify(quickReadingQuestion))
-          input.onQuickReadingQuestionClear?.()
-      })
-    }
-
-    if (mode === "normal" && fileQuoteQuestion) {
-      const typedQuestion = text.trim()
-      if (!typedQuestion) {
-        rejectQuestion()
-        return
-      }
-
-      const requestDraft: FollowupDraft = {
-        sessionID: session.id,
-        sessionDirectory,
-        prompt: [
-          DEFAULT_PROMPT[0]!,
-          ...currentPrompt.filter((part) => part.type !== "text" && part.type !== "image"),
-          ...images,
-        ],
-        context,
-        agent,
-        model,
-        variant,
-        engine,
-        selectedPaths: openPaths.length > 0 ? openPaths : undefined,
-        extraTextParts: [
-          {
-            text: typedQuestion,
-            ignored: true,
-          },
-          {
-            text: fillFileQuotePrompt({
-              location: fileQuoteLocation(
-                fileQuoteQuestion.path,
-                fileQuoteQuestion.startLine,
-                fileQuoteQuestion.endLine,
-              ),
-              selectedContent: fileQuoteQuestion.text,
-              userQuestion: typedQuestion,
-            }),
-            synthetic: true,
-          },
-          {
-            text: "",
-            synthetic: true,
-            ignored: true,
-            metadata: createFileQuoteMetadata({
-              path: fileQuoteQuestion.path,
-              startLine: fileQuoteQuestion.startLine,
-              endLine: fileQuoteQuestion.endLine,
-              summary: fileQuoteQuestion.summary,
-              fullText: fileQuoteQuestion.text,
-            }),
-          },
-        ],
-      }
-
-      return sendQuestionDraft(requestDraft, () => {
-        if (JSON.stringify(input.fileQuoteQuestion?.()) === JSON.stringify(fileQuoteQuestion))
-          input.onFileQuoteClear?.()
-      })
-    }
-
-    if (mode === "normal" && readingQuestion) {
-      const typedQuestion = text.trim()
-      const sessionMeta = sync.session.get(session.id)?.readingMode ?? input.readingSessionMeta?.()
-      if (!typedQuestion || !sessionMeta) {
-        rejectQuestion()
-        return
-      }
-
-      let requestDraft: FollowupDraft
-      try {
-        const contextInput = {
-          sessionID: session.id,
-          startPage: readingQuestion.kind === "text-question" ? readingQuestion.startPage : readingQuestion.page,
-          endPage: readingQuestion.kind === "text-question" ? readingQuestion.endPage : readingQuestion.page,
-          range: sessionMeta.settings.contextPageRange,
-          totalPages: input.readingTotalPages?.(),
-        } as const
-        const [pageText, pagePdf] = await Promise.all([
-          fetchReadingContextPages(contextInput),
-          fetchReadingContextPdf(contextInput),
-        ])
-        const pdfDataUrl = await blobToDataUrl(pagePdf.blob)
-        const baseName = sessionMeta.pdfFileName.replace(/\.pdf$/i, "") || "document"
-        const imageAttachment =
-          readingQuestion.kind === "image-question"
-            ? [
-                {
-                  filename: `pdf-region-page-${readingQuestion.page}.png`,
-                  mime: "image/png",
-                  dataUrl: readingQuestion.imageDataUrl,
-                },
-              ]
-            : []
-
-        requestDraft = {
-          sessionID: session.id,
-          sessionDirectory,
-          prompt: [
-            DEFAULT_PROMPT[0]!,
-            ...currentPrompt.filter((part) => part.type !== "text" && part.type !== "image"),
-            ...images,
-          ],
-          attachments: [
-            ...imageAttachment,
-            {
-              filename: `${baseName}-pages-${pagePdf.range.startPage}-${pagePdf.range.endPage}.pdf`,
-              mime: "application/pdf",
-              dataUrl: pdfDataUrl,
-            },
-          ],
-          context,
-          agent,
-          model,
-          variant,
-          engine,
-          selectedPaths: openPaths.length > 0 ? openPaths : undefined,
-          extraTextParts: [
-            {
-              text: typedQuestion,
-              ignored: true,
-            },
-            {
-              text: fillReadingQuestionPrompt(sessionMeta.settings.questionPrompt, {
-                selectedContent: describeReadingSelection({
-                  startPage: contextInput.startPage,
-                  endPage: contextInput.endPage,
-                  kind: readingQuestion.kind,
-                  text: readingQuestion.kind === "text-question" ? readingQuestion.text : undefined,
-                }),
-                userQuestion: typedQuestion,
-                contextPages: pageText.combinedText,
-                selectedPages: formatReadingPageRange({
-                  startPage: contextInput.startPage,
-                  endPage: contextInput.endPage,
-                }),
-                contextRange: formatReadingPageRange(resolveReadingContextRange(contextInput)),
-              }),
-              synthetic: true,
-            },
-            ...(readingQuestion.kind === "text-question"
-              ? [
-                  {
-                    text: "",
-                    synthetic: true,
-                    ignored: true,
-                    metadata: createReadingQuoteMetadata({
-                      mode: "classic",
-                      action: "ask",
-                      contentType: "text",
-                      pdfFileName: sessionMeta.pdfFileName,
-                      startPage: readingQuestion.startPage,
-                      endPage: readingQuestion.endPage,
-                      summary: summarizeReadingQuoteText(readingQuestion.text),
-                      fullText: readingQuestion.text,
-                    }),
-                  },
-                ]
-              : []),
-          ],
         }
-      } catch (err) {
-        showToast({
-          title: language.t("prompt.toast.promptSendFailed.title"),
-          description: errorMessage(err),
+
+        pending.set(session.id, { abort: controller, cleanup })
+
+        const abortWait = new Promise<Awaited<ReturnType<typeof WorktreeState.wait>>>((resolve) => {
+          if (controller.signal.aborted) {
+            resolve({ status: "failed", message: "aborted" })
+            return
+          }
+          controller.signal.addEventListener(
+            "abort",
+            () => {
+              resolve({ status: "failed", message: "aborted" })
+            },
+            { once: true },
+          )
         })
-        if (!queued) restoreCommentItems(commentItems)
-        restoreInput()
-        return
+
+        const timeoutMs = 5 * 60 * 1000
+        const timer = { id: undefined as number | undefined }
+        const timeout = new Promise<Awaited<ReturnType<typeof WorktreeState.wait>>>((resolve) => {
+          timer.id = window.setTimeout(() => {
+            resolve({
+              status: "failed",
+              message: language.t("workspace.error.stillPreparing"),
+            })
+          }, timeoutMs)
+        })
+
+        const result = await Promise.race([WorktreeState.wait(sessionDirectory), abortWait, timeout]).finally(() => {
+          if (timer.id === undefined) return
+          clearTimeout(timer.id)
+        })
+        pending.delete(session.id)
+        if (controller.signal.aborted) return false
+        if (result.status === "failed") throw new Error(result.message)
+        return true
       }
 
-      return sendQuestionDraft(requestDraft, () => {
-        if (JSON.stringify(input.readingQuestion?.()) === JSON.stringify(readingQuestion))
-          input.onReadingQuestionClear?.()
-      })
-    }
+      const kbKey = isNewSession ? NEW_SESSION_KEY : session.id
+      const activeKbs = knowledge.activeKnowledgeBases(kbKey)
+      const knowledgeBase =
+        activeKbs.length > 0
+          ? {
+              paths: activeKbs.map((kb) => kb.path),
+              apiKey: activeKbs[0]!.apiKey,
+              baseURL: activeKbs[0]!.baseURL,
+            }
+          : undefined
 
-    const sent = sendFollowupDraft({
-      client,
-      sync,
-      globalSync,
-      draft,
-      messageID,
-      optimisticBusy: sessionDirectory === projectDirectory,
-      before: async () => {
-        if (!(await waitForSession())) return false
-        return waitForWorktree()
-      },
-      knowledgeBase,
-      enqueue,
-    }).catch((err) => {
-      if (!queued) pending.delete(session.id)
-      if (!queued && sessionDirectory === projectDirectory) {
-        sync.set("session_status", session.id, { type: "idle" })
+      const consume = () => {
+        if (server.current?.http.url !== connection.server) return
+        prompt.references.clear(refs, scope)
+        for (const item of context) {
+          const current = prompt.context.items(scope).find((value) => value.key === item.key)
+          if (current && JSON.stringify(current) === JSON.stringify(item)) prompt.context.remove(item.key, scope)
+        }
+        if (JSON.stringify(prompt.current(scope)) === JSON.stringify(currentPrompt)) clearInput()
+        if (fileQuote) input.onFileQuoteClear?.(fileQuote)
       }
-      showToast({
-        title: language.t("prompt.toast.promptSendFailed.title"),
-        description: errorMessage(err),
-      })
-      if (!queued) {
-        removeOptimisticMessage()
-        restoreCommentItems(commentItems)
-      }
-      restoreInput()
-    })
-    if (queued) await sent
-  }
 
-  const handleSubmit = async (event: Event) => {
-    if (input.blocked?.()) {
-      event.preventDefault()
-      return
-    }
-    if (!input.working() || !local.native.engine()) return submit(event)
-    const key = `${sdk.url}\n${sdk.directory}\n${params.id ?? ""}`
-    if (preparing.has(key)) {
-      event.preventDefault()
-      return
-    }
-    preparing.add(key)
-    try {
-      return await submit(event)
+      try {
+        if (!(await waitForSession())) return
+        const ranges = referenceRanges(refs)
+        draft.sources = await Promise.all(
+          ranges.map(async (range) => {
+            const check = async () => {
+              const source = (await client.session.get({ sessionID: range.sessionID })).data?.readingMode
+              if (!source || source.pdfStorePath !== range.path)
+                throw new Error(language.t("ask.send.sourceUnavailable"))
+            }
+            await check()
+            const context = { ...range, range: 0 as const }
+            const [pages, pdf] = await Promise.all([
+              fetchReadingContextPages(context, connection),
+              fetchReadingContextPdf(context, connection),
+            ])
+            await check()
+            return {
+              ...range,
+              text: pages.combinedText,
+              attachment: {
+                filename: `${range.filename.replace(/\.pdf$/i, "")}-pages-${range.startPage}-${range.endPage}.pdf`,
+                mime: "application/pdf",
+                dataUrl: await blobToDataUrl(pdf.blob),
+              },
+            }
+          }),
+        )
+        if (!native && !isNewSession && queued && input.onQueue) {
+          input.onQueue(draft)
+          consume()
+          return
+        }
+        notify()
+        const ok = await sendFollowupDraft({
+          client,
+          sync,
+          globalSync,
+          draft,
+          messageID,
+          optimisticBusy: sessionDirectory === projectDirectory,
+          before: waitForWorktree,
+          knowledgeBase,
+          enqueue: native
+            ? async (value) => {
+                if (
+                  server.current?.http.url !== connection.server ||
+                  params.dir !== scope.dir ||
+                  params.id !== scope.id
+                )
+                  return false
+                const ok = await input.nativeSubmit!(value)
+                if (
+                  ok &&
+                  server.current?.http.url === connection.server &&
+                  params.dir === scope.dir &&
+                  params.id === scope.id
+                ) {
+                  input.addToHistory(currentPrompt, "normal", history)
+                  input.resetHistoryNavigation()
+                  input.queueScroll()
+                }
+                return ok
+              }
+            : undefined,
+        })
+        if (ok) consume()
+        if (!ok) recover()
+      } catch (err) {
+        pending.delete(session.id)
+        recover()
+        showToast({ title: language.t("prompt.toast.promptSendFailed.title"), description: errorMessage(err) })
+      }
     } finally {
-      preparing.delete(key)
+      flights.delete(key)
     }
   }
 

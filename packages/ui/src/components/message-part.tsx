@@ -1616,7 +1616,11 @@ PART_MAPPING["text"] = function TextPartDisplay(props) {
     <Show when={throttledText() || part().nativeQuestion}>
       <div data-component="text-part">
         <Show when={throttledText() && !duplicate()}>
-          <div data-slot="text-part-body">
+          <div
+            data-slot="text-part-body"
+            data-assistant-message-id={props.message.role === "assistant" ? props.message.id : undefined}
+            data-assistant-part-id={props.message.role === "assistant" ? part().id : undefined}
+          >
             <Markdown text={throttledText()} cacheKey={part().id} />
           </div>
         </Show>

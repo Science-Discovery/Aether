@@ -1,4 +1,11 @@
+import { readReadingQuoteMetadata, type ReadingQuote } from "./comment-note"
+
 export type ConversationQuote = {
+  id?: string
+  question?: string
+  order?: number
+  start?: number
+  end?: number
   kind: "conversation-quote"
   source: "assistant"
   action: "ask"
@@ -10,6 +17,11 @@ export type ConversationQuote = {
 export function createConversationQuoteMetadata(input: ConversationQuote) {
   return {
     opencodeConversationQuote: {
+      id: input.id,
+      question: input.question,
+      order: input.order,
+      start: input.start,
+      end: input.end,
       kind: input.kind,
       source: input.source,
       action: input.action,
@@ -31,6 +43,7 @@ export function readConversationQuoteMetadata(value: unknown) {
   const sourceMessageID = (meta as { sourceMessageID?: unknown }).sourceMessageID
   const summary = (meta as { summary?: unknown }).summary
   const fullText = (meta as { fullText?: unknown }).fullText
+  const extra = meta as Partial<ConversationQuote>
 
   if (kind !== "conversation-quote") return
   if (source !== "assistant") return
@@ -40,6 +53,13 @@ export function readConversationQuoteMetadata(value: unknown) {
   if (typeof fullText !== "string" || !fullText) return
 
   return {
+    ...(typeof extra.id === "string" ? { id: extra.id } : {}),
+    ...(typeof extra.question === "string" ? { question: extra.question } : {}),
+    ...(Number.isInteger(extra.order) && extra.order! >= 0 ? { order: extra.order } : {}),
+    ...(Number.isInteger(extra.start) && extra.start! >= 0 ? { start: extra.start } : {}),
+    ...(Number.isInteger(extra.start) && extra.start! >= 0 && Number.isInteger(extra.end) && extra.end! >= extra.start!
+      ? { end: extra.end }
+      : {}),
     kind,
     source,
     action,
@@ -47,4 +67,18 @@ export function readConversationQuoteMetadata(value: unknown) {
     summary,
     fullText,
   } satisfies ConversationQuote
+}
+export type QuoteReference = { kind: "conversation"; quote: ConversationQuote } | { kind: "pdf"; quote: ReadingQuote }
+
+export function readQuoteReferences(parts: readonly { type?: string; metadata?: unknown }[]): QuoteReference[] {
+  return parts
+    .flatMap((part): QuoteReference[] => {
+      const conversation = readConversationQuoteMetadata(part.metadata)
+      if (conversation) return [{ kind: "conversation", quote: conversation }]
+      const pdf = readReadingQuoteMetadata(part.metadata)
+      return pdf ? [{ kind: "pdf", quote: pdf }] : []
+    })
+    .map((ref, index) => ({ ref, index }))
+    .sort((a, b) => (a.ref.quote.order ?? a.index) - (b.ref.quote.order ?? b.index))
+    .map(({ ref }) => ref)
 }

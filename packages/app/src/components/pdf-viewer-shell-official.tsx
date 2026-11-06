@@ -1,8 +1,12 @@
-import { type Component, createEffect, createMemo, createSignal, onCleanup } from "solid-js"
+import { type Component, createEffect, createMemo, createSignal, onCleanup, Show } from "solid-js"
 import { href } from "@/base-path"
 import { useSDK } from "@/context/sdk"
 import { usePlatform } from "@/context/platform"
+import { useLanguage } from "@/context/language"
 import { showToast } from "@opencode-ai/ui/toast"
+import { queue } from "./pdf-annotation-save"
+import { AskEditor, type AskAnchor } from "./ask-editor"
+import { pdfMarks, type Reference } from "@/utils/ask-reference"
 import "./pdf-viewer-shell.css"
 
 type ViewerMode = "full" | "compact"
@@ -25,6 +29,15 @@ type PdfAnnotationFile = {
   annotations: PdfAnnotation[]
 }
 
+const drafts = new Map<
+  string,
+  {
+    refs: number
+    pending: number
+    revision?: string
+    queue: ReturnType<typeof queue<PdfAnnotationFile>>
+  }
+>()
 export type PdfVersion = { document?: string; version?: string; src?: string }
 export type PdfReveal = {
   id: string
@@ -94,6 +107,34 @@ function viewerMessageTargetOrigin() {
   return isFileProtocol() ? "*" : window.location.origin
 }
 
+export type PdfTextSelection = {
+  action: "copy" | "translate" | "ask"
+  startPage: number
+  endPage: number
+  text: string
+  selection?: string
+  fingerprint?: string
+  question?: string
+  document?: string
+  version?: string
+}
+export type PdfImageSelection = {
+  action: "copy" | "translate" | "ask"
+  page: number
+  imageDataUrl: string
+  selection?: string
+  fingerprint?: string
+  question?: string
+  document?: string
+  version?: string
+}
+type Selection = (PdfTextSelection | PdfImageSelection) & {
+  selectionDocument: string
+  selection: string
+  rect: AskAnchor
+  reference?: string
+}
+
 export type PdfViewerShellProps = {
   src: string
   document?: string
@@ -106,6 +147,10 @@ export type PdfViewerShellProps = {
   location?: string
   layoutSwapped?: boolean
   annotationPath?: string
+  askScope?: string
+  askPath?: string
+  references?: readonly Reference[]
+  onReferenceEdit?: (id: string, question: string) => void
   annotationBuild?: string
   reveal?: PdfReveal
   onSourceLocate?: (input: PdfLocate) => void
@@ -120,27 +165,26 @@ export type PdfViewerShellProps = {
   onExitQuickReading?: () => void
   onStartFirstRead?: () => void
   onOpenSettings?: () => void
-  onTextSelectionAction?: (input: {
-    action: "copy" | "translate" | "ask"
-    startPage: number
-    endPage: number
-    text: string
-    document?: string
-    version?: string
-  }) => void
-  onImageSelectionAction?: (
-    input: { action: "copy" | "translate" | "ask"; page: number; imageDataUrl: string } & PdfVersion,
-  ) => void
+  onTextSelectionAction?: (input: PdfTextSelection) => void
+  onImageSelectionAction?: (input: PdfImageSelection) => void
   onSwapLayout?: () => void
 }
 
-type ViewerMessage = PdfVersion &
-  (
+type ViewerMessage = PdfVersion & { selectionDocument?: string } & (
     | { channel: "aether-pdf-viewer"; type: "ready" }
     | { channel: "aether-pdf-viewer"; type: "pagechange"; page: number }
     | { channel: "aether-pdf-viewer"; type: "locationchange"; location: string }
     | { channel: "aether-pdf-viewer"; type: "documentinfo"; totalPages: number; source: PdfSource }
-    | { channel: "aether-pdf-viewer"; type: "loaderror"; message?: string; src?: string }
+    | { channel: "aether-pdf-viewer"; type: "documentready"; selectionDocument: string; fingerprint: string }
+    | {
+        channel: "aether-pdf-viewer"
+        type: "askreference"
+        selectionDocument: string
+        fingerprint: string
+        id: string
+        rect: AskAnchor
+      }
+    | { channel: "aether-pdf-viewer"; type: "loaderror"; message?: string }
     | { channel: "aether-pdf-viewer"; type: "pdf2md" }
     | { channel: "aether-pdf-viewer"; type: "openreadingmode" }
     | { channel: "aether-pdf-viewer"; type: "exitquickreading" }
@@ -149,6 +193,10 @@ type ViewerMessage = PdfVersion &
     | {
         channel: "aether-pdf-viewer"
         type: "textselectionaction"
+        selectionDocument: string
+        selection: string
+        fingerprint?: string
+        rect: AskAnchor
         action: "copy" | "translate" | "ask"
         startPage: number
         endPage: number
@@ -157,10 +205,15 @@ type ViewerMessage = PdfVersion &
     | {
         channel: "aether-pdf-viewer"
         type: "imageselectionaction"
+        selectionDocument: string
+        selection: string
+        fingerprint?: string
+        rect: AskAnchor
         action: "copy" | "translate" | "ask"
         page: number
         imageDataUrl: string
       }
+    | { channel: "aether-pdf-viewer"; type: "askcancel"; selectionDocument: string }
     | { channel: "aether-pdf-viewer"; type: "viewtheme"; theme: PdfViewTheme }
     | { channel: "aether-pdf-viewer"; type: "swaplayout" }
     | { channel: "aether-pdf-viewer"; type: "themechange" }
@@ -175,6 +228,7 @@ type ViewerMessage = PdfVersion &
 export const PdfViewerShell: Component<PdfViewerShellProps> = (props) => {
   const sdk = useSDK()
   const platform = usePlatform()
+  const language = useLanguage()
   const channel = crypto.randomUUID()
   bindViewThemeSync()
   let iframeRef: HTMLIFrameElement | undefined
@@ -184,16 +238,21 @@ export const PdfViewerShell: Component<PdfViewerShellProps> = (props) => {
   let lastConfigKey = ""
   let revealed = ""
   let serial = 0
-  let saving = Promise.resolve()
+  let draft: ReturnType<typeof queue<PdfAnnotationFile>> | undefined
   const [viewTheme, setViewTheme] = createSignal(props.viewTheme ?? sharedViewTheme)
+  const [ask, setAsk] = createSignal<Selection>()
+  const [identity, setIdentity] = createSignal<{ document: string; fingerprint: string }>()
   const [annotations, setAnnotations] = createSignal<PdfAnnotationFile>()
   const [loaded, setLoaded] = createSignal<PdfSource>()
   const [record, setRecord] = createSignal<{
     source: PdfSource
-    revision?: string
-    pending: number
-    failed?: boolean
+    key: string
+    entry: NonNullable<ReturnType<typeof drafts.get>>
   }>()
+  const contexts = new Map<string, string>()
+  const environment = () => JSON.stringify([sdk.url, sdk.directory])
+  let connection = environment()
+  const scope = () => JSON.stringify([sdk.url, sdk.directory, props.annotationPath, props.annotationBuild])
   // Bumped to force a viewer reload through its src dedupe after a failed load
   // (e.g. a fetch that raced a non-atomic write). One retry per src change.
   const [reloadKey, setReloadKey] = createSignal(0)
@@ -207,16 +266,46 @@ export const PdfViewerShell: Component<PdfViewerShellProps> = (props) => {
     const join = props.src.includes("?") ? "&" : "?"
     return `${props.src}${join}r=${key}`
   })
+  const selectionDocument = () => JSON.stringify([scope(), finalSrc(), props.askScope, props.askPath])
+  const fingerprint = () => (identity()?.document === selectionDocument() ? identity()?.fingerprint : undefined)
   const config = createMemo(() => ({
     src: finalSrc(),
     document: props.document,
     version: props.version,
     annotationPath: props.annotationPath,
     annotationBuild: props.annotationBuild,
+    selectionDocument: selectionDocument(),
     authHeader: props.authHeader,
     mode: props.mode,
     viewTheme: props.viewTheme ?? viewTheme(),
     layoutSwapped: !!props.layoutSwapped,
+    labels: {
+      toolbar: language.t("pdf.selection.toolbar"),
+      copy: language.t("pdf.selection.copy"),
+      translate: language.t("pdf.selection.translate"),
+      ask: language.t("pdf.selection.ask"),
+      highlight: language.t("pdf.selection.highlight"),
+      underline: language.t("pdf.selection.underline"),
+      strikeout: language.t("pdf.selection.strikeout"),
+      note: language.t("pdf.selection.note"),
+      annotationAdd: language.t("pdf.annotation.add"),
+      annotationEdit: language.t("pdf.annotation.edit"),
+      annotationClose: language.t("pdf.annotation.close"),
+      annotationType: language.t("pdf.annotation.type"),
+      annotationColor: language.t("pdf.annotation.color"),
+      annotationText: language.t("pdf.annotation.text"),
+      annotationPlaceholder: language.t("pdf.annotation.placeholder"),
+      annotationDelete: language.t("pdf.annotation.delete"),
+      annotationCancel: language.t("pdf.annotation.cancel"),
+      annotationSave: language.t("pdf.annotation.save"),
+      annotationDeleted: language.t("pdf.annotation.deleted"),
+      annotationUndo: language.t("pdf.annotation.undo"),
+      annotationYellow: language.t("pdf.annotation.yellow"),
+      annotationRed: language.t("pdf.annotation.red"),
+      annotationGreen: language.t("pdf.annotation.green"),
+      annotationBlue: language.t("pdf.annotation.blue"),
+      annotationNote: language.t("pdf.annotation.note"),
+    },
     features: {
       pdf2md: !!props.onPdfToMarkdown,
       readingMode: !!props.onOpenReadingMode,
@@ -243,6 +332,70 @@ export const PdfViewerShell: Component<PdfViewerShellProps> = (props) => {
     frame.postMessage(message, viewerMessageTargetOrigin())
   }
 
+  const closeAsk = () => {
+    const item = ask()
+    setAsk(undefined)
+    if (item) post({ channel: "aether-pdf-viewer", type: "askclose", selectionDocument: item.selectionDocument })
+  }
+  createEffect(() => {
+    const key = selectionDocument()
+    const item = ask()
+    if (
+      item &&
+      (item.selectionDocument !== key ||
+        (item.fingerprint && item.fingerprint !== fingerprint()) ||
+        (item.reference && !props.references?.some((ref) => ref.id === item.reference)))
+    )
+      closeAsk()
+  })
+  const previous = createMemo(() => {
+    const item = ask()
+    if (!item) return
+    return props.references?.find(
+      (ref) =>
+        ref.kind === "pdf" &&
+        ref.path === (props.askPath ?? props.annotationPath) &&
+        (item.reference ? ref.id === item.reference : ref.selection === item.selection) &&
+        (!ref.fingerprint || ref.fingerprint === item.fingerprint) &&
+        ref.startPage === ("page" in item ? item.page : item.startPage) &&
+        ref.endPage === ("page" in item ? item.page : item.endPage) &&
+        ref.content === ("page" in item ? "image" : "text"),
+    )
+  })
+  const select = (item: Selection) => {
+    if (item.selectionDocument !== selectionDocument() || (item.fingerprint && item.fingerprint !== fingerprint()))
+      return
+    if (item.action !== "ask") {
+      if ("page" in item) props.onImageSelectionAction?.(item)
+      else props.onTextSelectionAction?.(item)
+      return
+    }
+    if (!item.rect || !Object.values(item.rect).every(Number.isFinite)) return
+    const rect = iframeRef?.getBoundingClientRect()
+    if (!rect) return
+    setAsk({
+      ...item,
+      rect: {
+        top: item.rect.top + rect.top,
+        bottom: item.rect.bottom + rect.top,
+        left: item.rect.left + rect.left,
+        right: item.rect.right + rect.left,
+      },
+    })
+  }
+
+  const sendMarks = () => {
+    if (!viewerReady()) return
+    post({
+      channel: "aether-pdf-viewer",
+      type: "askreferences",
+      selectionDocument: selectionDocument(),
+      fingerprint: fingerprint(),
+      references: pdfMarks(props.references ?? [], props.askPath ?? props.annotationPath, fingerprint()),
+    })
+  }
+  createEffect(sendMarks)
+
   const url = (pathname: string) => {
     const url = new URL(pathname, `${sdk.url.replace(/\/+$/, "")}/`)
     url.searchParams.set("directory", sdk.directory)
@@ -251,7 +404,7 @@ export const PdfViewerShell: Component<PdfViewerShellProps> = (props) => {
 
   const headers = () => (props.authHeader ? { Authorization: props.authHeader } : undefined)
 
-  const identity = (source: PdfSource) =>
+  const annotationKey = (source: PdfSource) =>
     source.annotationBuild ? `latex:${source.annotationBuild}` : source.annotationPath
 
   const endpoint = (source: PdfSource, exportPdf = false) => {
@@ -267,21 +420,49 @@ export const PdfViewerShell: Component<PdfViewerShellProps> = (props) => {
     !!source && source.version === message.version && source.document === message.document && source.src === message.src
 
   createEffect(() => {
+    const next = environment()
+    if (next === connection) return
+    connection = next
+    setLoaded(undefined)
+    setIdentity(undefined)
+    closeAsk()
+  })
+
+  createEffect(() => {
     const source = loaded()
     const id = ++serial
+    draft = undefined
     setAnnotations(undefined)
     setRecord(undefined)
-    if (!source || !identity(source)) return
+    if (!source || !annotationKey(source)) return
+    const key = JSON.stringify([sdk.url, sdk.directory, annotationKey(source)])
+    const entry = drafts.get(key) ?? { refs: 0, pending: 0, revision: undefined, queue: queue<PdfAnnotationFile>() }
+    entry.refs++
+    drafts.set(key, entry)
+    draft = entry.queue
+    setRecord({ source, key, entry })
+    onCleanup(() => {
+      if (id === serial) {
+        serial++
+        draft = undefined
+      }
+      entry.refs--
+      void entry.queue.flush().then(
+        () => {
+          if (!entry.refs && drafts.get(key) === entry) drafts.delete(key)
+        },
+        () => {},
+      )
+    })
     const target = endpoint(source)
-    const auth = headers()
-    void fetch(target, { headers: auth })
+    void fetch(target, { headers: headers() })
       .then(async (res) => {
         if (!res.ok) throw new Error(`Failed to load PDF annotations (${res.status})`)
         return res.json() as Promise<PdfAnnotations>
       })
       .then((result) => {
         if (id !== serial) return
-        if (result.status === "stale") {
+        if (result.status === "stale" && !entry.queue.data) {
           showToast({
             variant: "error",
             title: "PDF annotations paused",
@@ -289,29 +470,20 @@ export const PdfViewerShell: Component<PdfViewerShellProps> = (props) => {
           })
           if (
             !window.confirm("This PDF changed and its saved annotations may be misplaced. Reset the annotation draft?")
-          ) {
+          )
             return
-          }
-          const next = { ...result.data, annotations: [] }
-          void fetch(target, {
-            method: "PUT",
-            headers: { "Content-Type": "application/json", ...auth },
-            body: JSON.stringify({ path: source.annotationPath, data: next }),
-          })
-            .then(async (res) => {
-              if (!res.ok) throw new Error(`Failed to reset PDF annotations (${res.status})`)
-              const data = (await res.json()) as PdfAnnotationFile
-              if (id !== serial) return
-              setRecord({ source, pending: 0 })
-              setAnnotations(data)
-            })
-            .catch((err) => {
-              showToast({ variant: "error", title: "Failed to reset PDF annotations", description: String(err) })
-            })
+          setAnnotations({ ...result.data, annotations: [] })
+          persist([])
           return
         }
-        setRecord({ source, revision: result.revision, pending: 0 })
-        setAnnotations(result.data)
+        // The revision and body must come from the same first accepted read.
+        // Later shared-view GETs cannot replace either half of that snapshot.
+        if (!entry.queue.data) {
+          entry.revision = result.revision
+          entry.queue.load(result.data)
+        }
+        setAnnotations(entry.queue.data)
+        failure(entry.queue, id)
       })
       .catch((err) => {
         if (id !== serial) return
@@ -319,42 +491,42 @@ export const PdfViewerShell: Component<PdfViewerShellProps> = (props) => {
       })
   })
 
-  createEffect(() => {
-    const data = annotations()
-    const source = record()?.source
-    if (!viewerReady() || !data || !source) return
-    post({ channel: "aether-pdf-viewer", type: "annotations", annotations: data.annotations, ...source })
-  })
-
-  const persist = (message: Extract<ViewerMessage, { type: "annotationchange" }>) => {
+  const persist = (items: PdfAnnotation[], message?: Extract<ViewerMessage, { type: "annotationchange" }>) => {
     const ctx = record()
     const data = annotations()
-    if (!ctx || !data || !matches(ctx.source, message)) {
-      post({
-        channel: "aether-pdf-viewer",
-        type: "annotationstatus",
-        id: message.id,
-        document: message.document,
-        version: message.version,
-        src: message.src,
-        ok: false,
-      })
+    const state = draft
+    if (!ctx || !data || !state || (message && !matches(ctx.source, message))) {
+      if (message)
+        post({
+          channel: "aether-pdf-viewer",
+          type: "annotationstatus",
+          id: message.id,
+          document: message.document,
+          version: message.version,
+          src: message.src,
+          ok: false,
+        })
       return
     }
-    const next = { ...data, annotations: message.annotations }
+    const id = serial
     const target = endpoint(ctx.source)
     const auth = headers()
-    ctx.pending++
-    setAnnotations(next)
-    saving = saving
-      .then(async () => {
+    const next = { ...data, annotations: items }
+    const publish = () => {
+      if (id === serial && draft === state) setAnnotations(state.data)
+      window.dispatchEvent(new CustomEvent("aether:pdf-annotations", { detail: { channel, key: ctx.key } }))
+    }
+    let saved = false
+    ctx.entry.pending++
+    void state
+      .save(next, async (data) => {
         const res = await fetch(target, {
           method: "PUT",
           headers: { "Content-Type": "application/json", ...auth },
           body: JSON.stringify(
             ctx.source.annotationBuild
-              ? { data: next, revision: ctx.revision }
-              : { path: ctx.source.annotationPath, data: next },
+              ? { data, revision: ctx.entry.revision }
+              : { path: ctx.source.annotationPath, data },
           ),
         })
         if (!res.ok)
@@ -364,41 +536,51 @@ export const PdfViewerShell: Component<PdfViewerShellProps> = (props) => {
               : `Failed to save PDF annotations (${res.status})`,
           )
         const result = (await res.json()) as PdfAnnotationFile | PdfAnnotations
-        const saved = "data" in result ? result.data : result
-        if ("revision" in result) ctx.revision = result.revision
-        ctx.failed = false
-        window.dispatchEvent(
-          new CustomEvent("aether:pdf-annotations", {
-            detail: { channel, path: identity(ctx.source), data: saved, revision: ctx.revision },
-          }),
-        )
-        post({ channel: "aether-pdf-viewer", type: "annotationstatus", id: message.id, ...ctx.source, ok: true })
+        if ("revision" in result) ctx.entry.revision = result.revision
+        saved = true
+        return "data" in result ? result.data : result
       })
-      .catch((err) => {
-        ctx.failed = true
-        showToast({ variant: "error", title: "Failed to save PDF annotations", description: String(err) })
-        post({ channel: "aether-pdf-viewer", type: "annotationstatus", id: message.id, ...ctx.source, ok: false })
+      .then(() => {
+        ctx.entry.pending--
+        publish()
+        if (message)
+          post({ channel: "aether-pdf-viewer", type: "annotationstatus", id: message.id, ...ctx.source, ok: saved })
+        failure(state, id)
       })
-      .finally(() => {
-        ctx.pending--
-      })
+    publish()
+  }
+  const failure = (state: ReturnType<typeof queue<PdfAnnotationFile>>, id: number) => {
+    if (!state.error || id !== serial || draft !== state) return
+    showToast({
+      variant: "error",
+      title: language.t("pdf.annotation.saveFailed"),
+      description: state.error.message,
+      actions: [
+        {
+          label: language.t("pdf.annotation.saveRetry"),
+          onClick: () => {
+            if (id === serial && draft === state && state.data) persist(state.data.annotations)
+          },
+        },
+      ],
+    })
   }
 
   const onAnnotations = (event: Event) => {
-    const detail = (event as CustomEvent<{ channel: string; path: string; data: PdfAnnotationFile; revision?: string }>)
-      .detail
-    const ctx = record()
-    if (
-      !ctx ||
-      ctx.pending ||
-      ctx.failed ||
-      !detail ||
-      detail.channel === channel ||
-      detail.path !== identity(ctx.source)
-    )
-      return
-    ctx.revision = detail.revision
-    setAnnotations(detail.data)
+    const detail = (event as CustomEvent<{ channel: string; key: string; reset?: boolean }>).detail
+    if (!detail || detail.channel === channel || detail.key !== record()?.key) return
+    const data = draft?.data
+    if (data) {
+      setAnnotations(data)
+      if (detail.reset && record())
+        post({
+          channel: "aether-pdf-viewer",
+          type: "annotations",
+          ...record()!.source,
+          annotations: data.annotations,
+          reset: true,
+        })
+    }
   }
   window.addEventListener("aether:pdf-annotations", onAnnotations)
   onCleanup(() => window.removeEventListener("aether:pdf-annotations", onAnnotations))
@@ -406,11 +588,13 @@ export const PdfViewerShell: Component<PdfViewerShellProps> = (props) => {
   const exportPdf = async () => {
     const ctx = record()
     if (!ctx) return
-    const target = endpoint(ctx.source, true)
+    const state = draft
+    const id = serial
+    if (!state || !annotations()) throw new Error(language.t("pdf.annotation.exportFailed"))
+    await state.flush()
+    if (id !== serial || draft !== state) return
     const auth = headers()
-    await saving
-    if (ctx.failed) throw new Error("Save annotations before exporting this PDF.")
-    const res = await fetch(target, {
+    const res = await fetch(endpoint(ctx.source, true), {
       method: "POST",
       headers: { "Content-Type": "application/json", ...auth },
       body: JSON.stringify({ path: ctx.source.annotationPath }),
@@ -428,6 +612,7 @@ export const PdfViewerShell: Component<PdfViewerShellProps> = (props) => {
           .pop()
           ?.replace(/\.pdf$/i, "")}-annotated.pdf`
     const blob = await res.blob()
+    if (id !== serial || draft !== state) return
     if (platform.saveFileDialog) {
       await platform.saveFileDialog({ name, data: await blob.arrayBuffer() })
       return
@@ -474,6 +659,8 @@ export const PdfViewerShell: Component<PdfViewerShellProps> = (props) => {
     const key = JSON.stringify(nextConfig)
     if (key === lastConfigKey) return
     lastConfigKey = key
+    contexts.set(nextConfig.selectionDocument, environment())
+    if (contexts.size > 32) contexts.delete(contexts.keys().next().value!)
     post({
       channel: "aether-pdf-viewer",
       type: "config",
@@ -488,6 +675,10 @@ export const PdfViewerShell: Component<PdfViewerShellProps> = (props) => {
   createEffect(() => {
     void config()
     sendConfig()
+    const data = annotations()
+    const source = record()?.source
+    if (!viewerReady() || !data || !source) return
+    post({ channel: "aether-pdf-viewer", type: "annotations", ...source, annotations: data.annotations })
   })
 
   createEffect(() => {
@@ -538,11 +729,59 @@ export const PdfViewerShell: Component<PdfViewerShellProps> = (props) => {
     if (!isFileProtocol() && event.origin !== window.location.origin) return
 
     if (event.data.type === "ready") {
+      setIdentity(undefined)
       setViewerReady(true)
       lastReportedPage = undefined
       lastReportedLocation = undefined
       lastConfigKey = ""
       sendConfig()
+      sendMarks()
+      const data = annotations()
+      const source = record()?.source
+      if (data && source)
+        post({
+          channel: "aether-pdf-viewer",
+          type: "annotations",
+          ...source,
+          annotations: data.annotations,
+        })
+      return
+    }
+
+    if (contexts.get(event.data.selectionDocument ?? "") !== environment()) return
+
+    if (event.data.type === "documentready") {
+      if (event.data.selectionDocument !== selectionDocument()) return
+      setIdentity({ document: event.data.selectionDocument, fingerprint: event.data.fingerprint })
+      return
+    }
+    if (event.data.type === "askreference") {
+      const item = event.data
+      if (item.selectionDocument !== selectionDocument() || !item.fingerprint || item.fingerprint !== fingerprint())
+        return
+      const ref = props.references?.find(
+        (ref) =>
+          ref.id === item.id &&
+          ref.kind === "pdf" &&
+          ref.path === (props.askPath ?? props.annotationPath) &&
+          ref.fingerprint === item.fingerprint,
+      )
+      if (!ref || ref.kind !== "pdf" || !props.onReferenceEdit) return
+      const base = {
+        action: "ask" as const,
+        selectionDocument: item.selectionDocument,
+        document: item.document,
+        version: item.version,
+        selection: ref.selection,
+        fingerprint: item.fingerprint,
+        reference: ref.id,
+        rect: item.rect,
+      }
+      select(
+        ref.content === "image"
+          ? { ...base, page: ref.startPage, imageDataUrl: ref.image ?? "" }
+          : { ...base, startPage: ref.startPage, endPage: ref.endPage, text: ref.text },
+      )
       return
     }
 
@@ -639,26 +878,12 @@ export const PdfViewerShell: Component<PdfViewerShellProps> = (props) => {
       return
     }
 
-    if (event.data.type === "textselectionaction") {
-      props.onTextSelectionAction?.({
-        action: event.data.action,
-        startPage: event.data.startPage,
-        endPage: event.data.endPage,
-        text: event.data.text,
-        document: event.data.document,
-        version: event.data.version,
-      })
+    if (event.data.type === "textselectionaction" || event.data.type === "imageselectionaction") {
+      select(event.data)
       return
     }
-
-    if (event.data.type === "imageselectionaction") {
-      props.onImageSelectionAction?.({
-        action: event.data.action,
-        page: event.data.page,
-        imageDataUrl: event.data.imageDataUrl,
-        document: event.data.document,
-        version: event.data.version,
-      })
+    if (event.data.type === "askcancel") {
+      if (event.data.selectionDocument === ask()?.selectionDocument) closeAsk()
       return
     }
 
@@ -673,14 +898,14 @@ export const PdfViewerShell: Component<PdfViewerShellProps> = (props) => {
     }
 
     if (event.data.type === "annotationchange") {
-      persist(event.data)
+      persist(event.data.annotations, event.data)
       return
     }
 
     if (event.data.type === "exportannotations") {
       if (!matches(loaded(), event.data)) return
       void exportPdf().catch((err) => {
-        showToast({ variant: "error", title: "Failed to export annotated PDF", description: String(err) })
+        showToast({ variant: "error", title: language.t("pdf.annotation.exportFailed"), description: String(err) })
       })
       return
     }
@@ -688,7 +913,39 @@ export const PdfViewerShell: Component<PdfViewerShellProps> = (props) => {
     if (event.data.type === "reloadannotations") {
       const source = loaded()
       if (!source || !matches(source, event.data)) return
-      setLoaded({ ...source })
+      const ctx = record()
+      if (ctx?.entry.pending) return
+      if (!ctx) return
+      const data = ctx.entry.queue.data
+      const id = serial
+      void fetch(endpoint(source), { headers: headers() })
+        .then(async (res) => {
+          if (!res.ok) throw new Error(`Failed to reload PDF annotations (${res.status})`)
+          return res.json() as Promise<PdfAnnotations>
+        })
+        .then((result) => {
+          if (id !== serial || record() !== ctx || ctx.entry.pending || ctx.entry.queue.data !== data) return
+          if (result.status !== "ready") throw new Error("The saved annotations no longer match this PDF.")
+          ctx.entry.revision = result.revision
+          ctx.entry.queue.reset(result.data)
+          setAnnotations(result.data)
+          post({
+            channel: "aether-pdf-viewer",
+            type: "annotations",
+            ...source,
+            annotations: result.data.annotations,
+            reset: true,
+          })
+          window.dispatchEvent(
+            new CustomEvent("aether:pdf-annotations", {
+              detail: { channel, key: ctx.key, reset: true },
+            }),
+          )
+        })
+        .catch((err) => {
+          if (id === serial)
+            showToast({ variant: "error", title: "Failed to reload PDF annotations", description: String(err) })
+        })
     }
   }
 
@@ -698,10 +955,38 @@ export const PdfViewerShell: Component<PdfViewerShellProps> = (props) => {
     props.onBusyChange?.(false)
     window.removeEventListener("message", onMessage)
     if (retryTimer) clearTimeout(retryTimer)
+    closeAsk()
   })
 
   return (
     <div class={`pdf-viewer-shell ${props.class ?? ""}`}>
+      <Show when={ask()} keyed>
+        {(item) => (
+          <AskEditor
+            title={language.t("ask.editor.title")}
+            preview={"text" in item ? item.text : language.t("ask.editor.title")}
+            image={"imageDataUrl" in item ? item.imageDataUrl : undefined}
+            question={previous()?.question}
+            editing={!!previous()}
+            anchor={item.rect}
+            onCancel={closeAsk}
+            onSave={(question) => {
+              if (
+                item.selectionDocument !== selectionDocument() ||
+                (item.fingerprint && item.fingerprint !== fingerprint())
+              )
+                return closeAsk()
+              if (item.reference) {
+                if (previous()?.id === item.reference) props.onReferenceEdit?.(item.reference, question)
+                return closeAsk()
+              }
+              if ("page" in item) props.onImageSelectionAction?.({ ...item, question })
+              else props.onTextSelectionAction?.({ ...item, question })
+              closeAsk()
+            }}
+          />
+        )}
+      </Show>
       <iframe ref={iframeRef} src={viewerSrc()} class="pdf-viewer-shell__frame" title="PDF Viewer" loading="eager" />
     </div>
   )
