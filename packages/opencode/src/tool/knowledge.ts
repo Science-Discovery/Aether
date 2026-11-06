@@ -5,6 +5,7 @@ import { Storage } from "../knowledge/storage"
 import { Instance } from "../project/instance"
 import { Filesystem } from "../util/filesystem"
 import path from "path"
+import { Config } from "../config/config"
 
 const DESCRIPTION = `Search the knowledge base for relevant information.
 
@@ -124,6 +125,13 @@ export const KnowledgeTool = Tool.define("knowledge_search", {
     topK: z.coerce.number().describe("Number of results to return (default: 10)").optional().default(10),
   }),
   async execute(params, ctx) {
+    if (!(await Config.enabled("knowledge"))) {
+      return {
+        title: "Knowledge base disabled",
+        output: "Knowledge base feature is disabled. Enable it in Settings before searching.",
+        metadata: { configured: false } as KnowledgeMetadata,
+      }
+    }
     // 获取所有激活的知识库
     const cfg = getKnowledgeConfig(ctx.sessionID)
     const kbPaths = await getActiveKnowledgeBases(ctx.sessionID)

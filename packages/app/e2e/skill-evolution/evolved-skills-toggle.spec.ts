@@ -34,35 +34,45 @@ async function openEvolvedSkillsDialog(page: import("@playwright/test").Page) {
 test("disabling a skill in the dialog writes disabled_files and the switch reflects it", async ({
   page,
   withProject,
+  backend,
 }) => {
-  await withProject(async ({ directory }) => {
-    const skillFile = await writeEvolvedSkill(directory, "demo-skill", "a demo skill")
+  const client = backend.sdk()
+  const config = await client.global.config.get()
+  await client.global.config.update({ config: { skills: { evolution_enabled: true } } })
+  try {
+    await withProject(async ({ directory }) => {
+      const skillFile = await writeEvolvedSkill(directory, "demo-skill", "a demo skill")
 
-    // Open the dialog and expand the group so the skill row (and its switch) shows.
-    let dialog = await openEvolvedSkillsDialog(page)
-    await expect(dialog.getByText("demo-skill", { exact: true })).toBeVisible()
+      // Open the dialog and expand the group so the skill row (and its switch) shows.
+      let dialog = await openEvolvedSkillsDialog(page)
+      await expect(dialog.getByText("demo-skill", { exact: true })).toBeVisible()
 
-    // The switch starts checked (enabled) — nothing is in disabled_files yet.
-    const toggle = dialog.getByRole("switch").first()
-    await expect(toggle).toBeChecked()
+      // The switch starts checked (enabled) — nothing is in disabled_files yet.
+      const toggle = dialog.getByRole("switch").first()
+      await expect(toggle).toBeChecked()
 
-    // Flip it off. Click the visible control (the role=switch input is overlaid by
-    // the styled control div, which intercepts pointer events).
-    await dialog.locator('[data-slot="switch-control"]').first().click()
+      // Flip it off. Click the visible control (the role=switch input is overlaid by
+      // the styled control div, which intercepts pointer events).
+      await dialog.locator('[data-slot="switch-control"]').first().click()
 
-    // Hard proof the backend wrote the project config (not SKILL.md frontmatter).
-    await expect
-      .poll(async () => (await readProjectConfig(directory)).skills?.disabled_files ?? [])
-      .toContain(skillFile)
+      // Hard proof the backend wrote the project config (not SKILL.md frontmatter).
+      await expect
+        .poll(async () => (await readProjectConfig(directory)).skills?.disabled_files ?? [])
+        .toContain(skillFile)
 
-    // The SKILL.md frontmatter must remain untouched (we stopped writing it).
-    const md = await fs.readFile(skillFile, "utf8")
-    expect(md).not.toContain("enabled:")
+      // The SKILL.md frontmatter must remain untouched (we stopped writing it).
+      const md = await fs.readFile(skillFile, "utf8")
+      expect(md).not.toContain("enabled:")
 
-    // Re-open the dialog: display state is computed from config, so the switch is now off.
-    await page.keyboard.press("Escape")
-    dialog = await openEvolvedSkillsDialog(page)
-    await expect(dialog.getByText("demo-skill", { exact: true })).toBeVisible()
-    await expect(dialog.getByRole("switch").first()).not.toBeChecked()
-  })
+      // Re-open the dialog: display state is computed from config, so the switch is now off.
+      await page.keyboard.press("Escape")
+      dialog = await openEvolvedSkillsDialog(page)
+      await expect(dialog.getByText("demo-skill", { exact: true })).toBeVisible()
+      await expect(dialog.getByRole("switch").first()).not.toBeChecked()
+    })
+  } finally {
+    await client.global.config.update({
+      config: { skills: { evolution_enabled: config.data?.skills?.evolution_enabled === true } },
+    })
+  }
 })

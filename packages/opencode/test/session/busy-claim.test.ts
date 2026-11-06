@@ -10,6 +10,7 @@ import { hasKnowledge, getKnowledgeConfig } from "../../src/tool/knowledge"
 import { Log } from "../../src/util/log"
 import { tmpdir } from "../fixture/fixture"
 import { serve } from "../lib/server"
+import { features } from "../fixture/features"
 
 Log.init({ print: false })
 
@@ -187,6 +188,7 @@ describe("session.prompt busy claim", () => {
   }, 30000)
 
   test("rejected concurrent prompt does not clobber knowledge config", async () => {
+    await using global = await features({ knowledge: { enabled: true } })
     const server = await harness.llm(800)
     await using tmp = await tmpdir({
       git: true,
@@ -234,6 +236,7 @@ describe("session.prompt busy claim", () => {
   }, 30000)
 
   test("cancel during prep does not let the stale prompt adopt a newer prompt's claim", async () => {
+    await using global = await features({ knowledge: { enabled: true } })
     const server = await harness.llm(1500)
     await using tmp = await tmpdir({
       git: true,

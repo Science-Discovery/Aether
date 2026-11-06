@@ -13375,6 +13375,24 @@
                 }
               }
             }
+          },
+          "403": {
+            "description": "Knowledge base feature is disabled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
           }
         },
         "requestBody": {
@@ -14192,6 +14210,24 @@
               }
             }
           },
+          "403": {
+            "description": "Knowledge base feature is disabled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
           "404": {
             "description": "知识库不存在"
           }
@@ -14294,6 +14330,24 @@
               }
             }
           },
+          "403": {
+            "description": "Knowledge base feature is disabled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
           "404": {
             "description": "知识库不存在"
           }
@@ -14385,6 +14439,24 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/BadRequestError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Knowledge base feature is disabled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
                 }
               }
             }
@@ -14558,6 +14630,24 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/BadRequestError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Knowledge base feature is disabled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
                 }
               }
             }
@@ -23776,6 +23866,9 @@
             "$ref": "#/components/schemas/Event.global.disposed"
           },
           {
+            "$ref": "#/components/schemas/Event.global.config.updated"
+          },
+          {
             "$ref": "#/components/schemas/Event.lsp.client.diagnostics"
           },
           {
@@ -25622,7 +25715,7 @@
                 }
               },
               "evolution_enabled": {
-                "description": "Global master switch for skill self-evolution. When false, no project triggers background review (default: true)",
+                "description": "Server-global master switch for skill self-evolution. Requires explicit true in global config (default: false)",
                 "type": "boolean"
               },
               "creation_nudge_interval": {
@@ -26094,6 +26187,15 @@
                 "type": "integer",
                 "exclusiveMinimum": 0,
                 "maximum": 9007199254740991
+              }
+            }
+          },
+          "knowledge": {
+            "type": "object",
+            "properties": {
+              "enabled": {
+                "description": "Server-global master switch for knowledge base processing and search (default: false)",
+                "type": "boolean"
               }
             }
           }
@@ -28681,6 +28783,23 @@
           "name",
           "extensions",
           "enabled"
+        ]
+      },
+      "Event.global.config.updated": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "global.config.updated"
+          },
+          "properties": {
+            "type": "object",
+            "properties": {}
+          }
+        },
+        "required": [
+          "type",
+          "properties"
         ]
       }
     }

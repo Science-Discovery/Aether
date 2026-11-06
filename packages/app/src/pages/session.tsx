@@ -2455,6 +2455,10 @@ function SessionPageContent(props: SessionPageProps = {}) {
                         onUserScroll={markUserScroll}
                         onTurnBackfillScroll={historyWindow.onScrollerScroll}
                         onAutoScrollInteraction={autoScroll.handleInteraction}
+                        onUserMessageResize={() => {
+                          markUserScroll()
+                          autoScroll.pause(true)
+                        }}
                         centered={centered()}
                         setContentRef={(el) => {
                           content = el
@@ -2641,6 +2645,10 @@ function SessionPageContent(props: SessionPageProps = {}) {
                       onUserScroll={markUserScroll}
                       onTurnBackfillScroll={historyWindow.onScrollerScroll}
                       onAutoScrollInteraction={autoScroll.handleInteraction}
+                      onUserMessageResize={() => {
+                        markUserScroll()
+                        autoScroll.pause(true)
+                      }}
                       centered={centered()}
                       setContentRef={(el) => {
                         content = el
