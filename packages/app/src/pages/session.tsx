@@ -36,6 +36,7 @@ import { useComments } from "@/context/comments"
 import { getSessionPrefetch, SESSION_PREFETCH_TTL } from "@/context/global-sync/session-prefetch"
 import { useGlobalSync } from "@/context/global-sync"
 import { useLanguage } from "@/context/language"
+import { useLatex } from "@/context/latex"
 import { useLayout } from "@/context/layout"
 import { usePrompt } from "@/context/prompt"
 import { FileQuoteProvider } from "@/context/file-quote"
@@ -48,6 +49,8 @@ import { QuickReadingModeProvider, useQuickReadingMode } from "@/context/quick-r
 import { QuickReadingPanel } from "@/components/quick-reading/quick-reading-panel"
 import { cloneReferences } from "@/utils/ask-reference"
 import { type FollowupDraft, type FollowupEdit, sendFollowupDraft } from "@/components/prompt-input/submit"
+import { LatexReadingToolbar } from "@/components/quick-reading/latex-reading-toolbar"
+import { source } from "@/components/latex-drafts"
 import { createSessionComposerState, SessionComposerRegion } from "@/pages/session/composer"
 import {
   createOpenReviewFile,
@@ -359,6 +362,7 @@ function SessionPageContent(props: SessionPageProps = {}) {
   const layout = useLayout()
   const local = useLocal()
   const file = useFile()
+  const latex = useLatex()
   const sync = useSync()
   const dialog = useDialog()
   const language = useLanguage()
@@ -643,6 +647,20 @@ function SessionPageContent(props: SessionPageProps = {}) {
   const activeTab = tabState.activeTab
   const activeFileTab = tabState.activeFileTab
   const quickReadingController = useQuickReadingController({})
+  const paired = createMemo(() => {
+    const tab = activeFileTab()
+    const path = tab ? file.pathFromTab(tab) : undefined
+    const project = latex.state.project
+    const document = quickReadingController.latex.document()
+    return (
+      !!path &&
+      source(path) &&
+      path === latex.state.path &&
+      !!project?.binding &&
+      document?.root === project.root &&
+      document.main === project.binding.main
+    )
+  })
   const revertMessageID = createMemo(() => info()?.revert?.messageID)
   const messages = createMemo(() => (params.id ? (sync.data.message[params.id] ?? []) : []))
   const messagesReady = createMemo(() => {
@@ -702,7 +720,21 @@ function SessionPageContent(props: SessionPageProps = {}) {
     return (
       <QuickReadingPanel
         url={quickReadingController.pdfUrl()}
-        annotationPath={quickReadingController.pdfPath()!}
+        annotationPath={quickReadingController.annotationPath()}
+        askPath={quickReadingController.pdfPath()}
+        annotationBuild={quickReadingController.version()}
+        document={quickReadingController.document()}
+        version={quickReadingController.version()}
+        onVersionChange={quickReadingController.latex.displayed}
+        reveal={quickReadingController.navigation.reveal()}
+        onSourceLocate={quickReadingController.compiled() ? quickReadingController.navigation.inverse : undefined}
+        onLocateUnavailable={quickReadingController.navigation.unavailable}
+        onBusyChange={quickReadingController.navigation.busy}
+        header={
+          <Show when={quickReadingController.compiled() && !desktopReviewOpen()}>
+            <LatexReadingToolbar reading={quickReadingController.latex} download={quickReadingController.download} />
+          </Show>
+        }
         authHeader={quickReadingController.authHeader()}
         width={readingPaneWidth()}
         minWidth={quickReadingLayout.pdfMinWidth()}
@@ -723,7 +755,7 @@ function SessionPageContent(props: SessionPageProps = {}) {
         onImageSelectionAction={quickReadingController.handleImageSelectionAction}
         onExitQuickReading={quickReadingController.closeQuickReading}
         onSwapLayout={quickReadingController.toggleLayoutSwapped}
-        onStartFirstRead={quickReadingController.openFirstRead}
+        onStartFirstRead={quickReadingController.compiled() ? undefined : quickReadingController.openFirstRead}
         onOpenSettings={quickReadingController.openSettings}
         onResizeWidth={quickReadingLayout.handleResizeWidth}
         resizeHandleEnabled={
@@ -2712,6 +2744,16 @@ function SessionPageContent(props: SessionPageProps = {}) {
 
         <SessionSidePanel
           style={{ order: "2" }}
+          header={
+            <Show when={quickReadingController.compiled() && desktopReviewOpen()}>
+              <LatexReadingToolbar
+                reading={quickReadingController.latex}
+                download={quickReadingController.download}
+                embedded={paired()}
+                collapsed={paired() && latex.state.collapsed}
+              />
+            </Show>
+          }
           widthOverride={effectiveSidePanelWidth()}
           reviewOpenOverride={readingModeActive() ? desktopReviewOpen() : undefined}
           fileOpenOverride={readingModeActive() ? desktopFileTreeOpen() : undefined}

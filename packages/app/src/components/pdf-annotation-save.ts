@@ -15,6 +15,11 @@ export function queue<T>() {
       if (!revision) data = value
       return data
     },
+    reset(value: T) {
+      data = value
+      revision = 0
+      error = undefined
+    },
     save(value: T, write: (value: T) => Promise<T>) {
       data = value
       error = undefined

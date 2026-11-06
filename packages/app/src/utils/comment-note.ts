@@ -1,4 +1,5 @@
 import type { FileSelection } from "@/context/file"
+import { quote, type LatexQuote } from "@/utils/pdf-source"
 
 export type PromptComment = {
   path: string
@@ -24,6 +25,7 @@ export type ReadingQuote = {
   summary: string
   fullText?: string
   imageDataUrl?: string
+  source?: LatexQuote
 }
 
 export type FileQuote = {
@@ -90,6 +92,7 @@ export function createReadingQuoteMetadata(input: ReadingQuote) {
       summary: input.summary,
       fullText: input.fullText,
       imageDataUrl: input.imageDataUrl,
+      source: input.source,
     },
   }
 }
@@ -149,6 +152,7 @@ export function readReadingQuoteMetadata(value: unknown) {
   const fullText = (meta as { fullText?: unknown }).fullText
   const imageDataUrl = (meta as { imageDataUrl?: unknown }).imageDataUrl
   const extra = meta as Partial<ReadingQuote>
+  const source = quote((meta as { source?: unknown }).source)
 
   if (mode !== "classic" && mode !== "quick") return
   if (action !== "ask" && action !== "translate") return
@@ -176,6 +180,7 @@ export function readReadingQuoteMetadata(value: unknown) {
     summary,
     fullText: typeof fullText === "string" ? fullText : undefined,
     imageDataUrl: typeof imageDataUrl === "string" ? imageDataUrl : undefined,
+    ...(source ? { source } : {}),
   } satisfies ReadingQuote
 }
 

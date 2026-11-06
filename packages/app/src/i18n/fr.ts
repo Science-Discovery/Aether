@@ -270,13 +270,6 @@ export const dict = {
   "prompt.attachment.remove": "Supprimer la pièce jointe",
   "prompt.action.send": "Envoyer",
   "prompt.action.stop": "Arrêter",
-  "prompt.action.steer": "Guider",
-  "prompt.steer.placeholder": "Ajouter une guidance...",
-  "prompt.steer.send": "Envoyer",
-  "prompt.steer.toast.failed.title": "Guidage échoué",
-  "prompt.steer.toast.failed.description": "Impossible d'ajouter le message de guidage",
-  "prompt.steer.toast.notBusy.title": "Session inactive",
-  "prompt.steer.toast.notBusy.description": "Le guidage fonctionne uniquement pendant la réponse de l'IA",
   "prompt.toast.pasteUnsupported.title": "Pièce jointe non prise en charge",
   "prompt.toast.pasteUnsupported.description":
     "Seules les images, les PDF ou les fichiers texte peuvent être joints ici.",

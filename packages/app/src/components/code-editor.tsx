@@ -5,22 +5,22 @@ import {
   lineNumbers,
   highlightActiveLine,
   highlightActiveLineGutter,
+  drawSelection,
 } from "@codemirror/view"
-import { Compartment, EditorState } from "@codemirror/state"
+import { Compartment, EditorState, type Extension } from "@codemirror/state"
 import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands"
-import {
-  syntaxHighlighting,
-  bracketMatching,
-  foldGutter,
-  HighlightStyle,
-} from "@codemirror/language"
-import { tags as t } from "@lezer/highlight" 
+import { syntaxHighlighting, bracketMatching, foldGutter, foldKeymap, HighlightStyle } from "@codemirror/language"
+import { tags as t } from "@lezer/highlight"
 import { closeBrackets, closeBracketsKeymap } from "@codemirror/autocomplete"
 import { python } from "@codemirror/lang-python"
 import { javascript } from "@codemirror/lang-javascript"
 import { css } from "@codemirror/lang-css"
 import { json } from "@codemirror/lang-json"
 import { markdown } from "@codemirror/lang-markdown"
+import { latex } from "./code-editor-latex"
+import { structure } from "./code-editor-latex-structure"
+import { assistance, extensions as aids } from "./code-editor-latex-decorations"
+import { manuscript, writing, type WritingStyle } from "./code-editor-latex-theme"
 
 const customHighlightStyle = HighlightStyle.define([
   { tag: t.keyword, color: "var(--syntax-keyword)" },
@@ -45,7 +45,7 @@ const customHighlightStyle = HighlightStyle.define([
   { tag: t.strikethrough, textDecoration: "line-through" },
 ])
 
-function getLanguageExtension(filename: string) {
+function getLanguageExtension(filename: string, preset?: WritingStyle["preset"]) {
   const ext = filename.split(".").pop()?.toLowerCase() ?? ""
   switch (ext) {
     case "py":
@@ -74,7 +74,7 @@ function getLanguageExtension(filename: string) {
     case "markdown":
       return markdown()
     default:
-      return null
+      return latex(filename, preset) ?? null
   }
 }
 
@@ -82,8 +82,12 @@ export function CodeEditor(props: {
   content: string
   filename: string
   onChange: (value: string) => void
+  onCursor?: (position: { line: number; column: number }) => void
+  onLocate?: () => void
   disabled?: boolean
   wordWrap?: boolean
+  appearance?: WritingStyle
+  location?: { line: number; column?: number; nonce: number }
   initialScroll?: { x: number; y: number }
   /** 进入编辑模式时从预览中提取的文本锚点，编辑器挂载后滚动到该文本 */
   initialAnchorText?: string
@@ -97,6 +101,29 @@ export function CodeEditor(props: {
   let view: EditorView | undefined
   const editableCompartment = new Compartment()
   const wrapCompartment = new Compartment()
+  const style = new Compartment()
+  const syntax = new Compartment()
+  const cursor = (state: EditorState) => {
+    if (!manuscript(props.filename) || !props.onCursor) return
+    const head = state.selection.main.head
+    const line = state.doc.lineAt(head)
+    props.onCursor({ line: line.number, column: head - line.from + 1 })
+  }
+  const appearance = () => [
+    writing(props.appearance ?? { dark: true, size: 14, spacing: "normal", font: "var(--font-family-mono)" }),
+    assistance.of({
+      guides: props.appearance?.preset === "vscode" && props.appearance.guides !== false,
+      brackets: props.appearance?.preset === "vscode" && props.appearance.brackets !== false,
+    }),
+  ]
+  const locate = () => {
+    const target = props.location
+    if (target?.nonce === undefined || !view) return
+    const line = view.state.doc.line(Math.max(1, Math.min(view.state.doc.lines, target.line)))
+    const anchor = Math.min(line.to, line.from + Math.max(0, (target.column ?? 1) - 1))
+    view.dispatch({ selection: { anchor }, effects: EditorView.scrollIntoView(anchor, { y: "center" }) })
+    view.focus()
+  }
 
   const editorTheme = EditorView.theme({
     "&": {
@@ -184,9 +211,9 @@ export function CodeEditor(props: {
   })
 
   onMount(() => {
-    const lang = getLanguageExtension(props.filename)
+    const lang = getLanguageExtension(props.filename, props.appearance?.preset)
 
-    const extensions = [
+    const extensions: Extension[] = [
       lineNumbers(),
       highlightActiveLine(),
       highlightActiveLineGutter(),
@@ -194,19 +221,42 @@ export function CodeEditor(props: {
       foldGutter(),
       bracketMatching(),
       closeBrackets(),
-      syntaxHighlighting(customHighlightStyle),
       keymap.of([...defaultKeymap, ...historyKeymap, ...closeBracketsKeymap, indentWithTab]),
-      editorTheme,
+      style.of(manuscript(props.filename) ? appearance() : [editorTheme, syntaxHighlighting(customHighlightStyle)]),
+      syntax.of(lang ?? []),
+      ...(manuscript(props.filename)
+        ? [drawSelection(), structure(props.filename), aids(props.filename), keymap.of(foldKeymap)]
+        : []),
       editableCompartment.of(EditorView.editable.of(!props.disabled)),
       wrapCompartment.of(props.wordWrap ? EditorView.lineWrapping : []),
+      EditorView.domEventHandlers({
+        keydown: (event, editor) => {
+          if (
+            !manuscript(props.filename) ||
+            !props.onLocate ||
+            !event.ctrlKey ||
+            !event.altKey ||
+            event.metaKey ||
+            event.shiftKey ||
+            (event.code !== "KeyJ" && event.key.toLowerCase() !== "j") ||
+            event.isComposing ||
+            event.keyCode === 229 ||
+            editor.composing ||
+            event.getModifierState("AltGraph")
+          )
+            return false
+          cursor(editor.state)
+          props.onLocate()
+          return true
+        },
+      }),
       EditorView.updateListener.of((update) => {
         if (update.docChanged) {
           props.onChange(update.state.doc.toString())
         }
+        if (update.docChanged || update.selectionSet) cursor(update.state)
       }),
     ]
-
-    if (lang) extensions.push(lang)
 
     view = new EditorView({
       state: EditorState.create({
@@ -215,6 +265,8 @@ export function CodeEditor(props: {
       }),
       parent: container,
     })
+    locate()
+    cursor(view.state)
 
     const scroller = container.querySelector(".cm-scroller") as HTMLElement | null
     let frame: number | undefined
@@ -246,9 +298,10 @@ export function CodeEditor(props: {
 
     // 等内容渲染完毕后，滚动到对应位置
     if (
-      props.initialAnchorText ||
-      (props.initialScrollRatio != null && props.initialScrollRatio > 0) ||
-      props.initialScroll
+      !props.location &&
+      (props.initialAnchorText ||
+        (props.initialScrollRatio != null && props.initialScrollRatio > 0) ||
+        props.initialScroll)
     ) {
       requestAnimationFrame(() => {
         if (!view) return
@@ -278,6 +331,8 @@ export function CodeEditor(props: {
     }
   })
 
+  createEffect(locate)
+
   createEffect(() => {
     if (!view) return
     const current = view.state.doc.toString()
@@ -296,6 +351,20 @@ export function CodeEditor(props: {
   createEffect(() => {
     if (!view) return
     view.dispatch({ effects: wrapCompartment.reconfigure(props.wordWrap ? EditorView.lineWrapping : []) })
+  })
+
+  createEffect(() => {
+    const cfg = appearance()
+    if (!view || !manuscript(props.filename)) return
+    view.dispatch({ effects: [style.reconfigure(cfg), view.scrollSnapshot()] })
+  })
+
+  createEffect(() => {
+    const preset = props.appearance?.preset
+    if (!view || !manuscript(props.filename)) return
+    const lang = latex(props.filename, preset) ?? []
+    if (syntax.get(view.state) === lang) return
+    view.dispatch({ effects: [syntax.reconfigure(lang), view.scrollSnapshot()] })
   })
 
   onCleanup(() => {
@@ -318,7 +387,10 @@ export function CodeEditor(props: {
           const r = lines[i].getBoundingClientRect()
           if (r.height === 0) continue
           const dist = Math.abs((r.top + r.bottom) / 2 - centerScreenY)
-          if (dist < bestDist) { bestDist = dist; bestIdx = i }
+          if (dist < bestDist) {
+            bestDist = dist
+            bestIdx = i
+          }
         }
         if (bestIdx < 0) return ""
 
@@ -344,5 +416,12 @@ export function CodeEditor(props: {
     view = undefined
   })
 
-  return <div ref={container} class="h-full min-h-0 flex-1 overflow-hidden" />
+  return (
+    <div
+      ref={container}
+      data-component="code-editor"
+      data-latex={manuscript(props.filename) || undefined}
+      class="h-full min-h-0 flex-1 overflow-hidden"
+    />
+  )
 }

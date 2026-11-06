@@ -265,9 +265,15 @@ export namespace PdfAnnotations {
     const abs = resolve(input)
     const stored = await read(abs)
     if (stored.status === "stale") throw new Error("PDF changed after annotations were created")
-    const pdf = await PDFDocument.load(await Bun.file(abs).arrayBuffer())
+    return render(await Bun.file(abs).arrayBuffer(), stored.data.annotations)
+  }
+
+  // The caller owns source authorization. File exports keep their workspace
+  // boundary above; immutable build exports validate their build and checksum.
+  export async function render(bytes: ArrayBuffer | Uint8Array, annotations: Item[]) {
+    const pdf = await PDFDocument.load(bytes)
     const occupied = new Map<number, number[][]>()
-    for (const item of stored.data.annotations) {
+    for (const item of annotations) {
       const pages = item.pages.flatMap((page) => {
         if (page.page > pdf.getPageCount()) return []
         const target = pdf.getPage(page.page - 1)

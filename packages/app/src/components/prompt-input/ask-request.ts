@@ -98,6 +98,7 @@ export function referenceParts(input: {
       summary: ref.summary,
       fullText: ref.text,
       imageDataUrl: ref.image,
+      source: ref.source,
     })
   })
   const passages = input.refs.map((ref, index) => {

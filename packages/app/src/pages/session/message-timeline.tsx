@@ -27,6 +27,7 @@ import { conversationSelection } from "@/pages/session/conversation-selection"
 import { ConversationMarks } from "@/pages/session/conversation-marks"
 import { MessageReferences } from "@/pages/session/message-references"
 import { SessionContextUsage } from "@/components/session-context-usage"
+import { SessionDetach } from "@/components/session-detach"
 import { useI18n } from "@opencode-ai/ui/context"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { usePrompt } from "@/context/prompt"
@@ -1387,6 +1388,7 @@ export function MessageTimeline(props: {
                                   </DropdownMenu.ItemLabel>
                                 </DropdownMenu.Item>
                               </Show>
+                              <SessionDetach session={info()} />
                               <DropdownMenu.Item onSelect={() => void archiveSession(id())}>
                                 <DropdownMenu.ItemLabel>{language.t("common.archive")}</DropdownMenu.ItemLabel>
                               </DropdownMenu.Item>

@@ -45,6 +45,16 @@ const conversation = (): Extract<Reference, { kind: "conversation" }> => ({
 })
 
 describe("Ask references", () => {
+  test("retains immutable LaTeX build provenance across draft and history snapshots", () => {
+    const source = { root: "/paper", main: "main.tex", build: "build-a", hash: "a".repeat(64) }
+    const ref = { ...pdf(), mode: "quick" as const, source }
+    const snapshot = cloneReferences([ref])
+    source.build = "build-b"
+    expect(snapshot[0]).toMatchObject({ source: { build: "build-a" } })
+    expect(sanitizeReferences(snapshot)[0]).toEqual(snapshot[0])
+    expect(referenceKey(ref)).not.toBe(referenceKey(snapshot[0]!))
+    expect(sanitizeReferences([{ ...ref, source: { ...source, hash: "invalid" } }])[0]).not.toHaveProperty("source")
+  })
   test("persists real PDF identity and upgrades only a legacy reference at the exact same position", () => {
     const original = pdf()
     const upgraded = { ...original, id: "new", fingerprint: "actual-pdf" }

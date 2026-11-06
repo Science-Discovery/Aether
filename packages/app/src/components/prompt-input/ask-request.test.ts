@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import type { Reference } from "@/utils/ask-reference"
 import { referenceParts, referenceRanges } from "./ask-request"
+import { readReadingQuoteMetadata } from "@/utils/comment-note"
 
 const pdf = (start: number, end = start): Reference => ({
   id: `pdf-${start}`,
@@ -25,6 +26,18 @@ const pdf = (start: number, end = start): Reference => ({
 })
 
 describe("Ask reference requests", () => {
+  test("sends the selected LaTeX build provenance with each numbered reference", () => {
+    const ref = pdf(2)
+    if (ref.kind !== "pdf") throw new Error("Expected PDF")
+    const source = { root: "/paper", main: "main.tex", build: "build-a", hash: "a".repeat(64) }
+    const result = referenceParts({ refs: [{ ...ref, mode: "quick", source }], text: "Explain" })
+    const part = result.parts[2]!
+    expect(readReadingQuoteMetadata("metadata" in part ? part.metadata : undefined)).toMatchObject({
+      source,
+      order: 1,
+      question: ref.question,
+    })
+  })
   test("merges overlapping context pages only within the same source", () => {
     const other = pdf(3)
     if (other.kind !== "pdf") throw new Error("Expected PDF")

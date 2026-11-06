@@ -289,13 +289,6 @@ export const dict = {
   "prompt.attachment.remove": "Eliminar adjunto",
   "prompt.action.send": "Enviar",
   "prompt.action.stop": "Detener",
-  "prompt.action.steer": "Guiar",
-  "prompt.steer.placeholder": "Agregar guía...",
-  "prompt.steer.send": "Enviar",
-  "prompt.steer.toast.failed.title": "Guía fallida",
-  "prompt.steer.toast.failed.description": "Error al agregar mensaje de guía",
-  "prompt.steer.toast.notBusy.title": "Sesión no activa",
-  "prompt.steer.toast.notBusy.description": "Guía solo funciona mientras la AI responde",
 
   "prompt.toast.pasteUnsupported.title": "Adjunto no compatible",
   "prompt.toast.pasteUnsupported.description": "Solo se pueden adjuntar imágenes, PDFs o archivos de texto aquí.",

@@ -510,10 +510,10 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
 
     setupSkillEvolutionAutoOpen(globalSync, server)
 
-    // Best-effort project bootstrap for newly added projects: create the git
-    // repository and enable workspaces so new projects are ready out of the
-    // box. The POST /project/git/init route is idempotent and refreshes the
-    // live instance in place, so running sessions are never interrupted.
+    // When enabled, bootstrap newly added projects by creating the git
+    // repository and enabling workspaces. The POST /project/git/init route is
+    // idempotent and refreshes the live instance in place, so running sessions
+    // are never interrupted.
     const initGit = (directory: string) => {
       void Promise.resolve(settings.ready.promise).then(() => {
         if (!settings.general.autoGitInit()) return

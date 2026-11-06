@@ -9,6 +9,8 @@ import { registerDisposer } from "@/effect/instance-registry"
 import { Instance } from "@/project/instance"
 
 export namespace SessionStatus {
+  const projects = new Map<string, Map<SessionID, string>>()
+
   export const Info = z
     .union([
       z.object({
@@ -59,8 +61,6 @@ export namespace SessionStatus {
     Service,
     Effect.gen(function* () {
       const bus = yield* Bus.Service
-      const projects = new Map<string, Map<SessionID, string>>()
-
       const state = yield* InstanceState.make(
         Effect.fn("SessionStatus.state")(() => Effect.succeed(new Map<SessionID, Info>())),
       )
@@ -122,6 +122,11 @@ export namespace SessionStatus {
 
   export async function hasActiveProject() {
     return runPromise((svc) => svc.hasActiveProject())
+  }
+
+  // Include retry waits, which keep an active status after releasing the prompt claim.
+  export function active(sessionID: SessionID) {
+    return projects.get(Instance.project.id)?.has(sessionID) ?? false
   }
 
   export async function set(sessionID: SessionID, status: Info) {

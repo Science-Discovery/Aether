@@ -1,3 +1,5 @@
+import { quote, type LatexQuote } from "./pdf-source"
+
 type Base = {
   id: string
   version: number
@@ -24,6 +26,7 @@ export type Reference = Base &
         endPage: number
         selection: string
         fingerprint?: string
+        source?: LatexQuote
         content: "text" | "image"
         image?: string
         settings: {
@@ -36,11 +39,24 @@ export type Reference = Base &
 
 export function referenceKey(ref: Reference) {
   if (ref.kind === "conversation") return JSON.stringify([ref.kind, ref.messageID, ref.start, ref.end])
-  return JSON.stringify([ref.kind, ref.path, ref.startPage, ref.endPage, ref.selection, ref.content, ref.fingerprint])
+  return JSON.stringify([
+    ref.kind,
+    ref.path,
+    ref.startPage,
+    ref.endPage,
+    ref.selection,
+    ref.content,
+    ref.fingerprint,
+    ref.source,
+  ])
 }
 
 export function cloneReferences(refs: readonly Reference[]): Reference[] {
-  return refs.map((ref) => (ref.kind === "pdf" ? { ...ref, settings: { ...ref.settings } } : { ...ref }))
+  return refs.map((ref) =>
+    ref.kind === "pdf"
+      ? { ...ref, settings: { ...ref.settings }, ...(ref.source ? { source: { ...ref.source } } : {}) }
+      : { ...ref },
+  )
 }
 
 export function restoreReferences(refs: readonly Reference[]) {
@@ -77,6 +93,7 @@ export function sanitizeReferences(value: unknown): Reference[] {
     if (!integer(ref.startPage) || !ref.startPage || !integer(ref.endPage) || ref.endPage < ref.startPage) return []
     if (typeof ref.selection !== "string" || (ref.content !== "text" && ref.content !== "image")) return []
     if (!record(ref.settings) || typeof ref.settings.questionPrompt !== "string") return []
+    const source = quote(ref.source)
     const range = ref.settings.contextPageRange
     return [
       {
@@ -90,6 +107,7 @@ export function sanitizeReferences(value: unknown): Reference[] {
         endPage: ref.endPage,
         selection: ref.selection,
         ...(typeof ref.fingerprint === "string" && ref.fingerprint ? { fingerprint: ref.fingerprint } : {}),
+        ...(source ? { source } : {}),
         content: ref.content,
         settings: {
           questionPrompt: ref.settings.questionPrompt,

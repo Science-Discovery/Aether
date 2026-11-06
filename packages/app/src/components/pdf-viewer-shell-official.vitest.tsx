@@ -22,7 +22,15 @@ vi.mock("@opencode-ai/ui/toast", () => ({
 type Message = {
   type: string
   document?: string
-  config?: { document: string; selectionDocument: string; features: { annotations: boolean } }
+  selectionDocument?: string
+  config?: {
+    document: string
+    version: string
+    src: string
+    annotationPath: string
+    selectionDocument: string
+    features: { annotations: boolean }
+  }
   annotations?: PdfAnnotation[]
   fingerprint?: string
   references?: PdfMark[]
@@ -86,13 +94,15 @@ async function mount(
   references: Reference[] = [],
   edit?: (id: string, question: string) => void,
 ) {
-  const [props, set] = createStore({ path: "a.pdf", session: "session-a", references })
+  const [props, update] = createStore({ path: "a.pdf", session: "session-a", references })
   const host = document.createElement("div")
   document.body.append(host)
   const off = render(
     () => (
       <PdfViewerShell
         src={`/raw/${props.path}`}
+        document={props.path}
+        version={props.path}
         annotationPath={props.path}
         askScope={props.session}
         onTextSelectionAction={callback}
@@ -113,19 +123,38 @@ async function mount(
     messages.push(value)
   })
   const key = () => messages.findLast((message) => message.type === "config")!.config!.document
-  const send = (type: string, data: object = {}) =>
+  const send = (type: string, data: Record<string, unknown> = {}) => {
+    const config = messages.findLast(
+      (message) => message.type === "config" && (!data.document || message.config?.document === data.document),
+    )?.config
     window.dispatchEvent(
       new MessageEvent("message", {
         source: frame,
         origin: window.location.origin,
-        data: { channel: "aether-pdf-viewer", type, ...data },
+        data: {
+          channel: "aether-pdf-viewer",
+          type,
+          document: config?.document,
+          version: config?.version,
+          src: config?.src,
+          selectionDocument: config?.selectionDocument,
+          ...data,
+        },
       }),
     )
+  }
+  const show = () => {
+    const config = messages.findLast((message) => message.type === "config")!.config!
+    send("documentinfo", { totalPages: 3, source: config })
+  }
+  const set = (name: "path" | "session" | "references", value: string | Reference[]) => {
+    if (name === "references") update(name, value as Reference[])
+    else update(name, value as string)
+    if (name === "path") queueMicrotask(show)
+  }
   send("ready")
-  if (ready)
-    await vi.waitFor(() =>
-      expect(messages.findLast((message) => message.type === "config")?.config?.features.annotations).toBe(true),
-    )
+  show()
+  if (ready) await vi.waitFor(() => expect(messages.some((message) => message.type === "annotations")).toBe(true))
   return { set, key, send, messages }
 }
 
@@ -212,7 +241,7 @@ describe("PDF annotation persistence in the real viewer shell", () => {
     await vi.waitFor(() => expect(viewer.key()).not.toBe(source))
     const target = viewer.key()
     await vi.waitFor(() =>
-      expect(viewer.messages.findLast((message) => message.type === "config")?.config?.features.annotations).toBe(true),
+      expect(viewer.messages.findLast((message) => message.type === "annotations")?.document).toBe(target),
     )
     const offset = viewer.messages.length
     viewer.send("annotationchange", { document: source, annotations: [annotation("late iframe message")] })
@@ -292,9 +321,9 @@ describe("PDF selection questions in the real viewer shell", () => {
     const key = () => viewer.messages.findLast((item) => item.type === "config")!.config!.selectionDocument
     const marks = () => viewer.messages.findLast((item) => item.type === "askreferences")!
     expect(marks().references).toEqual([])
-    viewer.send("documentready", { document: "stale", fingerprint: "actual-a" })
+    viewer.send("documentready", { selectionDocument: "stale", fingerprint: "actual-a" })
     expect(marks().references).toEqual([])
-    viewer.send("documentready", { document: key(), fingerprint: "actual-a" })
+    viewer.send("documentready", { selectionDocument: key(), fingerprint: "actual-a" })
     expect(marks().references?.map((item) => [item.id, item.number])).toEqual([["current", 2]])
     const configs = viewer.messages.filter((item) => item.type === "config").length
     viewer.set("references", [])
@@ -303,7 +332,7 @@ describe("PDF selection questions in the real viewer shell", () => {
     viewer.set("references", [ref])
     expect(marks().references?.[0]?.number).toBe(1)
     viewer.set("session", "session-b")
-    expect(marks().document).toBe(key())
+    expect(marks().selectionDocument).toBe(key())
     expect(marks().references).toEqual([])
     expect(calls.writes).toEqual([])
     expect(calls.exports).toEqual([])
@@ -339,9 +368,9 @@ describe("PDF selection questions in the real viewer shell", () => {
       )
       const viewer = await mount(true, add, [ref], edit)
       const key = () => viewer.messages.findLast((item) => item.type === "config")!.config!.selectionDocument
-      viewer.send("documentready", { document: key(), fingerprint: ref.fingerprint })
+      viewer.send("documentready", { selectionDocument: key(), fingerprint: ref.fingerprint })
       const data = {
-        document: key(),
+        selectionDocument: key(),
         fingerprint: ref.fingerprint,
         id: ref.id,
         rect: { left: 10, right: 32, top: 10, bottom: 32 },
@@ -398,7 +427,7 @@ describe("PDF selection questions in the real viewer shell", () => {
     ])
     const key = viewer.messages.findLast((item) => item.type === "config")!.config!.selectionDocument
     viewer.send("imageselectionaction", {
-      document: key,
+      selectionDocument: key,
       action: "ask",
       selection: "same-rectangle",
       page: 2,
@@ -420,7 +449,7 @@ describe("PDF selection questions in the real viewer shell", () => {
     const viewer = await mount(true, save)
     const key = () => viewer.messages.findLast((item) => item.type === "config")!.config!.selectionDocument
     const data = () => ({
-      document: key(),
+      selectionDocument: key(),
       action: "ask",
       selection: "page1-quad",
       startPage: 1,
