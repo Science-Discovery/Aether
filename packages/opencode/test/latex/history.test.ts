@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import fs from "node:fs/promises"
 import path from "node:path"
-import { PDFDocument } from "pdf-lib"
+import { PDFDict, PDFDocument, PDFHexString, PDFName, PDFRawStream } from "pdf-lib"
 import { Global } from "../../src/global"
 import { Instance } from "../../src/project/instance"
 import { PdfAnnotations } from "../../src/pdf-annotations"
@@ -96,7 +96,25 @@ describe("immutable LaTeX PDF history", () => {
           }),
         ).rejects.toThrow("different PDF")
         const exported = await PDFDocument.load(await Latex.exportAnnotations(id))
-        expect(exported.getPage(0).node.Annots()?.size()).toBe(1)
+        const annotations = exported.getPage(0).node.Annots()!
+        expect(annotations.size()).toBe(3)
+        expect(
+          annotations
+            .asArray()
+            .map((_, index) => annotations.lookup(index, PDFDict).lookup(PDFName.of("Subtype"), PDFName).toString()),
+        ).toEqual(["/Text", "/Highlight", "/Popup"])
+        const note = annotations.lookup(0, PDFDict)
+        const highlight = annotations.lookup(1, PDFDict)
+        const popup = annotations.lookup(2, PDFDict)
+        expect(note.lookup(PDFName.of("Contents"), PDFHexString).decodeText()).toBe(item.note)
+        expect(highlight.has(PDFName.of("Contents"))).toBe(false)
+        expect(note.get(PDFName.of("Popup"))).toEqual(annotations.get(2))
+        expect(popup.get(PDFName.of("Parent"))).toEqual(annotations.get(0))
+        for (const annotation of [note, highlight]) {
+          const appearance = annotation.lookup(PDFName.of("AP"), PDFDict).lookup(PDFName.of("N"))
+          if (!(appearance instanceof PDFRawStream)) throw new Error("Missing annotation appearance stream")
+          expect(appearance.dict.lookup(PDFName.of("Subtype"), PDFName).toString()).toBe("/Form")
+        }
         expect((await Latex.pdf(id)).bytes).toEqual(Buffer.from(fixture.bytes))
         expect(() => PdfAnnotations.resolve(path.join(fixture.dir, "artifacts", `${id}.pdf`))).toThrow("Access denied")
         await Instance.dispose()

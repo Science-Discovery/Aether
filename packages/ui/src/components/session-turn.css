@@ -49,9 +49,13 @@
     min-width: 0;
     max-width: 100%;
     position: sticky;
-    top: calc(var(--session-title-block, var(--sticky-accordion-top, 0px)) - var(--pin-shift, 0px));
+    top: var(--session-title-block, var(--sticky-accordion-top, 0px));
     z-index: 20;
     pointer-events: none;
+
+    &[data-sticky="false"] {
+      position: static;
+    }
 
     [data-component="user-message"] {
       pointer-events: auto;

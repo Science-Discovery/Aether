@@ -39,7 +39,6 @@ import { useLanguage } from "@/context/language"
 import { useLatex } from "@/context/latex"
 import { useLayout } from "@/context/layout"
 import { usePrompt } from "@/context/prompt"
-import { ConversationQuoteProvider } from "@/context/conversation-quote"
 import { FileQuoteProvider } from "@/context/file-quote"
 import { useSDK } from "@/context/sdk"
 import { useSettings } from "@/context/settings"
@@ -48,9 +47,10 @@ import { useTerminal } from "@/context/terminal"
 import { QuickReadingFirstReadGate } from "@/components/quick-reading/quick-reading-first-read-gate"
 import { QuickReadingModeProvider, useQuickReadingMode } from "@/context/quick-reading-mode"
 import { QuickReadingPanel } from "@/components/quick-reading/quick-reading-panel"
+import { cloneReferences } from "@/utils/ask-reference"
+import { type FollowupDraft, type FollowupEdit, sendFollowupDraft } from "@/components/prompt-input/submit"
 import { LatexReadingToolbar } from "@/components/quick-reading/latex-reading-toolbar"
 import { source } from "@/components/latex-drafts"
-import { type FollowupDraft, sendFollowupDraft } from "@/components/prompt-input/submit"
 import { createSessionComposerState, SessionComposerRegion } from "@/pages/session/composer"
 import {
   createOpenReviewFile,
@@ -721,6 +721,7 @@ function SessionPageContent(props: SessionPageProps = {}) {
       <QuickReadingPanel
         url={quickReadingController.pdfUrl()}
         annotationPath={quickReadingController.annotationPath()}
+        askPath={quickReadingController.pdfPath()}
         annotationBuild={quickReadingController.version()}
         document={quickReadingController.document()}
         version={quickReadingController.version()}
@@ -811,10 +812,7 @@ function SessionPageContent(props: SessionPageProps = {}) {
     items: {} as Record<string, (FollowupDraft & { id: string })[] | undefined>,
     failed: {} as Record<string, string | undefined>,
     paused: {} as Record<string, boolean | undefined>,
-    edit: {} as Record<
-      string,
-      { id: string; prompt: FollowupDraft["prompt"]; context: FollowupDraft["context"] } | undefined
-    >,
+    edit: {} as Record<string, FollowupEdit | undefined>,
   })
 
   createComputed((prev) => {
@@ -1999,6 +1997,8 @@ function SessionPageContent(props: SessionPageProps = {}) {
       .find((line) => !!line)
 
     if (text) return text
+    const question = item.references?.find((ref) => ref.question.trim())?.question
+    if (question) return question
     return `[${language.t("common.attachment")}]`
   }
 
@@ -2035,6 +2035,8 @@ function SessionPageContent(props: SessionPageProps = {}) {
       id: item.id,
       prompt: item.prompt,
       context: item.context,
+      references: cloneReferences(item.references ?? []),
+      fileQuote: item.fileQuote ? { ...item.fileQuote } : undefined,
     })
   }
 
@@ -2453,6 +2455,10 @@ function SessionPageContent(props: SessionPageProps = {}) {
                         onUserScroll={markUserScroll}
                         onTurnBackfillScroll={historyWindow.onScrollerScroll}
                         onAutoScrollInteraction={autoScroll.handleInteraction}
+                        onUserMessageResize={() => {
+                          markUserScroll()
+                          autoScroll.pause(true)
+                        }}
                         centered={centered()}
                         setContentRef={(el) => {
                           content = el
@@ -2639,6 +2645,10 @@ function SessionPageContent(props: SessionPageProps = {}) {
                       onUserScroll={markUserScroll}
                       onTurnBackfillScroll={historyWindow.onScrollerScroll}
                       onAutoScrollInteraction={autoScroll.handleInteraction}
+                      onUserMessageResize={() => {
+                        markUserScroll()
+                        autoScroll.pause(true)
+                      }}
                       centered={centered()}
                       setContentRef={(el) => {
                         content = el
@@ -2788,12 +2798,10 @@ function SessionPageContent(props: SessionPageProps = {}) {
 
 export default function Page(props: SessionPageProps = {}) {
   return (
-    <ConversationQuoteProvider>
-      <FileQuoteProvider>
-        <QuickReadingModeProvider>
-          <SessionPageContent {...props} />
-        </QuickReadingModeProvider>
-      </FileQuoteProvider>
-    </ConversationQuoteProvider>
+    <FileQuoteProvider>
+      <QuickReadingModeProvider>
+        <SessionPageContent {...props} />
+      </QuickReadingModeProvider>
+    </FileQuoteProvider>
   )
 }

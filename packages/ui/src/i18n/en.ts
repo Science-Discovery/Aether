@@ -144,6 +144,8 @@ export const dict: Record<string, string> = {
   "ui.permission.allowOnce": "Allow once",
 
   "ui.message.expand": "Expand message",
+  "ui.message.showMore": "Show more",
+  "ui.message.showLess": "Show less",
   "ui.message.collapse": "Collapse message",
   "ui.message.copy": "Copy",
   "ui.message.copyMessage": "Copy message",

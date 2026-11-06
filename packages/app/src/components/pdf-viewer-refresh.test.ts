@@ -19,6 +19,7 @@ async function viewer() {
   const storage = new Map<string, string>()
   const posts: Event[] = []
   const dom = document.implementation.createHTMLDocument()
+  dom.body.insertAdjacentHTML("beforeend", '<button id="aetherCaptureRegion"></button>')
   const state = {
     time: 10000,
     selected: false,
@@ -135,6 +136,7 @@ async function viewer() {
           return {
             name: url,
             numPages: url.includes("short") ? 2 : 8,
+            fingerprints: [url],
             _pdfInfo: { fingerprints: [url] },
             getPage: async () => ({
               getViewport: () => ({ width: 100, height: 100 }),
@@ -157,6 +159,7 @@ async function viewer() {
       setItem: (key: string, value: string) => storage.set(key, value),
     },
     matchMedia: () => ({ matches: false }),
+    getComputedStyle,
     requestAnimationFrame: (fn: () => void) => {
       fn()
       return 1
@@ -242,6 +245,45 @@ function click(target: HTMLElement, opts: MouseEventInit = {}) {
   return target.dispatchEvent(new MouseEvent("click", init))
 }
 
+test("Ask markers keep source version and selection scope distinct across same-PDF scope changes", async () => {
+  const ctx = await viewer()
+  const config = {
+    src: "first",
+    document: "paper",
+    version: "build-a",
+    selectionDocument: "session-a",
+    mode: "full",
+    features: { textSelectionActions: true, annotations: true, activity: true },
+  }
+  await ctx.send("config", { config })
+  page(ctx)
+  expect(ctx.posts.find((item) => item.type === "documentready")).toMatchObject({
+    document: "paper",
+    version: "build-a",
+    selectionDocument: "session-a",
+    fingerprint: "first",
+  })
+  const references = [{ id: "ref", number: 1, pages: [{ page: 1, quads: [[10, 10, 30, 10, 10, 20, 30, 20]] }] }]
+  await ctx.send("askreferences", { selectionDocument: "old-session", fingerprint: "first", references })
+  expect(ctx.dom.querySelector(".aetherAskBadge")).toBeNull()
+  await ctx.send("askreferences", { selectionDocument: "session-a", fingerprint: "first", references })
+  ctx.dom.querySelector<HTMLButtonElement>(".aetherAskBadge")!.click()
+  expect(ctx.posts.filter((item) => item.type === "askreference").at(-1)).toMatchObject({
+    document: "paper",
+    version: "build-a",
+    selectionDocument: "session-a",
+    id: "ref",
+  })
+  await ctx.send("config", { config: { ...config, selectionDocument: "session-b" } })
+  expect(ctx.state.loads).toEqual(["first"])
+  expect(ctx.dom.querySelector(".aetherAskBadge")).toBeNull()
+  expect(ctx.posts.filter((item) => item.type === "documentinfo").at(-1)).toMatchObject({
+    document: "paper",
+    version: "build-a",
+    selectionDocument: "session-b",
+  })
+})
+
 test("activity reports ordinary PDF selections without polling or enabling source lookup", async () => {
   const ctx = await viewer()
   await ctx.open("file", "", null, 10000, false, { activity: true })
@@ -260,6 +302,68 @@ test("activity reports ordinary PDF selections without polling or enabling sourc
   expect(updates().map((item) => item.busy)).toEqual([false, true, false])
   expect(updates().every((item) => item.src === "file" && item.version === undefined)).toBe(true)
   expect(ctx.posts.some((item) => item.type === "sourcelocate")).toBe(false)
+})
+
+test("same-PDF session changes cancel a pending screenshot selection", async () => {
+  const ctx = await viewer()
+  const config = {
+    src: "first",
+    document: "paper",
+    version: "first",
+    selectionDocument: "session-a",
+    mode: "full",
+    features: { imageSelectionActions: true },
+  }
+  await ctx.send("config", { config })
+  page(ctx)
+  ctx.dom.getElementById("aetherCaptureRegion")!.click()
+  ctx.dom
+    .querySelector(".page")!
+    .dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, button: 0, clientX: 30, clientY: 40 }))
+  expect(ctx.dom.body.classList.contains("capture-mode-active")).toBe(true)
+  await ctx.send("config", { config: { ...config, selectionDocument: "session-b" } })
+  expect(ctx.dom.body.classList.contains("capture-mode-active")).toBe(false)
+  expect(ctx.dom.getElementById("aetherCaptureOverlay")!.hidden).toBe(true)
+  expect(ctx.posts.some((item) => item.type === "imageselectionaction")).toBe(false)
+})
+
+test("explicit annotation reload clears dirty state without allowing an old acknowledgement to clear a new save", async () => {
+  const ctx = await viewer()
+  await ctx.open("first", "paper", "first", 10000, false, { activity: true, annotations: true })
+  page(ctx)
+  const annotation = {
+    id: "note",
+    type: "note",
+    color: "yellow",
+    pages: [{ page: 1, quads: [[10, 10, 30, 10, 10, 20, 30, 20]] }],
+    selectedText: "Text",
+    note: "",
+    createdAt: 1,
+    updatedAt: 1,
+  }
+  const source = { src: "first", document: "paper", version: "first" }
+  await ctx.send("annotations", { ...source, annotations: [annotation] })
+  const edit = () => {
+    ctx.dom
+      .querySelector(".aetherAnnotationHit")!
+      .dispatchEvent(new MouseEvent("click", { bubbles: true, clientX: 70, clientY: 100 }))
+    ctx.dom
+      .getElementById("aetherAnnotationEditor")!
+      .dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }))
+  }
+  edit()
+  await Promise.resolve()
+  expect(ctx.posts.filter((item) => item.type === "busychange").at(-1)?.busy).toBe(true)
+  await ctx.send("annotations", { ...source, reset: true, annotations: [annotation] })
+  await Promise.resolve()
+  expect(ctx.posts.filter((item) => item.type === "busychange").at(-1)?.busy).toBe(false)
+  edit()
+  await ctx.send("annotationstatus", { ...source, id: 1, ok: true })
+  await Promise.resolve()
+  expect(ctx.posts.filter((item) => item.type === "busychange").at(-1)?.busy).toBe(true)
+  await ctx.send("annotationstatus", { ...source, id: 2, ok: true })
+  await Promise.resolve()
+  expect(ctx.posts.filter((item) => item.type === "busychange").at(-1)?.busy).toBe(false)
 })
 
 test("activity covers annotation editing and remains busy until annotation writes finish", async () => {
@@ -305,6 +409,22 @@ test("activity reporting is opt-in", async () => {
   ctx.dom.dispatchEvent(new Event("selectionchange"))
   await Promise.resolve()
   expect(ctx.posts.some((item) => item.type === "busychange")).toBe(false)
+})
+
+test("annotation export controls become available after the initial saved annotations arrive", async () => {
+  const ctx = await viewer()
+  ctx.dom.body.insertAdjacentHTML(
+    "beforeend",
+    '<button id="aetherExportAnnotations"></button><button id="aetherExportAnnotationsSecondary"></button>',
+  )
+  await ctx.open("first", "paper", "first", 10000, false, { annotations: true })
+  const primary = ctx.dom.getElementById("aetherExportAnnotations")!
+  const secondary = ctx.dom.getElementById("aetherExportAnnotationsSecondary")!
+  expect(primary.hidden).toBe(true)
+  expect(secondary.hidden).toBe(true)
+  await ctx.send("annotations", { src: "first", document: "paper", version: "first", annotations: [] })
+  expect(primary.hidden).toBe(false)
+  expect(secondary.hidden).toBe(false)
 })
 
 test("source reveal keeps zoom, handles repeated same-page requests and rejects stale or untrusted messages", async () => {

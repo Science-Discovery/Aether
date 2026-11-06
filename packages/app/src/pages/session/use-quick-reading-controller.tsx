@@ -1,10 +1,11 @@
+import type { PdfTextSelection, PdfImageSelection } from "@/components/pdf-viewer-shell-official"
 import { createEffect, createMemo, createSignal } from "solid-js"
 import { useNavigate } from "@solidjs/router"
 import { base64Encode } from "@opencode-ai/util/encode"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { showToast } from "@opencode-ai/ui/toast"
 import { DialogQuickReadingSettings } from "@/components/quick-reading/dialog-quick-reading-settings"
-import { DEFAULT_PROMPT } from "@/context/prompt"
+import { DEFAULT_PROMPT, usePrompt } from "@/context/prompt"
 import { useGlobalSync } from "@/context/global-sync"
 import { useLanguage } from "@/context/language"
 import { useLocal } from "@/context/local"
@@ -27,6 +28,7 @@ type Options = Record<string, never>
 const isPdfPath = (path?: string) => !!path && path.split(".").pop()?.toLowerCase() === "pdf"
 
 export function useQuickReadingController(_options: Options) {
+  const prompt = usePrompt()
   const dialog = useDialog()
   const globalSync = useGlobalSync()
   const language = useLanguage()
@@ -44,46 +46,91 @@ export function useQuickReadingController(_options: Options) {
 
   const quickReadingPdfPath = createMemo(() => reading().pdfPath())
   const compiled = createMemo(() => !!latex.document())
-  let creating: Promise<string | undefined> | undefined
-  const session = () => {
-    if (params.id) return Promise.resolve(params.id)
-    if (creating) return creating
-    creating = sdk.client.session
-      .create({}, { throwOnError: true })
-      .then((result) => {
-        if (!result.data) return
-        navigate(`/${base64Encode(sdk.directory)}/session/${result.data.id}`)
-        return result.data.id
-      })
-      .catch((cause) => {
-        showToast({
-          variant: "error",
-          title: language.t("common.requestFailed"),
-          description: formatServerError(cause, language.t),
-        })
-        return undefined
-      })
-      .finally(() => {
-        creating = undefined
-      })
-    return creating
-  }
-  const capture = async (version?: string, document?: string) => {
+  const creating = new Map<string, Promise<string | undefined>>()
+  const capture = async (version: string | undefined, document: string | undefined, current: () => boolean) => {
     if (!compiled()) return { source: undefined }
     const quote = document === latex.key() ? latex.capture(version) : undefined
     if (!quote) return
     const result = await latex.reference(quote).then(
       () => true,
       (cause: unknown) => {
-        showToast({
-          variant: "error",
-          title: language.t("common.requestFailed"),
-          description: formatServerError(cause, language.t),
-        })
+        if (current())
+          showToast({
+            variant: "error",
+            title: language.t("common.requestFailed"),
+            description: formatServerError(cause, language.t),
+          })
         return false
       },
     )
     return result ? { source: quote } : undefined
+  }
+
+  const prepare = async (input: { version?: string; document?: string }) => {
+    const bound = quickReading.store.binding
+    if (!bound) return
+    const binding = { ...bound }
+    const settings = { ...quickReading.store.snapshot.settings }
+    const totalPages = quickReading.store.snapshot.totalPages
+    const scope = { dir: params.dir!, id: params.id }
+    const directory = sdk.directory
+    const url = sdk.url
+    const client = sdk.client
+    const document = latex.key()
+    const selected = local.selection()
+    const selection = selected && {
+      ...selected,
+      model: { ...selected.model },
+      ...(selected.engine ? { engine: { ...selected.engine } } : {}),
+    }
+    const current = (id = scope.id) =>
+      sdk.url === url &&
+      sdk.directory === directory &&
+      params.dir === scope.dir &&
+      params.id === id &&
+      quickReadingPdfPath() === binding.pdfPath &&
+      latex.key() === document
+    const captured = await capture(input.version, input.document, current)
+    if (!captured || !current()) return
+    const key = JSON.stringify([url, directory, scope])
+    const sessionID =
+      scope.id ??
+      (await (() => {
+        const cached = creating.get(key)
+        if (cached) return cached
+        const pending = client.session
+          .create({ engine: selection?.engine }, { throwOnError: true })
+          .then((result) => {
+            if (!result.data || !current()) return
+            navigate(`/${base64Encode(directory)}/session/${result.data.id}`)
+            return result.data.id
+          })
+          .catch((cause) => {
+            if (current())
+              showToast({
+                variant: "error",
+                title: language.t("common.requestFailed"),
+                description: formatServerError(cause, language.t),
+              })
+            return undefined
+          })
+          .finally(() => creating.delete(key))
+        creating.set(key, pending)
+        return pending
+      })())
+    if (!sessionID || (!current() && !current(sessionID))) return
+    return {
+      binding,
+      settings,
+      totalPages,
+      source: captured.source,
+      sessionID,
+      scope: { dir: scope.dir, id: sessionID },
+      directory,
+      client,
+      selection,
+      current: () => current(sessionID) || (!scope.id && current()),
+    }
   }
 
   const closeQuickReading = () => {
@@ -93,17 +140,14 @@ export function useQuickReadingController(_options: Options) {
     if (!view().reviewPanel.opened()) view().reviewPanel.open()
   }
 
-  const focusPromptInput = () => {
-    requestAnimationFrame(() => {
-      const el = document.querySelector('[data-component="prompt-input"]')
-      if (!(el instanceof HTMLElement)) return
-      el.focus()
-    })
-  }
-
-  const validateSendContext = (sessionID = params.id) => {
-    const selection = local.selection()
-    if (!sessionID || !selection) {
+  const sendQuickReadingTranslate = async (input: {
+    context: NonNullable<Awaited<ReturnType<typeof prepare>>>
+    page: number
+    extraTextParts: FollowupDraft["extraTextParts"]
+    attachments?: FollowupDraft["attachments"]
+  }) => {
+    const selection = input.context.selection
+    if (!selection) {
       showToast({
         variant: "error",
         title: language.t("common.requestFailed"),
@@ -114,36 +158,18 @@ export function useQuickReadingController(_options: Options) {
       return
     }
 
-    return {
-      sessionID,
-      ...selection,
-    }
-  }
-
-  const sendQuickReadingTranslate = async (input: {
-    sessionID: string
-    page: number
-    extraTextParts: FollowupDraft["extraTextParts"]
-    attachments?: FollowupDraft["attachments"]
-  }) => {
-    const sendContext = validateSendContext(input.sessionID)
-    if (!sendContext) return
-
     const draft: FollowupDraft = {
-      sessionID: sendContext.sessionID,
-      sessionDirectory: sdk.directory,
+      sessionID: input.context.sessionID,
+      sessionDirectory: input.context.directory,
       prompt: DEFAULT_PROMPT,
       attachments: input.attachments,
       context: [],
-      agent: sendContext.agent,
-      model: sendContext.model,
-      variant: sendContext.variant,
-      engine: sendContext.engine,
+      ...selection,
       extraTextParts: input.extraTextParts,
     }
 
     await sendFollowupDraft({
-      client: sdk.client,
+      client: input.context.client,
       sync,
       globalSync,
       draft,
@@ -158,46 +184,47 @@ export function useQuickReadingController(_options: Options) {
     })
   }
 
-  const handleTextSelectionAction = async (input: {
-    action: "copy" | "translate" | "ask"
-    startPage: number
-    endPage: number
-    text: string
-    version?: string
-    document?: string
-  }) => {
+  const handleTextSelectionAction = async (input: PdfTextSelection) => {
     const text = input.text.trim()
     if (!text) return
-    const binding = quickReading.store.binding
-    if (!binding) return
     if (input.action === "copy") return
-    const captured = await capture(input.version, input.document)
-    if (!captured) return
-    const sessionID = await session()
-    if (!sessionID) return
+    const context = await prepare(input)
+    if (!context?.current()) return
+    const binding = context.binding
     if (input.action === "ask") {
-      quickReading.setPendingQuestion({
-        kind: "text-question",
-        sessionID,
-        pdfPath: binding.pdfPath,
-        pdfFileName: binding.pdfFileName,
-        startPage: input.startPage,
-        endPage: input.endPage,
-        text,
-        createdAt: Date.now(),
-        source: captured.source,
-      })
-      focusPromptInput()
+      if (input.question === undefined || !input.selection) return
+      prompt.references.add(
+        {
+          id: crypto.randomUUID(),
+          version: 1,
+          kind: "pdf",
+          question: input.question,
+          path: binding.pdfPath,
+          filename: binding.pdfFileName,
+          mode: "quick",
+          source: context.source,
+          startPage: input.startPage,
+          endPage: input.endPage,
+          selection: input.selection,
+          fingerprint: input.fingerprint,
+          content: "text",
+          text,
+          summary: summarizeReadingQuoteText(text),
+          settings: { questionPrompt: context.settings.questionPrompt },
+          totalPages: context.totalPages,
+        },
+        context.scope,
+      )
       return
     }
 
     if (input.action !== "translate") return
 
-    const settings = quickReading.store.snapshot.settings
+    const settings = context.settings
     const label =
       input.endPage > input.startPage ? `pages ${input.startPage}-${input.endPage}` : `page ${input.startPage}`
     await sendQuickReadingTranslate({
-      sessionID,
+      context,
       page: input.startPage,
       extraTextParts: [
         {
@@ -221,49 +248,52 @@ export function useQuickReadingController(_options: Options) {
             endPage: input.endPage,
             summary: summarizeReadingQuoteText(text),
             fullText: text,
-            source: captured.source,
+            source: context.source,
           }),
         },
       ],
     })
   }
 
-  const handleImageSelectionAction = async (input: {
-    action: "copy" | "translate" | "ask"
-    page: number
-    imageDataUrl: string
-    version?: string
-    document?: string
-  }) => {
+  const handleImageSelectionAction = async (input: PdfImageSelection) => {
     if (!input.imageDataUrl) return
-    const binding = quickReading.store.binding
-    if (!binding) return
     if (input.action === "copy") return
-    const captured = await capture(input.version, input.document)
-    if (!captured) return
-    const sessionID = await session()
-    if (!sessionID) return
+    const context = await prepare(input)
+    if (!context?.current()) return
+    const binding = context.binding
     if (input.action === "ask") {
-      quickReading.setPendingQuestion({
-        kind: "image-question",
-        sessionID,
-        pdfPath: binding.pdfPath,
-        pdfFileName: binding.pdfFileName,
-        page: input.page,
-        text: `Captured region from ${binding.pdfFileName}, page ${input.page}`,
-        imageDataUrl: input.imageDataUrl,
-        createdAt: Date.now(),
-        source: captured.source,
-      })
-      focusPromptInput()
+      if (input.question === undefined || !input.selection) return
+      prompt.references.add(
+        {
+          id: crypto.randomUUID(),
+          version: 1,
+          kind: "pdf",
+          question: input.question,
+          path: binding.pdfPath,
+          filename: binding.pdfFileName,
+          mode: "quick",
+          source: context.source,
+          startPage: input.page,
+          endPage: input.page,
+          selection: input.selection,
+          fingerprint: input.fingerprint,
+          content: "image",
+          image: input.imageDataUrl,
+          text: "",
+          summary: `${binding.pdfFileName} · ${input.page}`,
+          settings: { questionPrompt: context.settings.questionPrompt },
+          totalPages: context.totalPages,
+        },
+        context.scope,
+      )
       return
     }
 
     if (input.action !== "translate") return
 
-    const settings = quickReading.store.snapshot.settings
+    const settings = context.settings
     await sendQuickReadingTranslate({
-      sessionID,
+      context,
       page: input.page,
       attachments: [
         {
@@ -292,7 +322,7 @@ export function useQuickReadingController(_options: Options) {
             pdfFileName: binding.pdfFileName,
             startPage: input.page,
             summary: `Page ${input.page}`,
-            source: captured.source,
+            source: context.source,
           }),
         },
       ],

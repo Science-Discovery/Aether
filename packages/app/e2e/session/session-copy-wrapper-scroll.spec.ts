@@ -1,7 +1,5 @@
 import { test, expect } from "../fixtures"
-import { confirmSubmit, promptSend } from "../fixtures"
 import { waitSessionIdle } from "../actions"
-import { promptSelector } from "../selectors"
 import { writeFile } from "node:fs/promises"
 import path from "node:path"
 
@@ -34,19 +32,8 @@ test("scrolling dismisses the hover-only copy/meta row and reveal resumes after 
   ).join("\n\n")
   await assistant.reply(`${body}\n\nEND`)
 
-  const prompt = page.locator(promptSelector)
-  const prev = await promptSend(page)
-  await prompt.click()
-  await page.keyboard.type("write a long reply")
-  await confirmSubmit(page, prev)
-
-  const submission = await promptSend(page)
-  if (!submission.sessionID || !submission.directory) {
-    throw new Error(`Prompt probe did not record the submission: ${JSON.stringify(submission)}`)
-  }
-  project.trackSession(submission.sessionID, submission.directory)
-
-  await waitSessionIdle(project.sdk, submission.sessionID, 120_000)
+  const sessionID = await project.prompt("write a long reply")
+  await waitSessionIdle(project.sdk, sessionID, 120_000)
 
   const wrapper = page.locator('[data-slot="text-part-copy-wrapper"]').first()
   await expect(wrapper).toBeAttached({ timeout: 30_000 })

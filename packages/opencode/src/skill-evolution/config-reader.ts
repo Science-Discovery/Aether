@@ -26,12 +26,11 @@ export namespace ConfigReader {
 
   /**
    * Global master switch for skill self-evolution (skills.evolution_enabled).
-   * Unset means enabled — only an explicit `false` turns evolution off, so
-   * existing configs keep evolving. Read at every trigger point (hook.onLoopEnd).
+   * Only explicit server-global true enables evolution. Project settings cannot
+   * enable it, and unreadable configuration fails closed.
    */
   export async function isEvolutionEnabled(): Promise<boolean> {
-    const cfg = await Config.get().catch(() => undefined)
-    return cfg?.skills?.evolution_enabled !== false
+    return Config.enabled("evolution").catch(() => false)
   }
 
   /**

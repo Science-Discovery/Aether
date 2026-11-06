@@ -4,6 +4,7 @@ import { Counter } from "./counter"
 import { DEFAULT_NUDGE_INTERVAL } from "./constants"
 import { ConfigReader } from "./config-reader"
 import { SessionID } from "@/session/schema"
+import { features } from "../../test/fixture/features"
 
 describe("SkillEvolutionHook.onStep", () => {
   test("increments counter once per step for a normal session", () => {
@@ -84,7 +85,8 @@ describe("SkillEvolutionHook.onLoopEnd", () => {
   })
 
   test("resets counter only after spawn when threshold is met", async () => {
-    const id = ("hook-threshold-" + Math.random()) as SessionID
+    await using global = await features({ skills: { evolution_enabled: true } })
+    const id = SessionID.descending()
     for (let i = 0; i < DEFAULT_NUDGE_INTERVAL; i++) Counter.increment(id)
 
     await SkillEvolutionHook.onLoopEnd({
