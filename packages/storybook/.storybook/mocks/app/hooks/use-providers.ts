@@ -12,6 +12,10 @@ const provider = {
   },
 }
 
+export const popularProviders = ["anthropic"]
+
+export const rank = (id: string) => (popularProviders.includes(id) ? 0 : popularProviders.length)
+
 export function useProviders() {
   return {
     all: () => [provider],
