@@ -16,13 +16,18 @@ import { SettingsImport } from "./settings-import"
 import { SettingsLatex } from "./settings-latex"
 import { SettingsNative } from "./settings-native"
 
-export const DialogSettings: Component = () => {
+export const DialogSettings: Component<{ tab?: string }> = (props) => {
   const language = useLanguage()
   const platform = usePlatform()
 
   return (
     <Dialog size="x-large" transition class="h-full">
-      <Tabs orientation="vertical" variant="settings" defaultValue="general" class="h-full settings-dialog">
+      <Tabs
+        orientation="vertical"
+        variant="settings"
+        defaultValue={props.tab ?? "general"}
+        class="h-full settings-dialog"
+      >
         <Tabs.List>
           <div class="flex flex-col justify-between h-full w-full">
             <div class="flex flex-col gap-3 w-full pt-3">

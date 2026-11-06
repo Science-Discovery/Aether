@@ -11,6 +11,8 @@ import { Instance } from "@/project/instance"
 import { LatexSchema } from "./schema"
 import { LatexProject } from "./project"
 import { LatexCompiler } from "./compiler"
+import { LatexRealtime } from "./rtex/session"
+import { LatexRtex } from "./rtex/setup"
 import { LatexSync } from "./sync"
 import { PdfAnnotations } from "../pdf-annotations"
 import { Lock } from "../util/lock"
@@ -26,6 +28,23 @@ export namespace Latex {
     lastSuccessful: z.string().optional(),
   })
   type Record = z.infer<typeof record>
+  const realtimeStored = z.object({
+    owner: z.string(),
+    key: z.string(),
+    main: z.string(),
+    revision: z.string(),
+    data: PdfAnnotations.File,
+  })
+  type RealtimeStored = z.infer<typeof realtimeStored>
+  const realtimeSnapshotStored = z.object({
+    owner: z.string(),
+    key: z.string(),
+    build: z.string(),
+    main: z.string(),
+    revision: z.string(),
+    data: PdfAnnotations.File,
+  })
+  type RealtimeSnapshotStored = z.infer<typeof realtimeSnapshotStored>
   const stored = z.object({
     owner: z.string(),
     key: z.string(),
@@ -103,6 +122,10 @@ export namespace Latex {
   const artifact = (root: LatexProject.Root, id: string) => path.join(home(root), "artifacts", `${id}.pdf`)
   const mapping = (root: LatexProject.Root, id: string) => path.join(home(root), "sync", `${id}.json`)
   const annotation = (root: LatexProject.Root, id: string) => path.join(home(root), "annotations", `${id}.json`)
+  const realtimeNote = (root: LatexProject.Root, main: string) =>
+    path.join(home(root), "realtime-annotations", `${LatexProject.hash(`${root.key}\0${main}`)}.json`)
+  const realtimeSnapshotFile = (root: LatexProject.Root, id: string) =>
+    path.join(home(root), "realtime-snapshots", `${id}.json`)
   const mutex = (root: LatexProject.Root) => `latex-artifacts:${root.owner}`
   const identifier = z.string().uuid()
   const waiting = (build: LatexSchema.Build) => build.state === "preparing" || build.state === "running"
@@ -212,6 +235,58 @@ export namespace Latex {
     return LatexCompiler.status((await Config.getGlobal()).latex ?? {})
   }
 
+  export async function realtimeStatus() {
+    return LatexRealtime.status((await Config.getGlobal()).latex ?? {})
+  }
+
+  export async function realtimeOpen(input: z.infer<typeof LatexSchema.RealtimeOpen>) {
+    return LatexRealtime.open({ ...input, cfg: (await Config.getGlobal()).latex ?? {} })
+  }
+
+  export function realtimeDocument(input: z.infer<typeof LatexSchema.RealtimeDocument>) {
+    return LatexRealtime.document(input.id, input.path, input.text)
+  }
+
+  export function realtimeEdit(input: z.infer<typeof LatexSchema.RealtimeEdit>) {
+    return LatexRealtime.edit(input.id, input.path, input.start, input.end, input.text)
+  }
+
+  export function realtimeCommand(input: z.infer<typeof LatexSchema.RealtimeCommand>) {
+    return LatexRealtime.command(input.id, input.command)
+  }
+
+  export function realtimeClose(input: z.infer<typeof LatexSchema.RealtimeClose>) {
+    return LatexRealtime.close(input.id)
+  }
+
+  export const realtimeSetupStatus = LatexRtex.status
+  export const realtimeSetupStart = LatexRtex.start
+  export const realtimeSetupCancel = LatexRtex.cancel
+
+  export function realtimeGet(id: string) {
+    return LatexRealtime.get(id)
+  }
+
+  export function realtimeSpans(id: string, file: string) {
+    return LatexRealtime.spans(id, file)
+  }
+
+  export function realtimePdf(id: string, version: number) {
+    return LatexRealtime.pdf(LatexRealtime.get(id), version)
+  }
+
+  export function realtimeImage(id: string, file: string) {
+    return LatexRealtime.image(LatexRealtime.get(id), file)
+  }
+
+  export function realtimeKpse(id: string, file: string) {
+    return LatexRealtime.kpsewhich(LatexRealtime.get(id), file)
+  }
+
+  export function realtimeFont(id: string, filename?: string, name?: string) {
+    return LatexRealtime.font(id, filename, name)
+  }
+
   export async function inspect(input: { root?: string; path?: string }) {
     const current = await state()
     const base = await LatexProject.root(input.root ?? ".")
@@ -292,6 +367,8 @@ export namespace Latex {
       if (saved && saved.binding.revision !== input.expectedRevision)
         throw new LatexSchema.Error(409, "The LaTeX binding changed. Refresh before changing it.")
       if (!saved && input.expectedRevision) throw new LatexSchema.Error(409, "The LaTeX binding no longer exists.")
+      if (input.realtime && input.program !== "lualatex")
+        throw new LatexSchema.Error(400, "Realtime preview requires LuaLaTeX.")
       const main = await LatexProject.main(root, input.main)
       const next: Record = {
         owner: root.owner,
@@ -302,6 +379,7 @@ export namespace Latex {
           main,
           driver: input.driver,
           program: input.program,
+          realtime: input.realtime ?? false,
           revision: crypto.randomUUID(),
           updatedAt: Date.now(),
         },
@@ -509,6 +587,8 @@ export namespace Latex {
       job.abort.signal.throwIfAborted()
       if (checked) current.checked.set(job.root.key, { revision: checked.manifest.revision, checkedAt: Date.now() })
       else current.checked.delete(job.root.key)
+      if (input.realtimeSnapshot && tool.program === "lualatex" && tool.driver !== "tectonic" && job.data.pdfHash)
+        await snapshotRealtime(job.root, bound.main, build.id, job.data.pdfHash).catch(() => undefined)
       build.state = "succeeded"
       build.pdf = true
       build.completedAt = Date.now()
@@ -797,6 +877,139 @@ export namespace Latex {
     return PdfAnnotations.render(result.bytes, (await notes(root, result.data)).data.annotations)
   }
 
+  function realtimeSource(root: LatexProject.Root, main: string) {
+    return { path: `realtime:${root.key}:${main}`, fingerprint: "realtime" }
+  }
+
+  async function readRealtime(root: LatexProject.Root, main: string): Promise<RealtimeStored> {
+    const file = realtimeNote(root, main)
+    const raw: unknown = await Bun.file(file)
+      .json()
+      .catch((err: NodeJS.ErrnoException) => {
+        if (err.code === "ENOENT") return undefined
+        throw new LatexSchema.Error(409, "The live preview annotations cannot be read.")
+      })
+    const source = realtimeSource(root, main)
+    if (raw === undefined)
+      return {
+        owner: root.owner,
+        key: root.key,
+        main,
+        revision: "0",
+        data: { version: "1.2" as const, source, annotations: [] as PdfAnnotations.Item[] },
+      }
+    const parsed = realtimeStored.safeParse(raw)
+    if (
+      !parsed.success ||
+      parsed.data.owner !== root.owner ||
+      parsed.data.key !== root.key ||
+      parsed.data.main !== main ||
+      parsed.data.data.source.path !== source.path
+    )
+      throw new LatexSchema.Error(409, "The saved live preview annotations do not match this document.")
+    return parsed.data
+  }
+
+  export async function realtimeAnnotations(input: { root: string; main: string }) {
+    const root = await LatexProject.root(input.root)
+    const main = await LatexProject.main(root, input.main)
+    using lock = await Lock.read(mutex(root))
+    const value = await readRealtime(root, main)
+    return { data: value.data, revision: value.revision }
+  }
+
+  export async function saveRealtimeAnnotations(input: {
+    root: string
+    main: string
+    data: PdfAnnotations.File
+    revision?: string
+  }) {
+    const root = await LatexProject.root(input.root)
+    const main = await LatexProject.main(root, input.main)
+    using lock = await Lock.write(mutex(root))
+    const value = await readRealtime(root, main)
+    if (input.revision !== undefined && input.revision !== value.revision)
+      throw new LatexSchema.Error(409, "Live preview annotations changed. Reload before saving.")
+    const data = PdfAnnotations.File.parse({ ...input.data, source: realtimeSource(root, main) })
+    const next = { ...value, data, revision: crypto.randomUUID() }
+    await write(realtimeNote(root, main), next)
+    return { data: next.data, revision: next.revision }
+  }
+
+  function emptyRealtime(root: LatexProject.Root, main: string): PdfAnnotations.File {
+    return { version: "1.2", source: realtimeSource(root, main), annotations: [] }
+  }
+
+  async function snapshotRealtime(root: LatexProject.Root, main: string, build: string, pdfHash: string) {
+    const live = await readRealtime(root, main)
+    const annotations = live.data.annotations.map((item) => ({
+      id: item.id,
+      type: item.type,
+      color: item.color,
+      pages: item.pages,
+      selectedText: item.selectedText,
+      note: item.note,
+      createdAt: item.createdAt,
+      updatedAt: item.updatedAt,
+    }))
+    const data: PdfAnnotations.File = {
+      version: "1.2",
+      source: { path: `latex-build:${build}`, fingerprint: pdfHash },
+      annotations,
+    }
+    await write(annotation(root, build), {
+      owner: root.owner,
+      key: root.key,
+      revision: "0",
+      data,
+      references: [],
+      leases: {},
+    })
+    const value: RealtimeSnapshotStored = {
+      owner: root.owner,
+      key: root.key,
+      build,
+      main,
+      revision: live.revision,
+      data: live.data,
+    }
+    await write(realtimeSnapshotFile(root, build), value)
+  }
+
+  export async function restoreRealtimeAnnotations(input: { root: string; main: string; buildId?: string }) {
+    const root = await LatexProject.root(input.root)
+    const main = await LatexProject.main(root, input.main)
+    using lock = await Lock.write(mutex(root))
+    let data = emptyRealtime(root, main)
+    if (input.buildId) {
+      const value = await loaded(root, input.buildId, await state())
+      if (value.owner !== root.owner || value.key !== root.key)
+        throw new LatexSchema.Error(409, "The annotations belong to a different LaTeX project.")
+      const raw: unknown = await Bun.file(realtimeSnapshotFile(root, input.buildId))
+        .json()
+        .catch((error: NodeJS.ErrnoException) => {
+          if (error.code === "ENOENT") return undefined
+          throw new LatexSchema.Error(409, "The live preview annotation snapshot cannot be read.")
+        })
+      if (raw !== undefined) {
+        const parsed = realtimeSnapshotStored.safeParse(raw)
+        if (
+          !parsed.success ||
+          parsed.data.owner !== root.owner ||
+          parsed.data.key !== root.key ||
+          parsed.data.build !== input.buildId ||
+          parsed.data.main !== main ||
+          parsed.data.data.source.path !== realtimeSource(root, main).path
+        )
+          throw new LatexSchema.Error(409, "The live preview annotation snapshot does not match this document.")
+        data = parsed.data.data
+      }
+    }
+    const next = { owner: root.owner, key: root.key, main, revision: crypto.randomUUID(), data }
+    await write(realtimeNote(root, main), next)
+    return { data: next.data, revision: next.revision }
+  }
+
   export async function lease(id: string, token?: string) {
     const root = await LatexProject.root()
     using lock = await Lock.write(mutex(root))
@@ -853,6 +1066,7 @@ export namespace Latex {
       await fs.rm(mapping(root, id), { force: true })
       await fs.rm(path.join(home(root), "manifests", `${id}.json`), { force: true })
       await fs.rm(annotation(root, id), { force: true })
+      await fs.rm(realtimeSnapshotFile(root, id), { force: true })
       await fs.rm(document(root, id), { force: true })
       current.jobs.delete(id)
       current.indexes.delete(id)

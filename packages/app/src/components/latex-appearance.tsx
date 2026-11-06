@@ -22,7 +22,6 @@ export function LatexAppearance() {
           {language.t("latex.appearance.reset")}
         </Button>
       </div>
-      <p class="text-12-regular text-text-weak">{language.t("latex.appearance.help")}</p>
       <SettingsList>
         <Row title={language.t("latex.appearance.preset")}>
           <Select
@@ -113,9 +112,6 @@ export function LatexAppearance() {
           </Row>
         </Show>
       </SettingsList>
-      <p class="text-12-regular text-text-weak">
-        {language.t(settings.latex.typeface() === "vscode" ? "latex.appearance.font.vscode" : "latex.appearance.font")}
-      </p>
     </section>
   )
 }

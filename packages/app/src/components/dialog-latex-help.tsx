@@ -51,7 +51,6 @@ export function DialogLatexHelp() {
   ] as const
   return (
     <Dialog title={language.t("latex.help.title")} size="large" class="latex-help-dialog">
-      <p class="latex-help-intro">{language.t("latex.help.subtitle")}</p>
       <Tabs defaultValue="quick" class="latex-help" data-component="latex-help">
         <Tabs.List class="latex-help-nav" aria-label={language.t("latex.help.title")}>
           <Tabs.Trigger class="latex-help-tab" value="quick">

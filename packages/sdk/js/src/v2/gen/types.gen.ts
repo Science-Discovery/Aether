@@ -1772,6 +1772,10 @@ export type Config = {
     latexmk?: {
       path?: string
     }
+    rtex?: {
+      path?: string
+      texdir?: string
+    }
   }
   /**
    * Native agent settings. Executable paths are read only from the user's global configuration.
@@ -2820,7 +2824,8 @@ export type LatexBinding = {
   root: string
   main: string
   driver: "auto" | "tectonic" | "latexmk"
-  program: "auto" | "pdflatex" | "xelatex"
+  program: "auto" | "pdflatex" | "xelatex" | "lualatex"
+  realtime?: boolean
   revision: string
   updatedAt: number
 }
@@ -2846,7 +2851,7 @@ export type LatexBuild = {
   sourceRevision?: string
   state: "preparing" | "running" | "succeeded" | "failed" | "cancelled"
   driver?: "tectonic" | "latexmk"
-  program?: "pdflatex" | "xelatex"
+  program?: "pdflatex" | "xelatex" | "lualatex"
   createdAt: number
   startedAt?: number
   completedAt?: number
@@ -2910,6 +2915,8 @@ export type LatexAnnotations = {
       note: string
       createdAt: number
       updatedAt: number
+      anchor?: unknown
+      anchors?: unknown
     }>
   }
   revision: string
@@ -2929,6 +2936,14 @@ export type LatexSource = {
   path: string
   line: number
   column?: number
+}
+
+export type LatexRealtimeStatus = {
+  installed: boolean
+  path?: string
+  version?: string
+  error?: string
+  setup: LatexSetup
 }
 
 export type Symbol = {
@@ -8175,7 +8190,8 @@ export type LatexBindData = {
     root: string
     main: string
     driver?: "auto" | "tectonic" | "latexmk"
-    program?: "auto" | "pdflatex" | "xelatex"
+    program?: "auto" | "pdflatex" | "xelatex" | "lualatex"
+    realtime?: boolean
     expectedRevision?: string
   }
   path?: never
@@ -8269,6 +8285,7 @@ export type LatexBuildData = {
     bindingRevision: string
     sourceRevision?: string
     allowDownloads?: boolean
+    realtimeSnapshot?: boolean
   }
   path?: never
   query?: {
@@ -8461,6 +8478,8 @@ export type LatexAnnotateData = {
         note: string
         createdAt: number
         updatedAt: number
+        anchor?: unknown
+        anchors?: unknown
       }>
     }
     revision: string
@@ -8915,6 +8934,837 @@ export type LatexPdfResponses = {
 }
 
 export type LatexPdfResponse = LatexPdfResponses[keyof LatexPdfResponses]
+
+export type LatexRealtimeStatusData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/latex/realtime/status"
+}
+
+export type LatexRealtimeStatusErrors = {
+  /**
+   * Invalid project or request
+   */
+  400: unknown
+  /**
+   * Build or artifact not found
+   */
+  404: unknown
+  /**
+   * Project changed or build already running
+   */
+  409: unknown
+  /**
+   * Project exceeds snapshot limits
+   */
+  413: unknown
+  /**
+   * Compiler unavailable
+   */
+  503: unknown
+}
+
+export type LatexRealtimeStatusResponses = {
+  /**
+   * LaTeX result
+   */
+  200: LatexRealtimeStatus
+}
+
+export type LatexRealtimeStatusResponse = LatexRealtimeStatusResponses[keyof LatexRealtimeStatusResponses]
+
+export type LatexRealtimeSetupStartData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/latex/realtime/setup"
+}
+
+export type LatexRealtimeSetupStartErrors = {
+  /**
+   * Invalid project or request
+   */
+  400: unknown
+  /**
+   * Build or artifact not found
+   */
+  404: unknown
+  /**
+   * Project changed or build already running
+   */
+  409: unknown
+  /**
+   * Project exceeds snapshot limits
+   */
+  413: unknown
+  /**
+   * Compiler unavailable
+   */
+  503: unknown
+}
+
+export type LatexRealtimeSetupStartResponses = {
+  /**
+   * LaTeX result
+   */
+  200: LatexSetup
+}
+
+export type LatexRealtimeSetupStartResponse = LatexRealtimeSetupStartResponses[keyof LatexRealtimeSetupStartResponses]
+
+export type LatexRealtimeSetupCancelData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/latex/realtime/setup/cancel"
+}
+
+export type LatexRealtimeSetupCancelErrors = {
+  /**
+   * Invalid project or request
+   */
+  400: unknown
+  /**
+   * Build or artifact not found
+   */
+  404: unknown
+  /**
+   * Project changed or build already running
+   */
+  409: unknown
+  /**
+   * Project exceeds snapshot limits
+   */
+  413: unknown
+  /**
+   * Compiler unavailable
+   */
+  503: unknown
+}
+
+export type LatexRealtimeSetupCancelResponses = {
+  /**
+   * LaTeX result
+   */
+  200: LatexSetup
+}
+
+export type LatexRealtimeSetupCancelResponse =
+  LatexRealtimeSetupCancelResponses[keyof LatexRealtimeSetupCancelResponses]
+
+export type LatexRealtimeOpenData = {
+  body?: {
+    root: string
+    main: string
+    revision?: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/latex/realtime/open"
+}
+
+export type LatexRealtimeOpenErrors = {
+  /**
+   * Invalid project or request
+   */
+  400: unknown
+  /**
+   * Build or artifact not found
+   */
+  404: unknown
+  /**
+   * Project changed or build already running
+   */
+  409: unknown
+  /**
+   * Project exceeds snapshot limits
+   */
+  413: unknown
+  /**
+   * Compiler unavailable
+   */
+  503: unknown
+}
+
+export type LatexRealtimeOpenResponses = {
+  /**
+   * LaTeX result
+   */
+  200: {
+    id: string
+    root: string
+    main: string
+  }
+}
+
+export type LatexRealtimeOpenResponse = LatexRealtimeOpenResponses[keyof LatexRealtimeOpenResponses]
+
+export type LatexRealtimeDocumentData = {
+  body?: {
+    id: string
+    path: string
+    text: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/latex/realtime/document"
+}
+
+export type LatexRealtimeDocumentErrors = {
+  /**
+   * Invalid project or request
+   */
+  400: unknown
+  /**
+   * Build or artifact not found
+   */
+  404: unknown
+  /**
+   * Project changed or build already running
+   */
+  409: unknown
+  /**
+   * Project exceeds snapshot limits
+   */
+  413: unknown
+  /**
+   * Compiler unavailable
+   */
+  503: unknown
+}
+
+export type LatexRealtimeDocumentResponses = {
+  /**
+   * LaTeX result
+   */
+  200: {
+    ok: true
+  }
+}
+
+export type LatexRealtimeDocumentResponse = LatexRealtimeDocumentResponses[keyof LatexRealtimeDocumentResponses]
+
+export type LatexRealtimeEditData = {
+  body?: {
+    id: string
+    path: string
+    start: number
+    end: number
+    text: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/latex/realtime/edit"
+}
+
+export type LatexRealtimeEditErrors = {
+  /**
+   * Invalid project or request
+   */
+  400: unknown
+  /**
+   * Build or artifact not found
+   */
+  404: unknown
+  /**
+   * Project changed or build already running
+   */
+  409: unknown
+  /**
+   * Project exceeds snapshot limits
+   */
+  413: unknown
+  /**
+   * Compiler unavailable
+   */
+  503: unknown
+}
+
+export type LatexRealtimeEditResponses = {
+  /**
+   * LaTeX result
+   */
+  200: {
+    ok: true
+  }
+}
+
+export type LatexRealtimeEditResponse = LatexRealtimeEditResponses[keyof LatexRealtimeEditResponses]
+
+export type LatexRealtimeCommandData = {
+  body?: {
+    id: string
+    command: "request_layout" | "export_pdf" | "status"
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/latex/realtime/command"
+}
+
+export type LatexRealtimeCommandErrors = {
+  /**
+   * Invalid project or request
+   */
+  400: unknown
+  /**
+   * Build or artifact not found
+   */
+  404: unknown
+  /**
+   * Project changed or build already running
+   */
+  409: unknown
+  /**
+   * Project exceeds snapshot limits
+   */
+  413: unknown
+  /**
+   * Compiler unavailable
+   */
+  503: unknown
+}
+
+export type LatexRealtimeCommandResponses = {
+  /**
+   * LaTeX result
+   */
+  200: {
+    ok: true
+  }
+}
+
+export type LatexRealtimeCommandResponse = LatexRealtimeCommandResponses[keyof LatexRealtimeCommandResponses]
+
+export type LatexRealtimeSpansData = {
+  body?: {
+    id: string
+    path: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/latex/realtime/spans"
+}
+
+export type LatexRealtimeSpansErrors = {
+  /**
+   * Invalid project or request
+   */
+  400: unknown
+  /**
+   * Build or artifact not found
+   */
+  404: unknown
+  /**
+   * Project changed or build already running
+   */
+  409: unknown
+  /**
+   * Project exceeds snapshot limits
+   */
+  413: unknown
+  /**
+   * Compiler unavailable
+   */
+  503: unknown
+}
+
+export type LatexRealtimeSpansResponses = {
+  /**
+   * LaTeX result
+   */
+  200: {
+    spans: Array<{
+      id: number
+      kind: string
+      hash: number
+      last_revision: number
+      range: {
+        start: number
+        end: number
+      }
+    }>
+  }
+}
+
+export type LatexRealtimeSpansResponse = LatexRealtimeSpansResponses[keyof LatexRealtimeSpansResponses]
+
+export type LatexRealtimeAnnotationsData = {
+  body?: never
+  path?: never
+  query: {
+    directory?: string
+    workspace?: string
+    root: string
+    main: string
+  }
+  url: "/latex/realtime/annotations"
+}
+
+export type LatexRealtimeAnnotationsErrors = {
+  /**
+   * Invalid project or request
+   */
+  400: unknown
+  /**
+   * Build or artifact not found
+   */
+  404: unknown
+  /**
+   * Project changed or build already running
+   */
+  409: unknown
+  /**
+   * Project exceeds snapshot limits
+   */
+  413: unknown
+  /**
+   * Compiler unavailable
+   */
+  503: unknown
+}
+
+export type LatexRealtimeAnnotationsResponses = {
+  /**
+   * LaTeX result
+   */
+  200: {
+    data: {
+      version: "1.2"
+      source: {
+        path: string
+        fingerprint: string
+      }
+      annotations: Array<{
+        id: string
+        type: "highlight" | "underline" | "strikeout" | "note"
+        color: "yellow" | "red" | "green" | "blue"
+        pages: Array<{
+          page: number
+          quads: Array<[number, number, number, number, number, number, number, number]>
+        }>
+        selectedText: string
+        note: string
+        createdAt: number
+        updatedAt: number
+        anchor?: unknown
+        anchors?: unknown
+      }>
+    }
+    revision: string
+  }
+}
+
+export type LatexRealtimeAnnotationsResponse =
+  LatexRealtimeAnnotationsResponses[keyof LatexRealtimeAnnotationsResponses]
+
+export type LatexRealtimeSaveAnnotationsData = {
+  body?: {
+    root: string
+    main: string
+    data: {
+      version: "1.2"
+      source: {
+        path: string
+        fingerprint: string
+      }
+      annotations: Array<{
+        id: string
+        type: "highlight" | "underline" | "strikeout" | "note"
+        color: "yellow" | "red" | "green" | "blue"
+        pages: Array<{
+          page: number
+          quads: Array<[number, number, number, number, number, number, number, number]>
+        }>
+        selectedText: string
+        note: string
+        createdAt: number
+        updatedAt: number
+        anchor?: unknown
+        anchors?: unknown
+      }>
+    }
+    revision?: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/latex/realtime/annotations"
+}
+
+export type LatexRealtimeSaveAnnotationsErrors = {
+  /**
+   * Invalid project or request
+   */
+  400: unknown
+  /**
+   * Build or artifact not found
+   */
+  404: unknown
+  /**
+   * Project changed or build already running
+   */
+  409: unknown
+  /**
+   * Project exceeds snapshot limits
+   */
+  413: unknown
+  /**
+   * Compiler unavailable
+   */
+  503: unknown
+}
+
+export type LatexRealtimeSaveAnnotationsResponses = {
+  /**
+   * LaTeX result
+   */
+  200: {
+    data: {
+      version: "1.2"
+      source: {
+        path: string
+        fingerprint: string
+      }
+      annotations: Array<{
+        id: string
+        type: "highlight" | "underline" | "strikeout" | "note"
+        color: "yellow" | "red" | "green" | "blue"
+        pages: Array<{
+          page: number
+          quads: Array<[number, number, number, number, number, number, number, number]>
+        }>
+        selectedText: string
+        note: string
+        createdAt: number
+        updatedAt: number
+        anchor?: unknown
+        anchors?: unknown
+      }>
+    }
+    revision: string
+  }
+}
+
+export type LatexRealtimeSaveAnnotationsResponse =
+  LatexRealtimeSaveAnnotationsResponses[keyof LatexRealtimeSaveAnnotationsResponses]
+
+export type LatexRealtimeRestoreAnnotationsData = {
+  body?: {
+    root: string
+    main: string
+    buildId?: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/latex/realtime/restore"
+}
+
+export type LatexRealtimeRestoreAnnotationsErrors = {
+  /**
+   * Invalid project or request
+   */
+  400: unknown
+  /**
+   * Build or artifact not found
+   */
+  404: unknown
+  /**
+   * Project changed or build already running
+   */
+  409: unknown
+  /**
+   * Project exceeds snapshot limits
+   */
+  413: unknown
+  /**
+   * Compiler unavailable
+   */
+  503: unknown
+}
+
+export type LatexRealtimeRestoreAnnotationsResponses = {
+  /**
+   * LaTeX result
+   */
+  200: {
+    data: {
+      version: "1.2"
+      source: {
+        path: string
+        fingerprint: string
+      }
+      annotations: Array<{
+        id: string
+        type: "highlight" | "underline" | "strikeout" | "note"
+        color: "yellow" | "red" | "green" | "blue"
+        pages: Array<{
+          page: number
+          quads: Array<[number, number, number, number, number, number, number, number]>
+        }>
+        selectedText: string
+        note: string
+        createdAt: number
+        updatedAt: number
+        anchor?: unknown
+        anchors?: unknown
+      }>
+    }
+    revision: string
+  }
+}
+
+export type LatexRealtimeRestoreAnnotationsResponse =
+  LatexRealtimeRestoreAnnotationsResponses[keyof LatexRealtimeRestoreAnnotationsResponses]
+
+export type LatexRealtimeCloseData = {
+  body?: {
+    id: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/latex/realtime/close"
+}
+
+export type LatexRealtimeCloseErrors = {
+  /**
+   * Invalid project or request
+   */
+  400: unknown
+  /**
+   * Build or artifact not found
+   */
+  404: unknown
+  /**
+   * Project changed or build already running
+   */
+  409: unknown
+  /**
+   * Project exceeds snapshot limits
+   */
+  413: unknown
+  /**
+   * Compiler unavailable
+   */
+  503: unknown
+}
+
+export type LatexRealtimeCloseResponses = {
+  /**
+   * LaTeX result
+   */
+  200: {
+    ok: true
+  }
+}
+
+export type LatexRealtimeCloseResponse = LatexRealtimeCloseResponses[keyof LatexRealtimeCloseResponses]
+
+export type LatexRealtimeEventsData = {
+  body?: never
+  path?: never
+  query: {
+    directory?: string
+    workspace?: string
+    id: string
+  }
+  url: "/latex/realtime/events"
+}
+
+export type LatexRealtimeEventsErrors = {
+  /**
+   * Invalid project or request
+   */
+  400: unknown
+  /**
+   * Build or artifact not found
+   */
+  404: unknown
+  /**
+   * Project changed or build already running
+   */
+  409: unknown
+  /**
+   * Project exceeds snapshot limits
+   */
+  413: unknown
+  /**
+   * Compiler unavailable
+   */
+  503: unknown
+}
+
+export type LatexRealtimeEventsResponses = {
+  /**
+   * Server-sent events
+   */
+  200: unknown
+}
+
+export type LatexRealtimePdfData = {
+  body?: never
+  path?: never
+  query: {
+    directory?: string
+    workspace?: string
+    id: string
+    version: number
+  }
+  url: "/latex/realtime/pdf"
+}
+
+export type LatexRealtimePdfErrors = {
+  /**
+   * Invalid project or request
+   */
+  400: unknown
+  /**
+   * Build or artifact not found
+   */
+  404: unknown
+  /**
+   * Project changed or build already running
+   */
+  409: unknown
+  /**
+   * Project exceeds snapshot limits
+   */
+  413: unknown
+  /**
+   * Compiler unavailable
+   */
+  503: unknown
+}
+
+export type LatexRealtimePdfResponses = {
+  /**
+   * PDF bytes
+   */
+  200: Blob | File
+}
+
+export type LatexRealtimePdfResponse = LatexRealtimePdfResponses[keyof LatexRealtimePdfResponses]
+
+export type LatexRealtimeImageData = {
+  body?: never
+  path?: never
+  query: {
+    directory?: string
+    workspace?: string
+    id: string
+    path: string
+  }
+  url: "/latex/realtime/image"
+}
+
+export type LatexRealtimeImageErrors = {
+  /**
+   * Invalid project or request
+   */
+  400: unknown
+  /**
+   * Build or artifact not found
+   */
+  404: unknown
+  /**
+   * Project changed or build already running
+   */
+  409: unknown
+  /**
+   * Project exceeds snapshot limits
+   */
+  413: unknown
+  /**
+   * Compiler unavailable
+   */
+  503: unknown
+}
+
+export type LatexRealtimeImageResponses = {
+  /**
+   * Image bytes
+   */
+  200: Blob | File
+}
+
+export type LatexRealtimeImageResponse = LatexRealtimeImageResponses[keyof LatexRealtimeImageResponses]
+
+export type LatexRealtimeFontData = {
+  body?: never
+  path?: never
+  query: {
+    directory?: string
+    workspace?: string
+    id: string
+    filename?: string
+    name?: string
+  }
+  url: "/latex/realtime/font"
+}
+
+export type LatexRealtimeFontErrors = {
+  /**
+   * Invalid project or request
+   */
+  400: unknown
+  /**
+   * Build or artifact not found
+   */
+  404: unknown
+  /**
+   * Project changed or build already running
+   */
+  409: unknown
+  /**
+   * Project exceeds snapshot limits
+   */
+  413: unknown
+  /**
+   * Compiler unavailable
+   */
+  503: unknown
+}
+
+export type LatexRealtimeFontResponses = {
+  /**
+   * Font bytes
+   */
+  200: Blob | File
+}
+
+export type LatexRealtimeFontResponse = LatexRealtimeFontResponses[keyof LatexRealtimeFontResponses]
 
 export type FileActiveTasksData = {
   body?: never
@@ -9706,6 +10556,8 @@ export type FilePdfAnnotationsUpdateData = {
         note: string
         createdAt: number
         updatedAt: number
+        anchor?: unknown
+        anchors?: unknown
       }>
     }
   }
@@ -9752,6 +10604,8 @@ export type FilePdfAnnotationsUpdateResponses = {
       note: string
       createdAt: number
       updatedAt: number
+      anchor?: unknown
+      anchors?: unknown
     }>
   }
 }

@@ -203,7 +203,7 @@ async function viewer() {
       version: string | null = src,
       elapsed = 10000,
       locate = false,
-      opts: { activity?: boolean; annotations?: boolean } = {},
+      opts: { activity?: boolean; annotations?: boolean; annotationExport?: boolean } = {},
     ) => {
       state.time += elapsed
       await send("config", {
@@ -417,7 +417,7 @@ test("annotation export controls become available after the initial saved annota
     "beforeend",
     '<button id="aetherExportAnnotations"></button><button id="aetherExportAnnotationsSecondary"></button>',
   )
-  await ctx.open("first", "paper", "first", 10000, false, { annotations: true })
+  await ctx.open("first", "paper", "first", 10000, false, { annotations: true, annotationExport: true })
   const primary = ctx.dom.getElementById("aetherExportAnnotations")!
   const secondary = ctx.dom.getElementById("aetherExportAnnotationsSecondary")!
   expect(primary.hidden).toBe(true)

@@ -1,8 +1,10 @@
-import { createEffect, createUniqueId, For, on, onCleanup, Show, type JSX } from "solid-js"
+import { createEffect, createMemo, createUniqueId, For, on, onCleanup, Show, type JSX } from "solid-js"
 import { createStore } from "solid-js/store"
 import type { LatexBinding } from "@opencode-ai/sdk/v2"
 import { Button } from "@opencode-ai/ui/button"
+import { Icon, type IconProps } from "@opencode-ai/ui/icon"
 import { IconButton } from "@opencode-ai/ui/icon-button"
+import { Select } from "@opencode-ai/ui/select"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { Dialog } from "@opencode-ai/ui/dialog"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
@@ -11,7 +13,7 @@ import { useLanguage } from "@/context/language"
 import { useLatex } from "@/context/latex"
 import { useSDK } from "@/context/sdk"
 import { formatServerError } from "@/utils/server-errors"
-import { SettingsLatex } from "./settings-latex"
+import { DialogSettings } from "./dialog-settings"
 import { DialogLatexHelp } from "./dialog-latex-help"
 
 type Props = {
@@ -33,14 +35,44 @@ export function LatexPanel(props: Props) {
   )
 }
 
+function Action(props: {
+  icon: IconProps["name"]
+  label: string
+  action: string
+  variant?: "primary" | "secondary" | "ghost"
+  disabled?: boolean
+  expanded?: boolean
+  controls?: string
+  onClick: () => void
+}) {
+  return (
+    <Tooltip placement="top" gutter={4} value={props.label}>
+      <span class="inline-flex">
+        <IconButton
+          icon={props.icon}
+          variant={props.variant ?? "ghost"}
+          size="small"
+          data-action={props.action}
+          aria-label={props.label}
+          aria-expanded={props.expanded}
+          aria-controls={props.controls}
+          disabled={props.disabled}
+          onClick={props.onClick}
+        />
+      </span>
+    </Tooltip>
+  )
+}
+
 function Workspace(props: Props) {
   const latex = useLatex()
   const sdk = useSDK()
   const file = useFile()
   const language = useLanguage()
   const dialog = useDialog()
-  const choices = createUniqueId()
   const controls = createUniqueId()
+  const projectMenu = createUniqueId()
+  const mainList = createUniqueId()
   const state = latex.state
   const disabled = () =>
     state.automatic ||
@@ -52,6 +84,72 @@ function Workspace(props: Props) {
   const hint = (key: "latex.fileSave" | "latex.fileDiscard") =>
     state.automatic ? language.t("latex.manualOnly") : language.t(key)
   const [local, setLocal] = createStore({ error: "" })
+  const [form, setForm] = createStore({
+    root: state.root,
+    main: state.main,
+    driver: state.driver,
+    program: state.program,
+    realtime: state.realtime,
+    dirty: { root: false, main: false, driver: false, program: false, realtime: false },
+    suggestions: false,
+  })
+  const clean = () => ({ root: false, main: false, driver: false, program: false, realtime: false })
+  createEffect(
+    on(
+      () => [state.configuring, sdk.url, sdk.directory] as const,
+      () => {
+        setForm({
+          root: state.root,
+          main: state.main,
+          driver: state.driver,
+          program: state.program,
+          realtime: state.realtime,
+          dirty: clean(),
+          suggestions: false,
+        })
+      },
+    ),
+  )
+  createEffect(
+    on(
+      () => [state.root, state.main, state.driver, state.program, state.realtime] as const,
+      ([root, main, driver, program, realtime]) => {
+        if (!state.configuring) return
+        if (!form.dirty.root) setForm("root", root)
+        if (!form.dirty.main) setForm("main", main)
+        if (!form.dirty.driver) setForm("driver", driver)
+        if (!form.dirty.program) setForm("program", program)
+        if (!form.dirty.realtime) setForm("realtime", realtime)
+      },
+    ),
+  )
+  let trigger: HTMLButtonElement | undefined
+  let menu: HTMLDivElement | undefined
+  const candidates = createMemo(() => {
+    const value = form.main.trim().toLowerCase()
+    return [...new Set([...(state.project?.candidates ?? []), ...(state.project?.main ? [state.project.main] : [])])]
+      .filter((item) => !value || item.toLowerCase().includes(value))
+      .slice(0, 8)
+  })
+  createEffect(() => {
+    if (!state.configuring || state.collapsed) return
+    const pointer = (event: PointerEvent) => {
+      const target = event.target
+      if (!(target instanceof Node)) return
+      if (menu?.contains(target) || trigger?.contains(target)) return
+      if (target instanceof Element && target.closest('[data-component="select-content"]')) return
+      latex.configure(false)
+    }
+    const key = (event: KeyboardEvent) => {
+      if (event.key === "Escape") latex.configure(false)
+    }
+    document.addEventListener("pointerdown", pointer, true)
+    window.addEventListener("keydown", key, true)
+    onCleanup(() => {
+      document.removeEventListener("pointerdown", pointer, true)
+      window.removeEventListener("keydown", key, true)
+    })
+  })
   createEffect(
     on(
       () => [props.active, props.path, sdk.url, sdk.directory] as const,
@@ -66,13 +164,87 @@ function Workspace(props: Props) {
       (path) => onCleanup(() => latex.composing(path, false)),
     ),
   )
-  const settings = () =>
+  const settings = () => dialog.show(() => <DialogSettings tab="latex" />)
+  const selectDriver = (value: LatexBinding["driver"]) => {
+    setForm("driver", value)
+    setForm("dirty", "driver", true)
+    if (value !== "tectonic") latex.downloads(false)
+  }
+  const selectProgram = (value: LatexBinding["program"]) => {
+    setForm("program", value)
+    setForm("dirty", "program", true)
+    if (value !== "lualatex") setForm("realtime", false)
+  }
+  const apply = async (realtime: boolean) => {
+    latex.edit({
+      root: form.root,
+      main: form.main,
+      driver: form.driver,
+      program: form.program,
+      realtime: realtime && form.program === "lualatex",
+    })
+    if (form.driver !== "tectonic") latex.downloads(false)
+    await latex.bind()
+  }
+  const save = async () => {
+    const realtime = form.program === "lualatex" ? form.realtime : false
+    if (state.realtime && !realtime) {
+      await leaveRealtime()
+      return
+    }
+    await apply(realtime)
+  }
+  const help = () => dialog.show(() => <DialogLatexHelp />)
+  const leaveRealtime = async () => {
+    if (latex.current() && !state.realtimeDirty) {
+      await apply(false)
+      return
+    }
+    latex.configure(false)
     dialog.show(() => (
-      <Dialog size="large">
-        <SettingsLatex />
+      <Dialog title={language.t("latex.realtime.leaveTitle")}>
+        <div class="flex flex-col gap-3 p-4">
+          <p class="text-12-regular text-text-weak">{language.t("latex.realtime.leaveBody")}</p>
+          <div class="flex justify-end gap-2">
+            <Button
+              variant="ghost"
+              onClick={() => {
+                dialog.close()
+                setForm("realtime", true)
+              }}
+            >
+              {language.t("common.cancel")}
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={() => {
+                dialog.close()
+                void apply(false)
+              }}
+            >
+              {language.t("latex.realtime.discardSwitch")}
+            </Button>
+            <Button
+              onClick={() => {
+                dialog.close()
+                void (async () => {
+                  if (form.program !== "lualatex") {
+                    await apply(false)
+                    return
+                  }
+                  await apply(true)
+                  const ok = await latex.compileVersion()
+                  if (ok) await apply(false)
+                })()
+              }}
+            >
+              {language.t("latex.realtime.saveSwitch")}
+            </Button>
+          </div>
+        </div>
       </Dialog>
     ))
-  const help = () => dialog.show(() => <DialogLatexHelp />)
+  }
   const reading = () =>
     state.reading.root === state.project?.root && state.reading.main === state.project?.binding?.main
       ? state.reading
@@ -170,19 +342,215 @@ function Workspace(props: Props) {
       >
         <div class="flex items-start gap-2">
           <div class="flex min-w-0 flex-1 flex-wrap items-center gap-2">
-            <Button
-              size="small"
-              variant="secondary"
-              aria-expanded={!state.collapsed && state.configuring}
-              onClick={() => latex.configure(state.collapsed || !state.configuring)}
-            >
-              {state.project?.binding?.main ?? language.t("latex.project")}
-            </Button>
+            <div class="relative shrink-0">
+              <Button
+                ref={trigger}
+                size="small"
+                variant="secondary"
+                data-action="latex-project-settings"
+                aria-haspopup="dialog"
+                aria-controls={projectMenu}
+                aria-expanded={state.configuring && !state.collapsed}
+                onClick={() => latex.configure(state.collapsed || !state.configuring)}
+              >
+                <span class="max-w-48 truncate">
+                  {state.project?.binding?.main ?? form.main ?? state.project?.main ?? language.t("latex.project")}
+                </span>
+                <Icon
+                  name="chevron-down"
+                  size="small"
+                  class={
+                    state.configuring && !state.collapsed ? "rotate-180 transition-transform" : "transition-transform"
+                  }
+                />
+              </Button>
+              <Show when={state.configuring && !state.collapsed}>
+                <div
+                  ref={menu}
+                  id={projectMenu}
+                  role="dialog"
+                  aria-label={language.t("latex.project")}
+                  data-component="latex-project-settings"
+                  class="absolute left-0 top-full z-50 mt-1 flex w-[440px] max-w-[calc(100vw-2rem)] flex-col gap-3 rounded-md border border-border-base bg-surface-raised-stronger-non-alpha p-3 text-text-strong shadow-[var(--shadow-lg-border-base)]"
+                >
+                  <p class="text-12-medium text-text-weak">{language.t("latex.project")}</p>
+                  <label class="flex flex-col gap-1">
+                    <span class="text-12-regular text-text-weak">{language.t("latex.root")}</span>
+                    <span class="flex items-center gap-2">
+                      <input
+                        aria-label={language.t("latex.root")}
+                        class="min-w-0 flex-1 rounded-md border border-border-weak-base bg-background-base px-2 py-1 text-12-regular"
+                        value={form.root}
+                        onInput={(event) => {
+                          setForm("root", event.currentTarget.value)
+                          setForm("dirty", "root", true)
+                        }}
+                      />
+                      <Button
+                        size="small"
+                        variant="secondary"
+                        onClick={() => void latex.open(props.path, form.root.trim() || ".")}
+                        disabled={state.busy || latex.running()}
+                      >
+                        {language.t("latex.open")}
+                      </Button>
+                    </span>
+                  </label>
+                  <label class="flex flex-col gap-1">
+                    <span class="text-12-regular text-text-weak">{language.t("latex.main")}</span>
+                    <span class="relative">
+                      <input
+                        aria-label={language.t("latex.main")}
+                        aria-autocomplete="list"
+                        aria-controls={mainList}
+                        aria-expanded={form.suggestions && candidates().length > 0}
+                        autocomplete="off"
+                        placeholder={language.t("latex.choose")}
+                        class="min-w-0 w-full rounded-md border border-border-weak-base bg-background-base px-2 py-1 text-12-regular"
+                        value={form.main}
+                        onFocus={() => setForm("suggestions", true)}
+                        onBlur={() => setTimeout(() => setForm("suggestions", false), 120)}
+                        onInput={(event) => {
+                          setForm("main", event.currentTarget.value)
+                          setForm("dirty", "main", true)
+                          setForm("suggestions", true)
+                        }}
+                      />
+                      <Show when={form.suggestions && candidates().length > 0}>
+                        <div
+                          id={mainList}
+                          role="listbox"
+                          aria-label={language.t("latex.main")}
+                          class="absolute left-0 right-0 top-full z-10 mt-1 max-h-40 overflow-auto rounded-md border border-border-base bg-surface-raised-stronger-non-alpha p-1 shadow-[var(--shadow-lg-border-base)]"
+                        >
+                          <For each={candidates()}>
+                            {(item) => (
+                              <button
+                                type="button"
+                                role="option"
+                                aria-selected={form.main === item}
+                                class="block w-full truncate rounded px-2 py-1 text-left text-12-regular text-text-strong hover:bg-surface-raised-base-hover"
+                                onPointerDown={(event) => event.preventDefault()}
+                                onClick={() => {
+                                  setForm("main", item)
+                                  setForm("dirty", "main", true)
+                                  setForm("suggestions", false)
+                                }}
+                              >
+                                {item}
+                              </button>
+                            )}
+                          </For>
+                        </div>
+                      </Show>
+                    </span>
+                  </label>
+                  <div class="flex items-center gap-2">
+                    <span class="shrink-0 text-12-regular text-text-weak">{language.t("latex.driver")}</span>
+                    <div class="min-w-0 flex-1">
+                      <select
+                        aria-hidden="true"
+                        tabIndex={-1}
+                        aria-label={language.t("latex.driver")}
+                        class="sr-only"
+                        value={form.driver}
+                        onChange={(event) => selectDriver(event.currentTarget.value as LatexBinding["driver"])}
+                      >
+                        <option value="auto">{language.t("latex.auto")}</option>
+                        <option value="tectonic">Tectonic</option>
+                        <option value="latexmk">latexmk</option>
+                      </select>
+                      <Select
+                        options={["auto", "tectonic", "latexmk"] as const}
+                        current={form.driver}
+                        label={(value) =>
+                          value === "auto" ? language.t("latex.auto") : value === "tectonic" ? "Tectonic" : "latexmk"
+                        }
+                        onSelect={(value) => value && selectDriver(value)}
+                        size="small"
+                        variant="secondary"
+                        triggerVariant="settings"
+                        triggerStyle={{ width: "100%" }}
+                        triggerProps={{ "aria-label": language.t("latex.driver"), "data-action": "latex-driver" }}
+                      />
+                    </div>
+                    <span class="shrink-0 text-12-regular text-text-weak">{language.t("latex.program")}</span>
+                    <div class="min-w-0 flex-1">
+                      <select
+                        aria-hidden="true"
+                        tabIndex={-1}
+                        aria-label={language.t("latex.program")}
+                        class="sr-only"
+                        value={form.program}
+                        onChange={(event) => selectProgram(event.currentTarget.value as LatexBinding["program"])}
+                      >
+                        <option value="auto">{language.t("latex.auto")}</option>
+                        <option value="pdflatex">pdfLaTeX</option>
+                        <option value="xelatex">XeLaTeX</option>
+                        <option value="lualatex">LuaLaTeX</option>
+                      </select>
+                      <Select
+                        options={["auto", "pdflatex", "xelatex", "lualatex"] as const}
+                        current={form.program}
+                        label={(value) =>
+                          value === "auto"
+                            ? language.t("latex.auto")
+                            : value === "pdflatex"
+                              ? "pdfLaTeX"
+                              : value === "xelatex"
+                                ? "XeLaTeX"
+                                : "LuaLaTeX"
+                        }
+                        onSelect={(value) => value && selectProgram(value)}
+                        size="small"
+                        variant="secondary"
+                        triggerVariant="settings"
+                        triggerStyle={{ width: "100%" }}
+                        triggerProps={{ "aria-label": language.t("latex.program"), "data-action": "latex-program" }}
+                      />
+                    </div>
+                  </div>
+                  <Show when={form.program === "lualatex"}>
+                    <label class="flex items-center gap-2 text-text-weak">
+                      <input
+                        type="checkbox"
+                        data-action="latex-realtime"
+                        checked={form.realtime}
+                        disabled={state.busy || latex.running()}
+                        onChange={(event) => {
+                          setForm("realtime", event.currentTarget.checked)
+                          setForm("dirty", "realtime", true)
+                        }}
+                      />
+                      {language.t("latex.realtime.toggle")}
+                    </label>
+                  </Show>
+                  <Show when={state.project?.reason === "ambiguous"}>
+                    <p class="text-12-regular text-text-weak">{language.t("latex.ambiguous")}</p>
+                  </Show>
+                  <Show when={state.project?.issue}>
+                    <p class="text-12-regular text-text-weak">{state.project?.issue}</p>
+                  </Show>
+                  <div class="flex justify-end border-t border-border-weak-base pt-2">
+                    <Button
+                      size="small"
+                      data-action="latex-bind"
+                      onClick={() => void save()}
+                      disabled={state.busy || latex.running() || !form.main || form.root !== state.project?.root}
+                    >
+                      {language.t("latex.bind")}
+                    </Button>
+                  </div>
+                </div>
+              </Show>
+            </div>
             <Show when={!state.collapsed}>
               <label class="flex items-center gap-2 text-text-weak">
                 <input
                   type="checkbox"
                   checked={state.automatic}
+                  disabled={state.realtime}
+                  title={state.realtime ? language.t("latex.realtime.autosaveOff") : undefined}
                   onChange={(event) => latex.automatic(event.currentTarget.checked)}
                 />
                 {language.t("latex.automatic")}
@@ -197,29 +565,37 @@ function Workspace(props: Props) {
                 {status()}
               </span>
             </Show>
-            <Button
-              size="small"
-              data-action="latex-compile"
+            <Action
+              icon="play"
+              action="latex-compile"
+              label={state.saving ? language.t("latex.saving") : language.t("latex.compile")}
+              variant="primary"
               disabled={state.busy || latex.running() || latex.changed() || !file.ready() || !!latex.conflicts().length}
               onClick={() => void latex.compile()}
-            >
-              {state.saving ? language.t("latex.saving") : language.t("latex.compile")}
-            </Button>
+            />
             <Show when={latex.running()}>
-              <Button size="small" variant="secondary" onClick={() => void latex.cancel()}>
-                {language.t("common.cancel")}
-              </Button>
+              <Action
+                icon="stop"
+                action="latex-cancel"
+                label={language.t("common.cancel")}
+                onClick={() => void latex.cancel()}
+              />
             </Show>
             <Show when={!state.collapsed}>
-              <Button size="small" variant="secondary" onClick={() => void latex.refresh()} disabled={state.busy}>
-                {language.t("latex.refresh")}
-              </Button>
-              <Button size="small" variant="secondary" onClick={settings}>
-                {language.t("latex.settings")}
-              </Button>
-              <Button size="small" variant="secondary" onClick={latex.show}>
-                {language.t("latex.preview")}
-              </Button>
+              <Action
+                icon="refresh"
+                action="latex-refresh"
+                label={language.t("latex.refresh")}
+                disabled={state.busy}
+                onClick={() => void latex.refresh()}
+              />
+              <Action
+                icon="settings-gear"
+                action="latex-settings"
+                label={language.t("latex.settings")}
+                onClick={settings}
+              />
+              <Action icon="eye" action="latex-preview" label={language.t("latex.preview")} onClick={latex.show} />
               <Show when={props.onLocate}>
                 <Button
                   size="small"
@@ -231,141 +607,41 @@ function Workspace(props: Props) {
                   {language.t("latex.sync.locate")}
                 </Button>
               </Show>
-              <Button size="small" variant="secondary" data-action="latex-help" onClick={help}>
-                {language.t("latex.help")}
-              </Button>
+              <Action icon="help" action="latex-help" label={language.t("latex.help")} onClick={help} />
             </Show>
           </div>
           <div class="flex shrink-0 items-center gap-2">
             <Show when={!state.collapsed}>{props.actions}</Show>
-            <Tooltip placement="top" gutter={4} value={hint("latex.fileDiscard")}>
-              <span class="inline-flex">
-                <IconButton
-                  icon="close"
-                  variant="ghost"
-                  size="small"
-                  data-action="latex-discard"
-                  aria-label={language.t("latex.fileDiscard")}
-                  disabled={disabled()}
-                  onClick={() => void latex.discard(props.path)}
-                />
-              </span>
-            </Tooltip>
-            <Tooltip placement="top" gutter={4} value={hint("latex.fileSave")}>
-              <span class="inline-flex">
-                <IconButton
-                  icon="check"
-                  variant="ghost"
-                  size="small"
-                  data-action="latex-save"
-                  aria-label={language.t("latex.fileSave")}
-                  disabled={disabled()}
-                  onClick={() => void latex.persist(props.path)}
-                />
-              </span>
-            </Tooltip>
-            <Button
-              size="small"
-              variant="secondary"
-              data-action="latex-collapse"
-              aria-expanded={!state.collapsed}
-              aria-controls={controls}
-              onClick={() => latex.collapse(!state.collapsed)}
-            >
-              {language.t(state.collapsed ? "latex.expand" : "latex.collapse")}
-            </Button>
+            <Action
+              icon="close"
+              action="latex-discard"
+              label={hint("latex.fileDiscard")}
+              variant="ghost"
+              disabled={disabled()}
+              onClick={() => void latex.discard(props.path)}
+            />
+            <Action
+              icon="check"
+              action="latex-save"
+              label={hint("latex.fileSave")}
+              variant="ghost"
+              disabled={disabled()}
+              onClick={() => void latex.persist(props.path)}
+            />
+            <Action
+              icon={state.collapsed ? "chevron-double-down" : "chevron-double-up"}
+              action="latex-collapse"
+              label={language.t(state.collapsed ? "latex.expand" : "latex.collapse")}
+              expanded={!state.collapsed}
+              controls={controls}
+              onClick={() => {
+                if (!state.collapsed) latex.configure(false)
+                latex.collapse(!state.collapsed)
+              }}
+            />
           </div>
         </div>
         <div id={controls} hidden={state.collapsed} data-component="latex-toolbar-details">
-          <Show when={state.configuring}>
-            <div
-              class="mt-2 flex flex-col gap-2 rounded-md border border-border-weak-base p-3"
-              data-component="latex-project-settings"
-            >
-              <label class="flex flex-wrap items-center gap-2">
-                <span>{language.t("latex.root")}</span>
-                <input
-                  aria-label={language.t("latex.root")}
-                  class="min-w-0 flex-1 rounded border border-border-weak-base bg-background-base px-2 py-1"
-                  value={state.root}
-                  onInput={(event) => latex.edit({ root: event.currentTarget.value })}
-                />
-                <Button
-                  size="small"
-                  variant="secondary"
-                  onClick={() => void latex.open(props.path, state.root.trim() || ".")}
-                  disabled={state.busy || latex.running()}
-                >
-                  {language.t("latex.open")}
-                </Button>
-              </label>
-              <label class="flex flex-wrap items-center gap-2">
-                <span>{language.t("latex.main")}</span>
-                <input
-                  aria-label={language.t("latex.main")}
-                  list={choices}
-                  placeholder={language.t("latex.choose")}
-                  class="min-w-0 flex-1 rounded border border-border-weak-base bg-background-base px-2 py-1"
-                  value={state.main}
-                  onInput={(event) => latex.edit({ main: event.currentTarget.value })}
-                />
-                <datalist id={choices}>
-                  <For
-                    each={[
-                      ...new Set([
-                        ...(state.project?.candidates ?? []),
-                        ...(state.project?.main ? [state.project.main] : []),
-                      ]),
-                    ]}
-                  >
-                    {(main) => <option value={main}>{main}</option>}
-                  </For>
-                </datalist>
-              </label>
-              <div class="flex flex-wrap items-center gap-2">
-                <label>
-                  {language.t("latex.driver")}{" "}
-                  <select
-                    aria-label={language.t("latex.driver")}
-                    class="rounded border border-border-weak-base bg-background-base px-2 py-1"
-                    value={state.driver}
-                    onChange={(event) => latex.edit({ driver: event.currentTarget.value as LatexBinding["driver"] })}
-                  >
-                    <option value="auto">{language.t("latex.auto")}</option>
-                    <option value="tectonic">Tectonic</option>
-                    <option value="latexmk">latexmk</option>
-                  </select>
-                </label>
-                <label>
-                  {language.t("latex.program")}{" "}
-                  <select
-                    aria-label={language.t("latex.program")}
-                    class="rounded border border-border-weak-base bg-background-base px-2 py-1"
-                    value={state.program}
-                    onChange={(event) => latex.edit({ program: event.currentTarget.value as LatexBinding["program"] })}
-                  >
-                    <option value="auto">{language.t("latex.auto")}</option>
-                    <option value="pdflatex">pdfLaTeX</option>
-                    <option value="xelatex">XeLaTeX</option>
-                  </select>
-                </label>
-                <Button
-                  size="small"
-                  data-action="latex-bind"
-                  onClick={() => void latex.bind()}
-                  disabled={state.busy || latex.running() || !state.main || state.root !== state.project?.root}
-                >
-                  {language.t("latex.bind")}
-                </Button>
-              </div>
-              <Show when={state.project?.reason === "ambiguous"}>
-                <p class="text-text-weak">{language.t("latex.ambiguous")}</p>
-              </Show>
-              <Show when={state.project?.issue}>
-                <p class="text-text-weak">{state.project?.issue}</p>
-              </Show>
-            </div>
-          </Show>
           <div class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-text-weak">
             <span data-component="latex-preview-status" data-current={latex.current()}>
               {reading()?.updating
@@ -401,15 +677,17 @@ function Workspace(props: Props) {
               <time>{new Date(latex.artifact()!.completedAt!).toLocaleTimeString(language.intl())}</time>
             </Show>
           </div>
-          <label class="mt-1 flex items-center gap-2 text-text-weak">
-            <input
-              type="checkbox"
-              checked={state.downloads}
-              onChange={(event) => latex.downloads(event.currentTarget.checked)}
-              disabled={state.busy || latex.running()}
-            />
-            {language.t("latex.downloads")}
-          </label>
+          <Show when={form.driver === "tectonic"}>
+            <label class="mt-1 flex items-center gap-2 text-text-weak">
+              <input
+                type="checkbox"
+                checked={state.downloads}
+                onChange={(event) => latex.downloads(event.currentTarget.checked)}
+                disabled={state.busy || latex.running()}
+              />
+              {language.t("latex.downloads")}
+            </label>
+          </Show>
         </div>
         <Show when={state.status && !state.status.tools.some((tool) => tool.installed)}>
           <p class="mt-2 text-text-weak">{language.t("latex.unavailable")}</p>
