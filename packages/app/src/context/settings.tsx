@@ -18,6 +18,16 @@ export interface SoundSettings {
   errors: string
 }
 
+export type LatexAppearance = {
+  preset: "paper" | "vscode"
+  typeface: "aether" | "vscode"
+  guides: boolean
+  brackets: boolean
+  mode: "auto" | "light" | "dark"
+  size: number
+  spacing: "compact" | "normal" | "wide"
+}
+
 export interface Settings {
   general: {
     autoSave: boolean
@@ -25,6 +35,7 @@ export interface Settings {
     followup: "queue" | "steer"
     reviewBatch: number
     branchesTab: boolean
+    detached: boolean
     debugBar: boolean
     branchGraphCompact: boolean
     branchGraphFontSize: "xs" | "sm" | "md" | "lg" | "xl"
@@ -42,6 +53,7 @@ export interface Settings {
     fontSize: number
     font: string
   }
+  latex: LatexAppearance
   keybinds: Record<string, string>
   permissions: {
     autoApprove: boolean
@@ -61,6 +73,7 @@ const defaultSettings: Settings = {
     followup: "steer",
     reviewBatch: 10,
     branchesTab: true,
+    detached: false,
     debugBar: false,
     branchGraphCompact: false,
     branchGraphFontSize: "lg",
@@ -69,7 +82,7 @@ const defaultSettings: Settings = {
     showReasoningSummaries: false,
     shellToolPartsExpanded: true,
     editToolPartsExpanded: false,
-    autoGitInit: true,
+    autoGitInit: false,
   },
   updates: {
     startup: true,
@@ -77,6 +90,15 @@ const defaultSettings: Settings = {
   appearance: {
     fontSize: 14,
     font: "ibm-plex-mono",
+  },
+  latex: {
+    preset: "paper",
+    typeface: "vscode",
+    guides: true,
+    brackets: true,
+    mode: "auto",
+    size: 14,
+    spacing: "normal",
   },
   keybinds: {},
   permissions: {
@@ -130,6 +152,21 @@ function withFallback<T>(read: () => T | undefined, fallback: T) {
   return createMemo(() => read() ?? fallback)
 }
 
+function latex(value: Partial<LatexAppearance> | undefined): LatexAppearance {
+  return {
+    preset: value?.preset === "vscode" ? value.preset : defaultSettings.latex.preset,
+    typeface: value?.typeface === "aether" ? value.typeface : defaultSettings.latex.typeface,
+    guides: typeof value?.guides === "boolean" ? value.guides : defaultSettings.latex.guides,
+    brackets: typeof value?.brackets === "boolean" ? value.brackets : defaultSettings.latex.brackets,
+    mode: value?.mode === "light" || value?.mode === "dark" ? value.mode : defaultSettings.latex.mode,
+    size:
+      typeof value?.size === "number" && Number.isFinite(value.size)
+        ? Math.min(20, Math.max(12, Math.round(value.size)))
+        : defaultSettings.latex.size,
+    spacing: value?.spacing === "compact" || value?.spacing === "wide" ? value.spacing : defaultSettings.latex.spacing,
+  }
+}
+
 let font: Promise<typeof import("@opencode-ai/ui/font-loader")> | undefined
 
 function loadFont() {
@@ -140,7 +177,11 @@ function loadFont() {
 export const { use: useSettings, provider: SettingsProvider } = createSimpleContext({
   name: "Settings",
   init: () => {
-    const [store, setStore, _, ready] = persisted("settings.v3", createStore<Settings>(defaultSettings))
+    const [store, setStore, _, ready] = persisted(
+      "settings.v3",
+      createStore<Settings>(structuredClone(defaultSettings)),
+    )
+    const appearance = createMemo(() => latex(store.latex))
 
     createEffect(() => {
       if (typeof document === "undefined") return
@@ -176,6 +217,10 @@ export const { use: useSettings, provider: SettingsProvider } = createSimpleCont
         branchesTab: withFallback(() => store.general?.branchesTab, defaultSettings.general.branchesTab),
         setBranchesTab(value: boolean) {
           setStore("general", "branchesTab", value)
+        },
+        detached: withFallback(() => store.general?.detached, defaultSettings.general.detached),
+        setDetached(value: boolean) {
+          setStore("general", "detached", value)
         },
         debugBar: withFallback(() => store.general?.debugBar, defaultSettings.general.debugBar),
         setDebugBar(value: boolean) {
@@ -249,6 +294,39 @@ export const { use: useSettings, provider: SettingsProvider } = createSimpleCont
         font: withFallback(() => store.appearance?.font, defaultSettings.appearance.font),
         setFont(value: string) {
           setStore("appearance", "font", value)
+        },
+      },
+      latex: {
+        preset: () => appearance().preset,
+        typeface: () => appearance().typeface,
+        guides: () => appearance().guides,
+        brackets: () => appearance().brackets,
+        mode: () => appearance().mode,
+        size: () => appearance().size,
+        spacing: () => appearance().spacing,
+        setPreset(value: LatexAppearance["preset"]) {
+          setStore("latex", latex({ ...appearance(), preset: value }))
+        },
+        setTypeface(value: LatexAppearance["typeface"]) {
+          setStore("latex", latex({ ...appearance(), typeface: value }))
+        },
+        setGuides(value: boolean) {
+          setStore("latex", latex({ ...appearance(), guides: value }))
+        },
+        setBrackets(value: boolean) {
+          setStore("latex", latex({ ...appearance(), brackets: value }))
+        },
+        setMode(value: LatexAppearance["mode"]) {
+          setStore("latex", latex({ ...appearance(), mode: value }))
+        },
+        setSize(value: number) {
+          setStore("latex", latex({ ...appearance(), size: value }))
+        },
+        setSpacing(value: LatexAppearance["spacing"]) {
+          setStore("latex", latex({ ...appearance(), spacing: value }))
+        },
+        reset() {
+          setStore("latex", { ...defaultSettings.latex })
         },
       },
       keybinds: {

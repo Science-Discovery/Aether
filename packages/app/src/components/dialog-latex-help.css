@@ -1,0 +1,247 @@
+[data-component="dialog"] [data-slot="dialog-content"].latex-help-dialog {
+  height: 100%;
+  overflow: hidden;
+
+  [data-slot="dialog-header"] {
+    padding: 24px 24px 8px;
+  }
+
+  [data-slot="dialog-body"] {
+    min-height: 0;
+  }
+}
+
+.latex-help-intro {
+  flex-shrink: 0;
+  margin: 0;
+  padding: 0 24px 20px;
+  color: var(--text-weak);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.latex-help {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1;
+  color: var(--text-base);
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1.7;
+}
+
+.latex-help-nav {
+  display: flex;
+  flex-shrink: 0;
+  gap: 24px;
+  padding: 0 24px;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--border-weak-base);
+}
+
+.latex-help-tab {
+  flex-shrink: 0;
+  padding: 0 0 12px;
+  border-bottom: 2px solid transparent;
+  color: var(--text-weak);
+  cursor: pointer;
+
+  &:hover {
+    color: var(--text-strong);
+  }
+
+  &[data-selected] {
+    border-bottom-color: var(--text-interactive-base);
+    color: var(--text-strong);
+    font-weight: 500;
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--border-interactive-focus);
+    outline-offset: -2px;
+    border-radius: 4px;
+  }
+}
+
+.latex-help-pane {
+  min-height: 0;
+  flex: 1;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 24px;
+  scrollbar-gutter: stable;
+
+  &:focus-visible {
+    outline: 2px solid var(--border-interactive-focus);
+    outline-offset: -2px;
+  }
+
+  h3,
+  h4,
+  p,
+  dl,
+  dd {
+    margin: 0;
+  }
+
+  h3,
+  h4,
+  dt {
+    color: var(--text-strong);
+    font-size: 13px;
+    font-weight: 500;
+  }
+
+  p,
+  dd {
+    color: var(--text-weak);
+    overflow-wrap: anywhere;
+  }
+}
+
+.latex-help-steps {
+  display: grid;
+  gap: 16px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+
+  li {
+    display: grid;
+    grid-template-columns: 32px minmax(0, 1fr);
+    gap: 14px;
+  }
+
+  p {
+    margin-top: 3px;
+  }
+}
+
+.latex-help-number {
+  padding-top: 1px;
+  color: var(--text-interactive-base);
+  font-family: var(--font-family-mono);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.latex-help-modes {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border-weak-base);
+}
+
+.latex-help-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 24px;
+  margin-top: 12px;
+
+  > div + div {
+    padding-left: 24px;
+    border-left: 1px solid var(--border-weak-base);
+  }
+
+  p {
+    margin-top: 6px;
+  }
+}
+
+.latex-help-mode,
+.latex-help-keys {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.latex-help-badge {
+  border-radius: 4px;
+  padding: 1px 6px;
+  background: var(--surface-raised-base);
+  color: var(--text-interactive-base);
+  font-size: 11px;
+  line-height: 18px;
+}
+
+.latex-help-shortcut {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 20px;
+  padding: 12px 14px;
+  border-radius: 6px;
+  background: var(--surface-raised-base);
+}
+
+.latex-help-keys {
+  color: var(--text-weak);
+
+  kbd {
+    min-width: 24px;
+    padding: 0 6px;
+    border: 1px solid var(--border-weak-base);
+    border-radius: 4px;
+    color: var(--text-strong);
+    background: var(--background-base);
+    font-size: 11px;
+    text-align: center;
+    line-height: 22px;
+  }
+}
+
+.latex-help-separator {
+  padding: 0 4px;
+}
+
+.latex-help-pane .latex-help-reminder {
+  margin-top: 8px;
+  font-size: 12px;
+}
+
+.latex-help-reference {
+  > div {
+    display: grid;
+    grid-template-columns: 160px minmax(0, 1fr);
+    gap: 24px;
+    padding: 18px 0;
+    border-bottom: 1px solid var(--border-weak-base);
+  }
+
+  > div:first-child {
+    padding-top: 0;
+  }
+
+  > div:last-child {
+    padding-bottom: 0;
+    border-bottom: 0;
+  }
+
+  dt {
+    overflow-wrap: anywhere;
+  }
+}
+
+@media (max-width: 560px) {
+  .latex-help-nav {
+    gap: 18px;
+  }
+
+  .latex-help-options {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 16px;
+
+    > div + div {
+      padding-left: 0;
+      border-left: 0;
+    }
+  }
+
+  .latex-help-reference > div {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 4px;
+  }
+}

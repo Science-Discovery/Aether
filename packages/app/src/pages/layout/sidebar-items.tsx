@@ -101,7 +101,7 @@ export type SessionItemProps = {
   prefetchSession: (session: Session, priority?: "high" | "low") => void
   archiveSession: (session: Session) => Promise<void>
   unarchiveSession?: (session: Session) => Promise<void>
-  deleteSession?: (session: Session) => Promise<void>
+  deleteSession?: (session: Session) => Promise<boolean | void>
   renameSession?: (session: Session, title: string) => Promise<void>
   selectMode?: Accessor<boolean>
   selected?: Accessor<boolean>

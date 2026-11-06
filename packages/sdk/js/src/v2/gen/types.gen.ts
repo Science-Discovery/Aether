@@ -1746,6 +1746,17 @@ export type Config = {
   logLevel?: LogLevel
   server?: ServerConfig
   /**
+   * Local LaTeX compiler executable paths
+   */
+  latex?: {
+    tectonic?: {
+      path?: string
+    }
+    latexmk?: {
+      path?: string
+    }
+  }
+  /**
    * Native agent settings. Executable paths are read only from the user's global configuration.
    */
   native?: {
@@ -2760,6 +2771,141 @@ export type NativeFileInput = {
 export type NativeQueueSent = {
   queue: NativeQueueStatus
   delivery: NativeSteered
+}
+
+export type LatexStatus = {
+  tools: Array<{
+    driver: "tectonic" | "latexmk"
+    installed: boolean
+    path?: string
+    version?: string
+    error?: string
+  }>
+}
+
+export type LatexSetup = {
+  state: "idle" | "downloading" | "verifying" | "extracting" | "checking" | "ready" | "failed" | "cancelled"
+  supported: boolean
+  version: string
+  downloaded: number
+  total?: number
+  path?: string
+  error?: string
+}
+
+export type LatexBinding = {
+  root: string
+  main: string
+  driver: "auto" | "tectonic" | "latexmk"
+  program: "auto" | "pdflatex" | "xelatex"
+  revision: string
+  updatedAt: number
+}
+
+export type LatexFreshness = {
+  state: "fresh" | "stale" | "unknown"
+  checkedAt?: number
+  sourceRevision?: string
+}
+
+export type LatexDiagnostic = {
+  severity: "error" | "warning" | "info"
+  message: string
+  path?: string
+  line?: number
+}
+
+export type LatexBuild = {
+  id: string
+  root: string
+  main: string
+  bindingRevision: string
+  sourceRevision?: string
+  state: "preparing" | "running" | "succeeded" | "failed" | "cancelled"
+  driver?: "tectonic" | "latexmk"
+  program?: "pdflatex" | "xelatex"
+  createdAt: number
+  startedAt?: number
+  completedAt?: number
+  diagnostics: Array<LatexDiagnostic>
+  log: string
+  truncated: boolean
+  pdf: boolean
+  sync?: {
+    state: "ready" | "unavailable"
+    reason?: string
+  }
+  error?: string
+}
+
+export type LatexProject = {
+  root: string
+  main?: string
+  binding?: LatexBinding
+  candidates: Array<string>
+  reason: "binding" | "magic" | "single" | "ambiguous" | "missing"
+  issue?: string
+  freshness: LatexFreshness
+  latest?: LatexBuild
+  lastSuccessful?: LatexBuild
+  editors: Array<{
+    path: string
+    checksum: string | null
+  }>
+}
+
+export type LatexVersion = {
+  build: LatexBuild
+  pdfHash: string
+  annotationCount: number
+  referenced: boolean
+  viewing: boolean
+}
+
+export type LatexCleanup = {
+  removed: Array<string>
+  versions: Array<LatexVersion>
+}
+
+export type LatexAnnotations = {
+  status: "ready"
+  data: {
+    version: "1.2"
+    source: {
+      path: string
+      fingerprint: string
+    }
+    annotations: Array<{
+      id: string
+      type: "highlight" | "underline" | "strikeout" | "note"
+      color: "yellow" | "red" | "green" | "blue"
+      pages: Array<{
+        page: number
+        quads: Array<[number, number, number, number, number, number, number, number]>
+      }>
+      selectedText: string
+      note: string
+      createdAt: number
+      updatedAt: number
+    }>
+  }
+  revision: string
+}
+
+export type LatexLease = {
+  token: string
+  expiresAt: number
+}
+
+export type LatexDestination = {
+  page: number
+  rect: [number, number, number, number]
+}
+
+export type LatexSource = {
+  path: string
+  line: number
+  column?: number
 }
 
 export type Symbol = {
@@ -5278,9 +5424,53 @@ export type SessionInitResponses = {
 
 export type SessionInitResponse = SessionInitResponses[keyof SessionInitResponses]
 
+export type SessionDetachData = {
+  body?: never
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/session/{sessionID}/detach"
+}
+
+export type SessionDetachErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+  /**
+   * Conflict
+   */
+  409: {
+    name: string
+    data: {
+      message: string
+    }
+  }
+}
+
+export type SessionDetachError = SessionDetachErrors[keyof SessionDetachErrors]
+
+export type SessionDetachResponses = {
+  /**
+   * Independent session subtree root
+   */
+  200: Session
+}
+
+export type SessionDetachResponse = SessionDetachResponses[keyof SessionDetachResponses]
+
 export type SessionForkData = {
   body?: {
     messageID?: string
+    detached?: boolean
     /**
      * For native Codex, retain the complete turn containing the selected message
      */
@@ -5295,6 +5485,28 @@ export type SessionForkData = {
   }
   url: "/session/{sessionID}/fork"
 }
+
+export type SessionForkErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+  /**
+   * Conflict
+   */
+  409: {
+    name: string
+    data: {
+      message: string
+    }
+  }
+}
+
+export type SessionForkError = SessionForkErrors[keyof SessionForkErrors]
 
 export type SessionForkResponses = {
   /**
@@ -5973,44 +6185,6 @@ export type PermissionRespondResponses = {
 }
 
 export type PermissionRespondResponse = PermissionRespondResponses[keyof PermissionRespondResponses]
-
-export type SessionSteerData = {
-  body?: {
-    text: string
-  }
-  path: {
-    sessionID: string
-  }
-  query?: {
-    directory?: string
-    workspace?: string
-  }
-  url: "/session/{sessionID}/steer"
-}
-
-export type SessionSteerErrors = {
-  /**
-   * Bad request
-   */
-  400: BadRequestError
-  /**
-   * Not found
-   */
-  404: NotFoundError
-}
-
-export type SessionSteerError = SessionSteerErrors[keyof SessionSteerErrors]
-
-export type SessionSteerResponses = {
-  /**
-   * Steer text added
-   */
-  200: {
-    ok: boolean
-  }
-}
-
-export type SessionSteerResponse = SessionSteerResponses[keyof SessionSteerResponses]
 
 export type SessionPreferenceGetData = {
   body?: never
@@ -7760,6 +7934,964 @@ export type DatabaseLegacyMergeResponses = {
 }
 
 export type DatabaseLegacyMergeResponse = DatabaseLegacyMergeResponses[keyof DatabaseLegacyMergeResponses]
+
+export type LatexStatusData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/latex/status"
+}
+
+export type LatexStatusErrors = {
+  /**
+   * Invalid project or request
+   */
+  400: unknown
+  /**
+   * Build or artifact not found
+   */
+  404: unknown
+  /**
+   * Project changed or build already running
+   */
+  409: unknown
+  /**
+   * Project exceeds snapshot limits
+   */
+  413: unknown
+  /**
+   * Compiler unavailable
+   */
+  503: unknown
+}
+
+export type LatexStatusResponses = {
+  /**
+   * LaTeX result
+   */
+  200: LatexStatus
+}
+
+export type LatexStatusResponse = LatexStatusResponses[keyof LatexStatusResponses]
+
+export type LatexSetupStatusData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/latex/setup"
+}
+
+export type LatexSetupStatusErrors = {
+  /**
+   * Invalid project or request
+   */
+  400: unknown
+  /**
+   * Build or artifact not found
+   */
+  404: unknown
+  /**
+   * Project changed or build already running
+   */
+  409: unknown
+  /**
+   * Project exceeds snapshot limits
+   */
+  413: unknown
+  /**
+   * Compiler unavailable
+   */
+  503: unknown
+}
+
+export type LatexSetupStatusResponses = {
+  /**
+   * LaTeX result
+   */
+  200: LatexSetup
+}
+
+export type LatexSetupStatusResponse = LatexSetupStatusResponses[keyof LatexSetupStatusResponses]
+
+export type LatexSetupStartData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/latex/setup"
+}
+
+export type LatexSetupStartErrors = {
+  /**
+   * Invalid project or request
+   */
+  400: unknown
+  /**
+   * Build or artifact not found
+   */
+  404: unknown
+  /**
+   * Project changed or build already running
+   */
+  409: unknown
+  /**
+   * Project exceeds snapshot limits
+   */
+  413: unknown
+  /**
+   * Compiler unavailable
+   */
+  503: unknown
+}
+
+export type LatexSetupStartResponses = {
+  /**
+   * LaTeX result
+   */
+  200: LatexSetup
+}
+
+export type LatexSetupStartResponse = LatexSetupStartResponses[keyof LatexSetupStartResponses]
+
+export type LatexSetupCancelData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/latex/setup/cancel"
+}
+
+export type LatexSetupCancelErrors = {
+  /**
+   * Invalid project or request
+   */
+  400: unknown
+  /**
+   * Build or artifact not found
+   */
+  404: unknown
+  /**
+   * Project changed or build already running
+   */
+  409: unknown
+  /**
+   * Project exceeds snapshot limits
+   */
+  413: unknown
+  /**
+   * Compiler unavailable
+   */
+  503: unknown
+}
+
+export type LatexSetupCancelResponses = {
+  /**
+   * LaTeX result
+   */
+  200: LatexSetup
+}
+
+export type LatexSetupCancelResponse = LatexSetupCancelResponses[keyof LatexSetupCancelResponses]
+
+export type LatexProjectData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+    path?: string
+    root?: string
+  }
+  url: "/latex/project"
+}
+
+export type LatexProjectErrors = {
+  /**
+   * Invalid project or request
+   */
+  400: unknown
+  /**
+   * Build or artifact not found
+   */
+  404: unknown
+  /**
+   * Project changed or build already running
+   */
+  409: unknown
+  /**
+   * Project exceeds snapshot limits
+   */
+  413: unknown
+  /**
+   * Compiler unavailable
+   */
+  503: unknown
+}
+
+export type LatexProjectResponses = {
+  /**
+   * LaTeX result
+   */
+  200: LatexProject
+}
+
+export type LatexProjectResponse = LatexProjectResponses[keyof LatexProjectResponses]
+
+export type LatexBindData = {
+  body?: {
+    root: string
+    main: string
+    driver?: "auto" | "tectonic" | "latexmk"
+    program?: "auto" | "pdflatex" | "xelatex"
+    expectedRevision?: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/latex/project"
+}
+
+export type LatexBindErrors = {
+  /**
+   * Invalid project or request
+   */
+  400: unknown
+  /**
+   * Build or artifact not found
+   */
+  404: unknown
+  /**
+   * Project changed or build already running
+   */
+  409: unknown
+  /**
+   * Project exceeds snapshot limits
+   */
+  413: unknown
+  /**
+   * Compiler unavailable
+   */
+  503: unknown
+}
+
+export type LatexBindResponses = {
+  /**
+   * LaTeX result
+   */
+  200: LatexProject
+}
+
+export type LatexBindResponse = LatexBindResponses[keyof LatexBindResponses]
+
+export type LatexRefreshData = {
+  body?: {
+    root: string
+    editors?: Array<string>
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/latex/project/refresh"
+}
+
+export type LatexRefreshErrors = {
+  /**
+   * Invalid project or request
+   */
+  400: unknown
+  /**
+   * Build or artifact not found
+   */
+  404: unknown
+  /**
+   * Project changed or build already running
+   */
+  409: unknown
+  /**
+   * Project exceeds snapshot limits
+   */
+  413: unknown
+  /**
+   * Compiler unavailable
+   */
+  503: unknown
+}
+
+export type LatexRefreshResponses = {
+  /**
+   * LaTeX result
+   */
+  200: LatexProject
+}
+
+export type LatexRefreshResponse = LatexRefreshResponses[keyof LatexRefreshResponses]
+
+export type LatexBuildData = {
+  body?: {
+    root: string
+    bindingRevision: string
+    sourceRevision?: string
+    allowDownloads?: boolean
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/latex/build"
+}
+
+export type LatexBuildErrors = {
+  /**
+   * Invalid project or request
+   */
+  400: unknown
+  /**
+   * Build or artifact not found
+   */
+  404: unknown
+  /**
+   * Project changed or build already running
+   */
+  409: unknown
+  /**
+   * Project exceeds snapshot limits
+   */
+  413: unknown
+  /**
+   * Compiler unavailable
+   */
+  503: unknown
+}
+
+export type LatexBuildResponses = {
+  /**
+   * Build accepted
+   */
+  202: LatexBuild
+}
+
+export type LatexBuildResponse = LatexBuildResponses[keyof LatexBuildResponses]
+
+export type LatexVersionsData = {
+  body?: never
+  path?: never
+  query: {
+    directory?: string
+    workspace?: string
+    root: string
+  }
+  url: "/latex/versions"
+}
+
+export type LatexVersionsErrors = {
+  /**
+   * Invalid project or request
+   */
+  400: unknown
+  /**
+   * Build or artifact not found
+   */
+  404: unknown
+  /**
+   * Project changed or build already running
+   */
+  409: unknown
+  /**
+   * Project exceeds snapshot limits
+   */
+  413: unknown
+  /**
+   * Compiler unavailable
+   */
+  503: unknown
+}
+
+export type LatexVersionsResponses = {
+  /**
+   * LaTeX result
+   */
+  200: Array<LatexVersion>
+}
+
+export type LatexVersionsResponse = LatexVersionsResponses[keyof LatexVersionsResponses]
+
+export type LatexCleanupData = {
+  body?: {
+    root: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/latex/versions/cleanup"
+}
+
+export type LatexCleanupErrors = {
+  /**
+   * Invalid project or request
+   */
+  400: unknown
+  /**
+   * Build or artifact not found
+   */
+  404: unknown
+  /**
+   * Project changed or build already running
+   */
+  409: unknown
+  /**
+   * Project exceeds snapshot limits
+   */
+  413: unknown
+  /**
+   * Compiler unavailable
+   */
+  503: unknown
+}
+
+export type LatexCleanupResponses = {
+  /**
+   * LaTeX result
+   */
+  200: LatexCleanup
+}
+
+export type LatexCleanupResponse = LatexCleanupResponses[keyof LatexCleanupResponses]
+
+export type LatexAnnotationsData = {
+  body?: never
+  path: {
+    id: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/latex/build/{id}/annotations"
+}
+
+export type LatexAnnotationsErrors = {
+  /**
+   * Invalid project or request
+   */
+  400: unknown
+  /**
+   * Build or artifact not found
+   */
+  404: unknown
+  /**
+   * Project changed or build already running
+   */
+  409: unknown
+  /**
+   * Project exceeds snapshot limits
+   */
+  413: unknown
+  /**
+   * Compiler unavailable
+   */
+  503: unknown
+}
+
+export type LatexAnnotationsResponses = {
+  /**
+   * LaTeX result
+   */
+  200: LatexAnnotations
+}
+
+export type LatexAnnotationsResponse = LatexAnnotationsResponses[keyof LatexAnnotationsResponses]
+
+export type LatexAnnotateData = {
+  body?: {
+    data: {
+      version: "1.2"
+      source: {
+        path: string
+        fingerprint: string
+      }
+      annotations: Array<{
+        id: string
+        type: "highlight" | "underline" | "strikeout" | "note"
+        color: "yellow" | "red" | "green" | "blue"
+        pages: Array<{
+          page: number
+          quads: Array<[number, number, number, number, number, number, number, number]>
+        }>
+        selectedText: string
+        note: string
+        createdAt: number
+        updatedAt: number
+      }>
+    }
+    revision: string
+  }
+  path: {
+    id: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/latex/build/{id}/annotations"
+}
+
+export type LatexAnnotateErrors = {
+  /**
+   * Invalid project or request
+   */
+  400: unknown
+  /**
+   * Build or artifact not found
+   */
+  404: unknown
+  /**
+   * Project changed or build already running
+   */
+  409: unknown
+  /**
+   * Project exceeds snapshot limits
+   */
+  413: unknown
+  /**
+   * Compiler unavailable
+   */
+  503: unknown
+}
+
+export type LatexAnnotateResponses = {
+  /**
+   * LaTeX result
+   */
+  200: LatexAnnotations
+}
+
+export type LatexAnnotateResponse = LatexAnnotateResponses[keyof LatexAnnotateResponses]
+
+export type LatexExportAnnotationsData = {
+  body?: never
+  path: {
+    id: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/latex/build/{id}/annotations/export"
+}
+
+export type LatexExportAnnotationsErrors = {
+  /**
+   * Invalid project or request
+   */
+  400: unknown
+  /**
+   * Build or artifact not found
+   */
+  404: unknown
+  /**
+   * Project changed or build already running
+   */
+  409: unknown
+  /**
+   * Project exceeds snapshot limits
+   */
+  413: unknown
+  /**
+   * Compiler unavailable
+   */
+  503: unknown
+}
+
+export type LatexExportAnnotationsResponses = {
+  /**
+   * Annotated PDF
+   */
+  200: Blob | File
+}
+
+export type LatexExportAnnotationsResponse = LatexExportAnnotationsResponses[keyof LatexExportAnnotationsResponses]
+
+export type LatexLeaseData = {
+  body?: {
+    token?: string
+  }
+  path: {
+    id: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/latex/build/{id}/lease"
+}
+
+export type LatexLeaseErrors = {
+  /**
+   * Invalid project or request
+   */
+  400: unknown
+  /**
+   * Build or artifact not found
+   */
+  404: unknown
+  /**
+   * Project changed or build already running
+   */
+  409: unknown
+  /**
+   * Project exceeds snapshot limits
+   */
+  413: unknown
+  /**
+   * Compiler unavailable
+   */
+  503: unknown
+}
+
+export type LatexLeaseResponses = {
+  /**
+   * LaTeX result
+   */
+  200: LatexLease
+}
+
+export type LatexLeaseResponse = LatexLeaseResponses[keyof LatexLeaseResponses]
+
+export type LatexReleaseData = {
+  body?: never
+  path: {
+    id: string
+    token: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/latex/build/{id}/lease/{token}"
+}
+
+export type LatexReleaseErrors = {
+  /**
+   * Invalid project or request
+   */
+  400: unknown
+  /**
+   * Build or artifact not found
+   */
+  404: unknown
+  /**
+   * Project changed or build already running
+   */
+  409: unknown
+  /**
+   * Project exceeds snapshot limits
+   */
+  413: unknown
+  /**
+   * Compiler unavailable
+   */
+  503: unknown
+}
+
+export type LatexReleaseResponses = {
+  /**
+   * LaTeX result
+   */
+  200: boolean
+}
+
+export type LatexReleaseResponse = LatexReleaseResponses[keyof LatexReleaseResponses]
+
+export type LatexReferenceData = {
+  body?: {
+    reference: string
+  }
+  path: {
+    id: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/latex/build/{id}/reference"
+}
+
+export type LatexReferenceErrors = {
+  /**
+   * Invalid project or request
+   */
+  400: unknown
+  /**
+   * Build or artifact not found
+   */
+  404: unknown
+  /**
+   * Project changed or build already running
+   */
+  409: unknown
+  /**
+   * Project exceeds snapshot limits
+   */
+  413: unknown
+  /**
+   * Compiler unavailable
+   */
+  503: unknown
+}
+
+export type LatexReferenceResponses = {
+  /**
+   * LaTeX result
+   */
+  200: boolean
+}
+
+export type LatexReferenceResponse = LatexReferenceResponses[keyof LatexReferenceResponses]
+
+export type LatexGetData = {
+  body?: never
+  path: {
+    id: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/latex/build/{id}"
+}
+
+export type LatexGetErrors = {
+  /**
+   * Invalid project or request
+   */
+  400: unknown
+  /**
+   * Build or artifact not found
+   */
+  404: unknown
+  /**
+   * Project changed or build already running
+   */
+  409: unknown
+  /**
+   * Project exceeds snapshot limits
+   */
+  413: unknown
+  /**
+   * Compiler unavailable
+   */
+  503: unknown
+}
+
+export type LatexGetResponses = {
+  /**
+   * LaTeX result
+   */
+  200: LatexBuild
+}
+
+export type LatexGetResponse = LatexGetResponses[keyof LatexGetResponses]
+
+export type LatexForwardData = {
+  body?: {
+    path: string
+    line: number
+    column?: number
+  }
+  path: {
+    id: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/latex/build/{id}/sync/forward"
+}
+
+export type LatexForwardErrors = {
+  /**
+   * Invalid project or request
+   */
+  400: unknown
+  /**
+   * Build or artifact not found
+   */
+  404: unknown
+  /**
+   * Project changed or build already running
+   */
+  409: unknown
+  /**
+   * Project exceeds snapshot limits
+   */
+  413: unknown
+  /**
+   * Compiler unavailable
+   */
+  503: unknown
+}
+
+export type LatexForwardResponses = {
+  /**
+   * LaTeX result
+   */
+  200: LatexDestination
+}
+
+export type LatexForwardResponse = LatexForwardResponses[keyof LatexForwardResponses]
+
+export type LatexInverseData = {
+  body?: {
+    page: number
+    x: number
+    y: number
+  }
+  path: {
+    id: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/latex/build/{id}/sync/inverse"
+}
+
+export type LatexInverseErrors = {
+  /**
+   * Invalid project or request
+   */
+  400: unknown
+  /**
+   * Build or artifact not found
+   */
+  404: unknown
+  /**
+   * Project changed or build already running
+   */
+  409: unknown
+  /**
+   * Project exceeds snapshot limits
+   */
+  413: unknown
+  /**
+   * Compiler unavailable
+   */
+  503: unknown
+}
+
+export type LatexInverseResponses = {
+  /**
+   * LaTeX result
+   */
+  200: LatexSource
+}
+
+export type LatexInverseResponse = LatexInverseResponses[keyof LatexInverseResponses]
+
+export type LatexCancelData = {
+  body?: never
+  path: {
+    id: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/latex/build/{id}/cancel"
+}
+
+export type LatexCancelErrors = {
+  /**
+   * Invalid project or request
+   */
+  400: unknown
+  /**
+   * Build or artifact not found
+   */
+  404: unknown
+  /**
+   * Project changed or build already running
+   */
+  409: unknown
+  /**
+   * Project exceeds snapshot limits
+   */
+  413: unknown
+  /**
+   * Compiler unavailable
+   */
+  503: unknown
+}
+
+export type LatexCancelResponses = {
+  /**
+   * LaTeX result
+   */
+  200: LatexBuild
+}
+
+export type LatexCancelResponse = LatexCancelResponses[keyof LatexCancelResponses]
+
+export type LatexPdfData = {
+  body?: never
+  path: {
+    id: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/latex/build/{id}/pdf"
+}
+
+export type LatexPdfErrors = {
+  /**
+   * Invalid project or request
+   */
+  400: unknown
+  /**
+   * Build or artifact not found
+   */
+  404: unknown
+  /**
+   * Project changed or build already running
+   */
+  409: unknown
+  /**
+   * Project exceeds snapshot limits
+   */
+  413: unknown
+  /**
+   * Compiler unavailable
+   */
+  503: unknown
+}
+
+export type LatexPdfResponses = {
+  /**
+   * PDF bytes
+   */
+  200: Blob | File
+}
+
+export type LatexPdfResponse = LatexPdfResponses[keyof LatexPdfResponses]
 
 export type FileActiveTasksData = {
   body?: never

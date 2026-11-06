@@ -31,6 +31,7 @@ import { KnowledgeProvider } from "@/context/knowledge"
 import { CommandProvider } from "@/context/command"
 import { CommentsProvider } from "@/context/comments"
 import { FileProvider } from "@/context/file"
+import { LatexProvider } from "@/context/latex"
 import { AuthProvider } from "@/context/auth"
 import { GlobalSDKProvider } from "@/context/global-sdk"
 import { GlobalSyncProvider } from "@/context/global-sync"
@@ -117,9 +118,11 @@ function SessionProviders(props: ParentProps) {
   return (
     <TerminalProvider>
       <FileProvider>
-        <PromptProvider>
-          <CommentsProvider>{props.children}</CommentsProvider>
-        </PromptProvider>
+        <LatexProvider>
+          <PromptProvider>
+            <CommentsProvider>{props.children}</CommentsProvider>
+          </PromptProvider>
+        </LatexProvider>
       </FileProvider>
     </TerminalProvider>
   )

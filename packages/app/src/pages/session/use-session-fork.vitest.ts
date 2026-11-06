@@ -6,6 +6,7 @@ import { useSessionFork } from "./use-session-fork"
 
 const mocks = vi.hoisted(() => ({ fork: vi.fn(), prompt: vi.fn(), navigate: vi.fn(), toast: vi.fn() }))
 let id = () => "source"
+let detached = false
 let sessions: Session[] = []
 const text: TextPart = {
   id: "text",
@@ -41,6 +42,7 @@ vi.mock("@/context/sync", () => ({
 }))
 vi.mock("@/context/prompt", () => ({ usePrompt: () => ({ set: mocks.prompt }) }))
 vi.mock("@/context/language", () => ({ useLanguage: () => ({ t: (key: string) => key }) }))
+vi.mock("@/context/settings", () => ({ useSettings: () => ({ general: { detached: () => detached } }) }))
 vi.mock("@opencode-ai/ui/toast", () => ({ showToast: mocks.toast }))
 
 const session = (id: string): Session => ({
@@ -52,6 +54,18 @@ const session = (id: string): Session => ({
   version: "1",
   time: { created: 1, updated: 1 },
   engine: { type: "codex", model: "model", effort: "high", mode: "plan", permission: "auto", thread: id },
+})
+
+describe("Aether fork settings", () => {
+  test("uses the default detached setting only for Aether sessions", async () => {
+    sessions = [{ ...session("source"), engine: undefined }]
+    detached = true
+    await mount().fork({ sessionID: "source", messageID: "user" }, "fork")
+    expect(mocks.fork).toHaveBeenCalledExactlyOnceWith(
+      { sessionID: "source", messageID: "user", detached: true },
+      { throwOnError: true },
+    )
+  })
 })
 const cleanups: VoidFunction[] = []
 function mount() {
@@ -65,6 +79,7 @@ function mount() {
 }
 beforeEach(() => {
   vi.clearAllMocks()
+  detached = false
   sessions = [session("source")]
   text.text = "Please revise the proof"
   parts.splice(0, parts.length, text)
