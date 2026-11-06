@@ -8,7 +8,7 @@ import { Engine } from "./schema"
 export type Definition = {
   id: Engine.ID
   name: string
-  protocol: "acp" | "claude"
+  protocol: "acp" | "claude" | "zcode"
   command: string
   args: string[]
   env?: string
@@ -40,6 +40,14 @@ const definitions: Definition[] = [
     command: "dsh",
     args: ["--profile", "acp"],
     env: "AETHER_DSH_PATH",
+  },
+  {
+    id: "zcode",
+    name: "ZCode",
+    protocol: "zcode",
+    command: "zcode",
+    args: ["app-server", "--stdio"],
+    env: "AETHER_ZCODE_PATH",
   },
 ]
 
@@ -133,6 +141,10 @@ async function candidates(def: Definition) {
     case "dsh": {
       const found = which(def.command)
       return [found, path.join(home, ".local", "bin", "dsh"), path.join(home, ".npm-global", "bin", "dsh")]
+    }
+    case "zcode": {
+      const found = which(def.command)
+      return [found, path.join(home, ".local", "bin", "zcode"), path.join(home, ".npm-global", "bin", "zcode")]
     }
   }
 }

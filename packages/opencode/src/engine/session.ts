@@ -8,6 +8,7 @@ import type { SessionPrompt } from "@/session/prompt"
 import { Engine } from "./schema"
 import { Acp } from "./acp"
 import { Claude } from "./claude"
+import { ZCode } from "./zcode"
 
 export namespace EngineSession {
   export async function prompt(
@@ -81,6 +82,22 @@ export namespace EngineSession {
       })
     }
     try {
+      if (acp.type === "zcode") {
+        return await ZCode.run({
+          model,
+          effort,
+          mode: acp.mode,
+          permission: acp.permission ?? "auto",
+          session: session.id,
+          directory: session.directory,
+          remote: acp.session,
+          parts,
+          assistant,
+          signal,
+          save,
+          system: input.system,
+        })
+      }
       if (acp.type === "claude") {
         return await Claude.run({
           model,

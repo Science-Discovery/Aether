@@ -5,7 +5,7 @@ import z from "zod"
  * existing app-server integration is untouched.
  */
 export namespace Engine {
-  export const ID = z.enum(["qoder", "qodercn", "opencode", "claude", "dsh"]).meta({ ref: "EngineID" })
+  export const ID = z.enum(["qoder", "qodercn", "opencode", "claude", "dsh", "zcode"]).meta({ ref: "EngineID" })
   export type ID = z.infer<typeof ID>
 
   export const Permission = z.enum(["user", "auto", "full"]).meta({ ref: "EnginePermission" })
@@ -65,7 +65,7 @@ export namespace Engine {
       installed: z.boolean(),
       path: z.string().optional(),
       version: z.string().optional(),
-      protocol: z.enum(["acp", "claude"]),
+      protocol: z.enum(["acp", "claude", "zcode"]),
       error: z.string().optional(),
     })
     .meta({ ref: "EngineStatus" })

@@ -501,7 +501,7 @@ export type NativeEngine = {
   cursor?: string
 }
 
-export type EngineId = "qoder" | "qodercn" | "opencode" | "claude" | "dsh"
+export type EngineId = "qoder" | "qodercn" | "opencode" | "claude" | "dsh" | "zcode"
 
 /**
  * How ACP permission requests are answered
@@ -2820,7 +2820,7 @@ export type EngineStatus = {
   installed: boolean
   path?: string
   version?: string
-  protocol: "acp" | "claude"
+  protocol: "acp" | "claude" | "zcode"
   error?: string
 }
 
