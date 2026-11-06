@@ -224,6 +224,16 @@ export namespace SessionPrompt {
       await SessionRevert.awaitPending(input.sessionID)
       await SessionRevert.cleanup(await Session.get(input.sessionID))
 
+      if (session.acp) {
+        if (!input.noReply) await SessionStatus.set(input.sessionID, { type: "busy" })
+        try {
+          const { EngineSession } = await import("@/engine/session")
+          return await EngineSession.prompt(input, session, claim)
+        } finally {
+          await finish(input.sessionID, claim)
+        }
+      }
+
       const message = await createUserMessage(input, claim)
       await Session.touch(input.sessionID)
 

@@ -95,6 +95,7 @@ export function toPartialRow(info: DeepPartial<Session.Info>) {
     revert: grab(info, "revert"),
     permission: grab(info, "permission"),
     engine: grab(info, "engine"),
+    acp: grab(info, "acp"),
     reading_mode: grab(info, "readingMode"),
     time_created: grab(info, "time", (v) => grab(v, "created")),
     time_updated: grab(info, "time", (v) => grab(v, "updated")),

@@ -57,6 +57,7 @@ import type { ReadingMode } from "../reading-mode/types"
 import { SessionPreference } from "./preference"
 import { PROJECT } from "@/persist/naming"
 import { Native } from "../native/schema"
+import { Engine } from "../engine/schema"
 import { NativeInput } from "../native/input"
 import { NativeRuntime } from "../native/runtime"
 import { NativeQueue } from "../native/queue"
@@ -121,6 +122,7 @@ export namespace Session {
       revert,
       permission: row.permission ?? undefined,
       engine: row.engine ?? undefined,
+      acp: row.acp ?? undefined,
       readingMode: row.reading_mode
         ? {
             ...row.reading_mode,
@@ -160,6 +162,7 @@ export namespace Session {
       revert: info.revert ?? null,
       permission: info.permission,
       engine: info.engine ?? null,
+      acp: info.acp ?? null,
       reading_mode: info.readingMode ?? null,
       time_created: info.time.created,
       time_updated: info.time.updated,
@@ -481,6 +484,7 @@ export namespace Session {
       }),
       permission: Permission.Ruleset.optional(),
       engine: Native.Engine.optional(),
+      acp: Engine.Info.optional(),
       revert: z
         .object({
           messageID: MessageID.zod,
@@ -695,6 +699,7 @@ export namespace Session {
         title: z.string().optional(),
         permission: Info.shape.permission,
         engine: Native.Input.optional(),
+        acp: Engine.Input.optional(),
         workspaceID: WorkspaceID.zod.optional(),
       })
       .optional(),
@@ -703,6 +708,7 @@ export namespace Session {
         throw new Native.Unsupported({
           message: "Codex is disabled in Settings. Enable it before starting a Codex session.",
         })
+      if (input?.engine && input.acp) throw new Error("A session can only use one agent backend.")
       return createNext({
         id: input?.id,
         parentID: input?.parentID,
@@ -710,6 +716,7 @@ export namespace Session {
         title: input?.title,
         permission: input?.permission,
         engine: input?.engine ? { ...input.engine, permission: input.engine.permission ?? "auto" } : undefined,
+        acp: input?.acp ? { ...input.acp, permission: input.acp.permission ?? "auto" } : undefined,
         workspaceID: input?.workspaceID,
       })
     },
@@ -727,6 +734,7 @@ export namespace Session {
     async (input): Promise<Info> => {
       const original = await getGlobal(input.sessionID)
       if (!original) throw new Error("session not found")
+      if (original.acp) throw new Error("Forking is not supported for this agent backend.")
       if (original.engine) {
         const { NativeFork } = await import("../native/fork")
         return NativeFork.run(input, async ({ id, source, engine, anchor }) => {
@@ -857,6 +865,7 @@ export namespace Session {
     directory: string
     permission?: Permission.Ruleset
     engine?: Native.Engine
+    acp?: Engine.Info
   }) {
     const treeID = await (async () => {
       if (input.treeID) return input.treeID
@@ -880,6 +889,7 @@ export namespace Session {
       title: input.title ?? createDefaultTitle(!!input.parentID),
       permission: input.permission,
       engine: input.engine,
+      acp: input.acp,
       time: {
         created: Date.now(),
         updated: Date.now(),
@@ -1137,8 +1147,21 @@ export namespace Session {
     },
   )
 
-  export const setNativePermission = fn(
-    z.object({ sessionID: SessionID.zod, permission: Native.Permission }),
+  export const setAcp = fn(z.object({ sessionID: SessionID.zod, acp: Engine.Info }), async (input) => {
+    const session = await get(input.sessionID)
+    if (!session.acp) throw new Error("This session does not use an ACP backend")
+    if (session.acp.type !== input.acp.type) throw new Error("A session's engine cannot be changed")
+    SyncEvent.run(Event.Updated, {
+      sessionID: input.sessionID,
+      info: {
+        projectID: session.projectID,
+        acp: input.acp,
+        time: { updated: Date.now() },
+      },
+    })
+  })
+
+  export const setNativePermission = fn(    z.object({ sessionID: SessionID.zod, permission: Native.Permission }),
     async (input) => {
       const session = await get(input.sessionID)
       if (!session.engine) throw new Error("This session does not use the native Codex backend")

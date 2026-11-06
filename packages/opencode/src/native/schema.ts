@@ -85,7 +85,11 @@ export namespace Native {
 
   export const Unsupported = NamedError.create("NativeSessionUnsupported", z.object({ message: z.string() }))
 
-  export function guard(session: { engine?: Engine }, action: string) {
+  export function guard(session: { engine?: Engine; acp?: { type: string } }, action: string) {
+    if (session.acp)
+      throw new Unsupported({
+        message: `${action} is not supported for ${session.acp.type} sessions. Start a new session instead.`,
+      })
     if (!session.engine) return
     throw new Unsupported({
       message: `${action} is not supported for native Codex sessions. Start a new session instead.`,

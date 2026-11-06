@@ -42,6 +42,10 @@ import type {
   DatabaseLegacyMergeStateResetResponses,
   DatabaseLegacyMergeStateResponses,
   DatabaseLegacyStatusResponses,
+  EngineConfigResponses,
+  EngineId,
+  EngineInput,
+  EngineListResponses,
   EventSubscribeResponses,
   EventTuiCommandExecute,
   EventTuiPromptAppend,
@@ -2664,6 +2668,7 @@ export class Session2 extends HeyApiClient {
       title?: string
       permission?: PermissionRuleset
       engine?: NativeEngineInput
+      acp?: EngineInput
       workspaceID?: string
     },
     options?: Options<never, ThrowOnError>,
@@ -2680,6 +2685,7 @@ export class Session2 extends HeyApiClient {
             { in: "body", key: "title" },
             { in: "body", key: "permission" },
             { in: "body", key: "engine" },
+            { in: "body", key: "acp" },
             { in: "body", key: "workspaceID" },
           ],
         },
@@ -5588,6 +5594,70 @@ export class Native extends HeyApiClient {
     )
     return (options?.client ?? this.client).post<NativeResumeQueueResponses, NativeResumeQueueErrors, ThrowOnError>({
       url: "/native/codex/{sessionID}/queue/resume",
+      ...options,
+      ...params,
+    })
+  }
+}
+
+export class Engine extends HeyApiClient {
+  /**
+   * List agent engines
+   */
+  public list<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      refresh?: boolean
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "refresh" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<EngineListResponses, unknown, ThrowOnError>({
+      url: "/engine",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Read an engine's models and configuration options
+   */
+  public config<ThrowOnError extends boolean = false>(
+    parameters: {
+      id: EngineId
+      directory?: string
+      workspace?: string
+      model?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "id" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "model" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<EngineConfigResponses, unknown, ThrowOnError>({
+      url: "/engine/{id}/config",
       ...options,
       ...params,
     })
@@ -10531,6 +10601,11 @@ export class OpencodeClient extends HeyApiClient {
   private _native?: Native
   get native(): Native {
     return (this._native ??= new Native({ client: this.client }))
+  }
+
+  private _engine?: Engine
+  get engine(): Engine {
+    return (this._engine ??= new Engine({ client: this.client }))
   }
 
   private _database?: Database

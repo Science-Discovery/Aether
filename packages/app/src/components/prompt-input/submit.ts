@@ -1,4 +1,5 @@
 import type { Message, Session } from "@opencode-ai/sdk/v2/client"
+import type { EngineInput } from "@opencode-ai/sdk/v2"
 import { showToast } from "@opencode-ai/ui/toast"
 import { base64Encode } from "@opencode-ai/util/encode"
 import { Binary } from "@opencode-ai/util/binary"
@@ -55,6 +56,7 @@ export type FollowupDraft = {
   model: { providerID: string; modelID: string }
   variant?: string
   engine?: NativeEngine
+  acp?: EngineInput
   selectedPaths?: string[]
   pdfSelectedText?: string
 }
@@ -185,7 +187,9 @@ function resolveReadingContextRange(input: {
 }
 
 export async function sendFollowupDraft(input: FollowupSendInput) {
-  if (!input.draft.engine && input.draft.prompt.some((part) => part.type === "skill"))
+  if (!input.draft.engine && input.draft.acp && input.draft.prompt.some((part) => part.type === "skill"))
+    throw new Error("Skills require the Codex backend. Switch back to Codex or remove the skill before sending.")
+  if (!input.draft.engine && !input.draft.acp && input.draft.prompt.some((part) => part.type === "skill"))
     throw new Error("Codex skills require the Codex backend. Switch back to Codex or remove the skill before sending.")
   const text = draftText(input.draft.prompt)
   const images = draftImages(input.draft.prompt)
@@ -610,11 +614,12 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       return
     }
     const engine = selection.engine
-    if (!engine && currentPrompt.some((part) => part.type === "skill")) {
+    const acp = selection.acp
+    if (!engine && !acp && currentPrompt.some((part) => part.type === "skill")) {
       showToast({ title: language.t("native.skills.onlyCodex"), variant: "error" })
       return
     }
-    if (engine && mode === "shell") return
+    if ((engine || acp) && mode === "shell") return
     const variant = selection.variant
 
     if (!queued) {
@@ -689,6 +694,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
         version: "",
         time: { created: Date.now(), updated: Date.now() },
         engine,
+        acp,
       }
       seed(sessionDirectory, info)
       session = info
@@ -696,7 +702,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       navigate(`/${base64Encode(sessionDirectory)}/session/${sessionID}`)
 
       claimed = claimSession(sessionID, () =>
-        client.session.create({ id: sessionID, engine }).then((x) => x.data ?? undefined),
+        client.session.create({ id: sessionID, engine, acp }).then((x) => x.data ?? undefined),
       )
     }
 
@@ -746,7 +752,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       }
       seed(sessionDirectory, created)
       if (isNewSession) knowledge.rekey(NEW_SESSION_KEY, session.id)
-      if (isNewSession && !engine) {
+      if (isNewSession && !engine && !acp) {
         permission.setMode(session.id, sessionDirectory, permission.effectiveMode(undefined, projectDirectory))
       }
       return true
@@ -775,6 +781,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       model,
       variant,
       engine,
+      acp,
       selectedPaths: openPaths.length > 0 ? openPaths : undefined,
       pdfSelectedText: selText || undefined,
     }

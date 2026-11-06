@@ -4,6 +4,18 @@ type Keys = keyof typeof en
 
 export const dict = {
   "native.title": "智能体后端",
+  "engine.title": "其他智能体后端",
+  "engine.description": "Aether 会在服务器所在机器上自动发现这些 CLI，登录和模型设置由各工具自行管理。",
+  "engine.installed": "已安装",
+  "engine.missing": "未找到",
+  "engine.path": "可执行文件",
+  "engine.version": "版本",
+  "engine.refresh": "重新检测",
+  "engine.loading": "检测中…",
+  "engine.model": "模型",
+  "engine.chooseModel": "选择模型",
+  "engine.effort": "思考强度",
+  "engine.mode": "模式",
   "native.enable": "启用 Codex",
   "native.enableHelp": "在 Aether 中使用已安装的 Codex。关闭后停止新请求，已有对话仍可阅读，正在运行的任务可正常结束。",
   "native.disabled": "Codex 已关闭。在此重新启用后，可以新建或继续 Codex 对话。",

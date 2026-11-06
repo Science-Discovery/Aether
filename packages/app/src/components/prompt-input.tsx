@@ -74,7 +74,7 @@ import { childMapByParent } from "@/pages/layout/helpers"
 import { SteerButton } from "@/components/steer-button"
 import { VoiceInputButton, type VoiceInputAPI } from "@/components/voice-input-button"
 import { VariantSelect } from "./prompt-input/variant-select"
-import { EngineSelect, NativeModels } from "./native-controls"
+import { EngineSelect, NativeModels, AcpModels } from "./native-controls"
 import { createNativeRun } from "@/context/native-run"
 import { NativeRunPanel } from "./native-run"
 import { createNativeSkills } from "@/context/native-skills"
@@ -1821,7 +1821,17 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                 {/* 左侧：文本类选择器，可压缩截断 */}
                 <div class="flex items-center gap-1.5 min-w-0 overflow-hidden">
                   <EngineSelect />
-                  <Show when={!local.native.engine()} fallback={<NativeModels />}>
+                  <Show when={!local.native.engine() && local.acp.current()}>
+                    <AcpModels />
+                  </Show>
+                  <Show
+                    when={!local.native.engine() && !local.acp.current()}
+                    fallback={
+                      <Show when={local.native.engine()}>
+                        <NativeModels />
+                      </Show>
+                    }
+                  >
                     <div data-component="prompt-agent-control">
                       <TooltipKeybind
                         placement="top"

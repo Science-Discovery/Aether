@@ -506,8 +506,8 @@ export namespace Database {
     db.transaction(
       () => {
         const columns = sqlite.prepare("PRAGMA table_info(session)").all() as { name: string }[]
-        if (columns.some((column) => column.name === "engine")) return
-        sqlite.exec("ALTER TABLE session ADD COLUMN engine text")
+        if (!columns.some((column) => column.name === "engine")) sqlite.exec("ALTER TABLE session ADD COLUMN engine text")
+        if (!columns.some((column) => column.name === "acp")) sqlite.exec("ALTER TABLE session ADD COLUMN acp text")
       },
       { behavior: "immediate" },
     )

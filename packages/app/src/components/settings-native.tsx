@@ -1,6 +1,7 @@
-import { createMemo, Show } from "solid-js"
+import { createMemo, For, onMount, Show } from "solid-js"
 import { createStore } from "solid-js/store"
 import { useParams } from "@solidjs/router"
+import type { EngineStatus } from "@opencode-ai/sdk/v2"
 import { Button } from "@opencode-ai/ui/button"
 import { TextField } from "@opencode-ai/ui/text-field"
 import { Switch } from "@opencode-ai/ui/switch"
@@ -90,8 +91,7 @@ export function SettingsNative() {
         <p class="mt-2 text-13-regular text-text-weak">{language.t("native.description")}</p>
       </div>
       <div class="rounded-lg border border-border-base p-4 flex flex-col gap-4">
-        <h3 class="text-14-medium text-text-strong">Codex</h3>
-        <Switch
+        <h3 class="text-14-medium text-text-strong">Codex</h3>        <Switch
           checked={enabled()}
           disabled={store.saving || !sync.ready}
           onChange={(value) => void toggle(value)}
@@ -235,6 +235,71 @@ export function SettingsNative() {
           </p>
         </Show>
       </div>
+      <SettingsEngines />
+    </div>
+  )
+}
+
+function SettingsEngines() {
+  const sdk = useGlobalSDK()
+  const params = useParams()
+  const language = useLanguage()
+  const client = createMemo(() => sdk.createClient({ directory: decode64(params.dir), throwOnError: true }))
+  const [store, setStore] = createStore<{ items: EngineStatus[]; loading: boolean; error?: string }>({
+    items: [],
+    loading: false,
+  })
+  const load = async (refresh = false) => {
+    if (store.loading) return
+    setStore({ loading: true, error: undefined })
+    await client()
+      .engine.list(refresh ? { refresh: true } : undefined)
+      .then((response) => setStore("items", response.data ?? []))
+      .catch((error: unknown) =>
+        setStore("error", error instanceof Error ? error.message : String(error)),
+      )
+      .finally(() => setStore("loading", false))
+  }
+  onMount(() => void load())
+  return (
+    <div class="rounded-lg border border-border-base p-4 flex flex-col gap-4" data-component="settings-engines">
+      <div class="flex items-start justify-between gap-4">
+        <div>
+          <h3 class="text-14-medium text-text-strong">{language.t("engine.title")}</h3>
+          <p class="mt-1 text-13-regular text-text-weak">{language.t("engine.description")}</p>
+        </div>
+        <Button variant="secondary" onClick={() => void load(true)} disabled={store.loading}>
+          {language.t(store.loading ? "engine.loading" : "engine.refresh")}
+        </Button>
+      </div>
+      <For each={store.items}>
+        {(item) => (
+          <div class="rounded-md border border-border-base p-3 flex flex-col gap-2" data-engine={item.id}>
+            <div class="flex items-center justify-between gap-3">
+              <span class="text-13-medium text-text-strong">{item.name}</span>
+              <span class="text-12-regular text-text-weak">
+                {language.t(item.installed ? "engine.installed" : "engine.missing")}
+              </span>
+            </div>
+            <dl class="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-12-regular">
+              <dt>{language.t("engine.path")}</dt>
+              <dd class="break-all">{item.path ?? "—"}</dd>
+              <dt>{language.t("engine.version")}</dt>
+              <dd>{item.version ?? "—"}</dd>
+            </dl>
+            <Show when={item.error}>
+              <p role="alert" class="text-12-regular text-text-critical-base break-words">
+                {item.error}
+              </p>
+            </Show>
+          </div>
+        )}
+      </For>
+      <Show when={store.error}>
+        <p role="alert" class="text-13-regular text-text-critical-base break-words">
+          {store.error}
+        </p>
+      </Show>
     </div>
   )
 }

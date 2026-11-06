@@ -1,5 +1,18 @@
 export const dict = {
   "native.title": "Agent backends",
+  "engine.title": "Other agent backends",
+  "engine.description":
+    "Aether discovers these CLIs on the server machine. Sign-in and model settings stay with each tool.",
+  "engine.installed": "Installed",
+  "engine.missing": "Not found",
+  "engine.path": "Executable",
+  "engine.version": "Version",
+  "engine.refresh": "Check again",
+  "engine.loading": "Checking…",
+  "engine.model": "Model",
+  "engine.chooseModel": "Select model",
+  "engine.effort": "Reasoning effort",
+  "engine.mode": "Mode",
   "native.enable": "Enable Codex",
   "native.enableHelp":
     "Use the installed Codex agent in Aether. Turning this off stops new Codex requests; existing conversations stay readable and running tasks can finish.",

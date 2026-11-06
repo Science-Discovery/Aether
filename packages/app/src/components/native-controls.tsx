@@ -4,6 +4,7 @@ import { Select } from "@opencode-ai/ui/select"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { useLanguage } from "@/context/language"
 import { useLocal } from "@/context/local"
+import type { AcpID } from "@/context/acp"
 import type { NativeMode, NativePermission } from "@/utils/native"
 import { VariantSelect } from "./prompt-input/variant-select"
 import { NativeHistoryControl } from "./native-history"
@@ -11,19 +12,100 @@ import { NativeHistoryControl } from "./native-history"
 export function EngineSelect() {
   const local = useLocal()
   const language = useLanguage()
+  const options = () => {
+    const items: string[] = ["aether"]
+    if (local.native.enabled() || local.native.engine()) items.push("codex")
+    for (const item of local.acp.available()) if (!items.includes(item.id)) items.push(item.id)
+    return items
+  }
+  const current = () => {
+    const id = local.acp.current()
+    if (id) return id
+    return local.native.known() ? (local.native.engine() ? "codex" : "aether") : undefined
+  }
+  const label = (value: string) =>
+    value === "codex" ? "Codex" : value === "aether" ? "Aether" : (local.acp.name(value as AcpID) ?? value)
   return (
-    <Select<"aether" | "codex">
-      options={local.native.enabled() || local.native.engine() ? ["aether", "codex"] : ["aether"]}
-      current={local.native.known() ? (local.native.engine() ? "codex" : "aether") : undefined}
+    <Select<string>
+      options={options()}
+      current={current()}
       placeholder={language.t("common.loading")}
-      label={(value) => (value === "codex" ? "Codex" : "Aether")}
-      onSelect={(value) => value && local.native.select(value)}
-      disabled={local.native.locked()}
+      label={label}
+      onSelect={(value) => {
+        if (!value) return
+        if (value === "aether" || value === "codex") {
+          local.acp.select(undefined)
+          local.native.select(value)
+          return
+        }
+        local.native.select("aether")
+        local.acp.select(value as AcpID)
+      }}
+      disabled={local.native.locked() || local.acp.locked()}
       variant="ghost"
       size="normal"
       valueClass="truncate text-13-regular text-text-base"
       triggerProps={{ "data-action": "prompt-engine", "aria-label": language.t("native.engine") }}
     />
+  )
+}
+
+export function AcpModels() {
+  const local = useLocal()
+  const acp = local.acp
+  const language = useLanguage()
+  return (
+    <>
+      <Show when={acp.models().length > 0}>
+        <Select
+          options={acp.models()}
+          current={acp.models().find((item) => item.id === acp.model())}
+          value={(item) => item.id}
+          label={(item) => item.name}
+          onSelect={(item) => item && acp.setModel(item.id)}
+          disabled={acp.loadingConfig()}
+          placeholder={language.t(acp.loadingConfig() ? "native.checking" : "engine.chooseModel")}
+          variant="ghost"
+          size="normal"
+          class="min-w-0 max-w-[260px]"
+          valueClass="truncate text-13-regular text-text-base"
+          triggerProps={{ "data-action": "prompt-acp-model", "aria-label": language.t("engine.chooseModel") }}
+        />
+      </Show>
+      <Show when={acp.effortOptions().length > 0}>
+        <Select
+          options={acp.effortOptions()}
+          current={acp.effortOptions().find((item) => item.value === acp.effort())}
+          value={(item) => item.value}
+          label={(item) => item.name}
+          onSelect={(item) => item && acp.setEffort(item.value)}
+          disabled={acp.loadingConfig()}
+          variant="ghost"
+          size="normal"
+          valueClass="truncate text-13-regular text-text-base"
+          triggerProps={{ "data-action": "prompt-acp-effort", "aria-label": language.t("engine.effort") }}
+        />
+      </Show>
+      <Show when={acp.modeOptions().length > 0}>
+        <Select
+          options={acp.modeOptions()}
+          current={acp.modeOptions().find((item) => item.value === acp.mode())}
+          value={(item) => item.value}
+          label={(item) => item.name}
+          onSelect={(item) => item && acp.setMode(item.value)}
+          disabled={acp.locked()}
+          variant="ghost"
+          size="normal"
+          valueClass="truncate text-13-regular text-text-base"
+          triggerProps={{ "data-action": "prompt-acp-mode", "aria-label": language.t("engine.mode") }}
+        />
+      </Show>
+      <Show when={acp.configError()}>
+        <span role="alert" class="text-12-regular text-text-weak">
+          {acp.configError()}
+        </span>
+      </Show>
+    </>
   )
 }
 

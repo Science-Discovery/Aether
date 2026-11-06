@@ -4,6 +4,18 @@ type Keys = keyof typeof en
 
 export const dict = {
   "command.category.suggested": "建議",
+  "engine.title": "其他智慧體後端",
+  "engine.description": "Aether 會在伺服器所在機器上自動發現這些 CLI，登入與模型設定由各工具自行管理。",
+  "engine.installed": "已安裝",
+  "engine.missing": "未找到",
+  "engine.path": "可執行檔",
+  "engine.version": "版本",
+  "engine.refresh": "重新偵測",
+  "engine.loading": "偵測中…",
+  "engine.model": "模型",
+  "engine.chooseModel": "選擇模型",
+  "engine.effort": "思考強度",
+  "engine.mode": "模式",
   "command.category.view": "檢視",
   "command.category.project": "專案",
   "command.category.provider": "提供者",

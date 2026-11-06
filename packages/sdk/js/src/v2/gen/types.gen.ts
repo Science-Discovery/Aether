@@ -501,6 +501,47 @@ export type NativeEngine = {
   cursor?: string
 }
 
+export type EngineId = "qoder" | "qodercn" | "opencode" | "claude"
+
+/**
+ * How ACP permission requests are answered
+ */
+export type EnginePermission = "user" | "auto" | "full"
+
+export type EngineModel = {
+  id: string
+  name: string
+}
+
+export type EngineConfigValue = {
+  value: string
+  name: string
+  description?: string
+}
+
+export type EngineConfigOption = {
+  id: string
+  name: string
+  category?: string
+  type: string
+  value?: string
+  options?: Array<EngineConfigValue>
+}
+
+export type EngineInfo = {
+  type: EngineId
+  model?: string
+  effort?: string
+  mode?: string
+  permission?: EnginePermission
+  /**
+   * Provider-side conversation identifier
+   */
+  session?: string
+  models?: Array<EngineModel>
+  config?: Array<EngineConfigOption>
+}
+
 export type Session = {
   id: string
   slug: string
@@ -531,6 +572,7 @@ export type Session = {
   }
   permission?: PermissionRuleset
   engine?: NativeEngine
+  acp?: EngineInfo
   revert?: {
     messageID: string
     partID?: string
@@ -1301,6 +1343,7 @@ export type SyncEventSessionUpdated = {
       }
       permission: PermissionRuleset | null
       engine: NativeEngine | null
+      acp: EngineInfo | null
       revert: {
         messageID: string
         partID?: string
@@ -2263,6 +2306,7 @@ export type GlobalSession = {
   }
   permission?: PermissionRuleset
   engine?: NativeEngine
+  acp?: EngineInfo
   revert?: {
     messageID: string
     partID?: string
@@ -2363,6 +2407,14 @@ export type NativeEngineInput = {
   effort?: string
   mode?: NativeMode
   permission?: NativePermission
+}
+
+export type EngineInput = {
+  type: EngineId
+  model?: string
+  effort?: string
+  mode?: string
+  permission?: EnginePermission
 }
 
 export type TextPartInput = {
@@ -2760,6 +2812,16 @@ export type NativeFileInput = {
 export type NativeQueueSent = {
   queue: NativeQueueStatus
   delivery: NativeSteered
+}
+
+export type EngineStatus = {
+  id: EngineId
+  name: string
+  installed: boolean
+  path?: string
+  version?: string
+  protocol: "acp" | "claude"
+  error?: string
 }
 
 export type Symbol = {
@@ -4775,6 +4837,7 @@ export type SessionCreateData = {
     title?: string
     permission?: PermissionRuleset
     engine?: NativeEngineInput
+    acp?: EngineInput
     workspaceID?: string
   }
   path?: never
@@ -7621,6 +7684,52 @@ export type NativeResumeQueueResponses = {
 }
 
 export type NativeResumeQueueResponse = NativeResumeQueueResponses[keyof NativeResumeQueueResponses]
+
+export type EngineListData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+    refresh?: boolean
+  }
+  url: "/engine"
+}
+
+export type EngineListResponses = {
+  /**
+   * Installed ACP and Claude Code agent engines
+   */
+  200: Array<EngineStatus>
+}
+
+export type EngineListResponse = EngineListResponses[keyof EngineListResponses]
+
+export type EngineConfigData = {
+  body?: never
+  path: {
+    id: EngineId
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+    model?: string
+  }
+  url: "/engine/{id}/config"
+}
+
+export type EngineConfigResponses = {
+  /**
+   * Models and configurable options
+   */
+  200: {
+    models?: Array<EngineModel>
+    config?: Array<EngineConfigOption>
+    error?: string
+  }
+}
+
+export type EngineConfigResponse = EngineConfigResponses[keyof EngineConfigResponses]
 
 export type DatabaseLegacyStatusData = {
   body?: never

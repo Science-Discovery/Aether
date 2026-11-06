@@ -12,6 +12,7 @@ import { useSDK } from "./sdk"
 import { useSync } from "./sync"
 import { unwrap } from "solid-js/store"
 import { createNative } from "./native"
+import { createAcp } from "./acp"
 
 export type ModelKey = { providerID: string; modelID: string }
 
@@ -63,6 +64,7 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
     const providers = useProviders()
     const models = useModels()
     const native = createNative()
+    const acp = createAcp()
 
     const id = createMemo(() => params.id || undefined)
     const list = createMemo(() => sync.data.agent.filter((item) => item.mode !== "subagent" && !item.hidden))
@@ -429,16 +431,29 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
     const result = {
       slug: createMemo(() => base64Encode(sdk.directory)),
       native,
+      acp,
       selection() {
-        if (!native.known()) return
+        if (!native.known() || !acp.known()) return
         if (native.engine()) {
           const engine = native.selection()
           if (!native.ready() || !engine?.model) return
           return {
             engine,
+            acp: undefined,
             agent: "codex",
             model: { providerID: "codex-native", modelID: engine.model },
             variant: engine.effort,
+          }
+        }
+        if (acp.current()) {
+          const item = acp.info()
+          if (!item) return
+          return {
+            engine: undefined,
+            acp: item,
+            agent: item.type,
+            model: { providerID: `engine-${item.type}`, modelID: item.model ?? "default" },
+            variant: item.effort,
           }
         }
         const selected = model.current()
@@ -446,6 +461,7 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
         if (!selected || !current) return
         return {
           engine: undefined,
+          acp: undefined,
           agent: current.name,
           model: { providerID: selected.provider.id, modelID: selected.id },
           variant: model.variant.current(),

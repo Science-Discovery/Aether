@@ -164,6 +164,7 @@ import { MemoryRoutes } from "./routes/memory"
 import { MigrateRoutes } from "./routes/migrate"
 import { VoiceRoutes } from "./routes/voice"
 import { NativeRoutes } from "./routes/native"
+import { EngineRoutes } from "./routes/engine"
 import { MDNS } from "./mdns"
 import { lazy } from "@/util/lazy"
 import { initProjectors } from "./projectors"
@@ -485,6 +486,7 @@ export namespace Server {
       .route("/question", QuestionRoutes())
       .route("/provider", ProviderRoutes())
       .route("/native", NativeRoutes())
+      .route("/engine", EngineRoutes())
       .route("/database", DatabaseRoutes())
       .route("/", FileRoutes())
       .route("/", EventRoutes(opts.onBrowserConnectionChange))

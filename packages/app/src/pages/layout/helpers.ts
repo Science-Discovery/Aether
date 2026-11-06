@@ -37,9 +37,17 @@ const roots = (store: SessionStore) =>
 
 export const sortedRootSessions = (store: SessionStore, now: number) => roots(store).sort(sortSessions(now))
 
-export const backends = { aether: "Aether", codex: "Codex" } as const
+export const backends = {
+  aether: "Aether",
+  codex: "Codex",
+  "claude": "Claude Code",
+  qoder: "Qoder CLI",
+  qodercn: "Qoder CLI CN",
+  opencode: "OpenCode",
+} as const
 
-export const backend = (session: Pick<Session, "engine">) => session.engine?.type ?? "aether"
+export const backend = (session: Pick<Session, "engine" | "acp">) =>
+  session.acp?.type ?? session.engine?.type ?? "aether"
 
 export const grouped = (sessions: Session[]) =>
   (Object.keys(backends) as (keyof typeof backends)[]).map((type) => ({
