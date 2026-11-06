@@ -71,7 +71,6 @@ import { FeatureButtons } from "@/components/prompt-input/feature-buttons"
 import { openSafeZoneOnboarding, useSafeZoneOnboarding } from "@/components/dialog-safe-zone"
 import { createWorkingState, type ChildrenSource } from "@/utils/working-state"
 import { childMapByParent } from "@/pages/layout/helpers"
-import { SteerButton } from "@/components/steer-button"
 import { VoiceInputButton, type VoiceInputAPI } from "@/components/voice-input-button"
 import { VariantSelect } from "./prompt-input/variant-select"
 import { EngineSelect, NativeModels } from "./native-controls"
@@ -1969,7 +1968,6 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                         />
                       </Button>
                     </TooltipKeybind>
-                    <SteerButton />
                     <FeatureButtons
                       sessionID={params.id}
                       style={{

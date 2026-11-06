@@ -26,6 +26,7 @@ import { createUserCollapse } from "@/pages/session/message-user-collapse"
 import { gap, header } from "@/pages/session/message-layout"
 import { resolveSelectionAnchorRect } from "@/pages/session/selection-anchor"
 import { SessionContextUsage } from "@/components/session-context-usage"
+import { SessionDetach } from "@/components/session-detach"
 import { useI18n } from "@opencode-ai/ui/context"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { useConversationQuote } from "@/context/conversation-quote"
@@ -1384,6 +1385,7 @@ export function MessageTimeline(props: {
                                   </DropdownMenu.ItemLabel>
                                 </DropdownMenu.Item>
                               </Show>
+                              <SessionDetach session={info()} />
                               <DropdownMenu.Item onSelect={() => void archiveSession(id())}>
                                 <DropdownMenu.ItemLabel>{language.t("common.archive")}</DropdownMenu.ItemLabel>
                               </DropdownMenu.Item>

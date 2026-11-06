@@ -114,3 +114,15 @@ export function planSessionLoad(meta: { limit: number } | undefined, limit: numb
   if (meta && meta.limit >= limit) return "trim" as const
   return "fetch" as const
 }
+
+export function mergeSessions(snapshot: Session[], current: Session[]) {
+  const sessions = new Map<string, Session>()
+  for (const session of [...snapshot, ...current]) {
+    const previous = sessions.get(session.id)
+    if (previous && previous.time.updated > session.time.updated) continue
+    sessions.set(session.id, session)
+  }
+  return [...sessions.values()]
+    .filter((session) => !session.time.archived)
+    .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+}

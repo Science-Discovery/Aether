@@ -1,8 +1,12 @@
 import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
+import { ContextMenu } from "@opencode-ai/ui/context-menu"
 import { IconButton } from "@opencode-ai/ui/icon-button"
+import type { Session } from "@opencode-ai/sdk/v2/client"
 import { useLanguage } from "@/context/language"
 import { For, Show, createMemo } from "solid-js"
+import { Dynamic } from "solid-js/web"
 import type { ConversationGraphEdge, ConversationGraphNode } from "./conversation-graph-model"
+import { SessionBranchMenu } from "./session-branch-menu"
 
 const LANE_COLORS = ["#3b82f6", "#10b981", "#f97316", "#d946ef", "#14b8a6", "#f43f5e", "#eab308"]
 
@@ -28,6 +32,8 @@ export function ConversationGraphList(props: {
   onFork: (node: ConversationGraphNode) => void
   onRename: (node: ConversationGraphNode) => void
   showRowActions?: boolean
+  session?: Session
+  deleteSession?: (session: Session) => Promise<boolean | void>
 }) {
   const language = useLanguage()
   const laneGap = 18
@@ -121,80 +127,125 @@ export function ConversationGraphList(props: {
 
         <div class="relative z-10">
           <For each={props.nodes}>
-            {(node) => (
-              <div
-                role="button"
-                tabIndex={0}
-                data-graph-node-id={node.id}
-                class="group/graph-row flex cursor-pointer items-center border-b border-border-weaker-base outline-none transition-colors"
-                classList={{
-                  "bg-surface-base": node.isCurrentTarget,
-                  "hover:bg-background-stronger": !node.isCurrentTarget,
-                }}
-                style={{
-                  height: `${props.rowHeight}px`,
-                  "padding-left": `${railWidth() + 12}px`,
-                  "padding-right": "8px",
-                }}
-                title={formatNodeTitle(node)}
-                onClick={() => props.onSelect(node)}
-                onKeyDown={(event) => {
-                  if (event.key !== "Enter" && event.key !== " ") return
-                  event.preventDefault()
-                  props.onSelect(node)
-                }}
-              >
-                <div class="min-w-0 flex-1">
-                  <div
-                    data-graph-node-label={node.id}
-                    class={`truncate ${props.labelClass}`}
-                    style={{
-                      ...props.labelStyle,
-                    }}
-                    classList={{
-                      "text-text-strong": node.isCurrentPath,
-                      "text-text-weaker": !node.isCurrentPath,
-                      "font-semibold": node.isCurrentPath,
-                      "opacity-100": !node.isCurrentPath,
-                      italic: node.kind === "bud",
-                    }}
-                  >
-                    {node.kind === "bud" ? "…" : node.label}
+            {(node) => {
+              const session = createMemo(() =>
+                node.sessionID === props.currentSessionID && props.session?.id === node.sessionID
+                  ? props.session
+                  : undefined,
+              )
+              const Row = (row: { context?: boolean }) => (
+                <Dynamic
+                  component={row.context ? ContextMenu.Trigger : "div"}
+                  as={row.context ? "div" : undefined}
+                  role="button"
+                  tabIndex={0}
+                  data-graph-node-id={node.id}
+                  class="group/graph-row flex cursor-pointer items-center border-b border-border-weaker-base outline-none transition-colors"
+                  classList={{
+                    "bg-surface-base": node.isCurrentTarget,
+                    "hover:bg-background-stronger": !node.isCurrentTarget,
+                  }}
+                  style={{
+                    height: `${props.rowHeight}px`,
+                    "padding-left": `${railWidth() + 12}px`,
+                    "padding-right": "8px",
+                  }}
+                  title={formatNodeTitle(node)}
+                  onClick={() => props.onSelect(node)}
+                  onContextMenu={(event: MouseEvent) => {
+                    event.preventDefault()
+                    event.stopPropagation()
+                  }}
+                  onKeyDown={(event: KeyboardEvent & { currentTarget: HTMLDivElement }) => {
+                    if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) {
+                      event.preventDefault()
+                      event.stopPropagation()
+                      if (!session()) return
+                      const rect = event.currentTarget.getBoundingClientRect()
+                      event.currentTarget.dispatchEvent(
+                        new MouseEvent("contextmenu", {
+                          bubbles: true,
+                          cancelable: true,
+                          clientX: rect.left + rect.width / 2,
+                          clientY: rect.top + rect.height / 2,
+                        }),
+                      )
+                      return
+                    }
+                    if (event.key !== "Enter" && event.key !== " ") return
+                    event.preventDefault()
+                    props.onSelect(node)
+                  }}
+                >
+                  <div class="min-w-0 flex-1">
+                    <div
+                      data-graph-node-label={node.id}
+                      class={`truncate ${props.labelClass}`}
+                      style={{
+                        ...props.labelStyle,
+                      }}
+                      classList={{
+                        "text-text-strong": node.isCurrentPath,
+                        "text-text-weaker": !node.isCurrentPath,
+                        "font-semibold": node.isCurrentPath,
+                        "opacity-100": !node.isCurrentPath,
+                        italic: node.kind === "bud",
+                      }}
+                    >
+                      {node.kind === "bud" ? "…" : node.label}
+                    </div>
                   </div>
-                </div>
 
-                <Show when={props.showRowActions ?? true}>
-                  <div class="shrink-0 opacity-0 transition-opacity group-hover/graph-row:opacity-100 group-focus-within/graph-row:opacity-100">
-                    <DropdownMenu placement="bottom-end">
-                      <DropdownMenu.Trigger
-                        as={IconButton}
-                        icon="dot-grid"
-                        variant="ghost"
-                        class="size-6 rounded-md"
-                        aria-label={language.t("common.moreOptions")}
-                        onClick={(event: MouseEvent) => event.stopPropagation()}
-                        onPointerDown={(event: PointerEvent) => event.stopPropagation()}
-                      />
-                      <DropdownMenu.Portal>
-                        <DropdownMenu.Content onClick={(event: MouseEvent) => event.stopPropagation()}>
-                          <DropdownMenu.Item onSelect={() => props.onSelect(node)}>
-                            <DropdownMenu.ItemLabel>
-                              {language.t("notification.action.goToSession")}
-                            </DropdownMenu.ItemLabel>
-                          </DropdownMenu.Item>
-                          <DropdownMenu.Item disabled={!node.userMessageID} onSelect={() => props.onFork(node)}>
-                            <DropdownMenu.ItemLabel>{language.t("command.session.fork")}</DropdownMenu.ItemLabel>
-                          </DropdownMenu.Item>
-                          <DropdownMenu.Item onSelect={() => props.onRename(node)}>
-                            <DropdownMenu.ItemLabel>{language.t("common.rename")}</DropdownMenu.ItemLabel>
-                          </DropdownMenu.Item>
-                        </DropdownMenu.Content>
-                      </DropdownMenu.Portal>
-                    </DropdownMenu>
-                  </div>
+                  <Show when={props.showRowActions ?? true}>
+                    <div class="shrink-0 opacity-0 transition-opacity group-hover/graph-row:opacity-100 group-focus-within/graph-row:opacity-100">
+                      <DropdownMenu placement="bottom-end">
+                        <DropdownMenu.Trigger
+                          as={IconButton}
+                          icon="dot-grid"
+                          variant="ghost"
+                          class="size-6 rounded-md"
+                          aria-label={language.t("common.moreOptions")}
+                          onClick={(event: MouseEvent) => event.stopPropagation()}
+                          onPointerDown={(event: PointerEvent) => event.stopPropagation()}
+                        />
+                        <DropdownMenu.Portal>
+                          <DropdownMenu.Content onClick={(event: MouseEvent) => event.stopPropagation()}>
+                            <DropdownMenu.Item onSelect={() => props.onSelect(node)}>
+                              <DropdownMenu.ItemLabel>
+                                {language.t("notification.action.goToSession")}
+                              </DropdownMenu.ItemLabel>
+                            </DropdownMenu.Item>
+                            <DropdownMenu.Item disabled={!node.userMessageID} onSelect={() => props.onFork(node)}>
+                              <DropdownMenu.ItemLabel>{language.t("command.session.fork")}</DropdownMenu.ItemLabel>
+                            </DropdownMenu.Item>
+                            <DropdownMenu.Item onSelect={() => props.onRename(node)}>
+                              <DropdownMenu.ItemLabel>{language.t("common.rename")}</DropdownMenu.ItemLabel>
+                            </DropdownMenu.Item>
+                          </DropdownMenu.Content>
+                        </DropdownMenu.Portal>
+                      </DropdownMenu>
+                    </div>
+                  </Show>
+                </Dynamic>
+              )
+              return (
+                <Show when={session()} keyed fallback={<Row />}>
+                  {(selected) => (
+                    <ContextMenu modal={false}>
+                      <Row context />
+                      <ContextMenu.Portal>
+                        <ContextMenu.Content
+                          onContextMenu={(event: MouseEvent) => event.stopPropagation()}
+                          onClick={(event: MouseEvent) => event.stopPropagation()}
+                        >
+                          <SessionBranchMenu session={selected} deleteSession={props.deleteSession} />
+                        </ContextMenu.Content>
+                      </ContextMenu.Portal>
+                    </ContextMenu>
+                  )}
                 </Show>
-              </div>
-            )}
+              )
+            }}
           </For>
         </div>
       </div>

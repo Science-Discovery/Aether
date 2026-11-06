@@ -1,5 +1,6 @@
 import { createEffect, createRoot } from "solid-js"
 import { createStore, produce } from "solid-js/store"
+import { checksum } from "@opencode-ai/util/encode"
 import { Persist, persisted } from "@/utils/persist"
 import { createScopedCache } from "@/utils/scoped-cache"
 import type { FileViewState, SelectedLineRange } from "./types"
@@ -51,7 +52,15 @@ function createViewSession(dir: string, id: string | undefined) {
     const keys = Object.keys(view.file)
     if (keys.length <= MAX_VIEW_FILES) return
 
-    const drop = keys.filter((key) => key !== keep).slice(0, keys.length - MAX_VIEW_FILES)
+    const drop = keys
+      .filter((key) => {
+        if (key === keep) return false
+        const item = view.file[key]
+        return (
+          item?.draft === undefined || (item.draftBase !== undefined && (checksum(item.draft) ?? "") === item.draftBase)
+        )
+      })
+      .slice(0, keys.length - MAX_VIEW_FILES)
     if (drop.length === 0) return
 
     setView(
@@ -79,6 +88,10 @@ function createViewSession(dir: string, id: string | undefined) {
   const isEditing = (path: string) => view.file[path]?.isEditing
   const draft = (path: string) => view.file[path]?.draft
   const draftBase = (path: string) => view.file[path]?.draftBase
+  const drafts = () =>
+    Object.entries(view.file).flatMap(([path, item]) =>
+      item.draft === undefined ? [] : [{ path, content: item.draft, base: item.draftBase }],
+    )
 
   const setScrollTop = (path: string, top: number) => {
     setView(
@@ -198,6 +211,7 @@ function createViewSession(dir: string, id: string | undefined) {
         delete file.isEditing
       }),
     )
+    pruneView(path)
   }
 
   return {
@@ -211,6 +225,7 @@ function createViewSession(dir: string, id: string | undefined) {
     isEditing,
     draft,
     draftBase,
+    drafts,
     setScrollTop,
     setScrollLeft,
     setPdfPage,
