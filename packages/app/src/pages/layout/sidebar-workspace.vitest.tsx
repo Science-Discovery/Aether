@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest"
 import { render } from "solid-js/web"
 import { createSignal, type Accessor } from "solid-js"
+import { createStore } from "solid-js/store"
+import type { Session } from "@opencode-ai/sdk/v2/client"
+import { childMapByParent } from "./helpers"
 import {
   RunScriptButton,
   WorkspaceHeader,
@@ -8,9 +11,7 @@ import {
   type WorkspaceSidebarContext,
 } from "./sidebar-workspace"
 import type { useLanguage } from "@/context/language"
-import type { Session } from "@opencode-ai/sdk/v2"
 import type { SessionItemProps } from "./sidebar-items"
-import { childMapByParent } from "./helpers"
 
 vi.mock("./sidebar-items", () => ({
   NewSessionItem: () => null,
@@ -225,6 +226,39 @@ afterEach(() => {
 })
 
 describe("WorkspaceSessionList load-more row", () => {
+  test("detaching the viewed branch opens its new root even while the conversation graph is disabled", () => {
+    const [state, setState] = createStore({
+      sessions: [
+        { id: "child", parentID: "parent", forkParentSessionID: "parent", time: { created: 1, updated: 1 } },
+        { id: "parent", time: { created: 1, updated: 1 } },
+      ] as Session[],
+    })
+    const expanded = vi.fn()
+    const opened = vi.fn()
+    const focus = vi.fn()
+    const view = mount({
+      hasMore: false,
+      canCollapse: false,
+      loadMore: () => Promise.resolve(),
+      collapseAll: () => Promise.resolve(),
+      current: () => "child",
+      sessions: () => state.sessions,
+      ctx: {
+        ...ctx,
+        setSessionExpanded: expanded,
+        setConversationTreeOpen: opened,
+        setConversationTreeLastFocus: focus,
+      },
+    })
+    expect(opened).not.toHaveBeenCalled()
+    setState("sessions", 0, { parentID: undefined, forkParentSessionID: undefined })
+    expect(expanded).toHaveBeenCalledWith("child", true)
+    expect(opened).toHaveBeenCalledWith("child", true)
+    expect(focus).toHaveBeenCalledWith("child", "child")
+    expect(focus).toHaveBeenCalledWith("parent", "parent")
+    view.off()
+  })
+
   test("shows load-more and collapse-all icons side by side when expanded", async () => {
     const loadMore = vi.fn(() => Promise.resolve())
     const collapseAll = vi.fn(() => Promise.resolve())

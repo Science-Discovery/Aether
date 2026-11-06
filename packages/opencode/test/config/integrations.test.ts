@@ -21,20 +21,23 @@ async function isolated(fn: (dir: string) => Promise<void>) {
   }
 }
 
-async function save(dir: string, name: string, config: Config.Info & { latex?: unknown }) {
+async function save(dir: string, name: string, config: Config.Info & { native?: unknown }) {
   await Bun.write(path.join(dir, name), JSON.stringify({ $schema: schema, ...config }, null, 2))
 }
 
-async function read(dir: string, name: string): Promise<Config.Info & { latex?: unknown }> {
+async function read(dir: string, name: string): Promise<Config.Info & { native?: unknown }> {
   return parse(await Bun.file(path.join(dir, name)).text())
 }
 
 test("integrations override legacy global settings without migrating during reads", async () => {
   await isolated(async (dir) => {
-    await save(dir, "aether.json", { native: { codex: { enabled: true, limit: 3 } }, model: "test/model" })
-    await save(dir, "aether.integrations.jsonc", { native: { codex: { enabled: false } } })
+    await save(dir, "aether.json", {
+      latex: { tectonic: { path: "legacy" }, latexmk: { path: "latexmk" } },
+      model: "test/model",
+    })
+    await save(dir, "aether.integrations.jsonc", { latex: { tectonic: { path: "managed" } } })
     const before = await Bun.file(path.join(dir, "aether.json")).text()
-    expect((await Config.getGlobal()).native?.codex).toEqual({ enabled: false, limit: 3 })
+    expect((await Config.getGlobal()).latex).toEqual({ tectonic: { path: "managed" }, latexmk: { path: "latexmk" } })
     expect((await Config.getGlobal()).model).toBe("test/model")
     expect(await Bun.file(path.join(dir, "aether.json")).text()).toBe(before)
   })
@@ -47,30 +50,30 @@ test("integrations reject unrelated global settings", async () => {
   })
 })
 
-test("shared integrations resolve only native placeholders and preserve opaque sibling text", async () => {
+test("shared integrations resolve LaTeX and native placeholders without changing their source text", async () => {
   await isolated(async (dir) => {
+    await Bun.write(path.join(dir, "tectonic-path"), "tectonic-fixture")
     await Bun.write(path.join(dir, "codex-path"), "codex-fixture")
-    const sibling = `"latex": {
-      // This build must not resolve or validate another feature's settings.
-      "tectonic": { "path": "{file:missing-tectonic-path}" },
-      "future": ["{env:AETHER_UNSET_SIBLING}", 42]
+    const sibling = `"native": {
+      // Both registered integrations share this file.
+      "codex": { "path": "{file:codex-path}" }
     }`
     const source = `{
       ${sibling},
-      "native": { "codex": { "enabled": false, "limit": 2, "path": "{file:codex-path}" } }
+      "latex": { "tectonic": { "path": "{file:tectonic-path}" }, "latexmk": { "path": "latexmk" } }
     }`
     const file = path.join(dir, "aether.integrations.jsonc")
     await Bun.write(file, source)
     const current = await Config.getGlobal()
-    expect(current.native?.codex).toEqual({ enabled: false, limit: 2, path: "codex-fixture" })
-    expect(current).not.toHaveProperty("latex")
+    expect(current.latex).toEqual({ tectonic: { path: "tectonic-fixture" }, latexmk: { path: "latexmk" } })
+    expect(current.native?.codex?.path).toBe("codex-fixture")
     expect(await Bun.file(file).text()).toBe(source)
-    const result = await Config.updateGlobal({ native: { codex: { limit: 4 } } })
-    expect(result.native?.codex).toEqual({ enabled: false, limit: 4, path: "codex-fixture" })
-    expect(result).not.toHaveProperty("latex")
-    expect(await Config.getGlobal()).not.toHaveProperty("latex")
+    const result = await Config.updateGlobal({ latex: { latexmk: { path: "new-latexmk" } } })
+    expect(result.latex).toEqual({ tectonic: { path: "tectonic-fixture" }, latexmk: { path: "new-latexmk" } })
+    expect(result.native?.codex?.path).toBe("codex-fixture")
+    expect((await Config.getGlobal()).native?.codex?.path).toBe("codex-fixture")
     expect(await Bun.file(file).text()).toContain(sibling)
-    expect((await read(dir, "aether.integrations.jsonc")).native?.codex?.path).toBe("{file:codex-path}")
+    expect((await read(dir, "aether.integrations.jsonc")).latex?.tectonic?.path).toBe("{file:tectonic-path}")
     expect(await Bun.file(path.join(dir, "aether.json")).exists()).toBe(false)
   })
 })
@@ -78,55 +81,51 @@ test("shared integrations resolve only native placeholders and preserve opaque s
 test("sibling-only integrations stay byte-identical during ordinary config saves", async () => {
   await isolated(async (dir) => {
     const file = path.join(dir, "aether.integrations.jsonc")
-    const source = '{\n  // Opaque sibling data.\n  "latex": ["{file:missing}", null]\n}\n'
+    const source = '{\n  // Native integration.\n  "native": { "codex": { "enabled": false } }\n}\n'
     await Bun.write(file, source)
-    expect(await Config.getGlobal()).toEqual({})
+    expect((await Config.getGlobal()).native?.codex?.enabled).toBe(false)
     const result = await Config.updateGlobal({ model: "test/model" })
     expect(result.model).toBe("test/model")
-    expect(result).not.toHaveProperty("latex")
+    expect(result.native?.codex?.enabled).toBe(false)
     expect(await Bun.file(file).text()).toBe(source)
     expect(await read(dir, "aether.json")).toEqual({ $schema: schema, model: "test/model" })
   })
 })
 
-test("native validation still rejects invalid settings in the shared envelope", async () => {
+test("latex validation still rejects invalid settings in the shared envelope", async () => {
   await isolated(async (dir) => {
-    await save(dir, "aether.integrations.jsonc", {
-      native: { codex: { limit: 17 } },
-      latex: { path: "{file:missing}" },
-    })
     const file = path.join(dir, "aether.integrations.jsonc")
+    await Bun.write(file, JSON.stringify({ latex: { tectonic: { path: 17 } }, native: { path: "{file:missing}" } }))
     const before = await Bun.file(file).text()
     await expect(Config.getGlobal()).rejects.toMatchObject({ name: "ConfigInvalidError" })
     expect(await Bun.file(file).text()).toBe(before)
   })
 })
 
-test("unmigrated mixed standard config is rejected without removing sibling fields", async () => {
+test("unmigrated mixed standard config moves both integrations on update", async () => {
   await isolated(async (dir) => {
     await save(dir, "aether.jsonc", {
-      native: { codex: { enabled: false } },
       latex: { tectonic: { path: "tectonic" } },
+      native: { codex: { enabled: false } },
     })
     const file = path.join(dir, "aether.jsonc")
     const before = await Bun.file(file).text()
-    await expect(Config.getGlobal()).rejects.toMatchObject({ name: "ConfigInvalidError" })
-    await expect(Config.updateGlobal({ native: { codex: { limit: 3 } } })).rejects.toMatchObject({
-      name: "ConfigInvalidError",
-    })
-    expect(await Bun.file(file).text()).toBe(before)
-    expect(await Bun.file(path.join(dir, "aether.integrations.jsonc")).exists()).toBe(false)
+    expect((await Config.getGlobal()).latex?.tectonic?.path).toBe("tectonic")
+    expect((await Config.getGlobal()).native?.codex?.enabled).toBe(false)
+    const result = await Config.updateGlobal({ latex: { latexmk: { path: "latexmk" } } })
+    expect(result.latex).toEqual({ tectonic: { path: "tectonic" }, latexmk: { path: "latexmk" } })
+    expect(result.native?.codex?.enabled).toBe(false)
+    expect(await Bun.file(file).text()).not.toBe(before)
+    expect((await read(dir, "aether.integrations.jsonc")).native?.codex?.enabled).toBe(false)
   })
 })
 
-test("integration-only saves create no standard config and merge native settings", async () => {
+test("integration-only saves create no standard config and merge latex settings", async () => {
   await isolated(async (dir) => {
-    await Config.updateGlobal({
-      native: { codex: { enabled: false, limit: 2 } },
-    })
-    const result = await Config.updateGlobal({ native: { codex: { limit: 4 } } })
-    expect(result.native?.codex).toEqual({ enabled: false, limit: 4 })
-    expect(result).not.toHaveProperty("latex")
+    await Config.updateGlobal({ latex: { tectonic: { path: "tectonic" } } })
+    const result = await Config.updateGlobal({ latex: { latexmk: { path: "latexmk" } } })
+    expect(result.latex).toEqual({ tectonic: { path: "tectonic" }, latexmk: { path: "latexmk" } })
+    expect(result).not.toHaveProperty("native")
     expect(await read(dir, "aether.integrations.jsonc")).toEqual(result)
     expect(await Bun.file(path.join(dir, "aether.json")).exists()).toBe(false)
     expect(await Bun.file(path.join(dir, "aether.jsonc")).exists()).toBe(false)
@@ -136,44 +135,43 @@ test("integration-only saves create no standard config and merge native settings
 test("ordinary saves never copy integrations into a newly created standard config", async () => {
   await isolated(async (dir) => {
     await save(dir, "aether.integrations.jsonc", {
-      native: { codex: { limit: 2 } },
       latex: { tectonic: { path: "tectonic" } },
+      native: { codex: { enabled: false } },
     })
     const result = await Config.updateGlobal({ model: "test/model" })
-    expect(result.native?.codex?.limit).toBe(2)
-    expect(result).not.toHaveProperty("latex")
+    expect(result.latex?.tectonic?.path).toBe("tectonic")
+    expect(result.native?.codex?.enabled).toBe(false)
     expect(result.model).toBe("test/model")
     expect(await read(dir, "aether.json")).toEqual({ $schema: schema, model: "test/model" })
-    expect((await read(dir, "aether.integrations.jsonc")).latex).toEqual({ tectonic: { path: "tectonic" } })
+    expect((await read(dir, "aether.integrations.jsonc")).native).toEqual({ codex: { enabled: false } })
   })
 })
 
 test("saving migrates all active standard files, preserves comments and ignores shadowed legacy files", async () => {
   await isolated(async (dir) => {
-    await save(dir, "config.json", { native: { codex: { limit: 1 } } })
-    await save(dir, "aether.json", { native: { codex: { limit: 2 } }, model: "test/model" })
+    await save(dir, "config.json", { latex: { latexmk: { path: "latexmk-1" } } })
+    await save(dir, "aether.json", { latex: { latexmk: { path: "latexmk-2" } }, model: "test/model" })
     await Bun.write(
       path.join(dir, "aether.jsonc"),
       `{
       "$schema": "${schema}",
       // Preserve this provider and its comment.
       "provider": { "openai": { "options": { "baseURL": "https://example.test" } } },
-      "native": { "codex": { "enabled": false, "limit": 3, "path": "{env:AETHER_INTEGRATION_TEST_PATH}" } }
+      "latex": { "latexmk": { "path": "latexmk-3" }, "tectonic": { "path": "{env:AETHER_INTEGRATION_TEST_PATH}" } }
     }`,
     )
-    await save(dir, "opencode.json", { native: { codex: { limit: 16 } } })
-    await save(dir, "aether.integrations.jsonc", { native: { codex: { limit: 4 } } })
+    await save(dir, "opencode.json", { latex: { latexmk: { path: "shadowed" } } })
+    await save(dir, "aether.integrations.jsonc", { latex: { latexmk: { path: "latexmk-4" } } })
     const inactive = await Bun.file(path.join(dir, "opencode.json")).text()
-    const result = await Config.updateGlobal({ native: { codex: { enabled: true } } })
-    expect(result.native?.codex?.limit).toBe(4)
-    expect(result.native?.codex?.enabled).toBe(true)
-    expect(result).not.toHaveProperty("latex")
+    const result = await Config.updateGlobal({ latex: { tectonic: {} } })
+    expect(result.latex?.latexmk?.path).toBe("latexmk-4")
+    expect(result).not.toHaveProperty("native")
     expect(result.provider?.openai?.options?.baseURL).toBe("https://example.test")
     for (const name of ["config.json", "aether.json", "aether.jsonc"]) {
-      expect((await read(dir, name)).native).toBeUndefined()
       expect((await read(dir, name)).latex).toBeUndefined()
+      expect((await read(dir, name)).native).toBeUndefined()
     }
-    expect((await read(dir, "aether.integrations.jsonc")).native?.codex?.path).toBe(
+    expect((await read(dir, "aether.integrations.jsonc")).latex?.tectonic?.path).toBe(
       "{env:AETHER_INTEGRATION_TEST_PATH}",
     )
     expect(await Bun.file(path.join(dir, "aether.jsonc")).text()).toContain(
@@ -185,11 +183,11 @@ test("saving migrates all active standard files, preserves comments and ignores 
 
 test("integration-only legacy migration keeps the existing standard config selection", async () => {
   await isolated(async (dir) => {
-    await save(dir, "opencode.jsonc", { native: { codex: { limit: 2 } }, model: "legacy/model" })
-    const result = await Config.updateGlobal({ native: { codex: { enabled: false } } })
+    await save(dir, "opencode.jsonc", { latex: { tectonic: { path: "tectonic" } }, model: "legacy/model" })
+    const result = await Config.updateGlobal({ latex: { latexmk: { path: "latexmk" } } })
     expect(result.model).toBe("legacy/model")
-    expect(result.native?.codex).toEqual({ limit: 2, enabled: false })
-    expect((await read(dir, "opencode.jsonc")).native).toBeUndefined()
+    expect(result.latex).toEqual({ tectonic: { path: "tectonic" }, latexmk: { path: "latexmk" } })
+    expect((await read(dir, "opencode.jsonc")).latex).toBeUndefined()
     expect(await Bun.file(path.join(dir, "aether.jsonc")).exists()).toBe(false)
   })
 })
@@ -197,16 +195,13 @@ test("integration-only legacy migration keeps the existing standard config selec
 test("ordinary JSONC saves migrate integrations without deleting providers", async () => {
   await isolated(async (dir) => {
     const provider = { openai: { options: { baseURL: "https://example.test" } } }
-    await save(dir, "aether.jsonc", {
-      provider,
-      native: { codex: { limit: 2 } },
-    })
+    await save(dir, "aether.jsonc", { provider, latex: { tectonic: { path: "tectonic" } } })
     const result = await Config.updateGlobal({ model: "test/model" })
     expect(result.provider).toEqual(provider)
-    expect(result.native?.codex?.limit).toBe(2)
+    expect(result.latex?.tectonic?.path).toBe("tectonic")
     expect((await read(dir, "aether.jsonc")).provider).toEqual(provider)
-    expect((await read(dir, "aether.jsonc")).native).toBeUndefined()
     expect((await read(dir, "aether.jsonc")).latex).toBeUndefined()
+    expect((await read(dir, "aether.jsonc")).native).toBeUndefined()
   })
 })
 
@@ -218,15 +213,15 @@ test("legacy ignored fields survive an integration-only migration", async () => 
         $schema: schema,
         theme: "legacy-theme",
         tui: { scroll_speed: 4 },
-        native: { codex: { limit: 2 } },
+        latex: { tectonic: { path: "tectonic" } },
       }),
     )
-    await Config.updateGlobal({ native: { codex: { enabled: false } } })
+    await Config.updateGlobal({ latex: { latexmk: { path: "latexmk" } } })
     const raw = parse(await Bun.file(path.join(dir, "aether.jsonc")).text())
     expect(raw.theme).toBe("legacy-theme")
     expect(raw.tui).toEqual({ scroll_speed: 4 })
-    expect(raw.native).toBeUndefined()
-    expect((await Config.getGlobal()).native?.codex).toEqual({ limit: 2, enabled: false })
+    expect(raw.latex).toBeUndefined()
+    expect((await Config.getGlobal()).latex).toEqual({ tectonic: { path: "tectonic" }, latexmk: { path: "latexmk" } })
   })
 })
 
@@ -240,13 +235,13 @@ test("mixed saves preserve provider replacement and removal semantics", async ()
       },
     })
     const result = await Config.updateGlobal({
-      native: { codex: { enabled: false } },
+      latex: { tectonic: { path: "tectonic" } },
       provider: { openai: { name: "new" } },
       provider_remove: ["removed"],
     })
     expect(result.provider).toEqual({ openai: { name: "new" }, retained: { name: "retained" } })
-    expect(result.native?.codex?.enabled).toBe(false)
-    expect((await read(dir, "aether.jsonc")).native).toBeUndefined()
+    expect(result.latex?.tectonic?.path).toBe("tectonic")
+    expect((await read(dir, "aether.jsonc")).latex).toBeUndefined()
     expect((await read(dir, "aether.jsonc")).provider_remove).toBeUndefined()
   })
 })
@@ -254,10 +249,10 @@ test("mixed saves preserve provider replacement and removal semantics", async ()
 test("concurrent saves merge integration fields without losing either update", async () => {
   await isolated(async (dir) => {
     await Promise.all([
-      Config.updateGlobal({ native: { codex: { enabled: false } } }),
-      Config.updateGlobal({ native: { codex: { limit: 5 } } }),
+      Config.updateGlobal({ latex: { tectonic: { path: "tectonic" } } }),
+      Config.updateGlobal({ latex: { latexmk: { path: "latexmk" } } }),
     ])
-    expect((await Config.getGlobal()).native?.codex).toEqual({ enabled: false, limit: 5 })
+    expect((await Config.getGlobal()).latex).toEqual({ tectonic: { path: "tectonic" }, latexmk: { path: "latexmk" } })
   })
 })
 
@@ -265,7 +260,8 @@ test("invalid mixed saves are rejected before writing either file", async () => 
   await isolated(async (dir) => {
     await save(dir, "aether.json", { model: "original/model" })
     const before = await Bun.file(path.join(dir, "aether.json")).text()
-    await expect(Config.updateGlobal({ native: { codex: { limit: 17 } }, model: "new/model" })).rejects.toBeDefined()
+    const config = JSON.parse('{"latex":{"tectonic":{"path":17}},"model":"new/model"}') as Config.Info
+    await expect(Config.updateGlobal(config)).rejects.toBeDefined()
     expect(await Bun.file(path.join(dir, "aether.json")).text()).toBe(before)
     expect(await Bun.file(path.join(dir, "aether.integrations.jsonc")).exists()).toBe(false)
   })
@@ -274,8 +270,8 @@ test("invalid mixed saves are rejected before writing either file", async () => 
 for (const exists of [false, true]) {
   test(`a failed standard-file replacement rolls back ${exists ? "existing" : "new"} integrations`, async () => {
     await isolated(async (dir) => {
-      await save(dir, "aether.jsonc", { native: { codex: { limit: 2 } }, model: "original/model" })
-      if (exists) await save(dir, "aether.integrations.jsonc", { native: { codex: { limit: 3 } } })
+      await save(dir, "aether.jsonc", { latex: { tectonic: { path: "legacy" } }, model: "original/model" })
+      if (exists) await save(dir, "aether.integrations.jsonc", { latex: { tectonic: { path: "managed" } } })
       const main = path.join(dir, "aether.jsonc")
       const extra = path.join(dir, "aether.integrations.jsonc")
       const before = await Bun.file(main).text()
@@ -286,7 +282,7 @@ for (const exists of [false, true]) {
         return rename(from, to)
       })
       try {
-        await expect(Config.updateGlobal({ native: { codex: { limit: 5 } }, model: "new/model" })).rejects.toThrow(
+        await expect(Config.updateGlobal({ latex: { tectonic: { path: "new" } }, model: "new/model" })).rejects.toThrow(
           "Injected config replacement failure",
         )
       } finally {
@@ -295,7 +291,7 @@ for (const exists of [false, true]) {
       expect(await Bun.file(main).text()).toBe(before)
       if (prior !== undefined) expect(await Bun.file(extra).text()).toBe(prior)
       if (!exists) expect(await Bun.file(extra).exists()).toBe(false)
-      expect((await Config.getGlobal()).native?.codex?.limit).toBe(exists ? 3 : 2)
+      expect((await Config.getGlobal()).latex?.tectonic?.path).toBe(exists ? "managed" : "legacy")
       expect((await fs.readdir(dir)).some((name) => name.endsWith(".tmp"))).toBe(false)
     })
   })
@@ -303,8 +299,8 @@ for (const exists of [false, true]) {
 
 test("a failed legacy rollback retains integrations as the surviving settings copy", async () => {
   await isolated(async (dir) => {
-    await save(dir, "config.json", { native: { codex: { limit: 2 } } })
-    await save(dir, "aether.json", { native: { codex: { path: "codex" } } })
+    await save(dir, "config.json", { latex: { tectonic: { path: "tectonic" } } })
+    await save(dir, "aether.json", { latex: { latexmk: { path: "latexmk" } } })
     const base = path.join(dir, "config.json")
     const main = path.join(dir, "aether.json")
     const rename = fs.rename
@@ -315,53 +311,53 @@ test("a failed legacy rollback retains integrations as the surviving settings co
       if (to === base) written = true
     })
     try {
-      await expect(Config.updateGlobal({ native: { codex: { enabled: false } } })).rejects.toThrow(
+      await expect(Config.updateGlobal({ latex: { latexmk: { path: "new-latexmk" } } })).rejects.toThrow(
         "Config update and rollback failed",
       )
     } finally {
       fault.mockRestore()
     }
-    expect((await read(dir, "config.json")).native).toBeUndefined()
-    expect((await read(dir, "aether.integrations.jsonc")).native?.codex).toEqual({
-      limit: 2,
-      enabled: false,
-      path: "codex",
+    expect((await read(dir, "config.json")).latex).toBeUndefined()
+    expect((await read(dir, "aether.integrations.jsonc")).latex).toEqual({
+      tectonic: { path: "tectonic" },
+      latexmk: { path: "new-latexmk" },
     })
-    expect((await Config.getGlobal()).native?.codex?.limit).toBe(2)
-    expect((await Config.getGlobal()).native?.codex?.path).toBe("codex")
+    expect((await Config.getGlobal()).latex?.tectonic?.path).toBe("tectonic")
+    expect((await Config.getGlobal()).latex?.latexmk?.path).toBe("new-latexmk")
   })
 })
 
 test("a concurrent external edit is preserved and the integration update is rolled back", async () => {
   await isolated(async (dir) => {
-    await save(dir, "aether.jsonc", { native: { codex: { limit: 2 } }, model: "original/model" })
+    await save(dir, "aether.jsonc", { latex: { tectonic: { path: "tectonic" } }, model: "original/model" })
     const main = path.join(dir, "aether.jsonc")
     const extra = path.join(dir, "aether.integrations.jsonc")
     const rename = fs.rename
     const fault = spyOn(fs, "rename").mockImplementation(async (from, to) => {
       await rename(from, to)
-      if (to === extra) await save(dir, "aether.jsonc", { native: { codex: { limit: 2 } }, model: "external/model" })
+      if (to === extra)
+        await save(dir, "aether.jsonc", { latex: { tectonic: { path: "tectonic" } }, model: "external/model" })
     })
     try {
-      await expect(Config.updateGlobal({ native: { codex: { limit: 5 } } })).rejects.toThrow(
+      await expect(Config.updateGlobal({ latex: { tectonic: { path: "new" } } })).rejects.toThrow(
         "Config changed during save",
       )
     } finally {
       fault.mockRestore()
     }
     expect((await read(dir, "aether.jsonc")).model).toBe("external/model")
-    expect((await Config.getGlobal()).native?.codex?.limit).toBe(2)
+    expect((await Config.getGlobal()).latex?.tectonic?.path).toBe("tectonic")
     expect(await Bun.file(extra).exists()).toBe(false)
   })
 })
 
 test("rollback preserves an external edit to the already replaced integrations file", async () => {
   await isolated(async (dir) => {
-    await save(dir, "aether.jsonc", { native: { codex: { limit: 2 } } })
+    await save(dir, "aether.jsonc", { latex: { tectonic: { path: "tectonic" } } })
     const main = path.join(dir, "aether.jsonc")
     const extra = path.join(dir, "aether.integrations.jsonc")
     const before = await Bun.file(main).text()
-    const external = JSON.stringify({ native: { codex: { limit: 8, path: "external" } } })
+    const external = JSON.stringify({ latex: { tectonic: { path: "external" } } })
     const rename = fs.rename
     const fault = spyOn(fs, "rename").mockImplementation(async (from, to) => {
       if (to === main) throw new Error("Injected replacement failure")
@@ -369,7 +365,7 @@ test("rollback preserves an external edit to the already replaced integrations f
       if (to === extra) await Bun.write(extra, external)
     })
     try {
-      await expect(Config.updateGlobal({ native: { codex: { limit: 5 } } })).rejects.toThrow(
+      await expect(Config.updateGlobal({ latex: { tectonic: { path: "new" } } })).rejects.toThrow(
         "Config update and rollback failed",
       )
     } finally {
@@ -377,6 +373,6 @@ test("rollback preserves an external edit to the already replaced integrations f
     }
     expect(await Bun.file(main).text()).toBe(before)
     expect(await Bun.file(extra).text()).toBe(external)
-    expect((await Config.getGlobal()).native?.codex?.limit).toBe(8)
+    expect((await Config.getGlobal()).latex?.tectonic?.path).toBe("external")
   })
 })

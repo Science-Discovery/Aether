@@ -427,6 +427,7 @@ type QuickQuestion =
   | ((TextQuestion | ImageQuestion) & {
       sessionID: string
       pdfFileName: string
+      source?: import("@/utils/pdf-source").LatexQuote
     })
   | null
 
@@ -1164,10 +1165,26 @@ export function createPromptSubmit(input: PromptSubmitInput) {
                     endPage: quickReadingQuestion.endPage,
                     summary: summarizeReadingQuoteText(quickReadingQuestion.text),
                     fullText: quickReadingQuestion.text,
+                    source: quickReadingQuestion.source,
                   }),
                 },
               ]
-            : []),
+            : [
+                {
+                  text: "",
+                  synthetic: true,
+                  ignored: true,
+                  metadata: createReadingQuoteMetadata({
+                    mode: "quick",
+                    action: "ask",
+                    contentType: "image",
+                    pdfFileName: quickReadingQuestion.pdfFileName,
+                    startPage: quickReadingQuestion.page,
+                    summary: `Page ${quickReadingQuestion.page}`,
+                    source: quickReadingQuestion.source,
+                  }),
+                },
+              ]),
         ],
       }
 

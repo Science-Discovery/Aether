@@ -1,6 +1,34 @@
 import { describe, expect, test } from "bun:test"
 import type { ConfigInvalidError, ProviderModelNotFoundError } from "./server-errors"
 import { formatServerError, parseReadableConfigInvalidError } from "./server-errors"
+import { dict as en } from "@/i18n/en"
+import { dict as zh } from "@/i18n/zh"
+import { dict as zht } from "@/i18n/zht"
+
+describe("session split errors", () => {
+  test("translates busy, task-session and changed-tree failures in all three supported dictionaries", () => {
+    for (const dict of [en, zh, zht] as Record<string, string>[]) {
+      const translate = (key: string) => dict[key] ?? key
+      expect(
+        formatServerError({ name: "SessionBusyError", data: { message: "Session child is busy" } }, translate),
+      ).toBe(dict["error.chain.session.busy"])
+      expect(
+        formatServerError(
+          { name: "SessionDetachError", data: { message: "Task subagent sessions cannot be detached." } },
+          translate,
+        ),
+      ).toBe(dict["error.chain.session.detachTask"])
+      for (const action of ["forking", "detaching"]) {
+        expect(
+          formatServerError(
+            { name: "SessionDetachError", data: { message: `Session tree changed while ${action}. Please retry.` } },
+            translate,
+          ),
+        ).toBe(dict["error.chain.session.treeChanged"])
+      }
+    }
+  })
+})
 
 function fill(text: string, vars?: Record<string, string | number>) {
   if (!vars) return text
@@ -96,6 +124,21 @@ describe("formatServerError", () => {
 
   test("returns provided string errors", () => {
     expect(formatServerError("Failed to connect to server", language.t)).toBe("Failed to connect to server")
+  })
+
+  test("surfaces LaTeX HTTP errors parsed by the SDK", () => {
+    const error: unknown = JSON.parse(
+      '{"error":"The LaTeX project exceeds 256 MiB. Choose a smaller project directory."}',
+    )
+    expect(formatServerError(error, language.t)).toBe(
+      "The LaTeX project exceeds 256 MiB. Choose a smaller project directory.",
+    )
+  })
+
+  test("handles plain server messages without stringifying unrelated payloads", () => {
+    expect(formatServerError({ message: "  Source file is missing.  " }, language.t)).toBe("Source file is missing.")
+    expect(formatServerError({ error: { code: 413 } }, language.t)).toBe("Erro desconhecido")
+    expect(formatServerError({ error: "   " }, language.t, "Try again")).toBe("Try again")
   })
 
   test("preserves error and message fields returned as JSON objects", () => {

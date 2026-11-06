@@ -509,6 +509,36 @@ export const SessionRoutes = lazy(() =>
       },
     )
     .post(
+      "/:sessionID/detach",
+      describeRoute({
+        summary: "Detach session subtree",
+        description: "Move an idle fork and its descendants into an independent active or archived session tree.",
+        operationId: "session.detach",
+        responses: {
+          200: {
+            description: "Independent session subtree root",
+            content: {
+              "application/json": {
+                schema: resolver(Session.Info),
+              },
+            },
+          },
+          ...errors(400, 404, 409),
+        },
+      }),
+      validator("param", z.object({ sessionID: Session.detach.schema })),
+      async (c) =>
+        Session.detach(c.req.valid("param").sessionID)
+          .then((session) => c.json(session))
+          .catch((err: unknown) => {
+            if (err instanceof Session.BusyError) {
+              return c.json({ name: "SessionBusyError", data: { message: err.message } }, 409)
+            }
+            if (Session.DetachError.isInstance(err)) return c.json(err.toObject(), 409)
+            throw err
+          }),
+    )
+    .post(
       "/:sessionID/fork",
       describeRoute({
         summary: "Fork session",
@@ -523,6 +553,7 @@ export const SessionRoutes = lazy(() =>
               },
             },
           },
+          ...errors(400, 404, 409),
         },
       }),
       validator(
@@ -535,8 +566,12 @@ export const SessionRoutes = lazy(() =>
       async (c) => {
         const sessionID = c.req.valid("param").sessionID
         const body = c.req.valid("json")
-        const result = await Session.fork({ ...body, sessionID })
-        return c.json(result)
+        return Session.fork({ ...body, sessionID })
+          .then((session) => c.json(session))
+          .catch((err: unknown) => {
+            if (Session.DetachError.isInstance(err)) return c.json(err.toObject(), 409)
+            throw err
+          })
       },
     )
     .post(
@@ -1043,7 +1078,7 @@ export const SessionRoutes = lazy(() =>
       async (c) => {
         const sessionID = c.req.valid("param").sessionID
         const body = c.req.valid("json")
-        await SessionPrompt.resolve({ ...body, sessionID })
+        if (!(await Session.getGlobal(sessionID)).engine) await SessionPrompt.resolve({ ...body, sessionID })
         SessionPrompt.prompt({ ...body, sessionID }).catch((err) => {
           if (err instanceof Session.BusyError) return
           log.error("prompt_async failed", { sessionID, error: err })
@@ -1237,58 +1272,8 @@ export const SessionRoutes = lazy(() =>
         return c.json(true)
       },
     )
-    .post(
-      "/:sessionID/steer",
-      describeRoute({
-        summary: "Add steer text",
-        description:
-          "Append a steer/supplement text to the last user message in a session, visible to the AI from the next iteration.",
-        operationId: "session.steer",
-        responses: {
-          200: {
-            description: "Steer text added",
-            content: {
-              "application/json": {
-                schema: resolver(z.object({ ok: z.boolean() })),
-              },
-            },
-          },
-          ...errors(400, 404),
-        },
-      }),
-      validator(
-        "param",
-        z.object({
-          sessionID: SessionID.zod,
-        }),
-      ),
-      validator(
-        "json",
-        z.object({
-          text: z.string().min(1),
-        }),
-      ),
-      async (c) => {
-        const sessionID = c.req.valid("param").sessionID
-        const text = c.req.valid("json").text
-        Native.guard(await Session.get(sessionID), "Steering an active turn")
-        const msgs = await MessageV2.filterCompacted(MessageV2.stream(sessionID))
-        const lastUser = msgs.findLast((msg) => msg.info.role === "user")
-        if (!lastUser) {
-          return c.json({ ok: false }, 404)
-        }
-        const steerPrefix = "-用户补充："
-        const part = await Session.updatePart({
-          id: PartID.ascending(),
-          messageID: lastUser.info.id,
-          sessionID,
-          type: "text",
-          text: steerPrefix + text,
-          metadata: { steer: true },
-        })
-        return c.json(part)
-      },
-    )
+    // Retired API requests must not reach the web asset/proxy fallback.
+    .all("/:sessionID/steer", describeRoute({ hide: true }), (c) => c.notFound())
     .get(
       "/:sessionID/preference",
       describeRoute({
