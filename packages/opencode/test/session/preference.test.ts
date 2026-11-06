@@ -7,6 +7,7 @@ import { Instance } from "../../src/project/instance"
 import { Session } from "../../src/session"
 import { SessionID } from "../../src/session/schema"
 import { ProviderID, ModelID } from "../../src/provider/schema"
+import { Provider } from "../../src/provider/provider"
 import { Log } from "../../src/util/log"
 import { Wildcard } from "../../src/util/wildcard"
 import type { Permission } from "../../src/permission"
@@ -24,6 +25,49 @@ const pid = (id: string) => ProviderID.make(id)
 const mid = (id: string) => ModelID.make(id)
 
 describe("SessionPreference", () => {
+  test("allows a mobile session to inherit no model when none are configured", async () => {
+    await using tmp = await tmpdir({ config: { enabled_providers: [] } })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const session = await Session.create({})
+        await SessionPreference.inheritFor(session.id, [])
+        expect(SessionPreference.get(session.id)?.model).toBeUndefined()
+        expect((await Session.get(session.id)).id).toBe(session.id)
+      },
+    })
+  })
+
+  test("preserves a retired explicit choice while allowing a mobile session to be created", async () => {
+    await using tmp = await tmpdir({ config: { enabled_providers: [], model: "opencode/big-pickle" } })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const session = await Session.create({})
+        await SessionPreference.inheritFor(session.id, [])
+        expect(SessionPreference.get(session.id)?.model).toEqual({
+          providerID: pid("opencode"),
+          modelID: mid("big-pickle"),
+        })
+        expect((await Session.get(session.id)).id).toBe(session.id)
+        await expect(Provider.getModel(ProviderID.opencode, ModelID.make("big-pickle"))).rejects.toBeInstanceOf(
+          Provider.ModelNotFoundError,
+        )
+      },
+    })
+  })
+
+  test("does not swallow other invalid provider configurations when inheriting preferences", async () => {
+    await using tmp = await tmpdir({ config: { enabled_providers: [], model: "missing/model" } })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const session = await Session.create({})
+        await expect(SessionPreference.inheritFor(session.id, [])).rejects.toBeInstanceOf(Provider.ModelNotFoundError)
+      },
+    })
+  })
+
   describe("update – field merge", () => {
     test("single-field patches do not overwrite other fields", async () => {
       await using tmp = await tmpdir()

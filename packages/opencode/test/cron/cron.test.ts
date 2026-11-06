@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test"
+import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:test"
 import fs from "fs/promises"
 import path from "path"
 import { Cron } from "../../src/cron"
@@ -8,13 +8,50 @@ import { ToolRegistry } from "../../src/tool/registry"
 import { Database, eq } from "../../src/storage/db"
 import { Global } from "../../src/global"
 import { Config } from "../../src/config/config"
-import { tmpdir } from "../fixture/fixture"
+import { tmpdir as project } from "../fixture/fixture"
 import { Project } from "../../src/project/project"
 import { Instance } from "../../src/project/instance"
 import { Server } from "../../src/server/server"
 import { Session } from "../../src/session"
 import { MessageID, PartID, type SessionID } from "../../src/session/schema"
 import { SessionTable } from "../../src/session/session.sql"
+
+const server = Bun.serve({
+  port: 0,
+  fetch: () =>
+    new Response(
+      [
+        `data: ${JSON.stringify({ id: "cron-test", object: "chat.completion.chunk", choices: [{ delta: { content: "Local cron reply" } }] })}\n\n`,
+        `data: ${JSON.stringify({ id: "cron-test", object: "chat.completion.chunk", choices: [{ delta: {}, finish_reason: "stop" }] })}\n\n`,
+        "data: [DONE]\n\n",
+      ].join(""),
+      { headers: { "Content-Type": "text/event-stream" } },
+    ),
+})
+
+async function tmpdir(opts: Parameters<typeof project>[0] = {}) {
+  return project({
+    ...opts,
+    config: {
+      model: "cron-local/tiny",
+      ...opts?.config,
+      provider: {
+        "cron-local": {
+          name: "Cron Local Test",
+          npm: "@ai-sdk/openai-compatible",
+          options: { apiKey: "local-cron-key", baseURL: `${server.url.origin}/v1` },
+          models: { tiny: { name: "Tiny", limit: { context: 128000, output: 8192 } } },
+        },
+        ...opts?.config?.provider,
+      },
+    },
+  })
+}
+
+afterAll(async () => {
+  await Instance.disposeAll()
+  await server.stop(true)
+})
 
 const actionName = (name: string) => `cron_test_${name}_${Date.now()}_${Math.random().toString(36).slice(2)}`
 
@@ -107,6 +144,55 @@ afterEach(async () => {
 })
 
 describe("Cron core", () => {
+  test("records an unconfigured agent run as failed with a configuration hint", async () => {
+    await using tmp = await tmpdir({ config: { enabled_providers: [], model: undefined } })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const session = await Session.create({ title: "Unconfigured cron" })
+        const created = await Cron.createJob({
+          name: "Missing model",
+          mode: "session_agent",
+          project_id: Instance.project.id,
+          session_id: session.id,
+          schedule_type: "interval",
+          schedule_value: 60,
+          payload: { message: "hello" },
+        })
+        const run = await Cron.runJobNow({ id: created.definition.id })
+        expect(run.status).toBe("failed")
+        expect(run.output_summary).toContain("No model configured")
+        expect(run.output_summary).toContain("Connect a provider")
+        expect(await Session.messages({ sessionID: session.id })).toEqual([])
+        expect(state(created.definition.id)?.running).toBe(false)
+      },
+    })
+  })
+
+  test("does not replace a retired payload model with an available configured model", async () => {
+    await using tmp = await tmpdir()
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const session = await Session.create({ title: "Retired cron model" })
+        const created = await Cron.createJob({
+          name: "Retired model",
+          mode: "session_agent",
+          project_id: Instance.project.id,
+          session_id: session.id,
+          schedule_type: "interval",
+          schedule_value: 60,
+          payload: { message: "hello", model: { providerID: "opencode", modelID: "big-pickle" } },
+        })
+        const run = await Cron.runJobNow({ id: created.definition.id })
+        expect(run.status).toBe("failed")
+        expect(run.output_summary).toContain("opencode/big-pickle")
+        expect(run.output_summary).toContain("Select a model")
+        expect(await Session.messages({ sessionID: session.id })).toEqual([])
+      },
+    })
+  })
+
   test("createJob generates an id and initializes state", async () => {
     const created = await Cron.createJob({
       name: "nightly direct",
@@ -182,6 +268,26 @@ describe("Cron core", () => {
     expect(typeof next?.last_run_at).toBe("number")
 
     Cron.unregisterDirectAction(action)
+  })
+
+  test("records direct actions that reject null without losing their failed run", async () => {
+    const action = actionName("null-error")
+    Cron.registerDirectAction(action, () => Promise.reject(null))
+    try {
+      const created = await Cron.createJob({
+        name: "null rejection",
+        mode: "direct",
+        schedule_type: "cron",
+        schedule_value: "0 3 * * *",
+        payload: { action },
+      })
+      const run = await Cron.runJobNow({ id: created.definition.id })
+      expect(run.status).toBe("failed")
+      expect(run.output_summary).toBe("null")
+      expect(state(created.definition.id)?.last_status).toBe("failed")
+    } finally {
+      Cron.unregisterDirectAction(action)
+    }
   })
 
   test("runJobNow skips when the same job is already marked running", async () => {

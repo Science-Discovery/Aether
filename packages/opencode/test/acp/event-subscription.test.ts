@@ -4,6 +4,7 @@ import type { AgentSideConnection } from "@agentclientprotocol/sdk"
 import type { Event, EventMessagePartUpdated, ToolStatePending, ToolStateRunning } from "@opencode-ai/sdk/v2"
 import { Instance } from "../../src/project/instance"
 import { tmpdir } from "../fixture/fixture"
+import { Provider } from "../../src/provider/provider"
 
 type SessionUpdateParams = Parameters<AgentSideConnection["sessionUpdate"]>[0]
 type RequestPermissionParams = Parameters<AgentSideConnection["requestPermission"]>[0]
@@ -119,7 +120,9 @@ function createEventStream() {
   return { controller: { push, close } satisfies EventController, stream }
 }
 
-function createFakeAgent() {
+function createFakeAgent(
+  input: { empty?: boolean; disabled?: boolean; audio?: boolean; offline?: boolean; model?: string } = {},
+) {
   const updates = new Map<string, string[]>()
   const chunks = new Map<string, string>()
   const sessionUpdates: SessionUpdateParams[] = []
@@ -205,21 +208,33 @@ function createFakeAgent() {
       },
     },
     config: {
+      get: async () => ({ data: { model: input.model } }),
       providers: async () => {
         return {
           data: {
-            providers: [
-              {
-                id: "opencode",
-                name: "opencode",
-                models: {
-                  "big-pickle": { id: "big-pickle", name: "big-pickle" },
-                },
-              },
-            ],
+            providers: input.empty
+              ? []
+              : [
+                  {
+                    id: "e2e",
+                    name: "E2E",
+                    models: {
+                      "test-model": {
+                        id: "test-model",
+                        name: "Test Model",
+                        providerID: "e2e",
+                        disabled: input.disabled,
+                        capabilities: { input: { text: true }, output: { text: !input.audio } },
+                      },
+                    },
+                  },
+                ],
           },
         }
       },
+    },
+    provider: {
+      list: async () => ({ data: { connected: input.offline ? [] : ["e2e"] } }),
     },
     app: {
       agents: async () => {
@@ -248,7 +263,6 @@ function createFakeAgent() {
 
   const agent = new ACP.Agent(connection, {
     sdk,
-    defaultModel: { providerID: "opencode", modelID: "big-pickle" },
   } as any)
 
   const stop = () => {
@@ -260,6 +274,93 @@ function createFakeAgent() {
 }
 
 describe("acp.agent event subscription", () => {
+  test("creates and reloads sessions without a model, but rejects generation", async () => {
+    await using tmp = await tmpdir()
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const ctx = createFakeAgent({ empty: true })
+        try {
+          const created = await ctx.agent.newSession({ cwd: tmp.path, mcpServers: [] })
+          expect(created.models).toEqual({ currentModelId: "", availableModels: [] })
+          const loaded = await ctx.agent.loadSession({ cwd: tmp.path, sessionId: created.sessionId, mcpServers: [] })
+          expect(loaded.models).toEqual({ currentModelId: "", availableModels: [] })
+          await expect(
+            ctx.agent.prompt({ sessionId: created.sessionId, prompt: [{ type: "text", text: "hello" }] }),
+          ).rejects.toBeInstanceOf(Provider.NoModelConfiguredError)
+        } finally {
+          ctx.stop()
+        }
+      },
+    })
+  })
+
+  test("does not replace a retired explicit model with another available provider", async () => {
+    await using tmp = await tmpdir()
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const ctx = createFakeAgent({ model: "opencode/big-pickle" })
+        try {
+          const created = await ctx.agent.newSession({ cwd: tmp.path, mcpServers: [] })
+          expect(created.models.currentModelId).toBe("")
+          expect(created.models.availableModels).toHaveLength(1)
+          await expect(
+            ctx.agent.prompt({ sessionId: created.sessionId, prompt: [{ type: "text", text: "hello" }] }),
+          ).rejects.toBeInstanceOf(Provider.ModelNotFoundError)
+        } finally {
+          ctx.stop()
+        }
+      },
+    })
+  })
+
+  test.each([{ disabled: true }, { audio: true }, { offline: true }])(
+    "treats unusable catalogs as unconfigured",
+    async (input) => {
+      await using tmp = await tmpdir()
+      await Instance.provide({
+        directory: tmp.path,
+        fn: async () => {
+          const ctx = createFakeAgent(input)
+          try {
+            const created = await ctx.agent.newSession({ cwd: tmp.path, mcpServers: [] })
+            expect(created.models).toEqual({ currentModelId: "", availableModels: [] })
+            await expect(
+              ctx.agent.prompt({ sessionId: created.sessionId, prompt: [{ type: "text", text: "hello" }] }),
+            ).rejects.toBeInstanceOf(Provider.NoModelConfiguredError)
+          } finally {
+            ctx.stop()
+          }
+        },
+      })
+    },
+  )
+
+  test.each([
+    { id: "opencode/big-pickle" },
+    { id: "e2e/missing" },
+    { id: "e2e/test-model", disabled: true },
+    { id: "e2e/test-model", audio: true },
+    { id: "e2e/test-model", offline: true },
+  ])("rejects unavailable or non-chat explicit ACP selections", async (input) => {
+    await using tmp = await tmpdir()
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const ctx = createFakeAgent(input)
+        try {
+          const created = await ctx.agent.newSession({ cwd: tmp.path, mcpServers: [] })
+          await expect(
+            ctx.agent.unstable_setSessionModel({ sessionId: created.sessionId, modelId: input.id }),
+          ).rejects.toBeInstanceOf(Provider.ModelNotFoundError)
+        } finally {
+          ctx.stop()
+        }
+      },
+    })
+  })
+
   test("routes message.part.delta by the event sessionID (no cross-session pollution)", async () => {
     await using tmp = await tmpdir()
     await Instance.provide({

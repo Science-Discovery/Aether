@@ -317,6 +317,29 @@ describe("memory service", () => {
     await tmp?.[Symbol.asyncDispose]()
   })
 
+  test("skips optional reflection without a configured model and keeps pending memory events", async () => {
+    await using dir = await tmpdir({ config: { enabled_providers: [] } })
+    Memory.setReflectorForTest()
+    await Instance.provide({
+      directory: dir.path,
+      fn: async () => {
+        const queued = await Memory.remember({
+          text: "请记住我希望默认用中文回答。",
+          type: "preference",
+          intent: "explicit",
+          source: { createdAt: Date.now(), role: "user" },
+        })
+        expect(queued.status).toBe("queued")
+        const before = await Memory.eventsForTest()
+        const result = await Memory.reflect({ mode: "daily", reason: "cron" })
+        expect(result.changed).toBe(false)
+        expect(result.summary).toContain("no model configured")
+        expect(await Memory.eventsForTest()).toEqual(before)
+        expect((await Memory.search({ query: "中文", limit: 5 })).results).toHaveLength(0)
+      },
+    })
+  })
+
   test("forget deletes matching markdown block and records a tombstone only after a match", async () => {
     await Memory.writeDocumentForTest(
       parseMemoryMarkdown(`# Aether Memory

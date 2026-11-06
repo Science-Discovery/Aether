@@ -1152,9 +1152,9 @@ export namespace ACP {
       const model = await defaultModel(this.config, directory)
       const sessionId = params.sessionId
 
-      const providers = await this.sdk.config.providers({ directory }).then((x) => x.data!.providers)
+      const providers = await catalog(this.sdk, directory)
       const entries = sortProvidersByName(providers)
-      const availableVariants = modelVariantsFromProviders(entries, model)
+      const availableVariants = model ? modelVariantsFromProviders(entries, model) : []
       const currentVariant = this.sessionManager.getVariant(sessionId)
       if (currentVariant && !availableVariants.includes(currentVariant)) {
         this.sessionManager.setVariant(sessionId, undefined)
@@ -1242,25 +1242,29 @@ export namespace ACP {
       return {
         sessionId,
         models: {
-          currentModelId: formatModelIdWithVariant(model, currentVariant, availableVariants, true),
+          currentModelId: model ? formatModelIdWithVariant(model, currentVariant, availableVariants, true) : "",
           availableModels,
         },
         modes,
-        _meta: buildVariantMeta({
-          model,
-          variant: this.sessionManager.getVariant(sessionId),
-          availableVariants,
-        }),
+        _meta: model
+          ? buildVariantMeta({
+              model,
+              variant: this.sessionManager.getVariant(sessionId),
+              availableVariants,
+            })
+          : undefined,
       }
     }
 
     async unstable_setSessionModel(params: SetSessionModelRequest) {
       const session = this.sessionManager.get(params.sessionId)
-      const providers = await this.sdk.config
-        .providers({ directory: session.cwd }, { throwOnError: true })
-        .then((x) => x.data!.providers)
+      const providers = await catalog(this.sdk, session.cwd)
 
       const selection = parseModelSelection(params.modelId, providers)
+      const model = providers.find((provider) => provider.id === selection.model.providerID)?.models[
+        selection.model.modelID
+      ]
+      if (!model || !chat(model)) throw new Provider.ModelNotFoundError(selection.model)
       this.sessionManager.setModel(session.id, selection.model)
       this.sessionManager.setVariant(session.id, selection.variant)
 
@@ -1291,7 +1295,12 @@ export namespace ACP {
       const directory = session.cwd
 
       const current = session.model
-      const model = current ?? (await defaultModel(this.config, directory))
+      const model = current ?? (await defaultModel(this.config, directory, true))
+      if (!model) {
+        throw new Provider.NoModelConfiguredError({
+          message: "No model configured. Connect a provider and select a model.",
+        })
+      }
       if (!current) {
         this.sessionManager.setModel(session.id, model)
       }
@@ -1527,55 +1536,25 @@ export namespace ACP {
     }
   }
 
-  async function defaultModel(config: ACPConfig, cwd?: string): Promise<{ providerID: ProviderID; modelID: ModelID }> {
+  async function defaultModel(config: ACPConfig, cwd?: string, required = false) {
     const sdk = config.sdk
-    const configured = config.defaultModel
-    if (configured) return configured
-
     const directory = cwd ?? process.cwd()
+    const specified =
+      config.defaultModel ??
+      (await sdk.config.get({ directory }, { throwOnError: true }).then((resp) => {
+        if (!resp.data?.model) return undefined
+        return Provider.parseModel(resp.data.model)
+      }))
+    const providers = await catalog(sdk, directory)
 
-    const specified = await sdk.config
-      .get({ directory }, { throwOnError: true })
-      .then((resp) => {
-        const cfg = resp.data
-        if (!cfg || !cfg.model) return undefined
-        return Provider.parseModel(cfg.model)
-      })
-      .catch((error) => {
-        log.error("failed to load user config for default model", { error })
-        return undefined
-      })
-
-    const providers = await sdk.config
-      .providers({ directory }, { throwOnError: true })
-      .then((x) => x.data?.providers ?? [])
-      .catch((error) => {
-        log.error("failed to list providers for default model", { error })
-        return []
-      })
-
-    if (specified && providers.length) {
+    if (specified) {
       const provider = providers.find((p) => p.id === specified.providerID)
-      if (provider && provider.models[specified.modelID]) return specified
+      if (provider?.models[specified.modelID] && chat(provider.models[specified.modelID])) return specified
+      if (required) throw new Provider.ModelNotFoundError(specified)
+      return undefined
     }
 
-    if (specified && !providers.length) return specified
-
-    const opencodeProvider = providers.find((p) => p.id === "opencode")
-    if (opencodeProvider) {
-      if (opencodeProvider.models["big-pickle"]) {
-        return { providerID: ProviderID.opencode, modelID: ModelID.make("big-pickle") }
-      }
-      const [best] = Provider.sort(Object.values(opencodeProvider.models))
-      if (best) {
-        return {
-          providerID: ProviderID.make(best.providerID),
-          modelID: ModelID.make(best.id),
-        }
-      }
-    }
-
-    const models = providers.flatMap((p) => Object.values(p.models))
+    const models = providers.flatMap((p) => Object.values(p.models)).filter(chat)
     const [best] = Provider.sort(models)
     if (best) {
       return {
@@ -1584,9 +1563,22 @@ export namespace ACP {
       }
     }
 
-    if (specified) return specified
+    return undefined
+  }
 
-    return { providerID: ProviderID.opencode, modelID: ModelID.make("big-pickle") }
+  async function catalog(sdk: OpencodeClient, directory: string) {
+    const [config, status] = await Promise.all([
+      sdk.config.providers({ directory }, { throwOnError: true }),
+      sdk.provider.list({ directory }, { throwOnError: true }),
+    ])
+    return (config.data?.providers ?? []).filter((provider) => status.data?.connected.includes(provider.id))
+  }
+
+  function chat(model: {
+    disabled?: boolean
+    capabilities?: { input?: { text?: boolean }; output?: { text?: boolean } }
+  }) {
+    return !model.disabled && !!model.capabilities?.input?.text && !!model.capabilities?.output?.text
   }
 
   function parseUri(
@@ -1667,7 +1659,7 @@ export namespace ACP {
       const unsorted: Array<{ id: string; name: string; variants?: Record<string, any> }> = Object.values(
         provider.models,
       )
-      const models = Provider.sort(unsorted)
+      const models = Provider.sort(unsorted.filter((model) => chat(provider.models[model.id])))
       return models.flatMap((model) => {
         const base: ModelOption = {
           modelId: `${provider.id}/${model.id}`,

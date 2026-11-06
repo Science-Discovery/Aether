@@ -1,4 +1,6 @@
 import { useFilteredList } from "@opencode-ai/ui/hooks"
+import { Button } from "@opencode-ai/ui/button"
+import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { ProviderIcon } from "@opencode-ai/ui/provider-icon"
 import { Switch } from "@opencode-ai/ui/switch"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
@@ -9,9 +11,10 @@ import { type Component, For, Show } from "solid-js"
 import { useLanguage } from "@/context/language"
 import { useModels } from "@/context/models"
 import { useGlobalSDK } from "@/context/global-sdk"
-import { popularProviders } from "@/hooks/use-providers"
+import { popularProviders, useProviders } from "@/hooks/use-providers"
 import { SettingsList } from "./settings-list"
 import { createModelsStatus } from "./settings-models-status"
+import { DialogSelectProvider } from "./dialog-select-provider"
 
 type ModelItem = ReturnType<ReturnType<typeof useModels>["list"]>[number]
 
@@ -37,6 +40,8 @@ const ListEmptyState: Component<{ message: string; filter: string }> = (props) =
 export const SettingsModels: Component = () => {
   const language = useLanguage()
   const models = useModels()
+  const dialog = useDialog()
+  const providers = useProviders()
   const sdk = useGlobalSDK()
   const catalog = createModelsStatus(sdk)
 
@@ -135,14 +140,26 @@ export const SettingsModels: Component = () => {
 
       <div class="flex flex-col gap-8 max-w-[720px]">
         <Show
-          when={!list.grouped.loading}
+          when={providers.ready() && !list.grouped.loading}
           fallback={
             <ListLoadingState label={`${language.t("common.loading")}${language.t("common.loading.ellipsis")}`} />
           }
         >
           <Show
             when={list.flat().length > 0}
-            fallback={<ListEmptyState message={language.t("dialog.model.empty")} filter={list.filter()} />}
+            fallback={
+              <Show
+                when={models.list().length === 0}
+                fallback={<ListEmptyState message={language.t("dialog.model.empty")} filter={list.filter()} />}
+              >
+                <div class="flex flex-col items-center gap-3 py-12 text-center">
+                  <span class="text-14-regular text-text-weak">{language.t("prompt.model.required")}</span>
+                  <Button variant="secondary" onClick={() => dialog.show(() => <DialogSelectProvider />)}>
+                    {language.t("sidebar.gettingStarted.connectProvider")}
+                  </Button>
+                </div>
+              </Show>
+            }
           >
             <For each={list.grouped.latest}>
               {(group) => (

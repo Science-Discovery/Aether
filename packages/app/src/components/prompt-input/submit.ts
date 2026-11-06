@@ -24,6 +24,7 @@ import { clonePromptParts, type PromptHistoryEntry } from "./history"
 import { cloneReferences, canAsk, missingImages, type Reference } from "@/utils/ask-reference"
 import { referenceParts, referenceRanges, type FileQuestion, type ReadingContext } from "./ask-request"
 import { formatServerError } from "@/utils/server-errors"
+import { isChatModel } from "@/utils/voice"
 import type { NativeEngine } from "@/utils/native"
 import type { NativeDraft } from "@/context/native-run"
 
@@ -138,6 +139,31 @@ export async function sendFollowupDraft(input: FollowupSendInput) {
   const wait = async () => {
     const ok = await input.before?.()
     if (ok === false) return false
+    if (input.draft.engine) return true
+    const [store] = input.globalSync.child(input.draft.sessionDirectory)
+    const catalog =
+      store.status === "complete"
+        ? store.provider
+        : await input.client.provider
+            .list({ directory: input.draft.sessionDirectory })
+            .then((response) => response.data)
+    const provider = catalog?.all.find((item) => item.id === input.draft.model.providerID)
+    const model = provider?.models[input.draft.model.modelID]
+    const disabled = new Set([
+      ...(input.globalSync.data.config.disabled_models ?? []),
+      ...(store.config.disabled_models ?? []),
+    ])
+    if (
+      !provider ||
+      !catalog?.connected.includes(provider.id) ||
+      !model ||
+      ("disabled" in model && model.disabled === true) ||
+      !isChatModel({ ...model, provider }) ||
+      disabled.has(`${provider.id}/${model.id}`) ||
+      disabled.has(model.id)
+    ) {
+      throw { name: "ProviderModelNotFoundError", data: { ...input.draft.model } }
+    }
     return true
   }
 
@@ -260,7 +286,9 @@ export async function sendFollowupDraft(input: FollowupSendInput) {
       parts: requestParts,
       variant: input.draft.variant,
       knowledgeBase: input.draft.engine
-        ? (input.globalSync.data?.config?.knowledge?.enabled === true ? input.knowledgeBase : undefined) ?? { paths: [] }
+        ? ((input.globalSync.data?.config?.knowledge?.enabled === true ? input.knowledgeBase : undefined) ?? {
+            paths: [],
+          })
         : input.globalSync.data?.config?.knowledge?.enabled === true
           ? input.knowledgeBase
           : undefined,
@@ -495,7 +523,11 @@ export function createPromptSubmit(input: PromptSubmitInput) {
         showToast({
           title: language.t("prompt.toast.modelAgentRequired.title"),
           description: language.t(
-            local.native.engine() ? "native.notReady" : "prompt.toast.modelAgentRequired.description",
+            local.native.engine()
+              ? "native.notReady"
+              : !local.model.current() || local.model.unavailable()
+                ? "prompt.model.required"
+                : "prompt.toast.modelAgentRequired.description",
           ),
         })
         return

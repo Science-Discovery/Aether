@@ -10,7 +10,7 @@ import { useSDK } from "@tui/context/sdk"
 import { useRoute } from "@tui/context/route"
 import { useSync } from "@tui/context/sync"
 import { MessageID, PartID } from "@/session/schema"
-import { createStore, produce } from "solid-js/store"
+import { createStore, produce, unwrap } from "solid-js/store"
 import { useKeybind } from "@tui/context/keybind"
 import { usePromptHistory, type PromptInfo } from "./history"
 import { assign } from "./part"
@@ -36,6 +36,7 @@ import { useToast } from "../../ui/toast"
 import { useKV } from "../../context/kv"
 import { useTextareaKeybindings } from "../textarea-keybindings"
 import { DialogSkill } from "../dialog-skill"
+import { recover } from "./recovery"
 
 export type PromptProps = {
   sessionID?: string
@@ -65,6 +66,7 @@ export function Prompt(props: PromptProps) {
   let input: TextareaRenderable
   let anchor: BoxRenderable
   let autocomplete: AutocompleteRef
+  let revision = 0
 
   const keybind = useKeybind()
   const local = useLocal()
@@ -573,6 +575,11 @@ export function Prompt(props: PromptProps) {
     }
 
     const messageID = MessageID.ascending()
+    const draft = structuredClone(unwrap(store.prompt))
+    const origin = props.sessionID
+    const workspace = props.workspaceID
+    let failed = false
+    revision += 1
     let inputText = store.prompt.input
 
     // Expand pasted text inline before submitting
@@ -597,6 +604,36 @@ export function Prompt(props: PromptProps) {
     // Capture mode before it gets reset
     const currentMode = store.mode
     const variant = local.model.variant.current()
+
+    function fail(err: unknown) {
+      if (
+        recover(err, {
+          current: revision,
+          expected: cleared,
+          active:
+            !input.isDestroyed &&
+            props.workspaceID === workspace &&
+            (props.sessionID === origin || props.sessionID === sessionID),
+          empty: store.prompt.input === "" && store.prompt.parts.length === 0,
+          restore: () => {
+            ref.set(draft)
+            setStore("mode", currentMode)
+          },
+          retain: () => stash.push({ input: draft.input, parts: draft.parts }),
+          warn: (message) => toast.show({ variant: "warning", message, duration: 5000 }),
+        })
+      ) {
+        failed = true
+        return
+      }
+      if (err && typeof err === "object" && "name" in err && err.name === "BusyError") {
+        toast.show({
+          variant: "warning",
+          message: "Session is busy, please try again shortly",
+          duration: 3000,
+        })
+      }
+    }
 
     if (store.mode === "shell") {
       sdk.client.session.shell({
@@ -624,48 +661,48 @@ export function Prompt(props: PromptProps) {
       const restOfInput = firstLineEnd === -1 ? "" : inputText.slice(firstLineEnd + 1)
       const args = firstLineArgs.join(" ") + (restOfInput ? "\n" + restOfInput : "")
 
-      sdk.client.session.command({
-        sessionID,
-        command: command.slice(1),
-        arguments: args,
-        agent: local.agent.current().name,
-        model: `${selectedModel.providerID}/${selectedModel.modelID}`,
-        messageID,
-        variant,
-        parts: nonTextParts
-          .filter((x) => x.type === "file")
-          .map((x) => ({
-            id: PartID.ascending(),
-            ...x,
-          })),
-      })
+      sdk.client.session
+        .command(
+          {
+            sessionID,
+            command: command.slice(1),
+            arguments: args,
+            agent: local.agent.current().name,
+            model: `${selectedModel.providerID}/${selectedModel.modelID}`,
+            messageID,
+            variant,
+            parts: nonTextParts
+              .filter((x) => x.type === "file")
+              .map((x) => ({
+                id: PartID.ascending(),
+                ...x,
+              })),
+          },
+          { throwOnError: true },
+        )
+        .catch(fail)
     } else {
       sdk.client.session
-        .prompt({
-          sessionID,
-          ...selectedModel,
-          messageID,
-          agent: local.agent.current().name,
-          model: selectedModel,
-          variant,
-          parts: [
-            {
-              id: PartID.ascending(),
-              type: "text",
-              text: inputText,
-            },
-            ...nonTextParts.map(assign),
-          ],
-        })
-        .catch((err) => {
-          if (err?.name === "BusyError") {
-            toast.show({
-              variant: "warning",
-              message: "Session is busy, please try again shortly",
-              duration: 3000,
-            })
-          }
-        })
+        .prompt(
+          {
+            sessionID,
+            ...selectedModel,
+            messageID,
+            agent: local.agent.current().name,
+            model: selectedModel,
+            variant,
+            parts: [
+              {
+                id: PartID.ascending(),
+                type: "text",
+                text: inputText,
+              },
+              ...nonTextParts.map(assign),
+            ],
+          },
+          { throwOnError: true },
+        )
+        .catch(fail)
     }
     history.append({
       ...store.prompt,
@@ -682,12 +719,14 @@ export function Prompt(props: PromptProps) {
     // temporary hack to make sure the message is sent
     if (!props.sessionID)
       setTimeout(() => {
+        if (failed) return
         route.navigate({
           type: "session",
           sessionID,
         })
       }, 50)
     input.clear()
+    const cleared = revision
   }
   const exit = useExit()
 
@@ -857,6 +896,7 @@ export function Prompt(props: PromptProps) {
               minHeight={1}
               maxHeight={6}
               onContentChange={() => {
+                revision += 1
                 const value = input.plainText
                 setStore("prompt", "input", value)
                 autocomplete.onInput(value)

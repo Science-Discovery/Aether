@@ -412,7 +412,84 @@ export namespace ModelsDev {
   })
 
   export async function get(): Promise<Record<string, Provider>> {
-    return apply(await Data())
+    return (await catalog()).data
+  }
+
+  // Keep retired anonymous IDs even after upstream removes their catalog entries.
+  const retired = [
+    "beam-free",
+    "big-pickle",
+    "cat-jam-free",
+    "deepseek-v4-flash-free",
+    "deepseek-v4.1-flash-free",
+    "exo-free",
+    "fledge-alpha-free",
+    "flint-40b-free",
+    "glm-4.7-free",
+    "glm-5-free",
+    "glm-5.3-flash-free",
+    "gpt-5-nano",
+    "grok-code",
+    "hy3-free",
+    "hy3-preview-free",
+    "kimi-k2.5-free",
+    "laguna-s-2.1-free",
+    "ling-2.6-flash-free",
+    "ling-3.0-flash-fin-free",
+    "ling-3.0-flash-free",
+    "ling-3.0-tiny-free",
+    "ling-3.1-flash-free",
+    "ll-alpha-free",
+    "longcat-2.0-free",
+    "longcat-2.5-preview-free",
+    "mimo-v2-flash-free",
+    "mimo-v2-omni-free",
+    "mimo-v2-pro-free",
+    "mimo-v2.5-free",
+    "mimo-v2.6-flash-free",
+    "minimax-m2.1-free",
+    "minimax-m2.5-free",
+    "minimax-m3-free",
+    "minimax-m3.1-flash-free",
+    "muse-spark-1.2-contributor-free",
+    "muse-spark-1.3-contributor-free",
+    "nemotron-3-super-free",
+    "nemotron-3-ultra-free",
+    "nemotron-3.5-lightning-free",
+    "nemotron-3.5-super-vl-free",
+    "north-mini-code-free",
+    "qwen3.6-plus-free",
+    "ring-2.6-1t-free",
+    "space-bunny-free",
+    "step-5-preview-free",
+    "trinity-large-preview-free",
+    "x-preview-f-free",
+  ]
+
+  function filter(data: Record<string, Provider>) {
+    const excluded = new Set([
+      ...retired,
+      ...Object.values(data.opencode?.models ?? {})
+        .filter((model) => model.cost?.input === 0 && model.cost?.output === 0)
+        .map((model) => model.id),
+    ])
+    if (!data.opencode) return { data, excluded }
+    return {
+      data: {
+        ...data,
+        opencode: {
+          ...data.opencode,
+          models: Object.fromEntries(
+            Object.entries(data.opencode.models).filter(([, model]) => !excluded.has(model.id)),
+          ),
+        },
+      },
+      excluded,
+    }
+  }
+
+  export async function catalog() {
+    return filter(apply(await Data()))
   }
 
   export function onUpdated(fn: () => void) {
@@ -553,6 +630,7 @@ export namespace ModelsDev {
     download,
     once,
     parse,
+    filter,
   }
 }
 

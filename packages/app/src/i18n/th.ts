@@ -127,8 +127,6 @@ export const dict = {
   "dialog.model.manage.description": "ปรับแต่งโมเดลที่จะปรากฏในตัวเลือกโมเดล",
   "dialog.model.manage.provider.toggle": "สลับโมเดลทั้งหมดของ {{provider}}",
 
-  "dialog.model.unpaid.freeModels.title": "โมเดลฟรีที่จัดหาให้โดย Aether",
-  "dialog.model.unpaid.addMore.title": "เพิ่มโมเดลเพิ่มเติมจากผู้ให้บริการยอดนิยม",
 
   "dialog.provider.viewAll": "แสดงผู้ให้บริการเพิ่มเติม",
 
@@ -697,8 +695,8 @@ export const dict = {
   "sidebar.workspaces.enable": "เปิดใช้งานพื้นที่ทำงาน",
   "sidebar.workspaces.disable": "ปิดใช้งานพื้นที่ทำงาน",
   "sidebar.gettingStarted.title": "เริ่มต้นใช้งาน",
-  "sidebar.gettingStarted.line1": "Aether รวมถึงโมเดลฟรีเพื่อให้คุณเริ่มต้นได้ทันที",
-  "sidebar.gettingStarted.line2": "เชื่อมต่อผู้ให้บริการใด ๆ เพื่อใช้โมเดล รวมถึง Claude, GPT, Gemini ฯลฯ",
+  "sidebar.gettingStarted.line1": "เชื่อมต่อผู้ให้บริการและเลือกโมเดลก่อนเริ่มการสนทนา",
+  "sidebar.gettingStarted.line2": "คุณยังสามารถเรียกดูโปรเจกต์และประวัติการสนทนาได้โดยไม่ต้องมีโมเดล",
   "sidebar.project.recentSessions": "เซสชันล่าสุด",
   "sidebar.project.viewAllSessions": "ดูเซสชันทั้งหมด",
   "sidebar.project.clearNotifications": "ล้างการแจ้งเตือน",

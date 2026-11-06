@@ -593,6 +593,13 @@ export type ProviderAuthError = {
   }
 }
 
+export type NoModelConfiguredError = {
+  name: "NoModelConfiguredError"
+  data: {
+    message: string
+  }
+}
+
 export type UnknownError = {
   name: "UnknownError"
   data: {
@@ -652,6 +659,7 @@ export type EventSessionError = {
     sessionID?: string
     error?:
       | ProviderAuthError
+      | NoModelConfiguredError
       | UnknownError
       | MessageOutputLengthError
       | MessageAbortedError
@@ -787,6 +795,7 @@ export type AssistantMessage = {
   }
   error?:
     | ProviderAuthError
+    | NoModelConfiguredError
     | UnknownError
     | MessageOutputLengthError
     | MessageAbortedError

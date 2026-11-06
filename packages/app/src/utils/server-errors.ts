@@ -123,6 +123,8 @@ export function formatServerError(error: unknown, translate?: Translator, fallba
   if (isProviderModelNotFoundErrorLike(error)) return parseReadableProviderModelNotFoundError(error, translate)
   if (isWorktreeErrorLike(error)) return parseWorktreeError(error, translate)
   if (isNamedErrorLike(error)) {
+    if (error.name === "NoModelConfiguredError")
+      return tr(translate, "prompt.model.required", "Connect a provider and select a model first.")
     if (error.name === "SessionBusyError") {
       return tr(
         translate,

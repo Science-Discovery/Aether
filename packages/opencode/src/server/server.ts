@@ -242,6 +242,7 @@ export namespace Server {
           let status: ContentfulStatusCode
           if (err instanceof NotFoundError) status = 404
           else if (err instanceof Provider.ModelNotFoundError) status = 400
+          else if (err instanceof Provider.NoModelConfiguredError) status = 400
           else if (err.name === "ProviderAuthValidationFailed") status = 400
           else if (err.name === "InvalidSessionBackupError") status = 400
           else if (err.name === "NativeSessionUnsupported") status = 400

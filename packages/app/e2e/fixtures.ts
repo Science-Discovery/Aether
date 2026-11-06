@@ -6,6 +6,7 @@ import type { E2EWindow } from "../src/testing/terminal"
 import type { Item, Usage } from "../../opencode/test/lib/llm-server"
 import { TestLLMServer } from "../../opencode/test/lib/llm-server"
 import { startBackend } from "./backend"
+import { model } from "./model"
 import {
   healthPhase,
   cleanupSession,
@@ -68,12 +69,10 @@ type AssistantFixture = {
 }
 
 const seedModel = (() => {
-  const [providerID = "opencode", modelID = "big-pickle"] = (
-    process.env.OPENCODE_E2E_MODEL ?? "opencode/big-pickle"
-  ).split("/")
+  const [providerID = "e2e", modelID = "test-model"] = (process.env.OPENCODE_E2E_MODEL ?? model).split("/")
   return {
-    providerID: providerID || "opencode",
-    modelID: modelID || "big-pickle",
+    providerID: providerID || "e2e",
+    modelID: modelID || "test-model",
   }
 })()
 

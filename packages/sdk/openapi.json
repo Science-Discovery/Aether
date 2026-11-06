@@ -22212,6 +22212,9 @@
                     "$ref": "#/components/schemas/ProviderAuthError"
                   },
                   {
+                    "$ref": "#/components/schemas/NoModelConfiguredError"
+                  },
+                  {
                     "$ref": "#/components/schemas/UnknownError"
                   },
                   {
@@ -22681,6 +22684,9 @@
             "anyOf": [
               {
                 "$ref": "#/components/schemas/ProviderAuthError"
+              },
+              {
+                "$ref": "#/components/schemas/NoModelConfiguredError"
               },
               {
                 "$ref": "#/components/schemas/UnknownError"
@@ -28949,6 +28955,30 @@
         "required": [
           "type",
           "properties"
+        ]
+      },
+      "NoModelConfiguredError": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "const": "NoModelConfiguredError"
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "message"
+            ]
+          }
+        },
+        "required": [
+          "name",
+          "data"
         ]
       }
     }

@@ -1324,7 +1324,7 @@ export namespace Memory {
     extractorForTest = extractor
   }
 
-  export function setReflectorForTest(reflector: (input: ReflectionInput) => Promise<ReflectionCandidate[]>) {
+  export function setReflectorForTest(reflector?: (input: ReflectionInput) => Promise<ReflectionCandidate[]>) {
     reflectorForTest = reflector
   }
 
@@ -1489,6 +1489,23 @@ export namespace Memory {
         deletedIDs: [],
         shortcutChanged: false,
         summary: "Daily memory reflection is disabled.",
+      }
+    }
+    const model = reflectorForTest
+      ? true
+      : await Provider.defaultModel().catch((err) => {
+          if (Provider.NoModelConfiguredError.isInstance(err)) return undefined
+          if (Provider.ModelNotFoundError.isInstance(err) && err.data.providerID === "opencode") return undefined
+          throw err
+        })
+    if (!model) {
+      return {
+        runID: "",
+        changed: false,
+        updatedIDs: [],
+        deletedIDs: [],
+        shortcutChanged: false,
+        summary: "Memory reflection skipped: no model configured. Connect a provider and select a model.",
       }
     }
     return runSerializedReflection(input.signal, async () => {

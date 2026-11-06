@@ -34,7 +34,7 @@ const syncedDirectories: string[] = []
 const prompted: Array<Record<string, unknown>> = []
 const commands: Array<{ name: string }> = []
 const invoked: Array<Record<string, unknown>> = []
-const toasts: Array<{ title?: string }> = []
+const toasts: Array<{ title?: string; description?: string }> = []
 
 let params: PromptScope = { dir: "/repo/main" }
 let selected = "/repo/worktree-a"
@@ -51,6 +51,18 @@ const contexts = new Map<string, Array<ContextItem & { key: string }>>()
 const scope = (value: PromptScope = params) => JSON.stringify([connection.http.url, value.dir, value.id])
 const target = (id?: string, dir = "/repo/main") => scope({ dir, id })
 let defaultMode: "off" | "safe" | "full" = "safe"
+let configured = true
+let unavailable = false
+const cleared: string[] = []
+const catalogs: Record<string, ReturnType<typeof catalog>> = {}
+
+function catalog(provider = "provider", model = "model") {
+  return {
+    all: [{ id: provider, name: provider, models: { [model]: { id: model, name: model, disabled: false } } }],
+    connected: [provider],
+    default: {},
+  }
+}
 let engine: NativeEngine | undefined
 let ready = true
 let resets = 0
@@ -153,7 +165,7 @@ beforeAll(async () => {
   }))
 
   mock.module("@opencode-ai/ui/toast", () => ({
-    showToast: (input: { title?: string }) => toasts.push(input),
+    showToast: (input: { title?: string; description?: string }) => toasts.push(input),
   }))
 
   mock.module("@opencode-ai/util/encode", () => ({
@@ -164,7 +176,7 @@ beforeAll(async () => {
     useLocal: () => ({
       native: { engine: () => engine },
       selection: () =>
-        ready
+        ready && (engine || (configured && !unavailable))
           ? {
               engine,
               agent: engine ? "codex" : "agent",
@@ -175,7 +187,8 @@ beforeAll(async () => {
             }
           : undefined,
       model: {
-        current: () => ({ id: "model", provider: { id: "provider" } }),
+        current: () => (configured ? { id: "model", provider: { id: "provider" } } : undefined),
+        unavailable: () => unavailable,
         variant: { current: () => variant },
       },
       agent: {
@@ -215,11 +228,13 @@ beforeAll(async () => {
         return value(input)
       },
       reset: (input?: PromptScope) => {
+        cleared.push("prompt")
         resets++
         accesses.push("reset")
         return drafts.set(scope(input), [{ type: "text", content: "", start: 0, end: 0 }])
       },
       set: (parts: Prompt, _cursor?: number, input?: PromptScope) => {
+        cleared.push("set")
         accesses.push("set")
         return drafts.set(scope(input), structuredClone(parts))
       },
@@ -236,6 +251,7 @@ beforeAll(async () => {
       context: {
         add: () => undefined,
         remove: (key: string, input?: PromptScope) => {
+          cleared.push("context")
           contexts.set(
             scope(input),
             (contexts.get(scope(input)) ?? []).filter((item) => item.key !== key),
@@ -295,12 +311,18 @@ beforeAll(async () => {
 
   mock.module("@/context/global-sync", () => ({
     useGlobalSync: () => ({
+      data: { config: {} },
       todo: { set: () => undefined },
       child: (directory: string) => {
         syncedDirectories.push(directory)
         storedSessions[directory] ??= []
         return [
-          { session: storedSessions[directory] },
+          {
+            session: storedSessions[directory],
+            status: "complete",
+            config: {},
+            provider: catalogs[directory] ?? catalog(),
+          },
           (...args: unknown[]) => {
             if (args[0] !== "session") return
             const next = args[1]
@@ -368,7 +390,7 @@ describe("knowledge gate at followup send", () => {
       client: clientFor("/repo/main"),
       globalSync: {
         data: { config },
-        child: () => [{}, () => undefined],
+        child: () => [{ status: "complete", provider: catalog(), config: {} }, () => undefined],
       },
       sync: {
         data: { command: [] },
@@ -448,11 +470,15 @@ beforeEach(() => {
   reading = undefined
   directoryAutoAccept = false
   defaultMode = "safe"
+  configured = true
+  unavailable = false
+  cleared.length = 0
   engine = undefined
   ready = true
   resets = 0
   aborted = 0
   for (const key of Object.keys(storedSessions)) delete storedSessions[key]
+  for (const key of Object.keys(catalogs)) delete catalogs[key]
 })
 
 afterEach(() => {
@@ -860,6 +886,8 @@ describe("native prompt submission", () => {
     "sends mixed references with only per-item questions in native execution: %s",
     async (active) => {
       engine = { type: "codex", model: "native-model" }
+      configured = false
+      catalogs["/repo/main"] = { all: [], connected: [], default: {} }
       params.id = "existing"
       value().splice(0, value().length, { type: "text", content: "", start: 0, end: 0 })
       references.set(scope(), [
@@ -1007,6 +1035,109 @@ describe("native prompt submission", () => {
 })
 
 describe("prompt submit worktree selection", () => {
+  test.each(["missing", "disabled"])(
+    "retains a queued reference and attachment snapshot when its old model is %s",
+    async (state) => {
+      const draft: FollowupDraft = {
+        sessionID: "queued-session",
+        sessionDirectory: "/repo/worktree-a",
+        prompt: [{ type: "text", content: "question", start: 0, end: 8 }],
+        context: [{ type: "file", key: "quote", path: "notes.md", comment: "keep this question" }],
+        attachments: [{ filename: "selection.png", mime: "image/png", dataUrl: "data:image/png;base64,AQ==" }],
+        extraTextParts: [{ text: "original selection", metadata: { test: "reference" } }],
+        references: [reference("queued")],
+        model: { providerID: "opencode", modelID: "big-pickle" },
+        agent: "agent",
+      }
+      const snapshot = structuredClone(draft)
+      const folders: string[] = []
+      const listed = catalog("opencode", "big-pickle")
+      listed.all[0].models["big-pickle"].disabled = true
+      const input = {
+        draft,
+        client: clientFor("/repo/main"),
+        sync: {
+          data: { command: [] },
+          session: { optimistic: { add() {}, remove() {} } },
+        },
+        globalSync: {
+          data: { config: {} },
+          child: (directory: string) => {
+            folders.push(directory)
+            return [
+              {
+                status: "complete",
+                config: {},
+                provider: state === "disabled" ? listed : catalog("custom", "available"),
+              },
+              () => {},
+            ]
+          },
+        },
+      } as unknown as Parameters<typeof sendFollowupDraft>[0]
+      await expect(sendFollowupDraft(input)).rejects.toEqual({
+        name: "ProviderModelNotFoundError",
+        data: draft.model,
+      })
+      expect(draft).toEqual(snapshot)
+      expect(prompted).toEqual([])
+      expect(folders.every((directory) => directory === draft.sessionDirectory)).toBe(true)
+    },
+  )
+
+  test.each([false, true])(
+    "preserves the draft and attachments before session creation when no model exists (unavailable: %p)",
+    async (stale) => {
+      configured = false
+      unavailable = stale
+      references.set(scope(), [reference("unsent")])
+      contexts.set(scope(), [{ type: "file", key: "context", path: "notes.md", comment: "Keep this context" }])
+      const images = [
+        {
+          type: "image" as const,
+          id: "image",
+          filename: "sample.png",
+          mime: "image/png",
+          dataUrl: "data:image/png;base64,AQ==",
+        },
+      ]
+      const submit = createPromptSubmit({
+        info: () => undefined,
+        imageAttachments: () => images,
+        commentCount: () => 1,
+        autoAccept: () => false,
+        mode: () => "normal",
+        working: () => false,
+        editor: () => undefined,
+        queueScroll: () => undefined,
+        promptLength: () => 2,
+        addToHistory: () => cleared.push("history"),
+        resetHistoryNavigation: () => cleared.push("navigation"),
+        setMode: () => cleared.push("mode"),
+        setPopover: () => cleared.push("popover"),
+        newSessionWorktree: () => "create",
+        onSubmit: () => cleared.push("submit"),
+      })
+      await submit.handleSubmit({ preventDefault() {} } as Event)
+      expect(createdSessions).toEqual([])
+      expect(prompted).toEqual([])
+      expect(optimistic).toEqual([])
+      expect(cleared).toEqual([])
+      expect(images).toHaveLength(1)
+      expect(references.get(scope())).toEqual([reference("unsent")])
+      expect(contexts.get(scope())).toEqual([
+        { type: "file", key: "context", path: "notes.md", comment: "Keep this context" },
+      ])
+      expect(value()[0]).toMatchObject({ content: "ls" })
+      expect(toasts).toEqual([
+        {
+          title: "prompt.toast.modelAgentRequired.title",
+          description: "prompt.model.required",
+        },
+      ])
+    },
+  )
+
   test("reads the latest worktree accessor value per submit", async () => {
     const submit = createPromptSubmit({
       info: () => undefined,

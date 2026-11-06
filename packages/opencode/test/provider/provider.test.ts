@@ -8,6 +8,8 @@ import { ProviderID, ModelID } from "../../src/provider/schema"
 import { Env } from "../../src/env"
 import { ModelsDev } from "../../src/provider/models"
 import { apply } from "../../src/provider/models-local"
+import { Global } from "../../src/global"
+import fs from "fs/promises"
 
 const model: ModelsDev.Model = {
   id: "model",
@@ -43,6 +45,47 @@ const provider: ModelsDev.Provider = {
     },
   },
 }
+
+test("OpenCode catalog retires only explicit raw free prices and known legacy IDs", () => {
+  const data = {
+    opencode: {
+      ...provider,
+      id: "opencode",
+      models: {
+        free: { ...model, id: "new-free-upstream", cost: { input: 0, output: 0 } },
+        partial: { ...model, id: "partly-paid", cost: { input: 0, output: 1 } },
+        unknown: { ...model, id: "unknown-cost" },
+        paid: { ...model, id: "paid-free-in-name", cost: { input: 1, output: 1 } },
+        legacy: { ...model, id: "big-pickle", cost: { input: 1, output: 1 } },
+      },
+    },
+    "opencode-go": { ...provider, id: "opencode-go", models: { model: { ...model, cost: { input: 0, output: 0 } } } },
+    test: { ...provider, models: { model: { ...model, id: "big-pickle", cost: { input: 0, output: 0 } } } },
+  }
+  const result = ModelsDev.Test.filter(data)
+
+  expect(Object.keys(result.data.opencode.models)).toEqual(["partial", "unknown", "paid"])
+  expect(result.excluded.has("new-free-upstream")).toBe(true)
+  expect(result.excluded.has("grok-code")).toBe(true)
+  expect(result.excluded.has("gpt-5-nano")).toBe(true)
+  expect(result.excluded.has("unknown-cost")).toBe(false)
+  expect(result.data["opencode-go"]).toBe(data["opencode-go"])
+  expect(result.data.test).toBe(data.test)
+  expect(data.opencode.models.free).toBeDefined()
+  expect(data.opencode.models.legacy).toBeDefined()
+})
+
+test("models.dev raw catalog remains intact while all public reads apply retirement", async () => {
+  const raw = await ModelsDev.Data()
+  const all = await ModelsDev.get()
+  const catalog = await ModelsDev.catalog()
+
+  expect(raw.opencode.models["big-pickle"]).toBeDefined()
+  expect(all.opencode.models["big-pickle"]).toBeUndefined()
+  expect(catalog.excluded.has("big-pickle")).toBe(true)
+  expect(all.opencode.models["gpt-5"]).toBeDefined()
+  expect(all["opencode-go"].models["kimi-k2.5"]).toBeDefined()
+})
 
 test("models.dev local overlay applies provider additions", () => {
   const data = apply(
@@ -482,7 +525,7 @@ test("provider loaded from config with apiKey option", async () => {
   })
 })
 
-test("opencode public provider is connected without saved auth", async () => {
+test("opencode is not available or connected without saved auth", async () => {
   await using tmp = await tmpdir({
     init: async (dir) => {
       await Bun.write(
@@ -498,8 +541,322 @@ test("opencode public provider is connected without saved auth", async () => {
     fn: async () => {
       const providers = await Provider.list()
       const connected = await Provider.connected()
-      expect(providers[ProviderID.opencode]).toBeDefined()
-      expect(connected).toContain(ProviderID.opencode)
+      expect(providers[ProviderID.opencode]).toBeUndefined()
+      expect(connected).not.toContain(ProviderID.opencode)
+    },
+  })
+})
+
+test.each(["public", " public ", " "])("opencode placeholder credential %j does not reconnect", async (key) => {
+  await using tmp = await tmpdir({
+    config: { provider: { opencode: { options: { apiKey: key } } } },
+  })
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      expect((await Provider.list())[ProviderID.opencode]).toBeUndefined()
+      expect(await Provider.connected()).not.toContain(ProviderID.opencode)
+    },
+  })
+})
+
+test("opencode paid models stay available but aliases and price overrides cannot restore free upstream IDs", async () => {
+  await using tmp = await tmpdir({
+    config: {
+      provider: {
+        opencode: {
+          options: { apiKey: "paid-key" },
+          models: {
+            "big-pickle": { name: "Renamed", cost: { input: 1, output: 1 } },
+            alias: { id: "big-pickle", cost: { input: 9, output: 9 } },
+            historic: { id: "gpt-5-nano", cost: { input: 9, output: 9 } },
+            unknown: { id: "unknown-cost" },
+          },
+        },
+      },
+    },
+  })
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const all = await Provider.list()
+      expect(await Provider.connected()).toContain(ProviderID.opencode)
+      expect(all[ProviderID.opencode].models["gpt-5"]).toBeDefined()
+      expect(all[ProviderID.opencode].models["big-pickle"]).toBeUndefined()
+      expect(all[ProviderID.opencode].models.alias).toBeUndefined()
+      expect(all[ProviderID.opencode].models.historic).toBeUndefined()
+      expect(all[ProviderID.opencode].models.unknown.api.id).toBe("unknown-cost")
+      expect(all[ProviderID.opencode].models.unknown.cost.input).toBe(0)
+      expect(all[ProviderID.opencode].models.unknown.cost.output).toBe(0)
+    },
+  })
+})
+
+test("Go and custom zero-price models sharing retired IDs are unaffected", async () => {
+  await using tmp = await tmpdir({
+    config: {
+      provider: {
+        "opencode-go": {
+          options: { apiKey: "go-key" },
+          models: { "big-pickle": { cost: { input: 0, output: 0 } } },
+        },
+        custom: {
+          npm: "@ai-sdk/openai-compatible",
+          options: { baseURL: "http://localhost:11434/v1" },
+          models: { "big-pickle": { cost: { input: 0, output: 0 } } },
+        },
+      },
+    },
+  })
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const all = await Provider.list()
+      expect(all[ProviderID.make("opencode-go")].models["big-pickle"]).toBeDefined()
+      expect(all[ProviderID.make("custom")].models["big-pickle"]).toBeDefined()
+    },
+  })
+})
+
+test("cached language models cannot accept a stale retired upstream object", async () => {
+  await using tmp = await tmpdir({
+    config: { provider: { opencode: { options: { apiKey: "paid-key" } } } },
+  })
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const model = await Provider.getModel(ProviderID.opencode, ModelID.make("gpt-5"))
+      const language = await Provider.getLanguage(model)
+      expect(language).toBeDefined()
+      await expect(Provider.getLanguage({ ...model, api: { ...model.api, id: "big-pickle" } })).rejects.toBeInstanceOf(
+        Provider.ModelNotFoundError,
+      )
+      await expect(
+        Provider.getLanguage({ ...model, api: { ...model.api, id: "another-paid-id" } }),
+      ).rejects.toBeInstanceOf(Provider.ModelNotFoundError)
+      expect(await Provider.getLanguage(model)).toBe(language)
+    },
+  })
+})
+
+test("empty provider configuration reports a typed no-model error", async () => {
+  await using tmp = await tmpdir({ config: { enabled_providers: [] } })
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      expect(await Provider.list()).toEqual({})
+      await expect(Provider.defaultModel()).rejects.toBeInstanceOf(Provider.NoModelConfiguredError)
+    },
+  })
+})
+
+test("an alias remap rejects the old paid model object after configuration reload", async () => {
+  await using tmp = await tmpdir({
+    config: {
+      provider: { opencode: { options: { apiKey: "paid-key" }, models: { alias: { id: "gpt-5" } } } },
+    },
+  })
+  const prior = await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const model = await Provider.getModel(ProviderID.opencode, ModelID.make("alias"))
+      await Provider.getLanguage(model)
+      await Instance.dispose()
+      return model
+    },
+  })
+  await Bun.write(
+    path.join(tmp.path, "opencode.json"),
+    JSON.stringify({
+      provider: { opencode: { options: { apiKey: "paid-key" }, models: { alias: { id: "gpt-5.1" } } } },
+    }),
+  )
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const model = await Provider.getModel(ProviderID.opencode, ModelID.make("alias"))
+      expect(model.api.id).toBe("gpt-5.1")
+      await expect(Provider.getLanguage(prior)).rejects.toBeInstanceOf(Provider.ModelNotFoundError)
+      expect(await Provider.getLanguage(model)).toBeDefined()
+    },
+  })
+})
+
+test("a provider with only disabled models reports a typed no-model error", async () => {
+  await using tmp = await tmpdir({
+    config: {
+      enabled_providers: [ProviderID.make("custom")],
+      disabled_models: ["custom/model"],
+      provider: {
+        custom: {
+          npm: "@ai-sdk/openai-compatible",
+          options: { baseURL: "http://localhost:11434/v1" },
+          models: { model: {} },
+        },
+      },
+    },
+  })
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      await expect(Provider.defaultModel()).rejects.toBeInstanceOf(Provider.NoModelConfiguredError)
+    },
+  })
+})
+
+test.each([
+  { input: ["text"], output: ["audio"] },
+  { input: ["audio"], output: ["text"] },
+] as const)("non-chat modalities %j never become the default or small model", async (modalities) => {
+  await using tmp = await tmpdir({
+    config: {
+      enabled_providers: [ProviderID.make("custom")],
+      provider: {
+        custom: {
+          npm: "@ai-sdk/openai-compatible",
+          options: { baseURL: "http://localhost:11434/v1" },
+          models: {
+            "gemini-2.5-flash": { modalities: { input: [...modalities.input], output: [...modalities.output] } },
+          },
+        },
+      },
+    },
+  })
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      await expect(Provider.defaultModel()).rejects.toBeInstanceOf(Provider.NoModelConfiguredError)
+      expect(await Provider.getSmallModel(ProviderID.make("custom"))).toBeUndefined()
+    },
+  })
+})
+
+test("unknown custom modalities retain the default text capability", async () => {
+  await using tmp = await tmpdir({
+    config: {
+      enabled_providers: [ProviderID.make("custom")],
+      provider: {
+        custom: {
+          npm: "@ai-sdk/openai-compatible",
+          options: { baseURL: "http://localhost:11434/v1" },
+          models: { model: {} },
+        },
+      },
+    },
+  })
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      expect(await Provider.defaultModel()).toEqual({
+        providerID: ProviderID.make("custom"),
+        modelID: ModelID.make("model"),
+      })
+    },
+  })
+})
+
+test("non-chat config entries do not hide another connected chat provider", async () => {
+  await using tmp = await tmpdir({
+    config: {
+      provider: {
+        audio: {
+          npm: "@ai-sdk/openai-compatible",
+          options: { baseURL: "http://localhost:11434/v1" },
+          models: { model: { modalities: { input: ["audio"], output: ["text"] } } },
+        },
+      },
+    },
+  })
+  await Instance.provide({
+    directory: tmp.path,
+    init: async () => {
+      Env.set("ANTHROPIC_API_KEY", "other-key")
+    },
+    fn: async () => {
+      expect((await Provider.defaultModel()).providerID).toBe(ProviderID.anthropic)
+    },
+  })
+})
+
+test("metadata-only preset providers cannot become a connected default", async () => {
+  const file = path.join(Global.Path.state, "model.json")
+  const saved = await Bun.file(file)
+    .text()
+    .catch(() => undefined)
+  await using tmp = await tmpdir({
+    config: {
+      enabled_providers: [ProviderID.anthropic],
+      provider: { anthropic: { options: { timeout: 10_000 } } },
+    },
+    dispose: async () => {
+      if (saved !== undefined) {
+        await Bun.write(file, saved)
+        return
+      }
+      if (await Bun.file(file).exists()) await fs.unlink(file)
+    },
+  })
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      expect((await Provider.list())[ProviderID.anthropic]).toBeDefined()
+      expect(await Provider.connected()).not.toContain(ProviderID.anthropic)
+      await expect(Provider.defaultModel()).rejects.toBeInstanceOf(Provider.NoModelConfiguredError)
+      await Bun.write(
+        file,
+        JSON.stringify({ recent: [{ providerID: "anthropic", modelID: "claude-sonnet-4-20250514" }] }),
+      )
+      await expect(Provider.defaultModel()).rejects.toBeInstanceOf(Provider.NoModelConfiguredError)
+    },
+  })
+})
+
+test("an explicit retired default never falls back to another connected paid model", async () => {
+  await using tmp = await tmpdir({
+    config: {
+      model: "opencode/big-pickle",
+      provider: { anthropic: { options: { apiKey: "other-key" } } },
+    },
+  })
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      expect((await Provider.list())[ProviderID.anthropic]).toBeDefined()
+      await expect(Provider.defaultModel()).rejects.toBeInstanceOf(Provider.ModelNotFoundError)
+    },
+  })
+})
+
+test("unavailable or disabled OpenCode recent choices never fall back to paid models", async () => {
+  const file = path.join(Global.Path.state, "model.json")
+  const saved = await Bun.file(file)
+    .text()
+    .catch(() => undefined)
+  await using tmp = await tmpdir({
+    config: {
+      disabled_models: ["opencode/gpt-5"],
+      provider: {
+        opencode: { options: { apiKey: "paid-key" } },
+        anthropic: { options: { apiKey: "other-key" } },
+      },
+    },
+    dispose: async () => {
+      if (saved !== undefined) {
+        await Bun.write(file, saved)
+        return
+      }
+      await fs.unlink(file)
+    },
+  })
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      for (const id of ["big-pickle", "gpt-5"]) {
+        const text = JSON.stringify({ recent: [{ providerID: "opencode", modelID: id }] })
+        await Bun.write(file, text)
+        await expect(Provider.defaultModel()).rejects.toBeInstanceOf(Provider.ModelNotFoundError)
+        expect(await Bun.file(file).text()).toBe(text)
+      }
     },
   })
 })
