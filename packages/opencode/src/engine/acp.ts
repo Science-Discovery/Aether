@@ -17,7 +17,7 @@ import { Shell } from "@/shell/shell"
 import type { SessionID } from "@/session/schema"
 import { Engine } from "./schema"
 import { EngineEvents } from "./events"
-import { discover, get, type Definition } from "./discover"
+import { resolve, get, type Definition } from "./discover"
 import { env } from "./env"
 
 type Connection = {
@@ -36,8 +36,8 @@ type Handle = {
 }
 
 export namespace Acp {
-  async function connect(def: Definition, file: string, cwd: string, handle: () => Handle | undefined) {
-    const child = launch(file, def.args, {
+  async function connect(def: Definition, file: string, args: string[], cwd: string, handle: () => Handle | undefined) {
+    const child = launch(file, args, {
       cwd,
       stdio: "pipe",
       windowsHide: true,
@@ -280,6 +280,18 @@ export namespace Acp {
     return result.length ? result : undefined
   }
 
+  function preferAccount(configs: Engine.Config[]) {
+    const model = configs.find((item) => item.category === "model" || item.id === "model")
+    if (!model) return configs
+    const account = model.options.find((item) => item.value.includes("deepseek-account"))
+    if (!account || account.value === model.value) return configs
+    return configs.map((item) => (item === model ? { ...item, value: account.value } : item))
+  }
+
+  function chosen(configs: Engine.Config[]) {
+    return configs.find((item) => item.category === "model" || item.id === "model")?.value
+  }
+
   async function apply(
     connection: ClientSideConnection,
     sessionId: string,
@@ -342,11 +354,11 @@ export namespace Acp {
 
   export async function inspect(id: Engine.ID, model?: string) {
     const def = get(id)!
-    const file = await discover(id)
+    const file = await resolve(id)
     if (!file) return { error: "Executable not found" }
     let conn: Connection | undefined
     try {
-      conn = await connect(def, file, process.cwd(), () => undefined)
+      conn = await connect(def, file.path, file.args, process.cwd(), () => undefined)
       await conn.connection.initialize({
         protocolVersion: 1,
         clientCapabilities: { fs: { readTextFile: true, writeTextFile: false }, terminal: false },
@@ -366,7 +378,7 @@ export namespace Acp {
                 })
               ).configOptions,
             ) ?? configs
-      }
+      } else if (id === "dsh" && configs) configs = preferAccount(configs)
       return {
         models: available(created),
         config: configs,
@@ -402,18 +414,18 @@ export namespace Acp {
 
   export async function probe(id: Engine.ID): Promise<Engine.Status> {
     const def = get(id)!
-    const file = await discover(id)
+    const file = await resolve(id)
     if (!file) return { id, name: def.name, installed: false, protocol: def.protocol, error: "Executable not found" }
     let handle: Handle | undefined
     let conn: Connection | undefined
     try {
-      conn = await connect(def, file, process.cwd(), () => handle)
+      conn = await connect(def, file.path, file.args, process.cwd(), () => handle)
       const init = await Promise.race([
         conn.connection.initialize({
           protocolVersion: 1,
           clientCapabilities: { fs: { readTextFile: true, writeTextFile: false }, terminal: false },
         }),
-        Bun.sleep(10_000).then(() => {
+        Bun.sleep(id === "dsh" ? 30_000 : 6_000).then(() => {
           throw new Error("ACP initialization timed out")
         }),
       ])
@@ -421,7 +433,7 @@ export namespace Acp {
         id,
         name: def.name,
         installed: true,
-        path: file,
+        path: id === "dsh" ? file.args[0] : file.path,
         version: init.agentInfo?.version,
         protocol: def.protocol,
       }
@@ -430,7 +442,7 @@ export namespace Acp {
         id,
         name: def.name,
         installed: true,
-        path: file,
+        path: id === "dsh" ? file.args[0] : file.path,
         protocol: def.protocol,
         error: error instanceof Error ? error.message : "ACP initialization failed",
       }
@@ -455,7 +467,7 @@ export namespace Acp {
     save: (session: string, patch?: Partial<Engine.Info>) => Promise<void>
   }): Promise<MessageV2.WithParts> {
     const def = get(input.id)!
-    const file = await discover(input.id)
+    const file = await resolve(input.id)
     if (!file) throw new Error(`${def.name} executable was not found`)
     const events = EngineEvents.create(input.assistant)
     const state: { conn?: Connection; handle?: Handle } = {}
@@ -475,7 +487,7 @@ export namespace Acp {
     }
     input.signal.addEventListener("abort", abort, { once: true })
     try {
-      const conn = await connect(def, file, input.directory, () => handle)
+      const conn = await connect(def, file.path, file.args, input.directory, () => handle)
       state.conn = conn
       input.signal.throwIfAborted()
       await conn.connection.initialize({
@@ -497,7 +509,18 @@ export namespace Acp {
           models = available(loaded)
           configs = parseConfig(loaded.configOptions) ?? []
         } else {
-          remote = undefined
+          const resumed = await conn.connection
+            .unstable_resumeSession({ sessionId: remote, cwd: input.directory, mcpServers: [] })
+            .then(
+              (value) => value as Record<string, unknown>,
+              () => undefined,
+            )
+          if (resumed) {
+            models = available(resumed)
+            configs = parseConfig(resumed.configOptions) ?? []
+          } else {
+            remote = undefined
+          }
         }
       }
       if (!remote) {
@@ -506,19 +529,21 @@ export namespace Acp {
         models = available(created)
         configs = parseConfig(created.configOptions) ?? []
       }
+      if (input.id === "dsh") configs = preferAccount(configs)
       await input.save(remote, { models, config: configs })
       input.signal.throwIfAborted()
-      if (input.model || input.effort || input.mode) {
+      const model = input.model ?? (input.id === "dsh" ? chosen(configs) : undefined)
+      if (model || input.effort || input.mode) {
         const updated = await apply(
           conn.connection,
           remote,
-          { model: input.model, effort: input.effort, mode: input.mode },
+          { model, effort: input.effort, mode: input.mode },
           models,
           configs,
         )
         await input.save(remote, {
           config: updated,
-          ...(input.model ? { model: input.model } : {}),
+          ...(model ? { model } : {}),
           ...(input.effort ? { effort: input.effort } : {}),
           ...(input.mode ? { mode: input.mode } : {}),
         })
@@ -547,9 +572,11 @@ export namespace Acp {
       return await events.finish(outcome)
     } catch (error) {
       const message = reason(error)
-      const friendly = /authentication required|not logged in|please run \/login|sign in/i.test(message)
-        ? `${def.name} is not signed in on this machine. Sign in with ${def.name}, then retry.`
-        : message
+      const friendly = /MISSING_CREDENTIAL|no api key/i.test(message)
+        ? `${def.name} has no model credentials. Configure its API key, then retry.`
+        : /authentication required|not logged in|please run \/login|sign in/i.test(message)
+          ? `${def.name} is not signed in on this machine. Sign in with ${def.name}, then retry.`
+          : message
       return await events.finish({
         status: input.signal.aborted ? "interrupted" : "failed",
         error: friendly,

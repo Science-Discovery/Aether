@@ -44,6 +44,7 @@ export const backends = {
   qoder: "Qoder CLI",
   qodercn: "Qoder CLI CN",
   opencode: "OpenCode",
+  dsh: "DeepSeek Harness",
 } as const
 
 export const backend = (session: Pick<Session, "engine" | "acp">) =>

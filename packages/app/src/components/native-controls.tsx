@@ -59,10 +59,10 @@ export function AcpModels() {
       <Show when={acp.models().length > 0}>
         <Select
           options={acp.models()}
-          current={acp.models().find((item) => item.id === acp.model())}
+          current={acp.models().find((item) => item.value === acp.model())}
           value={(item) => item.id}
           label={(item) => item.name}
-          onSelect={(item) => item && acp.setModel(item.id)}
+          onSelect={(item) => item && acp.setModel(item.value)}
           disabled={acp.loadingConfig()}
           placeholder={language.t(acp.loadingConfig() ? "native.checking" : "engine.chooseModel")}
           variant="ghost"

@@ -501,7 +501,7 @@ export type NativeEngine = {
   cursor?: string
 }
 
-export type EngineId = "qoder" | "qodercn" | "opencode" | "claude"
+export type EngineId = "qoder" | "qodercn" | "opencode" | "claude" | "dsh"
 
 /**
  * How ACP permission requests are answered

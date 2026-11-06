@@ -33,6 +33,14 @@ const definitions: Definition[] = [
     env: "AETHER_OPENCODE_PATH",
   },
   { id: "claude", name: "Claude Code", protocol: "claude", command: "claude", args: [], env: "AETHER_CLAUDE_PATH" },
+  {
+    id: "dsh",
+    name: "DeepSeek Harness",
+    protocol: "acp",
+    command: "dsh",
+    args: ["--profile", "acp"],
+    env: "AETHER_DSH_PATH",
+  },
 ]
 
 export function list() {
@@ -122,6 +130,10 @@ async function candidates(def: Definition) {
         path.join(home, ".volta", "bin", "claude"),
       ]
     }
+    case "dsh": {
+      const found = which(def.command)
+      return [found, path.join(home, ".local", "bin", "dsh"), path.join(home, ".npm-global", "bin", "dsh")]
+    }
   }
 }
 
@@ -133,4 +145,56 @@ export async function discover(id: Engine.ID): Promise<string | undefined> {
     const found = await executable(candidate)
     if (found) return found
   }
+  if (id === "dsh") {
+    const npx = which("npx")
+    if (npx) return executable(npx)
+  }
+}
+
+/** Resolve the executable and the args for engines that can start through npx. */
+export async function resolve(id: Engine.ID): Promise<{ path: string; args: string[] } | undefined> {
+  const def = get(id)
+  if (!def) return
+  const file = await discover(id)
+  if (!file) return
+  if (id === "dsh") {
+    const direct = await dsh()
+    if (direct) return direct
+  }
+  if (id === "dsh" && path.basename(file).toLowerCase().startsWith("npx")) {
+    return { path: file, args: ["--yes", "@deepseek-ai/dsh", "--profile", "acp"] }
+  }
+  return { path: file, args: def.args }
+}
+
+let cached: Promise<{ path: string; args: string[] } | undefined> | undefined
+
+/** Run the npx-cached package directly so startup does not pay npm resolution every turn. */
+function dsh() {
+  return (cached ??= (async () => {
+    const npx = which("npx")
+    const node = which("node") ?? (npx ? path.join(path.dirname(npx), "node") : undefined)
+    if (!node) return
+    const home = Global.Path.home
+    const npmrc = await fs.readFile(path.join(home, ".npmrc"), "utf8").catch(() => "")
+    const cache =
+      process.env.npm_config_cache?.trim() ||
+      /^cache\s*=\s*(.+)$/m.exec(npmrc)?.[1]?.trim() ||
+      path.join(home, ".npm")
+    const root = path.join(cache, "_npx")
+    const entries = await fs.readdir(root, { withFileTypes: true }).catch(() => [])
+    const files = await Promise.all(
+      entries
+        .filter((entry) => entry.isDirectory())
+        .map(async (entry) => {
+          const file = path.join(root, entry.name, "node_modules", "@deepseek-ai", "dsh", "lib", "bin.js")
+          const stat = await fs.stat(file).catch(() => undefined)
+          return stat?.isFile() ? { file, time: stat.mtimeMs } : undefined
+        }),
+    )
+    const best = files
+      .filter((entry) => entry !== undefined)
+      .sort((a, b) => b.time - a.time || a.file.localeCompare(b.file))[0]
+    return best ? { path: node, args: [best.file, "--profile", "acp"] } : undefined
+  })()) as Promise<{ path: string; args: string[] } | undefined>
 }

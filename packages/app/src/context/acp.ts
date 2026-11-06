@@ -6,6 +6,7 @@ import { useSDK } from "./sdk"
 import { useSync } from "./sync"
 
 export type AcpID = EngineInput["type"]
+export type AcpModel = { id: string; name: string; value: string }
 type Pick = { model?: string; effort?: string; mode?: string }
 
 export function createAcp() {
@@ -82,10 +83,13 @@ export function createAcp() {
   const config = createMemo<EngineConfigOption[]>(() => store.config ?? saved()?.config ?? [])
   const option = (category: string, id: string) =>
     config().find((item) => item.category === category || item.id === id)
-  const models = createMemo<EngineModel[]>(() => {
-    if (saved()?.models?.length) return saved()!.models!
-    if (store.models?.length) return store.models
-    return option("model", "model")?.options?.map((item) => ({ id: item.value, name: item.name })) ?? []
+  const models = createMemo<AcpModel[]>(() => {
+    const list: EngineModel[] = saved()?.models?.length
+      ? saved()!.models!
+      : store.models?.length
+        ? store.models
+        : (option("model", "model")?.options?.map((item) => ({ id: item.value, name: item.name })) ?? [])
+    return list.map((item) => ({ id: encodeURIComponent(item.id), name: item.name, value: item.id }))
   })
   const model = () => store.pick.model ?? saved()?.model ?? option("model", "model")?.value
   const effort = () => {
