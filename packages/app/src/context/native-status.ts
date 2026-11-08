@@ -4,6 +4,10 @@ import { createStore } from "solid-js/store"
 
 const listeners = new Set<(server: string) => Promise<void>>()
 
+function healthy(data?: NativeCodexStatus) {
+  return !!data?.enabled && data.installed && data.connected && data.auth !== "missing" && !data.error
+}
+
 // Login changes the account for every project using this Aether server.
 export async function refreshNativeStatus(server: string) {
   await Promise.all([...listeners].map((refresh) => refresh(server)))
@@ -50,8 +54,23 @@ export function createNativeStatus(opts: {
         if (run !== epoch || !opts.enabled() || opts.key() !== key) return
         // Older servers predate the switch and omit enabled from discovery.
         const data = value && { ...value, enabled: value.enabled !== false }
-        const good = !!data?.enabled && data.installed && data.connected && data.auth !== "missing" && !data.error
-        setStore({ data, fresh: true, expires: Date.now() + (good ? 60_000 : 5_000) })
+        const good = healthy(data)
+        // Discovery uses a separate process and can fail while the saved thread
+        // is still usable. Treat automatic probe errors like transport failures,
+        // but honor explicit checks, sign-out, disabling, and executable removal.
+        const keep =
+          !refresh &&
+          !!data?.enabled &&
+          data.installed &&
+          data.auth !== "missing" &&
+          !!data.error &&
+          healthy(store.data)
+        setStore({
+          data: keep ? store.data : data,
+          error: keep ? new Error(data?.error) : undefined,
+          fresh: !keep,
+          expires: Date.now() + (good ? 60_000 : 5_000),
+        })
         timer = setTimeout(
           () => {
             if (run !== epoch) return
