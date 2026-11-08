@@ -16,8 +16,8 @@ vi.mock("@/context/language", () => ({
 }))
 vi.mock("@opencode-ai/ui/toast", () => ({ showToast: mocks.toast }))
 vi.mock("@opencode-ai/ui/button", () => ({
-  Button: (props: ComponentProps<"button">) => (
-    <button disabled={props.disabled} title={props.title} onClick={props.onClick}>
+  Button: (props: ComponentProps<"button"> & { "data-action"?: string }) => (
+    <button data-action={props["data-action"]} disabled={props.disabled} title={props.title} onClick={props.onClick}>
       {props.children}
     </button>
   ),
@@ -140,7 +140,7 @@ test("standalone reading updates its existing fixed-width caption without adding
 
 test("exporting an outdated displayed PDF keeps the version warning at the export action", () => {
   setState({ collapsed: false, displayed: "" })
-  const button = host.querySelector("button")!
+  const button = host.querySelector<HTMLButtonElement>('[data-action="latex-export"]')!
   expect(button.disabled).toBe(true)
   setState({ displayed: "build-1", outdated: true })
   expect(button.title).toBe(dict["latex.preview.outdated"])
@@ -156,4 +156,35 @@ test("exporting an outdated displayed PDF keeps the version warning at the expor
   button.click()
   expect(mocks.download).toHaveBeenCalledTimes(2)
   expect(mocks.toast).not.toHaveBeenCalled()
+})
+
+test("realtime selects the live option and only switches on a user change", async () => {
+  const build = { id: "build-1" } as LatexVersion["build"]
+  setState("versions", [{ build, pdfHash: "", annotationCount: 0, referenced: false, viewing: false }])
+  dispose()
+  const onSwitch = vi.fn()
+  host = document.createElement("div")
+  document.body.append(host)
+  dispose = render(
+    () => (
+      <LatexReadingToolbar
+        reading={reading}
+        download={mocks.download}
+        collapsed={false}
+        embedded={false}
+        realtime
+        onSwitchBuild={onSwitch}
+      />
+    ),
+    host,
+  )
+  const native = host.querySelector("select")!
+  expect(native.value).toBe("__realtime__")
+  setState("selected", "build-1")
+  await Promise.resolve()
+  expect(native.value).toBe("__realtime__")
+  expect(onSwitch).not.toHaveBeenCalled()
+  native.value = "build-1"
+  native.dispatchEvent(new Event("change", { bubbles: true }))
+  expect(onSwitch).toHaveBeenCalledWith("build-1")
 })

@@ -11,15 +11,6 @@
   }
 }
 
-.latex-help-intro {
-  flex-shrink: 0;
-  margin: 0;
-  padding: 0 24px 20px;
-  color: var(--text-weak);
-  font-size: 13px;
-  line-height: 1.6;
-}
-
 .latex-help {
   display: flex;
   flex-direction: column;

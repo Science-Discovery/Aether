@@ -16,15 +16,17 @@ const file = path.join(Global.Path.config, "config.json")
 const original = await Bun.file(file)
   .text()
   .catch(() => undefined)
+const fixture = path.join(import.meta.dir, "fixture.ts")
+const wrapper =
+  process.platform === "win32"
+    ? `@echo off\r\n"${process.execPath}" "${fixture}" %*\r\n`
+    : `#!/bin/sh\nexec '${process.execPath.replaceAll("'", "'\\''")}' '${fixture.replaceAll("'", "'\\''")}' "$@"\n`
 const executable = path.join(binary.path, process.platform === "win32" ? "tectonic.cmd" : "tectonic")
+const latexmk = path.join(binary.path, process.platform === "win32" ? "latexmk.cmd" : "latexmk")
+const lualatex = path.join(binary.path, process.platform === "win32" ? "lualatex.cmd" : "lualatex")
 beforeAll(async () => {
-  await Bun.write(
-    executable,
-    process.platform === "win32"
-      ? `@echo off\r\n"${process.execPath}" "${path.join(import.meta.dir, "fixture.ts")}" %*\r\n`
-      : `#!/bin/sh\nexec '${process.execPath.replaceAll("'", "'\\''")}' '${path.join(import.meta.dir, "fixture.ts").replaceAll("'", "'\\''")}' "$@"\n`,
-  )
-  await fs.chmod(executable, 0o700)
+  await Promise.all([Bun.write(executable, wrapper), Bun.write(latexmk, wrapper), Bun.write(lualatex, wrapper)])
+  await Promise.all([fs.chmod(executable, 0o700), fs.chmod(latexmk, 0o700), fs.chmod(lualatex, 0o700)])
   await Bun.write(
     file,
     JSON.stringify({ latex: { tectonic: { path: executable }, latexmk: { path: path.join(binary.path, "missing") } } }),
@@ -58,7 +60,13 @@ async function marker(file: string) {
   throw new Error("Fixture process did not start")
 }
 const start = (binding: LatexSchema.Binding, sourceRevision?: string) =>
-  Latex.start({ root: binding.root, bindingRevision: binding.revision, sourceRevision, allowDownloads: false })
+  Latex.start({
+    root: binding.root,
+    bindingRevision: binding.revision,
+    sourceRevision,
+    allowDownloads: false,
+    realtimeSnapshot: false,
+  })
 
 describe("LaTeX compiler lifecycle", () => {
   test("publishes build-bound source positions, verifies freshness and survives scratch removal and instance reload", async () => {
@@ -392,6 +400,102 @@ describe("LaTeX compiler lifecycle", () => {
       path: "paper/parts/chapter.tex",
       line: 12,
     })
+  })
+
+  test("latexmk receives the LuaLaTeX engine flag", async () => {
+    await using dir = await tmpdir()
+    await Bun.write(path.join(dir.path, "main.tex"), "\\documentclass{article}")
+    const previous = await Bun.file(file).text()
+    await Bun.write(file, JSON.stringify({ latex: { tectonic: { path: executable }, latexmk: { path: latexmk } } }))
+    Config.global.reset()
+    try {
+      await Instance.provide({
+        directory: dir.path,
+        fn: async () => {
+          await Bun.write(
+            path.join(dir.path, "scenario.json"),
+            JSON.stringify({ marker: path.join(dir.path, "marker.json") }),
+          )
+          const bound = (await Latex.bind({ root: ".", main: "main.tex", driver: "latexmk", program: "lualatex" }))
+            .binding!
+          const build = await terminal((await start(bound)).id)
+          expect(build.state).toBe("succeeded")
+          expect(build.driver).toBe("latexmk")
+          expect(build.program).toBe("lualatex")
+          expect((await marker(path.join(dir.path, "marker.json"))).args).toContain("-lualatex")
+          await Instance.dispose()
+        },
+      })
+    } finally {
+      await Bun.write(file, previous)
+      Config.global.reset()
+    }
+  })
+
+  test("a realtime-origin build snapshots build and live annotations", async () => {
+    await using dir = await tmpdir()
+    await Bun.write(path.join(dir.path, "main.tex"), "\\documentclass{article}")
+    const previous = await Bun.file(file).text()
+    await Bun.write(file, JSON.stringify({ latex: { tectonic: { path: executable }, latexmk: { path: latexmk } } }))
+    Config.global.reset()
+    try {
+      await Instance.provide({
+        directory: dir.path,
+        fn: async () => {
+          const bound = (await Latex.bind({ root: ".", main: "main.tex", driver: "latexmk", program: "lualatex" }))
+            .binding!
+          const empty = await Latex.realtimeAnnotations({ root: ".", main: "main.tex" })
+          await Latex.saveRealtimeAnnotations({
+            root: ".",
+            main: "main.tex",
+            revision: empty.revision,
+            data: {
+              version: "1.2",
+              source: { path: "live", fingerprint: "live" },
+              annotations: [
+                {
+                  id: "one",
+                  type: "highlight",
+                  color: "yellow",
+                  pages: [{ page: 1, quads: [[1, 2, 3, 2, 1, 4, 3, 4]] }],
+                  selectedText: "Hello",
+                  note: "",
+                  createdAt: 1,
+                  updatedAt: 1,
+                  anchors: [{ kind: "page", page: 1, rect: { x: 0.1, y: 0.2, w: 0.3, h: 0.1 } }],
+                },
+              ],
+            },
+          })
+          const build = await terminal(
+            (
+              await Latex.start({
+                root: ".",
+                bindingRevision: bound.revision,
+                allowDownloads: false,
+                realtimeSnapshot: true,
+              })
+            ).id,
+          )
+          expect(build.state).toBe("succeeded")
+          expect(build.program).toBe("lualatex")
+          const annotations = await Latex.annotations(build.id)
+          expect(annotations.data.annotations).toHaveLength(1)
+          expect(annotations.data.source.path).toBe(`latex-build:${build.id}`)
+          const restored = await Latex.restoreRealtimeAnnotations({
+            root: ".",
+            main: "main.tex",
+            buildId: build.id,
+          })
+          expect(restored.data.annotations[0]).toMatchObject({ id: "one", selectedText: "Hello" })
+          expect(restored.data.annotations[0].anchors).toHaveLength(1)
+          await Instance.dispose()
+        },
+      })
+    } finally {
+      await Bun.write(file, previous)
+      Config.global.reset()
+    }
   })
 
   test("extensionless diagnostics require snapshot evidence and never point outside the project", () => {

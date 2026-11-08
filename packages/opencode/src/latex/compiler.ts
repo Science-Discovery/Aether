@@ -11,7 +11,11 @@ import { LatexSetup } from "./setup"
 export namespace LatexCompiler {
   export class StopError extends Error {}
   export type Config = { tectonic?: { path?: string }; latexmk?: { path?: string } }
-  export type Tool = { driver: "tectonic" | "latexmk"; path: string; program: "pdflatex" | "xelatex" }
+  export type Tool = {
+    driver: "tectonic" | "latexmk"
+    path: string
+    program: "pdflatex" | "xelatex" | "lualatex"
+  }
 
   async function executable(name: "tectonic" | "latexmk", cfg: Config) {
     const value = cfg[name]?.path?.trim()
@@ -212,10 +216,10 @@ export namespace LatexCompiler {
       if (!latexmk || !engine) throw new LatexSchema.Error(503, `latexmk and ${program} must both be installed.`)
       return { driver: "latexmk", path: latexmk, program }
     }
-    if (requested === "pdflatex")
+    if (requested === "pdflatex" || requested === "lualatex")
       throw new LatexSchema.Error(
         503,
-        "This document requests pdfLaTeX. Tectonic uses XeTeX; install latexmk/pdfLaTeX or explicitly choose XeLaTeX.",
+        `This document requests ${requested === "pdflatex" ? "pdfLaTeX" : "LuaLaTeX"}. Tectonic uses XeTeX; install latexmk/${requested} or explicitly choose XeLaTeX.`,
       )
     if (!tectonic)
       throw new LatexSchema.Error(
@@ -298,7 +302,7 @@ export namespace LatexCompiler {
           ]
         : [
             "-norc",
-            input.tool.program === "pdflatex" ? "-pdf" : "-xelatex",
+            input.tool.program === "pdflatex" ? "-pdf" : input.tool.program === "xelatex" ? "-xelatex" : "-lualatex",
             "-interaction=nonstopmode",
             "-no-shell-escape",
             "-file-line-error",

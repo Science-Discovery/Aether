@@ -34,6 +34,14 @@ vi.mock("@/components/prompt-input/submit", () => ({ sendFollowupDraft: mocks.se
 vi.mock("@/context/prompt", () => ({ DEFAULT_PROMPT: [], usePrompt: () => ({ references: { add: mocks.add } }) }))
 vi.mock("@/context/global-sync", () => ({ useGlobalSync: () => ({}) }))
 vi.mock("@/context/language", () => ({ useLanguage: () => ({ t: (key: string) => key }) }))
+vi.mock("@/context/latex", () => ({
+  useLatex: () => ({
+    state: { realtime: false },
+    edit: vi.fn(),
+    bind: vi.fn(async () => undefined),
+    compileVersion: vi.fn(async () => true),
+  }),
+}))
 vi.mock("@/context/local", () => ({
   useLocal: () => ({
     selection: () => ({

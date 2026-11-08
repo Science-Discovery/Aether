@@ -1,5 +1,7 @@
-import { For, Show } from "solid-js"
-import { Button } from "@opencode-ai/ui/button"
+import { createMemo, For, Show } from "solid-js"
+import { IconButton } from "@opencode-ai/ui/icon-button"
+import { Select } from "@opencode-ai/ui/select"
+import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { showToast } from "@opencode-ai/ui/toast"
 import { useLanguage } from "@/context/language"
 import type { useLatexReading } from "@/pages/session/use-latex-reading"
@@ -9,6 +11,8 @@ export function LatexReadingToolbar(props: {
   download: () => Promise<void>
   collapsed?: boolean
   embedded?: boolean
+  realtime?: boolean
+  onSwitchBuild?: (id: string) => void
 }) {
   const language = useLanguage()
   const status = () =>
@@ -17,6 +21,35 @@ export function LatexReadingToolbar(props: {
       : props.reading.outdated()
         ? language.t("latex.preview.stale")
         : language.t("latex.preview")
+  const REALTIME = "__realtime__"
+  const versions = createMemo(() => [
+    ...(props.realtime ? [REALTIME] : []),
+    "latest",
+    ...props.reading.state.versions.map((item) => item.build.id),
+  ])
+  const current = () => (props.realtime ? REALTIME : props.reading.state.selected || "latest")
+  const versionLabel = (value: string) => {
+    if (value === REALTIME) return language.t("latex.realtime.unsaved")
+    if (value === "latest") return language.t("latex.preview.latest")
+    const item = props.reading.state.versions.find((entry) => entry.build.id === value)
+    if (!item) return value
+    return `${new Date(item.build.completedAt ?? item.build.createdAt).toLocaleString(language.intl())}${
+      item.annotationCount ? ` · ${language.t("latex.preview.annotated")} (${item.annotationCount})` : ""
+    }`
+  }
+  let opened = false
+  let openedAt = 0
+  const select = (id: string, native = false) => {
+    if (!native && !opened && Date.now() - openedAt > 2000) return
+    openedAt = 0
+    if (id === REALTIME) return
+    if (!props.realtime && id === props.reading.state.selected) return
+    if (props.realtime) {
+      props.onSwitchBuild?.(id)
+      return
+    }
+    props.reading.select(id)
+  }
   return (
     <Show when={!props.collapsed || props.reading.slow() || props.reading.state.error}>
       <div
@@ -32,46 +65,70 @@ export function LatexReadingToolbar(props: {
             >
               {props.embedded ? language.t("latex.preview") : status()}
             </span>
-            <select
-              class="min-w-0 max-w-full flex-1 basis-40 rounded border border-border-base bg-surface-base px-2 py-1"
-              aria-label={language.t("latex.preview.versions")}
-              value={props.reading.state.selected}
-              onChange={(event) => props.reading.select(event.currentTarget.value)}
-            >
-              <option value="">{language.t("latex.preview.latest")}</option>
-              <For each={props.reading.state.versions}>
-                {(item) => (
-                  <option value={item.build.id}>
-                    {new Date(item.build.completedAt ?? item.build.createdAt).toLocaleString(language.intl())}
-                    {item.annotationCount
-                      ? ` · ${language.t("latex.preview.annotated")} (${item.annotationCount})`
-                      : ""}
-                  </option>
-                )}
-              </For>
-            </select>
-            <Button
-              size="small"
-              variant="ghost"
-              disabled={!props.reading.state.displayed}
-              title={props.reading.outdated() ? language.t("latex.preview.outdated") : undefined}
-              onClick={() => {
-                if (props.reading.outdated())
-                  showToast({
-                    title: language.t("latex.preview.export"),
-                    description: language.t("latex.preview.outdated"),
-                  })
-                void props.download().catch((error: unknown) =>
-                  showToast({
-                    variant: "error",
-                    title: language.t("common.requestFailed"),
-                    description: String(error),
-                  }),
-                )
-              }}
-            >
-              {language.t("latex.preview.export")}
-            </Button>
+            <div class="min-w-0 flex-1 basis-40">
+              <select
+                aria-hidden="true"
+                tabIndex={-1}
+                class="sr-only"
+                aria-label={language.t("latex.preview.versions")}
+                value={current()}
+                onChange={(event) => select(event.currentTarget.value, true)}
+              >
+                <Show when={props.realtime}>
+                  <option value={REALTIME}>{versionLabel(REALTIME)}</option>
+                </Show>
+                <option value="">{language.t("latex.preview.latest")}</option>
+                <For each={props.reading.state.versions}>
+                  {(item) => <option value={item.build.id}>{versionLabel(item.build.id)}</option>}
+                </For>
+              </select>
+              <Select
+                options={versions()}
+                current={current()}
+                value={(value) => value}
+                label={(value) => versionLabel(value)}
+                onOpenChange={(open) => {
+                  opened = open
+                  if (open) openedAt = Date.now()
+                }}
+                onSelect={(value) => select(!value ? "" : value === "latest" ? "" : value)}
+                size="small"
+                variant="secondary"
+                triggerVariant="settings"
+                triggerStyle={{ width: "100%" }}
+                triggerProps={{
+                  "aria-label": language.t("latex.preview.versions"),
+                  "data-action": "latex-version",
+                }}
+              />
+            </div>
+            <Tooltip placement="top" gutter={4} value={language.t("latex.preview.export")}>
+              <span class="inline-flex">
+                <IconButton
+                  icon="download"
+                  size="small"
+                  variant="ghost"
+                  data-action="latex-export"
+                  aria-label={language.t("latex.preview.export")}
+                  disabled={!props.reading.state.displayed}
+                  title={props.reading.outdated() ? language.t("latex.preview.outdated") : undefined}
+                  onClick={() => {
+                    if (props.reading.outdated())
+                      showToast({
+                        title: language.t("latex.preview.export"),
+                        description: language.t("latex.preview.outdated"),
+                      })
+                    void props.download().catch((error: unknown) =>
+                      showToast({
+                        variant: "error",
+                        title: language.t("common.requestFailed"),
+                        description: String(error),
+                      }),
+                    )
+                  }}
+                />
+              </span>
+            </Tooltip>
           </div>
         </Show>
         <Show when={props.reading.slow()}>

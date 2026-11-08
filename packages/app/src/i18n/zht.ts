@@ -1326,7 +1326,7 @@ export const dict = {
   "latex.help.open": "讀取填入的資料夾，尋找專案設定與主文件候選；不會建立資料夾。",
   "latex.help.main": "編譯整篇論文的 .tex 入口，路徑相對於專案目錄。即使正在編輯章節，也會從這個檔案編譯。",
   "latex.help.driver": "為目前專案選擇 Tectonic、latexmk 或自動選擇。安裝與路徑設定在「LaTeX 設定」中完成。",
-  "latex.help.program": "選擇 latexmk 使用的排版引擎。Tectonic 使用 XeTeX，請保持「自動」。",
+  "latex.help.program": "為 latexmk 選擇 pdfLaTeX、XeLaTeX 或 LuaLaTeX。Tectonic 使用 XeTeX，請保持「自動」。",
   "latex.help.bind": "記住目前專案的主文件、編譯器與引擎。修改專案目錄後，先點選「開啟專案」再儲存這些設定。",
   "latex.help.downloads":
     "Tectonic 提示缺少資源套件時，可勾選此項後點選「儲存並編譯」。許可只用於這次手動編譯，不延續到之後的自動編譯。",

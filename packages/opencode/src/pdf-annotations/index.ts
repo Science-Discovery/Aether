@@ -35,6 +35,8 @@ export namespace PdfAnnotations {
     note: z.string().max(100_000),
     createdAt: z.number().int().nonnegative(),
     updatedAt: z.number().int().nonnegative(),
+    anchor: z.unknown().optional(),
+    anchors: z.unknown().optional(),
   })
   export type Item = z.infer<typeof Item>
 

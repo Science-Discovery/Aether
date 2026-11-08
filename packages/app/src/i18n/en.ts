@@ -2055,6 +2055,28 @@ export const dict = {
   "latex.state.failed": "Failed",
   "latex.state.cancelled": "Cancelled",
   "latex.downloads": "Allow Tectonic to download missing packages for this build",
+  "latex.realtime.toggle": "Live preview",
+  "latex.compileOnly": "Compile",
+  "latex.realtime.exit": "Normal PDF",
+  "latex.realtime.autosaveOff":
+    "Timed automatic compilation is off while live preview is enabled. Saving or compiling creates a stable version.",
+  "latex.realtime.leaveTitle": "Save a version before leaving live preview?",
+  "latex.realtime.leaveBody":
+    "Leaving live preview without a version discards the current live annotation changes. A saved version is a stable full compile and gets its own annotation snapshot.",
+  "latex.realtime.saveSwitch": "Save version and switch",
+  "latex.realtime.discardSwitch": "Switch without saving",
+  "latex.realtime.starting": "Starting realtime LuaLaTeX…",
+  "latex.realtime.idle": "Realtime preview",
+  "latex.realtime.live": "Live",
+  "latex.realtime.unsaved": "Live (unsaved)",
+  "latex.realtime.converging": "Updating pages…",
+  "latex.realtime.waiting": "Waiting for the next full pass",
+  "latex.realtime.diagnostics": "{{count}} diagnostic(s)",
+  "latex.realtime.exited": "The realtime engine stopped. Save and compile to continue.",
+  "latex.realtime.font": "This paragraph is shown from the last full pass because its font cannot be drawn live.",
+  "latex.realtime.fit": "Fit width",
+  "latex.realtime.recompile": "Recompile",
+  "latex.realtime.page": "Page",
   "latex.unavailable": "No compiler found. Set an installed Tectonic or latexmk executable in LaTeX settings.",
   "latex.emptyHelp": "Save the main document in project settings, then choose Save and compile to see its PDF here.",
   "latex.diagnostics": "Diagnostics and log ({{count}})",
@@ -2082,6 +2104,9 @@ export const dict = {
     "This installs the compiler only. Missing TeX packages may need a separate download on the first build; allow downloads for that build when needed.",
   "latex.setup.latexmk":
     "Install TeX Live or MiKTeX with latexmk on the Aether server, then refresh detection or enter its executable path.",
+  "latex.setup.rtex.help":
+    "Install the rtex engine to preview LuaLaTeX edits as you type. Final PDFs, annotations and SyncTeX still use the normal compile.",
+  "latex.setup.rtex.manual": "Manual installation",
   "latex.setup.starting": "Starting installation…",
   "latex.setup.cancelling": "Cancelling installation…",
   "latex.setup.idle": "Ready to install",
@@ -2169,7 +2194,7 @@ export const dict = {
   "latex.help.driver":
     "Choose Tectonic, latexmk, or automatic selection for this project. Installation is configured separately in LaTeX settings.",
   "latex.help.program":
-    "Choose the typesetting engine for latexmk. Leave this set to Automatic for Tectonic, which uses XeTeX.",
+    "Choose pdfLaTeX, XeLaTeX, or LuaLaTeX for latexmk. Leave this set to Automatic for Tectonic, which uses XeTeX.",
   "latex.help.bind":
     "Remember this project's main document, compiler and engine. After changing the folder, open it before saving these settings.",
   "latex.help.downloads":

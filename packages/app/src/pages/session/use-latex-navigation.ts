@@ -99,6 +99,7 @@ export function useLatexNavigation(reading: Reading) {
     )
   }
   const forward = async (position: { path: string; line: number; column: number }) => {
+    if (latex.state.realtime && reading.document()) return
     if (state.busy) return notify("busy")
     const project = latex.state.project
     if (!project?.binding || !contains(project.root, position.path)) return notify("missing")
@@ -180,6 +181,18 @@ export function useLatexNavigation(reading: Reading) {
     file.locate(target.path, target.line, target.column ?? 1)
     file.reveal(target.path)
   }
+  const source = async (target: { path: string; line: number; column?: number }) => {
+    const known = file.draft(target.path) !== undefined || file.get(target.path)?.content?.type === "text"
+    if (!known) await file.load(target.path, { force: true }).catch(() => undefined)
+    const content = file.get(target.path)?.content
+    if (content?.type !== "text" || file.get(target.path)?.error) return notify("failed")
+    const tab = file.tab(target.path)
+    layout.view().reviewPanel.open()
+    layout.tabs().open(tab)
+    layout.tabs().setActive(tab)
+    file.locate(target.path, target.line, target.column ?? 1)
+    file.reveal(target.path)
+  }
   createEffect(
     on(
       () => latex.state.locating.nonce,
@@ -192,6 +205,7 @@ export function useLatexNavigation(reading: Reading) {
   return {
     forward,
     inverse,
+    source,
     busy: (value: boolean) => setState("busy", value),
     reveal: () => {
       const value = state.reveal

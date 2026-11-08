@@ -19,6 +19,7 @@ const mocks = vi.hoisted(() => ({
   locate: vi.fn(),
   write: vi.fn<(input: { path: string; content: string; expectedChecksum?: string }) => Promise<unknown>>(),
   read: vi.fn<(input: { path: string }) => Promise<{ data: { type: "text"; content: string } }>>(),
+  dialog: vi.fn(),
 }))
 const [buffer, setBuffer] = createStore({ drafts: [] as LatexDraft[], disk: {} as Record<string, string> })
 const [state, setState] = createStore({
@@ -66,10 +67,10 @@ vi.mock("@/context/language", () => ({
       ),
   }),
 }))
-vi.mock("@opencode-ai/ui/context/dialog", () => ({ useDialog: () => ({ show: () => undefined }) }))
+vi.mock("@opencode-ai/ui/context/dialog", () => ({ useDialog: () => ({ show: mocks.dialog }) }))
 vi.mock("@opencode-ai/ui/dialog", () => ({ Dialog: (props: { children?: JSX.Element }) => props.children }))
 vi.mock("@opencode-ai/ui/resize-handle", () => ({ ResizeHandle: () => null }))
-vi.mock("./settings-latex", () => ({ SettingsLatex: () => null }))
+vi.mock("./dialog-settings", () => ({ DialogSettings: () => null }))
 vi.mock("./pdf-viewer-shell-official", () => ({
   PdfViewerShell: (props: { src: string }) => <div data-testid="pdf" data-src={props.src} />,
 }))
@@ -148,7 +149,7 @@ const edit = (key: "root" | "main" | "driver" | "program", value: string) => {
   field(key).dispatchEvent(new Event(key === "root" || key === "main" ? "input" : "change", { bubbles: true }))
 }
 const current = () => host.querySelector('[data-component="latex-preview-status"]')?.getAttribute("data-current")
-const action = (name: "save" | "discard") => host.querySelector<HTMLButtonElement>(`[data-action="latex-${name}"]`)!
+const action = (name: string) => host.querySelector<HTMLButtonElement>(`[data-action="latex-${name}"]`)!
 
 beforeEach(() => {
   vi.useFakeTimers()
@@ -245,7 +246,7 @@ test("a successful retry initializes the unedited form and clears only the loadi
   await tick()
   mocks.project.mockResolvedValueOnce({ data: bound() })
   mocks.refresh.mockResolvedValueOnce({ data: bound() })
-  button("latex.refresh").click()
+  action("refresh").click()
   await tick()
   expect(host.querySelector('[role="alert"]')).toBeNull()
   expect(host.querySelector<HTMLButtonElement>('[data-action="latex-compile"]')?.disabled).toBe(false)
@@ -258,13 +259,15 @@ test("scan failures retain discovered main documents and refreshes preserve ever
   await tick()
   expect(field("root").value).toBe(".")
   expect(field("main").value).toBe("main.tex")
-  expect(host.querySelector('datalist option[value="main.tex"]')).not.toBeNull()
+  field("main").focus()
+  await tick()
+  expect([...host.querySelectorAll('[role="option"]')].some((item) => item.textContent === "main.tex")).toBe(true)
   expect(button("latex.bind").disabled).toBe(false)
   edit("root", "paper")
   edit("main", "draft.tex")
   edit("driver", "latexmk")
   edit("program", "xelatex")
-  button("latex.refresh").click()
+  action("refresh").click()
   await tick()
   setState("active", false)
   setState("active", true)
@@ -303,12 +306,12 @@ test("edits made while initial discovery is pending survive its response and lat
   await tick()
   const pending = Promise.withResolvers<{ data: LatexProject }>()
   mocks.project.mockReturnValueOnce(pending.promise)
-  button("latex.refresh").click()
+  action("refresh").click()
   edit("root", "chosen")
   edit("main", "chosen.tex")
   pending.resolve({ data: project() })
   await tick()
-  button("latex.refresh").click()
+  action("refresh").click()
   await tick()
   expect(field("root").value).toBe("chosen")
   expect(field("main").value).toBe("chosen.tex")
@@ -328,7 +331,7 @@ test("cached PDF metadata is not current while scanning or after a scan failure"
   expect(current()).toBe("false")
   expect(field("root").value).toBe(".")
   mocks.refresh.mockResolvedValueOnce({ data: bound() })
-  button("latex.refresh").click()
+  action("refresh").click()
   await tick()
   expect(current()).toBe("true")
 })
@@ -368,21 +371,21 @@ test("folding hides setup controls while keeping save, status and the editor ava
   mocks.build.mockResolvedValue({ data: { ...bound().latest!, id: "build-2", state: "running" } })
   mount()
   await tick()
-  button("latex.collapse").click()
+  action("collapse").click()
   expect(latex.state.collapsed).toBe(true)
   expect(host.querySelector<HTMLElement>('[data-component="latex-toolbar-details"]')?.hidden).toBe(true)
-  expect(button("latex.refresh")).toBeUndefined()
+  expect(action("refresh")).toBeNull()
   expect(host.querySelector('[data-component="latex-compact-status"]')?.textContent).toContain(dict["latex.saved"])
   expect(host.textContent).toContain("Source editor")
-  button("latex.compile").click()
+  action("compile").click()
   await tick()
   expect(mocks.build).toHaveBeenCalledTimes(1)
   expect(host.querySelector('[data-component="latex-compact-status"]')?.textContent).toContain(
     dict["latex.state.running"],
   )
-  button("latex.expand").click()
+  action("collapse").click()
   expect(host.querySelector<HTMLElement>('[data-component="latex-toolbar-details"]')?.hidden).toBe(false)
-  expect(button("latex.refresh")).toBeDefined()
+  expect(action("refresh")).not.toBeNull()
 })
 
 test("locating is available only in the expanded controls and never saves or compiles", async () => {
@@ -664,7 +667,7 @@ test("manual mode keeps drafts until save and compile is explicitly requested", 
   expect(mocks.write).not.toHaveBeenCalled()
   expect(mocks.build).not.toHaveBeenCalled()
   expect(latex.outdated()).toBe(true)
-  button("latex.compile").click()
+  action("compile").click()
   await tick()
   expect(mocks.write).toHaveBeenCalledExactlyOnceWith(
     { path: "main.tex", content: "manual draft", expectedChecksum: "" },
@@ -813,7 +816,7 @@ test("successful background reads do not erase a failed binding operation", asyn
   mocks.bind.mockRejectedValueOnce(new Error("Binding changed in another window"))
   button("latex.bind").click()
   await tick()
-  button("latex.refresh").click()
+  action("refresh").click()
   await tick()
   expect(host.querySelector('[role="alert"]')?.textContent).toContain("Binding changed in another window")
 })
@@ -823,7 +826,7 @@ test("a superseded scan failure cannot replace a successful retry", async () => 
   mocks.refresh.mockReturnValueOnce(pending.promise)
   mount()
   await tick()
-  button("latex.refresh").click()
+  action("refresh").click()
   await tick()
   pending.reject(new Error("Old scan failure"))
   await tick()
@@ -1162,4 +1165,72 @@ test("automatic builds do not consume permission intended for an explicit build"
   expect(mocks.build).toHaveBeenLastCalledWith(expect.objectContaining({ allowDownloads: false }), {
     throwOnError: true,
   })
+})
+
+test("project settings live in a dropdown and downloads follow the Tectonic driver", async () => {
+  mocks.project.mockResolvedValue({ data: bound() })
+  mocks.refresh.mockResolvedValue({ data: bound() })
+  mount()
+  await tick()
+  expect(host.querySelector('[data-component="latex-project-settings"]')).toBeNull()
+  host.querySelector<HTMLButtonElement>('[data-action="latex-project-settings"]')!.click()
+  await tick()
+  expect(host.querySelector('[data-component="latex-project-settings"]')).not.toBeNull()
+  expect(host.querySelectorAll('[data-component="select"]')).toHaveLength(2)
+  expect(field("driver").tagName).toBe("SELECT")
+  expect(field("driver").classList.contains("sr-only")).toBe(true)
+  const downloads = () =>
+    [...host.querySelectorAll("label")].find((label) => label.textContent?.includes(dict["latex.downloads"]))
+  expect(downloads()).toBeUndefined()
+  edit("driver", "tectonic")
+  await tick()
+  expect(downloads()).toBeDefined()
+  latex.downloads(true)
+  edit("driver", "latexmk")
+  await tick()
+  expect(downloads()).toBeUndefined()
+  expect(latex.state.downloads).toBe(false)
+})
+
+test("project settings apply only when saved and dismissing the dropdown discards the draft", async () => {
+  mocks.project.mockResolvedValue({ data: bound() })
+  mocks.refresh.mockResolvedValue({ data: bound() })
+  mount()
+  await tick()
+  host.querySelector<HTMLButtonElement>('[data-action="latex-project-settings"]')!.click()
+  await tick()
+  edit("main", "draft.tex")
+  edit("driver", "latexmk")
+  expect(latex.state.main).toBe("main.tex")
+  expect(latex.state.driver).toBe("auto")
+  expect(mocks.bind).not.toHaveBeenCalled()
+  document.body.dispatchEvent(new Event("pointerdown", { bubbles: true }))
+  await tick()
+  expect(host.querySelector('[data-component="latex-project-settings"]')).toBeNull()
+  host.querySelector<HTMLButtonElement>('[data-action="latex-project-settings"]')!.click()
+  await tick()
+  expect(field("main").value).toBe("main.tex")
+  expect(field("driver").value).toBe("auto")
+  edit("main", "draft.tex")
+  button("latex.bind").click()
+  expect(latex.state.main).toBe("draft.tex")
+  expect(mocks.bind).toHaveBeenCalledTimes(1)
+})
+
+test("leaving live preview with unsaved changes asks to save a version or discard", async () => {
+  const live = bound()
+  live.binding = { ...live.binding!, program: "lualatex", realtime: true }
+  mocks.project.mockResolvedValue({ data: live })
+  mocks.refresh.mockResolvedValue({ data: live })
+  mount()
+  await tick()
+  latex.realtimeDirty(true)
+  host.querySelector<HTMLButtonElement>('[data-action="latex-project-settings"]')!.click()
+  await tick()
+  const toggle = host.querySelector<HTMLInputElement>('[data-action="latex-realtime"]')!
+  toggle.checked = false
+  toggle.dispatchEvent(new Event("change", { bubbles: true }))
+  button("latex.bind").click()
+  await tick()
+  expect(mocks.dialog).toHaveBeenCalledTimes(1)
 })

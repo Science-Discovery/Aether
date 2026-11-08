@@ -195,6 +195,38 @@ import type {
   LatexPdfResponses,
   LatexProjectErrors,
   LatexProjectResponses,
+  LatexRealtimeAnnotationsErrors,
+  LatexRealtimeAnnotationsResponses,
+  LatexRealtimeCloseErrors,
+  LatexRealtimeCloseResponses,
+  LatexRealtimeCommandErrors,
+  LatexRealtimeCommandResponses,
+  LatexRealtimeDocumentErrors,
+  LatexRealtimeDocumentResponses,
+  LatexRealtimeEditErrors,
+  LatexRealtimeEditResponses,
+  LatexRealtimeEventsErrors,
+  LatexRealtimeEventsResponses,
+  LatexRealtimeFontErrors,
+  LatexRealtimeFontResponses,
+  LatexRealtimeImageErrors,
+  LatexRealtimeImageResponses,
+  LatexRealtimeOpenErrors,
+  LatexRealtimeOpenResponses,
+  LatexRealtimePdfErrors,
+  LatexRealtimePdfResponses,
+  LatexRealtimeRestoreAnnotationsErrors,
+  LatexRealtimeRestoreAnnotationsResponses,
+  LatexRealtimeSaveAnnotationsErrors,
+  LatexRealtimeSaveAnnotationsResponses,
+  LatexRealtimeSetupCancelErrors,
+  LatexRealtimeSetupCancelResponses,
+  LatexRealtimeSetupStartErrors,
+  LatexRealtimeSetupStartResponses,
+  LatexRealtimeSpansErrors,
+  LatexRealtimeSpansResponses,
+  LatexRealtimeStatusErrors,
+  LatexRealtimeStatusResponses,
   LatexReferenceErrors,
   LatexReferenceResponses,
   LatexRefreshErrors,
@@ -5932,7 +5964,8 @@ export class Latex extends HeyApiClient {
       root?: string
       main?: string
       driver?: "auto" | "tectonic" | "latexmk"
-      program?: "auto" | "pdflatex" | "xelatex"
+      program?: "auto" | "pdflatex" | "xelatex" | "lualatex"
+      realtime?: boolean
       expectedRevision?: string
     },
     options?: Options<never, ThrowOnError>,
@@ -5948,6 +5981,7 @@ export class Latex extends HeyApiClient {
             { in: "body", key: "main" },
             { in: "body", key: "driver" },
             { in: "body", key: "program" },
+            { in: "body", key: "realtime" },
             { in: "body", key: "expectedRevision" },
           ],
         },
@@ -6013,6 +6047,7 @@ export class Latex extends HeyApiClient {
       bindingRevision?: string
       sourceRevision?: string
       allowDownloads?: boolean
+      realtimeSnapshot?: boolean
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -6027,6 +6062,7 @@ export class Latex extends HeyApiClient {
             { in: "body", key: "bindingRevision" },
             { in: "body", key: "sourceRevision" },
             { in: "body", key: "allowDownloads" },
+            { in: "body", key: "realtimeSnapshot" },
           ],
         },
       ],
@@ -6164,6 +6200,8 @@ export class Latex extends HeyApiClient {
           note: string
           createdAt: number
           updatedAt: number
+          anchor?: unknown
+          anchors?: unknown
         }>
       }
       revision?: string
@@ -6507,6 +6545,613 @@ export class Latex extends HeyApiClient {
       ...params,
     })
   }
+
+  /**
+   * Inspect the realtime TeX engine
+   */
+  public realtimeStatus<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<LatexRealtimeStatusResponses, LatexRealtimeStatusErrors, ThrowOnError>({
+      url: "/latex/realtime/status",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Download and install the verified rtex release on this server
+   */
+  public realtimeSetupStart<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      LatexRealtimeSetupStartResponses,
+      LatexRealtimeSetupStartErrors,
+      ThrowOnError
+    >({
+      url: "/latex/realtime/setup",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Cancel the current rtex installation
+   */
+  public realtimeSetupCancel<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      LatexRealtimeSetupCancelResponses,
+      LatexRealtimeSetupCancelErrors,
+      ThrowOnError
+    >({
+      url: "/latex/realtime/setup/cancel",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Open a realtime LuaLaTeX session for a project
+   */
+  public realtimeOpen<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      root?: string
+      main?: string
+      revision?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "root" },
+            { in: "body", key: "main" },
+            { in: "body", key: "revision" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<LatexRealtimeOpenResponses, LatexRealtimeOpenErrors, ThrowOnError>({
+      url: "/latex/realtime/open",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Replace a file in a realtime session
+   */
+  public realtimeDocument<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      id?: string
+      path?: string
+      text?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "id" },
+            { in: "body", key: "path" },
+            { in: "body", key: "text" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      LatexRealtimeDocumentResponses,
+      LatexRealtimeDocumentErrors,
+      ThrowOnError
+    >({
+      url: "/latex/realtime/document",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Apply a byte-range edit to a realtime session
+   */
+  public realtimeEdit<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      id?: string
+      path?: string
+      start?: number
+      end?: number
+      text?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "id" },
+            { in: "body", key: "path" },
+            { in: "body", key: "start" },
+            { in: "body", key: "end" },
+            { in: "body", key: "text" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<LatexRealtimeEditResponses, LatexRealtimeEditErrors, ThrowOnError>({
+      url: "/latex/realtime/edit",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Send a command to a realtime session
+   */
+  public realtimeCommand<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      id?: string
+      command?: "request_layout" | "export_pdf" | "status"
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "id" },
+            { in: "body", key: "command" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      LatexRealtimeCommandResponses,
+      LatexRealtimeCommandErrors,
+      ThrowOnError
+    >({
+      url: "/latex/realtime/command",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Read a realtime session's source spans
+   */
+  public realtimeSpans<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      id?: string
+      path?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "id" },
+            { in: "body", key: "path" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<LatexRealtimeSpansResponses, LatexRealtimeSpansErrors, ThrowOnError>({
+      url: "/latex/realtime/spans",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Read annotations attached to a realtime document
+   */
+  public realtimeAnnotations<ThrowOnError extends boolean = false>(
+    parameters: {
+      directory?: string
+      workspace?: string
+      root: string
+      main: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "root" },
+            { in: "query", key: "main" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<
+      LatexRealtimeAnnotationsResponses,
+      LatexRealtimeAnnotationsErrors,
+      ThrowOnError
+    >({
+      url: "/latex/realtime/annotations",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Save annotations attached to a realtime document
+   */
+  public realtimeSaveAnnotations<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      root?: string
+      main?: string
+      data?: {
+        version: "1.2"
+        source: {
+          path: string
+          fingerprint: string
+        }
+        annotations: Array<{
+          id: string
+          type: "highlight" | "underline" | "strikeout" | "note"
+          color: "yellow" | "red" | "green" | "blue"
+          pages: Array<{
+            page: number
+            quads: Array<[number, number, number, number, number, number, number, number]>
+          }>
+          selectedText: string
+          note: string
+          createdAt: number
+          updatedAt: number
+          anchor?: unknown
+          anchors?: unknown
+        }>
+      }
+      revision?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "root" },
+            { in: "body", key: "main" },
+            { in: "body", key: "data" },
+            { in: "body", key: "revision" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).put<
+      LatexRealtimeSaveAnnotationsResponses,
+      LatexRealtimeSaveAnnotationsErrors,
+      ThrowOnError
+    >({
+      url: "/latex/realtime/annotations",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Restore a saved realtime annotation snapshot into the live session
+   */
+  public realtimeRestoreAnnotations<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      root?: string
+      main?: string
+      buildId?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "root" },
+            { in: "body", key: "main" },
+            { in: "body", key: "buildId" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      LatexRealtimeRestoreAnnotationsResponses,
+      LatexRealtimeRestoreAnnotationsErrors,
+      ThrowOnError
+    >({
+      url: "/latex/realtime/restore",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Close a realtime session and stop its engines
+   */
+  public realtimeClose<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      id?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "id" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<LatexRealtimeCloseResponses, LatexRealtimeCloseErrors, ThrowOnError>({
+      url: "/latex/realtime/close",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Stream realtime TeX events
+   */
+  public realtimeEvents<ThrowOnError extends boolean = false>(
+    parameters: {
+      directory?: string
+      workspace?: string
+      id: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "id" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).sse.get<
+      LatexRealtimeEventsResponses,
+      LatexRealtimeEventsErrors,
+      ThrowOnError
+    >({
+      url: "/latex/realtime/events",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Read one immutable realtime layout PDF
+   */
+  public realtimePdf<ThrowOnError extends boolean = false>(
+    parameters: {
+      directory?: string
+      workspace?: string
+      id: string
+      version: number
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "id" },
+            { in: "query", key: "version" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<LatexRealtimePdfResponses, LatexRealtimePdfErrors, ThrowOnError>({
+      url: "/latex/realtime/pdf",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Read an image referenced by a realtime session
+   */
+  public realtimeImage<ThrowOnError extends boolean = false>(
+    parameters: {
+      directory?: string
+      workspace?: string
+      id: string
+      path: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "id" },
+            { in: "query", key: "path" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<LatexRealtimeImageResponses, LatexRealtimeImageErrors, ThrowOnError>({
+      url: "/latex/realtime/image",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Read a font referenced by a realtime display list
+   */
+  public realtimeFont<ThrowOnError extends boolean = false>(
+    parameters: {
+      directory?: string
+      workspace?: string
+      id: string
+      filename?: string
+      name?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "id" },
+            { in: "query", key: "filename" },
+            { in: "query", key: "name" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<LatexRealtimeFontResponses, LatexRealtimeFontErrors, ThrowOnError>({
+      url: "/latex/realtime/font",
+      ...options,
+      ...params,
+    })
+  }
 }
 
 export class PdfAnnotations extends HeyApiClient {
@@ -6570,6 +7215,8 @@ export class PdfAnnotations extends HeyApiClient {
           note: string
           createdAt: number
           updatedAt: number
+          anchor?: unknown
+          anchors?: unknown
         }>
       }
     },

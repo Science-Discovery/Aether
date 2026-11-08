@@ -77,8 +77,11 @@ export namespace LatexProject {
       .find((value) => value !== undefined)
     if (value === undefined) return
     const name = value.toLowerCase()
-    if (name === "pdflatex" || name === "xelatex") return name
-    throw new LatexSchema.Error(400, `Unsupported TeX program: ${value}. Choose pdfLaTeX or XeLaTeX explicitly.`)
+    if (name === "pdflatex" || name === "xelatex" || name === "lualatex") return name
+    throw new LatexSchema.Error(
+      400,
+      `Unsupported TeX program: ${value}. Choose pdfLaTeX, XeLaTeX, or LuaLaTeX explicitly.`,
+    )
   }
 
   export async function magic(root: Root, input: string) {

@@ -5,9 +5,16 @@ export namespace LatexSchema {
   export const Config = z.object({
     tectonic: z.object({ path: z.string().trim().optional() }).optional(),
     latexmk: z.object({ path: z.string().trim().optional() }).optional(),
+    rtex: z
+      .object({
+        path: z.string().trim().optional(),
+        texdir: z.string().trim().optional(),
+      })
+      .optional(),
   })
+  export type Config = z.infer<typeof Config>
   export const Driver = z.enum(["auto", "tectonic", "latexmk"])
-  export const Program = z.enum(["auto", "pdflatex", "xelatex"])
+  export const Program = z.enum(["auto", "pdflatex", "xelatex", "lualatex"])
   export const Setup = z
     .object({
       state: z.enum(["idle", "downloading", "verifying", "extracting", "checking", "ready", "failed", "cancelled"]),
@@ -26,6 +33,7 @@ export namespace LatexSchema {
       main: z.string(),
       driver: Driver,
       program: Program,
+      realtime: z.boolean().optional(),
       revision: z.string(),
       updatedAt: z.number(),
     })
@@ -49,7 +57,7 @@ export namespace LatexSchema {
       sourceRevision: z.string().optional(),
       state: z.enum(["preparing", "running", "succeeded", "failed", "cancelled"]),
       driver: z.enum(["tectonic", "latexmk"]).optional(),
-      program: z.enum(["pdflatex", "xelatex"]).optional(),
+      program: z.enum(["pdflatex", "xelatex", "lualatex"]).optional(),
       createdAt: z.number(),
       startedAt: z.number().optional(),
       completedAt: z.number().optional(),
@@ -114,11 +122,62 @@ export namespace LatexSchema {
       ),
     })
     .meta({ ref: "LatexStatus" })
+  export const RealtimeStatus = z
+    .object({
+      installed: z.boolean(),
+      path: z.string().optional(),
+      version: z.string().optional(),
+      error: z.string().optional(),
+      setup: Setup,
+    })
+    .meta({ ref: "LatexRealtimeStatus" })
+  export type RealtimeStatus = z.infer<typeof RealtimeStatus>
+  export const RealtimeOpen = z.object({
+    root: z.string(),
+    main: z.string(),
+    revision: z.string().optional(),
+  })
+  export const RealtimeSession = z.object({
+    id: z.string().uuid(),
+    root: z.string(),
+    main: z.string(),
+  })
+  export const RealtimeDocument = z.object({
+    id: z.string().uuid(),
+    path: z.string(),
+    text: z.string(),
+  })
+  export const RealtimeEdit = z.object({
+    id: z.string().uuid(),
+    path: z.string(),
+    start: z.number().int().nonnegative(),
+    end: z.number().int().nonnegative(),
+    text: z.string(),
+  })
+  export const RealtimeCommand = z.object({
+    id: z.string().uuid(),
+    command: z.enum(["request_layout", "export_pdf", "status"]),
+  })
+  export const RealtimeSpans = z.object({
+    id: z.string().uuid(),
+    path: z.string().min(1).max(4096),
+  })
+  export const RealtimeSpan = z.object({
+    id: z.number().int(),
+    kind: z.string(),
+    hash: z.number(),
+    last_revision: z.number().int(),
+    range: z.object({ start: z.number().int().nonnegative(), end: z.number().int().nonnegative() }),
+  })
+  export type RealtimeSpan = z.infer<typeof RealtimeSpan>
+  export const RealtimeSpanResult = z.object({ spans: z.array(RealtimeSpan) })
+  export const RealtimeClose = z.object({ id: z.string().uuid() })
   export const Selection = z.object({
     root: z.string(),
     main: z.string(),
     driver: Driver.default("auto"),
     program: Program.default("auto"),
+    realtime: z.boolean().optional(),
     expectedRevision: z.string().optional(),
   })
   export const Start = z.object({
@@ -126,6 +185,7 @@ export namespace LatexSchema {
     bindingRevision: z.string(),
     sourceRevision: z.string().optional(),
     allowDownloads: z.boolean().default(false),
+    realtimeSnapshot: z.boolean().default(false),
   })
   export const Refresh = z.object({
     root: z.string(),
@@ -156,7 +216,7 @@ export namespace LatexSchema {
     .meta({ ref: "LatexSource" })
   export class Error extends globalThis.Error {
     constructor(
-      readonly code: 400 | 404 | 409 | 413 | 503,
+      readonly code: 400 | 403 | 404 | 409 | 413 | 503,
       message: string,
     ) {
       super(message)
