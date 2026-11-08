@@ -99,6 +99,8 @@ export namespace BunProc {
 
     await BunProc.run(args, {
       cwd: Global.Path.cache,
+      abort: AbortSignal.timeout(60_000),
+      timeout: 5_000,
     }).catch((e) => {
       throw new InstallFailedError(
         { pkg, version },
