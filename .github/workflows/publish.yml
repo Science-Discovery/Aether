@@ -54,7 +54,7 @@ jobs:
       matrix:
         include:
           - id: mac
-            host: macos-14
+            host: macos-15
             rust_target: aarch64-apple-darwin
             flag: --mac --arm64
             files: |
@@ -179,7 +179,7 @@ jobs:
       matrix:
         include:
           - arch: arm64
-            host: macos-14
+            host: macos-15
             yml: latest-web-mac.yml
           - arch: x64
             host: macos-15-intel
