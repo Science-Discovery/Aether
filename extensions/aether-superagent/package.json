@@ -1,0 +1,19 @@
+{
+  "name": "aether-superagent",
+  "version": "0.5.3",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "bun src/main.ts",
+    "setup": "bun scripts/setup.ts",
+    "test": "bun test",
+    "test:permission-cache": "bun test/permission-cache-check.ts",
+    "typecheck": "tsc --noEmit",
+    "install:aether": "bun scripts/integrate.ts",
+    "uninstall:aether": "bun scripts/integrate.ts --uninstall"
+  },
+  "devDependencies": {
+    "@types/bun": "1.3.11",
+    "typescript": "5.8.2"
+  }
+}

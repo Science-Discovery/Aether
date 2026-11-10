@@ -1,0 +1,8 @@
+{
+  "repo": "/absolute/path/to/your/git/repository",
+  "state": "/absolute/path/outside/repo/superagent-state",
+  "aether": "http://127.0.0.1:19527",
+  "port": 19700,
+  "workers": 2,
+  "base": "HEAD"
+}
