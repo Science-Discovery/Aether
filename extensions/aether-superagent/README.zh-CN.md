@@ -20,14 +20,13 @@ flowchart LR
 
 ## 安装和使用
 
-需要 Linux/macOS、Bun 1.3.10+、Git、已安装依赖的 Aether 源码 checkout，以及已配置模型的 Aether 后端。协调器和 Aether 在同一台机器；任务仓库至少有一个 commit。
+需要 Linux/macOS、Bun 1.3.10+、Git、已安装依赖的 Aether 源码 checkout，以及已配置模型的 Aether 后端。协调器和 Aether 在同一台机器。安装和启动时不需要指定研究项目，也不要求预先建立 Git 仓库。
 
 在 Aether 仓库内先进入 `extensions/aether-superagent`；该目录也可单独复制使用。模块不加入默认 workspace，不会自动安装或启动。以下命令均从模块目录执行。
 
 ```bash
 bun install --frozen-lockfile
-bun run setup --repo /absolute/path/to/research-project \
-  --state /absolute/path/outside/project/superagent-state \
+bun run setup --state /absolute/path/to/superagent-state \
   --aether http://127.0.0.1:19527
 bun run install:aether --aether /absolute/path/to/Aether --config config.local.json
 bun start config.local.json
@@ -46,6 +45,18 @@ bun start config.local.json
 - **卸载 Super-agent**：二次确认后先冻结调度，再核对活动会话；运行中或执行状态无法确认时拒绝移除，并保持停用。卸载保留会话、研究数据库、任务 worktree 和模型凭据。重新安装后可重新启用，不必删除旧数据。
 
 后台检查使用单独的内部会话、同一主控角色及课题状态；它只能处理已有授权课题，不能借定时器新建无关研究任务。后台检查本身会消耗模型用量。外部消息渠道不在此版本范围内。
+
+### 在对话中接管项目
+
+直接告诉主控：“请监控 `/home/user/research/project-a`，汇报计算进展。”主控派工时会携带该目录，后台在首次执行时检查 Git：已有仓库则沿用，目录属于上级仓库或 linked worktree 时保留用户指定的监控范围；没有则在项目目录初始化 Git。没有提交的仓库会建立一个空的初始提交。
+
+**不会自动 `git add` 或提交项目文件，不改动已有暂存区、未提交修改和 Git 身份配置。** 空初始提交不是项目备份；任务的隔离 worktree 不会自动包含未跟踪文件。监控任务会读取原项目目录的实时内容，包括未提交文件和计算输出。项目目录须已存在，路径不明确时主控会询问，不猜测目录。
+
+安装、启动、普通对话和查看状态都不会建立项目仓库。不同任务可以绑定不同项目，续接时沿用原项目与会话；工作台显示每个课题的项目目录。状态目录必须放在项目仓库之外。
+
+旧版 `repo` 配置仍可作为可选默认项目，`setup --repo /path/to/project` 也继续支持。删除默认项目配置不会改变已有任务归属，旧会话和 worktree 继续使用。
+
+工作台同时显示主控会话的实际状态：正在处理、空闲、尚未关联或暂不可用。普通聊天不伪造科研课题；主控尚未派工时会明确说明。在已有原生会话选择 Super-agent 角色，也会在用户回合开始时关联到工作台。需要检查文件或执行操作时必须通过派工登记课题，主控会话即便使用完整权限也不能绕过这条路径。用户已附上的内容仍可直接讨论；仓库准备失败会在课题卡片显示具体原因。
 
 ### 集中审批与任务信任
 
@@ -99,7 +110,7 @@ bun run uninstall:aether --aether /absolute/path/to/Aether
 - 停止持久禁止该课题继续派工。Aether abort 不等于外部后台进程已终止；需要单独核对实际计算进程。
 - 研究数据库新增表，保留旧工单及会话。旧 JSON Router/进度文件协议仅用于兼容旧记录和 CLI，不再作为新工作台交互方式；停用开关同时约束旧入口。
 - 旧工单在主控明确续接时绑定归属；已有工作区尚未加载报告插件时，继续用旧执行协议回收真实答案和进度。新工单使用原生报告工具，不要求重启已有研究会话。
-- 每个新工单从配置记录的固定 commit 建立 worktree；不会复制原仓库未提交修改，也不会重置已存在的任务目录。
+- 每个新工单从该任务项目绑定的固定 commit 建立 worktree；不会复制原仓库未提交修改，也不会重置已存在的任务目录。
 - worktree 是编辑隔离，不是操作系统沙箱。Aether 原有权限仍然生效。不要把该原型作为不可信多租户服务。
 
 ## API
@@ -125,6 +136,8 @@ bun run uninstall:aether --aether /absolute/path/to/Aether
 
 ## 验证
 
+插件权限测试需要已安装依赖的 Aether 源码。会自动查找所在仓库或同级 `Aether` 目录；其他位置请使用 `AETHER_SOURCE=/absolute/path/to/Aether bun test`。
+
 ```bash
 bun test
 bun run test:permission-cache
@@ -135,7 +148,7 @@ bun test/native-permissions-e2e.ts /absolute/path/to/Aether
 
 两个 `native-*-e2e.ts` 脚本需要 `agent-browser` 与浏览器，使用隔离 checkout、真实 Aether 服务、真实 plugin 工具及本地确定性模型，覆盖原生聊天、派工与回报、Panel、设置开关和卸载。普通测试不消耗模型额度。
 
-加上 `NATIVE_E2E_CRON=1` 可额外等待两个实际定时周期，验证无变化保持静默、有重要发现回到主会话汇报。
+加上 `NATIVE_E2E_PROJECTS=1` 可验证无仓库启动、按需初始化 Git、多项目及原会话续接。加上 `NATIVE_E2E_CRON=1` 可额外等待两个实际定时周期，验证无变化保持静默、有重要发现回到主会话汇报。
 
 ```bash
 DEEPSEEK_API_KEY=... bun test/native-live.ts /absolute/path/to/Aether

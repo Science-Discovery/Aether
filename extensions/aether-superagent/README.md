@@ -10,14 +10,13 @@ This directory is self-contained and excluded from the root workspace. Adding it
 
 ## Try it
 
-Requires Linux/macOS, Bun 1.3.10+, Git, an Aether source checkout with dependencies installed, and a configured Aether model. The coordinator runs on the same machine as Aether. The research repository must have a commit.
+Requires Linux/macOS, Bun 1.3.10+, Git, an Aether source checkout with dependencies installed, and a configured Aether model. The coordinator runs on the same machine as Aether. No research repository is required during setup or startup.
 
 From this directory (or a standalone copy of it):
 
 ```sh
 bun install --frozen-lockfile
-bun run setup --repo /absolute/path/to/research-project \
-  --state /absolute/path/outside/project/superagent-state \
+bun run setup --state /absolute/path/to/superagent-state \
   --aether http://127.0.0.1:19527
 bun run install:aether --aether /absolute/path/to/Aether --config config.local.json
 bun start config.local.json
@@ -26,6 +25,18 @@ bun start config.local.json
 Build/run Aether from the modified source checkout. Existing packaged binaries do not load these source changes; existing backend instances may need to reload plugin configuration. Refresh the browser after an upgrade. Open **研究工作台** (Research workspace) from the sidebar, then **打开主控会话** (Open coordinator conversation). The prototype's panel labels are currently Chinese. Settings → Super-agent provides enable/disable, scheduled check-ins (off by default), and guarded uninstall.
 
 Model credentials stay in Aether. Use `setup --model provider/model` to choose a model, and `AETHER_AUTHORIZATION` if the backend requires Basic authentication. Never commit `config.local.json`, tokens, installation receipts or research state.
+
+## Add a project through conversation
+
+Tell the coordinator, for example: “Monitor `/home/user/research/project-a` and report the current calculation progress.” It passes that directory when dispatching a new task. No Git repository is created by setup, startup, ordinary chat or status checks.
+
+On first execution, Super-agent reuses the selected directory's existing Git repository (including a containing repository or linked worktree). If no repository exists, it initializes Git there and creates an empty baseline commit. An existing repository without commits also receives an empty baseline. It never automatically stages or commits your project files or changes your Git identity settings. The directory must already exist; the agent asks for a path when the intended project is unclear.
+
+Each task retains its source directory, repository and base commit across follow-ups and restarts. Different projects can be coordinated together. Workers still have isolated worktrees, but monitoring reads the **live source directory**, including untracked files and ongoing outputs. An empty baseline does not copy those files into a task worktree. Git initialization is not a backup or an import of research data.
+
+The state directory must stay outside project repositories. An optional `setup --repo /path/to/project` remains available as a default; existing configurations and task worktrees remain compatible. Omitting a default does not detach old tasks from their original projects.
+
+The panel also shows the coordinator's actual conversation status: processing, idle, not yet linked, or unavailable. A conversation without dispatch is not a research task; ordinary discussion does not manufacture progress cards. Selecting the Super-agent role in an existing native session links that conversation when its user turn starts. Filesystem investigation is routed through registered tasks, including when the coordinator session has Full permissions. Supplied attachment content may still be discussed directly. Preparation failures remain visible on the task card with their error instead of appearing as an empty workspace.
 
 ## Integration and boundaries
 
@@ -47,6 +58,8 @@ Edited integration files cause a conflict rather than being overwritten. Upgrade
 
 Run from this directory, never the repository root:
 
+Plugin guard tests use an Aether source checkout with dependencies installed. The in-repository checkout or a sibling `Aether` directory is detected automatically; otherwise run `AETHER_SOURCE=/absolute/path/to/Aether bun test`.
+
 ```sh
 bun test
 bun typecheck
@@ -55,6 +68,6 @@ bun test/native-v2-e2e.ts /absolute/path/to/Aether
 bun test/native-permissions-e2e.ts /absolute/path/to/Aether
 ```
 
-The browser scripts require `agent-browser` and its browser, plus installed Aether dependencies. They create isolated checkouts and services, use a local deterministic model, and do not require a paid API key. Pass the Aether checkout explicitly; the legacy default expects a standalone sibling checkout. `NATIVE_E2E_CRON=1` adds two real scheduler cycles to the native-v2 check. Desktop binaries are not covered by these Web tests.
+The browser scripts require `agent-browser` and its browser, plus installed Aether dependencies. They create isolated checkouts and services, use a local deterministic model, and do not require a paid API key. Pass the Aether checkout explicitly; the legacy default expects a standalone sibling checkout. `NATIVE_E2E_CRON=1` adds two real scheduler cycles to the native-v2 check. `NATIVE_E2E_PROJECTS=1` exercises repository-free startup, on-demand Git initialization, two projects and continuation. Desktop binaries are not covered by these Web tests.
 
 Real-model verification is opt-in: `DEEPSEEK_API_KEY=... bun test/native-live.ts /absolute/path/to/Aether`. It checks a small Python repair and a read-only CSV summary, not scientific discovery quality.

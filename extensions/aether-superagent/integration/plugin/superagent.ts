@@ -5,13 +5,15 @@ import path from "node:path"
 const bridgeFile = __SUPERAGENT_BRIDGE__
 
 export const SuperagentPlugin: Plugin = async ({ directory }) => {
-  async function call(name: string, args: unknown, context: ToolContext) {
-    const callID = (context as ToolContext & { callID?: string }).callID
-    if (!callID) throw new Error("This Aether version does not expose tool call identity.")
-    const worker = name === "report"
-    if (context.agent !== (worker ? "superagent-worker" : "superagent"))
-      throw new Error("Select the Super-agent role to use coordination tools.")
-    await context.ask({ permission: `superagent_${name}`, patterns: ["*"], always: ["*"], metadata: {} })
+  const primary = new Set<string>()
+  const observed = new Map<string, string>()
+  const allowed = new Set(["superagent_dispatch", "superagent_status", "superagent_stop", "question"])
+  const track = (session: string, agent: unknown) => {
+    const name = typeof agent === "string" ? agent : agent && typeof agent === "object" && "name" in agent ? agent.name : undefined
+    if (name === "superagent") primary.add(session)
+    else primary.delete(session)
+  }
+  async function request(name: string, args: unknown, context: { sessionID: string; messageID: string; directory: string; agent: string; callID?: string }, signal: AbortSignal) {
     const config = await Bun.file(bridgeFile).json()
     const url = new URL(config.url)
     if (url.protocol !== "http:" || !["127.0.0.1", "localhost", "[::1]"].includes(url.hostname) ||
@@ -21,18 +23,52 @@ export const SuperagentPlugin: Plugin = async ({ directory }) => {
     if (!token) throw new Error("Super-agent token is missing.")
     const response = await fetch(new URL("/native/tool", url), {
       unix: path.join(path.dirname(config.tokenFile), "control.sock"),
-      method: "POST", redirect: "error", signal: context.abort,
+      method: "POST", redirect: "error", signal,
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
       body: JSON.stringify({ name, args, context: {
         sessionID: context.sessionID, messageID: context.messageID, directory: context.directory,
-        agent: context.agent, callID,
+        agent: context.agent, ...(context.callID ? { callID: context.callID } : {}),
       } }),
     })
     if (!response.ok) throw new Error(`Super-agent: ${await response.text()}`)
     return await response.text()
   }
+  async function call(name: string, args: unknown, context: ToolContext) {
+    const callID = (context as ToolContext & { callID?: string }).callID
+    if (!callID) throw new Error("This Aether version does not expose tool call identity.")
+    const worker = name === "report"
+    if (context.agent !== (worker ? "superagent-worker" : "superagent"))
+      throw new Error("Select the Super-agent role to use coordination tools.")
+    await context.ask({ permission: `superagent_${name}`, patterns: ["*"], always: ["*"], metadata: {} })
+    return request(name, args, { sessionID: context.sessionID, messageID: context.messageID,
+      directory: context.directory, agent: context.agent, callID }, context.abort)
+  }
   const z = tool.schema
   return {
+    // Use the resolved turn role, not the requested/default role. Runtime params
+    // currently supplies Agent.Info even though the public hook types say string.
+    "chat.message": async (input, output) => { track(input.sessionID, output.message.agent) },
+    "chat.params": async (input) => {
+      track(input.sessionID, input.agent)
+      const message = input.message?.id
+      if (!primary.has(input.sessionID) || !message || observed.get(input.sessionID) === message) return
+      observed.set(input.sessionID, message)
+      // This is an observation of an already-persisted user turn, not a model
+      // tool invocation or permission grant. Native validates that exact turn.
+      const controller = new AbortController()
+      let timer: ReturnType<typeof setTimeout> | undefined
+      try {
+        await Promise.race([
+          request("observe", {}, { sessionID: input.sessionID, messageID: message, directory, agent: "superagent" }, controller.signal),
+          new Promise<void>((resolve) => { timer = setTimeout(() => { controller.abort(); resolve() }, 2000) }),
+        ])
+      } catch { /* An unavailable optional coordinator must not block conversation. */ }
+      finally { if (timer) clearTimeout(timer) }
+    },
+    "tool.execute.before": async (input) => {
+      if (primary.has(input.sessionID) && !allowed.has(input.tool))
+        throw new Error("Super-agent coordinates registered tasks. Use superagent_dispatch with the user's project directory for filesystem investigation or execution; use question if the directory is missing.")
+    },
     // The native UI exposes its composer before async session preferences arrive.
     // Give only our owned main workspace the correct initial agent ordering too.
     config: async (config) => {
@@ -45,8 +81,8 @@ export const SuperagentPlugin: Plugin = async ({ directory }) => {
     },
     tool: {
     superagent_dispatch: tool({
-      description: "Delegate a research objective to an Aether worker, or continue a related task by its ticket ID. Returns immediately; results are reported back to this conversation. Reuse a suitable existing task after checking status.",
-      args: { text: z.string(), title: z.string().optional(), ticket: z.string().optional() },
+      description: "Delegate a research objective to an Aether worker, or continue a related task by its ticket ID. Returns immediately; results are reported back to this conversation. Reuse a suitable existing task after checking status. For a new project, pass its user-selected local directory as project; Git is reused or initialized automatically. If there is no configured default and no known path, ask the user for the project directory first.",
+      args: { text: z.string(), title: z.string().optional(), ticket: z.string().optional(), project: z.string().optional() },
       execute: (args, ctx) => call("dispatch", args, ctx),
     }),
     superagent_status: tool({

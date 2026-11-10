@@ -134,6 +134,30 @@ export class NativeCoordinator {
     return { ...master, sourceMessage: source.info.parentID!, internal: false }
   }
 
+  // A user may select Super-agent in an existing native conversation. Register
+  // that actual turn before its first model response, even if no tool runs yet.
+  async observe(ctx: Pick<NativeContext, "sessionID" | "directory" | "messageID">) {
+    if (!ctx || ![ctx.sessionID, ctx.directory, ctx.messageID].every((value) => typeof value === "string" && value.length > 0 && value.length <= 4096))
+      throw new Error("Invalid observed conversation identity.")
+    this.enabled()
+    const session = await this.engine.aether.request<{ id: string; directory: string; engine?: unknown }>(ctx.directory, `/session/${ctx.sessionID}`)
+    if (session.id !== ctx.sessionID || session.directory !== ctx.directory || session.engine) throw new Error("Observed session does not match its directory or engine.")
+    const message = await this.engine.aether.message(ctx.directory, ctx.sessionID, ctx.messageID)
+    if (message.info.id !== ctx.messageID || message.info.sessionID !== ctx.sessionID || message.info.role !== "user" || message.info.agent !== "superagent")
+      throw new Error("Observed message is not a native Super-agent user turn.")
+    this.enabled()
+    if (this.list<NativeMaster>("master").some((master) => master.checker?.session === ctx.sessionID)) return { observed: false }
+    const previous = this.get<NativeMaster>("master", ctx.sessionID)
+    if (previous && previous.directory !== ctx.directory) throw new Error("Master directory changed.")
+    this.engine.store.atomic(() => {
+      this.save("master", ctx.sessionID, previous ?? { session: ctx.sessionID, directory: ctx.directory, created: Date.now() })
+      this.engine.store.setting("native:master", ctx.sessionID)
+      if (!this.get("schedule", ctx.sessionID)) this.save("schedule", ctx.sessionID,
+        { next: Date.now() + this.settings().checkinSeconds * 1000, observed: "" })
+    })
+    return { observed: true }
+  }
+
   async open() {
     this.enabled()
     if (this.opening) return this.opening
@@ -155,10 +179,11 @@ export class NativeCoordinator {
     return this.opening
   }
 
-  async dispatch(ctx: NativeContext, args: { text: string; title?: string; ticket?: string }) {
+  async dispatch(ctx: NativeContext, args: { text: string; title?: string; ticket?: string; project?: string }) {
     if (!args || typeof args.text !== "string" || !args.text.trim() || args.text.length > 100000 ||
       (args.title !== undefined && (typeof args.title !== "string" || !args.title.trim() || args.title.length > 200)) ||
-      (args.ticket !== undefined && typeof args.ticket !== "string")) throw new Error("Invalid dispatch arguments.")
+      (args.ticket !== undefined && typeof args.ticket !== "string") ||
+      (args.project !== undefined && (typeof args.project !== "string" || !args.project.trim() || args.project.length > 4096))) throw new Error("Invalid dispatch arguments.")
     const master = await this.bind(ctx, "superagent_dispatch")
     if (master.internal && !args.ticket) throw new Error("Scheduled check-ins cannot create new objectives without user authorization.")
     const key = `native:${hash([ctx.sessionID, ctx.messageID, ctx.callID])}`
@@ -174,14 +199,14 @@ export class NativeCoordinator {
         // ownership check and first native run commit share this transaction,
         // so another master cannot race to acquire the same worker session.
       }
-      const input = this.engine.submit(key, args.text, args.ticket, args.ticket ? undefined : args.title ?? args.text.slice(0, 100))
+      const input = this.engine.submit(key, args.text, args.ticket, args.ticket ? undefined : args.title ?? args.text.slice(0, 100), undefined, args.project)
       let run = this.run(input.id)
       if (!run) {
         run = { id: input.id, ticket: input.ticket!, master: master.session, sourceMessage: master.sourceMessage,
           sourceAssistant: ctx.messageID, call: ctx.callID, state: "pending", created: Date.now(), internal: master.internal, legacy }
         this.save("run", input.id, run)
       }
-      return { ticket: this.engine.store.ticket(input.ticket!)!, input, run }
+      return { ticket: { ...this.engine.store.ticket(input.ticket!)!, project: this.engine.project(input.ticket!) }, input, run }
     })
   }
 
@@ -313,10 +338,10 @@ export class NativeCoordinator {
     const owned = new Set(runs.map((run) => run.ticket))
     return { installed: this.installed(), enabled: settings.enabled, master: master ? { session: master.session, directory: master.directory } : undefined,
       workspace: { repo: this.engine.config.repo, base: this.engine.config.base,
-        description: "Workers automatically use isolated worktrees from this configured repository/base. Dispatch does not require locating a repository first. Explicit inspection paths may be outside this default workspace, subject to Aether permissions." },
+        description: "No project is required for conversation. For a new objective, dispatch with project set to the user-selected local directory, or use the optional legacy default repository. Existing Git is reused; otherwise an empty Git baseline is initialized without adding project files. Tasks retain their project on follow-up. Workers use isolated worktrees and inspect live project files at the source directory for monitoring." },
       schedule: { enabled: settings.checkinEnabled, minutes: settings.checkinSeconds / 60 }, settings,
       tickets: this.engine.store.tickets().filter((ticket) => owned.has(ticket.id) || !assigned.has(ticket.id))
-        .map((ticket) => ({ ...ticket, unowned: !assigned.has(ticket.id), research: this.engine.store.research(ticket.id) })),
+        .map((ticket) => ({ ...ticket, project: this.engine.project(ticket.id), unowned: !assigned.has(ticket.id), research: this.engine.store.research(ticket.id) })),
       runs, reports: this.reports().filter((report) => owned.has(report.ticket)).slice(-100),
       outbox: this.list<NativeNotice>("outbox").filter((notice) => !ctx || notice.master === caller!.session).slice(-100) }
   }

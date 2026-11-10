@@ -127,3 +127,8 @@
 
 .research-permissions .research-muted { margin: 10px 0; }
 @media (max-width: 760px) { .research-controller-actions { justify-content: flex-start; } .research-permissions { padding: 8px 16px 20px; } }
+
+.research-controller .research-master-status { margin-top: 6px; font-size: 11px; color: var(--text-weak); }
+.research-controller .research-master-status[data-state="busy"], .research-controller .research-master-status[data-state="retry"] { color: var(--text-strong); }
+.research-project { margin: 0 0 10px; font-size: 10px; color: var(--text-weak); overflow-wrap: anywhere; }
+.research-task-error { margin: 0 0 12px; font-size: 11px; line-height: 1.7; color: var(--text-critical-base); overflow-wrap: anywhere; white-space: pre-wrap; }

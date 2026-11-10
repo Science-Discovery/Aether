@@ -16,6 +16,7 @@ export function controlHandler(engine: Engine, token: string, native?: NativeCoo
   let uninstalling = false
   const api = handler(engine, token)
   const reader = new Aether(engine.aether.url, engine.aether.authorization, 8000)
+  const monitor = new Aether(engine.aether.url, engine.aether.authorization, 2000)
   const json = (data: unknown, status = 200) => Response.json(data, { status })
 
   const serve = async (request: Request): Promise<Response> => {
@@ -28,14 +29,27 @@ export function controlHandler(engine: Engine, token: string, native?: NativeCoo
     if (request.method === "GET" && url.pathname === "/panel/state") {
       await refreshInstallation(engine)
       const { repo, workers, model } = engine.config
-      return json({ tickets: engine.store.tickets().map((ticket) => ({ ...ticket, research: engine.store.research(ticket.id) })),
-        events: engine.store.events(), inputs: engine.store.inputs(), native: native ? await native.state() : undefined, config: {
+      const state = native ? await native.state() : undefined
+      const activity = async () => {
+        const master = state?.master
+        if (!master) return "not_started"
+        try {
+          // A durable master record can precede remote session creation. Verify
+          // identity before interpreting an absent status entry as idle.
+          const session = await monitor.request<{ id: string; directory: string; engine?: unknown }>(master.directory, `/session/${master.session}`)
+          if (session.id !== master.session || session.directory !== master.directory || session.engine) return "unavailable"
+          const status = await monitor.status(master.directory, master.session)
+          return ["idle", "busy", "retry"].includes(status) ? status : "unavailable"
+        } catch { return "unavailable" }
+      }
+      return json({ tickets: engine.store.tickets().map((ticket) => ({ ...ticket, project: engine.project(ticket.id), research: engine.store.research(ticket.id) })),
+        events: engine.store.events(), inputs: engine.store.inputs(), native: state ? { ...state, activity: await activity() } : undefined, config: {
         repo, workers, model, aether: engine.aether.url,
       } })
     }
     if (request.method === "GET" && url.pathname === "/panel/connection") {
       try {
-        const health = await reader.request<{ healthy?: boolean; version?: string }>(engine.config.repo, "/global/health")
+        const health = await reader.request<{ healthy?: boolean; version?: string }>(engine.directory, "/global/health")
         return json({ ok: health.healthy === true, version: health.version })
       } catch (error) {
         return json({ ok: false, error: error instanceof HttpError ? `Aether HTTP ${error.status}` : "无法连接 Aether，请检查地址和服务端认证。" })
@@ -79,6 +93,7 @@ export function controlHandler(engine: Engine, token: string, native?: NativeCoo
         if (operation === "/native/tool" && url.pathname === "/native/tool") {
           const ctx = body.context as NativeContext
           if (!ctx || typeof ctx !== "object") return json({ error: "Tool context is required." }, 400)
+          if (body.name === "observe") return json(await native.observe(ctx))
           if (body.name === "dispatch") return json(await native.dispatch(ctx, body.args))
           if (body.name === "report") return json(await native.report(ctx, body.args))
           if (body.name === "status") return json(await native.state(ctx))

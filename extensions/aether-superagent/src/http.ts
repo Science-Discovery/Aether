@@ -26,14 +26,16 @@ export function handler(engine: Engine, token: string) {
         if (url.pathname === "/requests" || url.pathname === "/tickets") {
           const value = engine.submit(string(body.key, "key"), string(body.text, "text"), undefined,
             url.pathname === "/tickets" ? string(body.title, "title").slice(0, 200) : undefined,
-            body.focus === undefined ? undefined : string(body.focus, "focus"))
+            body.focus === undefined ? undefined : string(body.focus, "focus"),
+            body.project === undefined ? undefined : string(body.project, "project"))
           engine.tick()
           return Response.json(value, { status: 202 })
         }
         const match = url.pathname.match(/^\/tickets\/([^/]+)\/(messages|stop)$/)
         if (match) {
           if (match[2] === "stop") return Response.json(await engine.stop(match[1]!))
-          const value = engine.submit(string(body.key, "key"), string(body.text, "text"), match[1])
+          const value = engine.submit(string(body.key, "key"), string(body.text, "text"), match[1], undefined, undefined,
+            body.project === undefined ? undefined : string(body.project, "project"))
           engine.tick()
           return Response.json(value, { status: 202 })
         }

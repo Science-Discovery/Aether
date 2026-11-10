@@ -12,6 +12,7 @@ export type NativeState = {
   enabled: boolean
   installed: boolean
   master?: { session: string; directory: string }
+  activity?: "not_started" | "idle" | "busy" | "retry" | "unavailable"
   schedule: { enabled: boolean; minutes: number }
   outbox?: { id: string; kind: string; state: string; error?: string; ticket?: string }[]
 }

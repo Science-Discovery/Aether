@@ -1,5 +1,5 @@
 import path from "node:path"
-import { mkdirSync, openSync, writeFileSync, closeSync, readFileSync, unlinkSync, existsSync, realpathSync, lstatSync, chmodSync } from "node:fs"
+import { mkdirSync, openSync, writeFileSync, closeSync, readFileSync, unlinkSync, existsSync, lstatSync, chmodSync } from "node:fs"
 import { hostname } from "node:os"
 import { Aether } from "./aether"
 import { TaskPermissions } from "./permissions"
@@ -7,15 +7,16 @@ import { Store } from "./store"
 import { Engine } from "./engine"
 import { NativeCoordinator } from "./native"
 import { controlHandler } from "./control"
-import { git } from "./workspace"
+import { canonical, outside } from "./workspace"
 
 const file = process.argv[2]
 if (!file) throw new Error("Usage: bun src/main.ts /absolute/path/config.local.json")
 const config = JSON.parse(readFileSync(file, "utf8"))
-if (typeof config.repo !== "string" || typeof config.state !== "string" || !path.isAbsolute(config.state))
-  throw new Error("Config requires repo and an absolute state directory.")
-const repo = realpathSync(config.repo)
-const state = path.resolve(config.state)
+if ((config.repo !== undefined && typeof config.repo !== "string") || typeof config.state !== "string" || !path.isAbsolute(config.state))
+  throw new Error("Config requires an absolute state directory; repo is optional.")
+const repo = config.repo === undefined ? undefined : canonical(config.repo)
+const state = canonical(config.state)
+if (repo) outside(repo, state)
 const backend = new URL(config.aether ?? "http://127.0.0.1:19527")
 if (!["http:", "https:"].includes(backend.protocol) || backend.username || backend.password || backend.search || backend.hash)
   throw new Error("Use an HTTP(S) Aether URL; pass credentials with AETHER_AUTHORIZATION.")
@@ -25,7 +26,6 @@ if (!Number.isInteger(workers) || workers < 1 || workers > 16 || !Number.isInteg
   throw new Error("workers must be 1–16; port must be 1–65535.")
 if (config.model && (typeof config.model.providerID !== "string" || typeof config.model.modelID !== "string"))
   throw new Error("model needs providerID and modelID.")
-if (await git(repo, "rev-parse", "--show-toplevel") !== repo) throw new Error("repo must be a Git working-tree root.")
 mkdirSync(state, { recursive: true, mode: 0o700 })
 const lock = path.join(state, "owner.json")
 let descriptor: number
@@ -39,11 +39,15 @@ closeSync(descriptor)
 process.on("exit", () => { if (existsSync(lock)) unlinkSync(lock) })
 
 const store = new Store(path.join(state, "superagent.db"))
-const identity = JSON.stringify({ repo, backend: backend.href })
-if (store.setting("identity") && store.setting("identity") !== identity) throw new Error("State belongs to another repository or Aether server.")
-store.setting("identity", identity)
-const base = store.setting("base") ?? await git(repo, "rev-parse", "--verify", `${config.base ?? "HEAD"}^{commit}`)
-store.setting("base", base)
+const previous = JSON.parse(store.setting("identity") ?? "null") as { repo?: string; backend: string } | null
+if (previous && new URL(previous.backend).href !== backend.href) throw new Error("State belongs to another Aether server.")
+// Preserve old task provenance before migrating the installation identity to a
+// backend-only value. Removing/changing a default repo never rebinds old tasks.
+if (previous?.repo && !store.setting("legacy:project"))
+  store.setting("legacy:project", JSON.stringify({ directory: previous.repo, repo: previous.repo, base: store.setting("base") }))
+store.setting("identity", JSON.stringify({ backend: backend.href }))
+const legacy = JSON.parse(store.setting("legacy:project") ?? "null") as { directory: string; base?: string } | null
+const base = repo && legacy?.directory === repo ? legacy.base ?? config.base : config.base
 const tokenfile = path.join(state, "token")
 if (!existsSync(tokenfile)) writeFileSync(tokenfile, crypto.randomUUID(), { mode: 0o600, flag: "wx" })
 const token = readFileSync(tokenfile, "utf8").trim()
@@ -81,7 +85,7 @@ const recovery = setInterval(async () => {
   } finally { reading = false }
 }, 5000)
 engine.tick()
-console.log(`aether-superagent: ${server.url}\nRepository: ${repo}\nBase: ${base}\nToken file: ${tokenfile}`)
+console.log(`aether-superagent: ${server.url}\nDefault project: ${repo ?? "none (select a project when dispatching a task)"}\nBase: ${base ?? "resolved per task"}\nToken file: ${tokenfile}`)
 for (const signal of ["SIGINT", "SIGTERM"] as const) process.on(signal, () => {
   engine.closed = true
   clearInterval(timer)

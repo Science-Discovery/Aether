@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from "bun:test"
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, writeFile, access } from "node:fs/promises"
 import path from "node:path"
 import { homedir } from "node:os"
 import { Aether, HttpError, type Message } from "../src/aether"
@@ -305,4 +305,67 @@ test("adopted legacy worker keeps its default agent and file reports then answer
   expect(remote.calls.at(-1)?.text).toContain("File evidence collected")
   const next = await native.dispatch(context("superagent_dispatch"), { ticket: ticket.id, text: "Continue this audit" })
   expect(next.run.legacy).toBe(true); expect(next.ticket.session).toBe(ticket.session)
+})
+
+
+test("repo-free native chat and status do not initialize projects; dispatch binds the selected project", async () => {
+  config = { state: config.state, workers: 2 }
+  engine = new Engine(store, remote, config); native = new NativeCoordinator(engine)
+  const project = path.join(root, "live-project")
+  await mkdir(project); await writeFile(path.join(project, "STATUS.txt"), "17 of 23 complete")
+  const master = await native.open()
+  expect(master.directory).toContain("native-master")
+  expect((await native.state()).workspace.repo).toBeUndefined()
+  expect(store.tickets()).toHaveLength(0)
+  expect(await access(path.join(project, ".git")).then(() => true).catch(() => false)).toBe(false)
+  await expect(native.dispatch(context("superagent_dispatch"), { text: "Monitor my project" })).rejects.toThrow(/project/i)
+  const ctx = context("superagent_dispatch")
+  const args = { text: "Monitor STATUS.txt without modifying it", project }
+  const first = await native.dispatch(ctx, args)
+  const again = await native.dispatch(ctx, args)
+  expect(first.input.id).toBe(again.input.id)
+  expect(first.ticket.project?.directory).toBe(project)
+  expect((await native.state()).tickets[0]?.project?.directory).toBe(project)
+  // Submission stores intent; only execution is allowed to initialize Git.
+  expect(await access(path.join(project, ".git")).then(() => true).catch(() => false)).toBe(false)
+  await expect(native.dispatch(ctx, { ...args, project: path.join(root, "other") })).rejects.toThrow(/Idempotency/)
+})
+
+test("native project binding survives continuation and cannot be moved by a follow-up", async () => {
+  const first = await native.dispatch(context("superagent_dispatch"), { text: "Monitor A", project: path.join(root, "project-a") })
+  const second = await native.dispatch(context("superagent_dispatch"), { text: "Monitor B", project: path.join(root, "project-b") })
+  const follow = await native.dispatch(context("superagent_dispatch"), { text: "Check A again", ticket: first.ticket.id })
+  expect(follow.ticket.session).toBe(first.ticket.session)
+  expect(follow.ticket.project).toEqual(first.ticket.project)
+  expect(second.ticket.project?.directory).not.toBe(first.ticket.project?.directory)
+  await expect(native.dispatch(context("superagent_dispatch"), { text: "Check B instead", ticket: first.ticket.id,
+    project: path.join(root, "project-b") })).rejects.toThrow(/project/i)
+  await expect(native.dispatch(context("superagent_dispatch", "ses_other"), { text: "Take over", ticket: first.ticket.id,
+    project: path.join(root, "project-a") })).rejects.toThrow("owned")
+  expect(engine.project(first.ticket.id)).toEqual(first.ticket.project)
+})
+
+
+test("a real Super-agent user turn links an existing conversation without creating a task", async () => {
+  const ctx = { sessionID: "ses_selected", directory: path.join(root, "user-project"), messageID: "msg_user_selected" }
+  remote.messages.set(ctx.messageID, { info: { id: ctx.messageID, sessionID: ctx.sessionID, role: "user", agent: "superagent" }, parts: [] })
+  expect(await native.observe(ctx)).toEqual({ observed: true })
+  expect((await native.state()).master).toEqual({ session: ctx.sessionID, directory: ctx.directory })
+  expect(store.tickets()).toHaveLength(0)
+  expect(await native.open()).toEqual({ session: ctx.sessionID, directory: ctx.directory })
+  remote.messages.set(ctx.messageID, { info: { id: ctx.messageID, sessionID: ctx.sessionID, role: "user", agent: "build" }, parts: [] })
+  await expect(native.observe(ctx)).rejects.toThrow("Super-agent user turn")
+  remote.messages.set(ctx.messageID, { info: { id: ctx.messageID, sessionID: ctx.sessionID, role: "assistant", agent: "superagent" }, parts: [] })
+  await expect(native.observe(ctx)).rejects.toThrow("Super-agent user turn")
+})
+
+test("observing a background checker cannot replace the user's main conversation", async () => {
+  const master = { session: "ses_primary", directory: "/fixture/primary", created: Date.now(), checker: { session: "ses_checker", directory: "/fixture/checker" } }
+  store.db.query("INSERT INTO native_master VALUES (?,?)").run(master.session, JSON.stringify(master))
+  store.setting("native:master", master.session)
+  const ctx = { sessionID: master.checker.session, directory: master.checker.directory, messageID: "msg_check" }
+  remote.messages.set(ctx.messageID, { info: { id: ctx.messageID, sessionID: ctx.sessionID, role: "user", agent: "superagent" }, parts: [] })
+  expect(await native.observe(ctx)).toEqual({ observed: false })
+  expect((await native.state()).master?.session).toBe(master.session)
+  expect(store.tickets()).toHaveLength(0)
 })

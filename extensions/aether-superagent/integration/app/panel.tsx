@@ -12,10 +12,10 @@ type Research = {
   milestones: { id: string; title: string; state: string }[]; evidence: { label: string; path: string }[]
   updated: number; revision: number; input: string | null
 }
-type Ticket = { id: string; title: string; directory: string; session: string; state: string; result: string; research?: Research }
+type Ticket = { id: string; title: string; directory: string; session: string; state: string; result: string; project?: { directory: string; repo?: string; base?: string }; research?: Research }
 type Input = { id: string; key: string; mode: string; ticket: string | null; text: string; result: string; state: string }
 type Event = { id: number; ticket: string; input: string | null; kind: string; at: number; research: Research }
-type Snapshot = { native: NativeState; tickets: Ticket[]; inputs: Input[]; events: Event[]; config: { repo: string; aether: string; workers: number } }
+type Snapshot = { native: NativeState; tickets: Ticket[]; inputs: Input[]; events: Event[]; config: { repo?: string; aether: string; workers: number } }
 const stages: Record<string, string> = { planning: "规划路径", research: "文献与调研", deriving: "推导中", computing: "计算中", verifying: "验证中", blocked: "需要关注", review: "待验收" }
 const execution: Record<string, string> = { queued: "等待执行", running: "执行中", waiting: "本轮已结束", attention: "执行待核对", stopped: "已停止" }
 const filters = [{ id: "all", name: "全部课题" }, { id: "active", name: "推进中" }, { id: "attention", name: "需要关注" }, { id: "review", name: "待验收" }]
@@ -70,6 +70,17 @@ export default function SuperagentPanel() {
     const timer = setInterval(() => { if (!document.hidden) void refresh() }, 1500)
     onCleanup(() => clearInterval(timer))
   })
+  const phase = () => state.connection || !valid() ? "unavailable" : state.snapshot?.native?.activity ?? "unavailable"
+  const thinking = () => ["busy", "retry"].includes(phase())
+  const activity = () => {
+    if (state.connection || !valid()) return "主控状态暂不可用，请打开会话核对"
+    if (!state.snapshot) return "正在读取主控状态"
+    if (!state.snapshot.native?.enabled) return "Super-agent 已停用"
+    if (thinking()) return tickets().length ? "主控正在处理请求 · 课题进展见下方" : "主控正在处理请求 · 尚未派发课题"
+    if (state.snapshot.native.activity === "not_started") return "尚未开启主控会话"
+    if (state.snapshot.native.activity === "idle") return tickets().length ? "主控当前空闲" : "主控当前空闲 · 尚未派发课题"
+    return "主控状态暂不可用，请打开会话核对"
+  }
   const status = (ticket: Ticket) => ticket.state === "stopped" ? "已停止" : stages[ticket.research?.stage ?? "planning"] ?? "规划路径"
   return (
     <div class="research-workbench" data-testid="superagent-panel">
@@ -87,7 +98,7 @@ export default function SuperagentPanel() {
           <div class="research-layout">
             <div class="research-main">
               <section class="research-controller" data-testid="superagent-controller">
-                <div><h2>主控会话</h2><p>在原生会话中讨论目标、安排工作、回答待决问题。这里跟踪课题进展。</p></div>
+                <div><h2>主控会话</h2><p>在原生会话中讨论目标、安排工作、回答待决问题。这里跟踪课题进展。</p><p class="research-master-status" data-testid="superagent-master-status" data-state={phase()} role="status">{activity()}</p></div>
                 <div class="research-controller-actions">
                   <SuperagentPermissions enabled={!!state.snapshot?.native?.enabled} stopped={tickets().filter((ticket) => ticket.state === "stopped").map((ticket) => ticket.id)} />
                   <Button variant="primary" disabled={!valid() || state.busy || !state.snapshot?.native?.installed || !state.snapshot.native.enabled} onClick={() => void open()} data-testid="superagent-master">打开主控会话 ↗</Button>
@@ -99,10 +110,12 @@ export default function SuperagentPanel() {
                 <For each={notices()}>{(notice) => <p data-state={notice.state}>{notice.ticket ? tickets().find((ticket) => ticket.id === notice.ticket)?.title ?? "研究课题" : "定时检查"}：{notice.state === "failed" ? "主控汇报失败" : "主控汇报待核对"}</p>}</For>
               </section></Show>
               <nav class="research-filters" aria-label="课题筛选"><For each={filters}>{(filter) => <Button variant="ghost" data-selected={state.filter === filter.id} aria-pressed={state.filter === filter.id} onClick={() => set("filter", filter.id)}>{filter.name}<Show when={filter.id === "attention" && tickets().some(attention)}><span class="research-attention-count">{tickets().filter(attention).length}</span></Show></Button>}</For></nav>
-              <Show when={visible().length} fallback={<div class="research-empty"><span class="research-empty-icon"><Icon name="task" /></span><h2>{tickets().length ? "这里暂时没有课题" : "从一个值得研究的问题开始"}</h2><p>{tickets().length ? "切换筛选，查看其他课题的进展。" : "打开主控会话交代研究目标；这里会呈现研究路径、阶段成果和待决问题。"}</p></div>}>
+              <Show when={visible().length} fallback={<div class="research-empty"><span class="research-empty-icon"><Icon name="task" /></span><h2>{tickets().length ? "这里暂时没有课题" : thinking() ? "主控正在处理你的请求" : "尚未派发科研课题"}</h2><p>{tickets().length ? "切换筛选，查看其他课题的进展。" : thinking() ? "主控完成派工后，课题会出现在这里。正在思考不代表研究任务已经开始。" : "普通对话不会自动生成课题。请在主控会话中交代项目目录和研究目标；无需预先准备 Git 仓库。"}</p></div>}>
                 <div class="research-grid"><For each={visible()}>{(ticket) => <article class="research-card" data-selected={state.selected === ticket.id} data-attention={attention(ticket)}>
                   <div class="research-card-top"><span class="research-stage" data-stage={ticket.research?.stage}>{status(ticket)}</span><span class="research-time">{stamp(ticket.research?.updated)}</span></div>
                   <button class="research-card-title" onClick={() => set("selected", ticket.id)} data-testid="superagent-ticket" aria-pressed={state.selected === ticket.id}>{ticket.title}<span aria-hidden="true">↗</span></button>
+                  <Show when={ticket.project}><p class="research-project" data-testid="superagent-project" title={ticket.project?.directory}>{ticket.project?.directory}</p></Show>
+                  <Show when={ticket.state === "attention" && ticket.result}><p class="research-task-error" data-testid="superagent-task-error">执行待核对：{ticket.result}</p></Show>
                   <p class="research-summary" data-testid="superagent-summary">{ticket.research?.summary || "尚未收到执行 agent 的进展报告。"}</p>
                   <Show when={ticket.research?.milestones.length}><div class="research-steps" aria-label="里程碑进度"><For each={ticket.research?.milestones}>{(milestone) => <span data-state={milestone.state} title={milestone.title} />}</For></div></Show>
                   <div class="research-card-footer"><span>{ticket.research?.milestones.length ? `${ticket.research.milestones.filter((milestone) => milestone.state === "done").length} / ${ticket.research.milestones.length} 里程碑` : "等待研究计划"}</span><span class="research-execution" data-running={ticket.state === "running"}><i />{execution[ticket.state] ?? ticket.state}</span></div>
@@ -113,6 +126,7 @@ export default function SuperagentPanel() {
             <aside class="research-aside">
               <Show when={selected()} fallback={<section class="research-brief research-welcome"><p class="research-eyebrow">研究概览</p><h2>{tickets().some(attention) ? "有课题需要关注" : "把精力留给关键判断"}</h2><p>{tickets().some(attention) ? "选择课题查看当前阻碍，然后在主控会话中讨论下一步。" : "选择一项课题，查看里程碑、证据和下一步。执行记录随时可以在原会话中展开。"}</p><div class="research-note">阶段与里程碑来自执行 agent 的报告；“待验收”表示已有结果和证据，仍需要核对。</div></section>}>
                 {(ticket) => <section class="research-brief" data-testid="superagent-brief"><div class="research-section-heading"><p class="research-eyebrow">课题简报</p><Button variant="ghost" size="small" aria-label="取消关注课题" onClick={() => set("selected", "")}>×</Button></div><h2>{ticket().title}</h2><p>{ticket().research?.objective}</p>
+                  <Show when={ticket().project}><h3>项目目录</h3><p class="research-full-summary">{ticket().project?.directory}</p></Show>
                   <Show when={ticket().research?.summary}><h3>当前进展</h3><p class="research-full-summary">{ticket().research?.summary}</p></Show>
                   <Show when={ticket().research?.next}><h3>下一步</h3><p>{ticket().research?.next}</p></Show>
                   <Show when={ticket().research?.blockers.length}><div class="research-blockers"><strong>待决事项</strong><For each={ticket().research?.blockers}>{(blocker) => <p>{blocker}</p>}</For></div></Show>
@@ -123,7 +137,7 @@ export default function SuperagentPanel() {
               </Show>
               <section class="research-activity" data-testid="superagent-activity"><div class="research-section-heading"><h2>最近进展</h2><span>{state.selected ? "当前课题" : "所有课题"}</span></div><Show when={events().length} fallback={<p class="research-muted">新的研究进展会出现在这里。</p>}><ol><For each={events()}>{(event) => <li><i /><div><time>{stamp(event.at)}</time><strong>{tickets().find((ticket) => ticket.id === event.ticket)?.title ?? "研究课题"}</strong><p>{event.kind === "created" ? "课题已建立，正在安排研究工作。" : event.kind === "stopped" ? "已停止执行，保留既有成果。" : event.research.summary || stages[event.research.stage] || "进展已更新"}</p></div></li>}</For></ol></Show></section>
               <Show when={state.snapshot?.inputs.some((input) => input.state === "uncertain")}><section class="research-brief"><h3>投递待核对</h3><For each={state.snapshot?.inputs.filter((input) => input.state === "uncertain")}>{(input) => <div class="research-pending"><p>{input.text.slice(0, 120)}</p><Button size="small" variant="secondary" disabled={state.busy || !valid()} onClick={() => void action(`/inputs/${input.id}/reconcile`)}>核对执行结果</Button><Button size="small" variant="ghost" disabled={state.busy || !valid()} onClick={() => { if (confirm("已检查执行会话？放弃只解除等待，不会撤销已执行的操作。")) void action(`/inputs/${input.id}/dismiss`, { confirm: true }) }}>放弃</Button></div>}</For></section></Show>
-              <details class="research-settings"><summary>运行设置</summary><p>仓库：{state.snapshot?.config.repo ?? "连接中"}</p><p>并发执行：{state.snapshot?.config.workers ?? "—"}</p><p>启用与定时检查可在 Aether 设置的 Super-agent 页面调整。</p></details>
+              <details class="research-settings"><summary>运行设置</summary><p>默认项目：{state.snapshot ? state.snapshot.config.repo ?? "按任务指定" : "连接中"}</p><p>并发执行：{state.snapshot?.config.workers ?? "—"}</p><p>启用与定时检查可在 Aether 设置的 Super-agent 页面调整。</p></details>
             </aside>
           </div>
         </div>
