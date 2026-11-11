@@ -54,8 +54,14 @@ export function createSuperagentClient() {
     async open(target: { directory: string; session: string }, master = false) {
       // The composer persists its initial selection. Load the workspace's agent
       // order before mounting it for the first time in a coordinator session.
-      if (master && valid()) await sync.project.loadActiveMetadata(target.directory)
       if (!valid()) return
+      if (master) {
+        await sync.project.loadActiveMetadata(target.directory)
+        if (!valid()) return
+        const [metadata] = sync.peek(target.directory, { bootstrap: false })
+        if (!metadata.modelReady || !metadata.agent.some((agent) => agent.name === "superagent"))
+          throw new Error("未能加载主控角色，请重试打开主控会话。")
+      }
       layout.projects.open(target.directory)
       OpenIntent.mark(key, target.directory)
       navigate(`/${base64Encode(target.directory)}/session/${target.session}`)
