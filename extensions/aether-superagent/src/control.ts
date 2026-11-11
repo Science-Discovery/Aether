@@ -68,11 +68,17 @@ export function controlHandler(engine: Engine, token: string, native?: NativeCoo
         if (operation === "/native/trust") return json(await permissions.trust(body.ticket, body.trusted, body.confirm))
         if (operation === "/native/open") return json(await native.open())
         if (operation === "/native/settings") {
-          if (Object.keys(body).some((key) => !["enabled", "schedule"].includes(key))) return json({ error: "Unknown setting." }, 400)
+          if (Object.keys(body).some((key) => !["enabled", "schedule", "workdir"].includes(key))) return json({ error: "Unknown setting." }, 400)
           if (body.enabled !== undefined && typeof body.enabled !== "boolean") return json({ error: "enabled must be boolean." }, 400)
           if (body.schedule !== undefined && (!body.schedule || typeof body.schedule.enabled !== "boolean" ||
             !Number.isInteger(body.schedule.minutes) || body.schedule.minutes < 1 || body.schedule.minutes > 1440))
             return json({ error: "检查间隔须为 1–1440 分钟。" }, 400)
+          if (body.workdir !== undefined) {
+            if (!native.installed() || Object.keys(body).length !== 1 || typeof body.workdir !== "string")
+              return json({ error: "请单独保存工作目录，且 Super-agent 须已安装。" }, 400)
+            engine.setWorkspace(body.workdir)
+            return json(await native.state())
+          }
           native.settings({ ...(body.enabled === undefined ? {} : { enabled: body.enabled }),
             ...(body.schedule === undefined ? {} : { checkinEnabled: body.schedule.enabled, checkinSeconds: body.schedule.minutes * 60 }) })
           return json(await native.state())
@@ -93,6 +99,7 @@ export function controlHandler(engine: Engine, token: string, native?: NativeCoo
         if (operation === "/native/tool" && url.pathname === "/native/tool") {
           const ctx = body.context as NativeContext
           if (!ctx || typeof ctx !== "object") return json({ error: "Tool context is required." }, 400)
+          if (body.name === "owns_directory") return json(native.ownsDirectory(ctx.directory))
           if (body.name === "observe") return json(await native.observe(ctx))
           if (body.name === "dispatch") return json(await native.dispatch(ctx, body.args))
           if (body.name === "report") return json(await native.report(ctx, body.args))

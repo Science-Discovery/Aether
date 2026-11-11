@@ -13,7 +13,7 @@ export const SuperagentPlugin: Plugin = async ({ directory }) => {
     if (name === "superagent") primary.add(session)
     else primary.delete(session)
   }
-  async function request(name: string, args: unknown, context: { sessionID: string; messageID: string; directory: string; agent: string; callID?: string }, signal: AbortSignal) {
+  async function request(name: string, args: unknown, context: { sessionID?: string; messageID?: string; directory: string; agent?: string; callID?: string }, signal: AbortSignal) {
     const config = await Bun.file(bridgeFile).json()
     const url = new URL(config.url)
     if (url.protocol !== "http:" || !["127.0.0.1", "localhost", "[::1]"].includes(url.hostname) ||
@@ -74,9 +74,15 @@ export const SuperagentPlugin: Plugin = async ({ directory }) => {
     config: async (config) => {
       try {
         const bridge = await Bun.file(bridgeFile).json()
-        if (typeof bridge.tokenFile === "string" && path.isAbsolute(bridge.tokenFile) &&
-          (directory === path.join(path.dirname(bridge.tokenFile), "native-master") ||
-            directory.startsWith(path.join(path.dirname(bridge.tokenFile), "native-master") + path.sep))) config.default_agent = "superagent"
+        if (typeof bridge.tokenFile !== "string" || !path.isAbsolute(bridge.tokenFile)) return
+        const legacy = path.join(path.dirname(bridge.tokenFile), "native-master")
+        if (directory === legacy || directory.startsWith(legacy + path.sep)) {
+          config.default_agent = "superagent"
+          return
+        }
+        if (path.basename(directory) !== "v05" || path.basename(path.dirname(directory)) !== "native-master") return
+        if (await request("owns_directory", {}, { directory }, AbortSignal.timeout(750)) === "true")
+          config.default_agent = "superagent"
       } catch { /* Uninstalled or unavailable configuration must not break other workspaces. */ }
     },
     tool: {

@@ -7,15 +7,15 @@ import { Store } from "./store"
 import { Engine } from "./engine"
 import { NativeCoordinator } from "./native"
 import { controlHandler } from "./control"
-import { canonical, outside } from "./workspace"
+import { canonical, outside, stateDirectory } from "./workspace"
 
 const file = process.argv[2]
 if (!file) throw new Error("Usage: bun src/main.ts /absolute/path/config.local.json")
 const config = JSON.parse(readFileSync(file, "utf8"))
-if ((config.repo !== undefined && typeof config.repo !== "string") || typeof config.state !== "string" || !path.isAbsolute(config.state))
-  throw new Error("Config requires an absolute state directory; repo is optional.")
+if (config.repo !== undefined && typeof config.repo !== "string")
+  throw new Error("Config repo must be an absolute directory path when provided.")
 const repo = config.repo === undefined ? undefined : canonical(config.repo)
-const state = canonical(config.state)
+const state = stateDirectory(config.state)
 if (repo) outside(repo, state)
 const backend = new URL(config.aether ?? "http://127.0.0.1:19527")
 if (!["http:", "https:"].includes(backend.protocol) || backend.username || backend.password || backend.search || backend.hash)

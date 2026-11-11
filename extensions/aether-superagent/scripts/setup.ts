@@ -1,9 +1,8 @@
 import { createInterface } from "node:readline/promises"
-import { homedir } from "node:os"
 import path from "node:path"
 import { parseArgs } from "node:util"
 import { writeFile } from "node:fs/promises"
-import { canonical, outside } from "../src/workspace"
+import { canonical, outside, stateDirectory } from "../src/workspace"
 import { Aether } from "../src/aether"
 import { baseURL } from "../src/control"
 
@@ -18,7 +17,7 @@ async function ask(key: string, label: string, fallback = "") {
 try {
   const selected = await ask("repo", "默认项目绝对路径（可留空，派工时选择）")
   const repo = selected ? canonical(selected) : undefined
-  const state = canonical(await ask("state", "独立状态目录", path.join(homedir(), "data/aether-superagent", "default")))
+  const state = stateDirectory(await ask("state", "协调器数据目录", stateDirectory()))
   if (repo) outside(repo, state)
   const aether = baseURL(await ask("aether", "Aether API 地址", "http://127.0.0.1:19527"))
   const model = await ask("model", "模型 provider/model（留空使用 Aether 默认）")

@@ -4,11 +4,12 @@ import { createHash } from "node:crypto"
 import { HttpError, text, type Message } from "./aether"
 import type { Engine } from "./engine"
 import { id, type Input, type Ticket } from "./store"
+import { canonical, contains } from "./workspace"
 import { initialResearch, parseReport, type Research } from "./research"
 
 export type NativeContext = { sessionID: string; directory: string; agent: string; messageID: string; callID: string }
 export type NativeSettings = { enabled: boolean; checkinEnabled: boolean; checkinSeconds: number }
-export type NativeMaster = { session: string; directory: string; created: number; checker?: { session: string; directory: string } }
+export type NativeMaster = { session: string; directory: string; created: number; managed?: boolean; checker?: { session: string; directory: string } }
 export type NativeRun = { id: string; ticket: string; master: string; sourceMessage: string; sourceAssistant: string; call: string;
   state: "pending" | "running" | "done" | "attention" | "stopped"; created: number; internal?: boolean; legacy?: boolean }
 export type NativeReportArgs = { ticket: string; run: string; revision: number; kind: "progress" | "answer" | "ready" | "blocker";
@@ -158,13 +159,25 @@ export class NativeCoordinator {
     return { observed: true }
   }
 
+  assertWorkspace(directory: string) {
+    for (const master of this.list<NativeMaster>("master")) {
+      if ((master.managed && contains(canonical(master.directory), directory)) ||
+        (master.checker && contains(canonical(master.checker.directory), directory)))
+        throw new Error("工作目录不能设在已有任务或协调会话内。")
+    }
+  }
+
+  ownsDirectory(directory: string) {
+    return this.list<NativeMaster>("master").some((master) => master.managed && master.directory === directory)
+  }
+
   async open() {
     this.enabled()
     if (this.opening) return this.opening
     const work = async () => {
       const key = this.engine.store.setting("native:master")
       const previous = key ? this.get<NativeMaster>("master", key) : undefined
-      const master = previous ?? { session: id("ses"), directory: path.join(this.engine.config.state, "native-master", "v05"), created: Date.now() }
+      const master = previous ?? { session: id("ses"), directory: path.join(this.engine.workspace(), "native-master", "v05"), created: Date.now(), managed: true }
       // Persist identity before the remote call, allowing safe recovery of a lost create response.
       this.save("master", master.session, master)
       this.engine.store.setting("native:master", master.session)
@@ -337,7 +350,7 @@ export class NativeCoordinator {
     const runs = allRuns.filter((run) => !ctx || run.master === caller!.session)
     const owned = new Set(runs.map((run) => run.ticket))
     return { installed: this.installed(), enabled: settings.enabled, master: master ? { session: master.session, directory: master.directory } : undefined,
-      workspace: { repo: this.engine.config.repo, base: this.engine.config.base,
+      workspace: { directory: this.engine.workspace(), defaultDirectory: this.engine.config.state, repo: this.engine.config.repo, base: this.engine.config.base,
         description: "No project is required for conversation. For a new objective, dispatch with project set to the user-selected local directory, or use the optional legacy default repository. Existing Git is reused; otherwise an empty Git baseline is initialized without adding project files. Tasks retain their project on follow-up. Workers use isolated worktrees and inspect live project files at the source directory for monitoring." },
       schedule: { enabled: settings.checkinEnabled, minutes: settings.checkinSeconds / 60 }, settings,
       tickets: this.engine.store.tickets().filter((ticket) => owned.has(ticket.id) || !assigned.has(ticket.id))
@@ -369,7 +382,7 @@ export class NativeCoordinator {
   private async checker(master: NativeMaster) {
     let current = this.get<NativeMaster>("master", master.session)!
     if (!current.checker) {
-      current = { ...current, checker: { session: id("ses"), directory: path.join(this.engine.config.state, "checkin", master.session) } }
+      current = { ...current, checker: { session: id("ses"), directory: path.join(this.engine.workspace(), "checkin", master.session) } }
       this.save("master", master.session, current)
     }
     await mkdir(current.checker!.directory, { recursive: true })

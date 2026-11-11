@@ -11,6 +11,7 @@ import { OpenIntent } from "@/utils/open-intent"
 export type NativeState = {
   enabled: boolean
   installed: boolean
+  workspace?: { directory: string; defaultDirectory: string }
   master?: { session: string; directory: string }
   activity?: "not_started" | "idle" | "busy" | "retry" | "unavailable"
   schedule: { enabled: boolean; minutes: number }

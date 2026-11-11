@@ -16,13 +16,16 @@ From this directory (or a standalone copy of it):
 
 ```sh
 bun install --frozen-lockfile
-bun run setup --state /absolute/path/to/superagent-state \
-  --aether http://127.0.0.1:19527
+bun run setup --aether http://127.0.0.1:19527
 bun run install:aether --aether /absolute/path/to/Aether --config config.local.json
 bun start config.local.json
 ```
 
 Build/run Aether from the modified source checkout. Existing packaged binaries do not load these source changes; existing backend instances may need to reload plugin configuration. Refresh the browser after an upgrade. Open **研究工作台** (Research workspace) from the sidebar, then **打开主控会话** (Open coordinator conversation). The prototype's panel labels are currently Chinese. Settings → Super-agent provides enable/disable, scheduled check-ins (off by default), and guarded uninstall.
+
+The default coordinator data and workspace root is `$XDG_DATA_HOME/aether/superagent` (`~/.local/share/aether/superagent` when unset). Run setup, the installer and the coordinator with the same XDG environment as Aether. Setup saves the resolved path, and existing explicit `config.state` paths remain valid.
+
+In Settings → Super-agent → Working directory (工作目录), save an absolute server-side path or restore the default. The new root applies immediately to newly created worker worktrees and managed native sessions. Existing sessions and tasks keep their original paths, and the coordinator database and bridge stay at the original data location. Keep the workspace outside research repositories.
 
 Model credentials stay in Aether. Use `setup --model provider/model` to choose a model, and `AETHER_AUTHORIZATION` if the backend requires Basic authentication. Never commit `config.local.json`, tokens, installation receipts or research state.
 

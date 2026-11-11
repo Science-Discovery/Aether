@@ -1,8 +1,9 @@
 import path from "node:path"
 import { mkdir } from "node:fs/promises"
+import { accessSync, constants, mkdirSync } from "node:fs"
 import { Aether, HttpError, text, type Message, type Model } from "./aether"
 import { Store, id, type Input, type Ticket } from "./store"
-import { canonical, outside, prepare, resolveProject, type Project } from "./workspace"
+import { canonical, contains, outside, prepare, resolveProject, type Project } from "./workspace"
 import { bindReport, initialResearch, parseReport, readReport, workerPrompt, type ReportBinding } from "./research"
 import type { NativeCoordinator } from "./native"
 
@@ -66,9 +67,31 @@ export class Engine {
     }
   }
 
+  workspace() { return this.store.setting("workdir") || this.config.state }
+
+  setWorkspace(value: string) {
+    if (value !== "" && (!path.isAbsolute(value) || value.length > 4096 || value.includes("\0")))
+      throw new Error("工作目录须为本机绝对路径。")
+    const directory = value === "" ? this.config.state : canonical(value)
+    if (directory !== this.config.state) {
+      outside(directory, this.config.state)
+      if (this.config.repo) outside(this.config.repo, directory)
+      for (const ticket of this.store.tickets()) {
+        const project = this.project(ticket.id)
+        if (project) outside(project.repo ?? project.directory, directory)
+        if (contains(canonical(ticket.directory), directory))
+          throw new Error("工作目录不能设在已有任务或协调会话内。")
+      }
+      this.native?.assertWorkspace(directory)
+    }
+    mkdirSync(directory, { recursive: true, mode: 0o700 })
+    accessSync(directory, constants.W_OK | constants.X_OK)
+    this.store.setting("workdir", directory === this.config.state ? "" : directory)
+  }
+
   ticket(title: string): Ticket {
     const key = id("job")
-    return { id: key, title, session: id("ses"), directory: path.join(this.config.state, "work", key), state: "queued", result: "" }
+    return { id: key, title, session: id("ses"), directory: path.join(this.workspace(), "work", key), state: "queued", result: "" }
   }
 
   project(ticket: string): Project | undefined {
@@ -81,11 +104,13 @@ export class Engine {
     if (!selected) throw new Error("Choose an absolute project directory before creating a task; normal conversation needs no project.")
     const directory = canonical(selected)
     outside(directory, this.config.state)
+    outside(directory, ticket.directory)
     const current = this.project(ticket.id)
     if (current) {
       if (canonical(current.directory) !== directory) throw new Error("A task's project cannot be changed; create another task.")
       return
     }
+    if (!this.store.ticket(ticket.id)) outside(directory, this.workspace())
     this.store.setting(`project:${ticket.id}`, JSON.stringify({ directory,
       ...(!project && this.config.base ? { base: this.config.base } : {}) }))
   }
@@ -289,10 +314,11 @@ export class Engine {
         let project = this.project(ticket.id)
         if (!project) { this.bind(ticket); project = this.project(ticket.id)! }
         if (!project.repo || !project.base) {
-          project = await resolveProject(project.directory, this.config.state, project.base)
+          project = await resolveProject(project.directory, this.config.state, project.base, directory)
           this.store.setting(`project:${ticket.id}`, JSON.stringify(project))
         }
         outside(project.repo!, this.config.state)
+        outside(project.repo!, directory)
         await prepare(project.repo!, directory, ticket.id, project.base!)
       } else await mkdir(directory, { recursive: true })
       await this.aether.ensure(directory, session, ticket?.title ?? "Superagent router", !ticket)

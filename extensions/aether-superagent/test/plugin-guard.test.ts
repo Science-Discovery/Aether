@@ -5,12 +5,13 @@ import { tmpdir } from "node:os"
 import path from "node:path"
 
 type Hooks = {
+  config: (config: { default_agent?: string }) => Promise<void>
   "chat.message": (input: { sessionID: string; agent?: string }, output: { message: { agent: string } }) => Promise<void>
   "chat.params": (input: { sessionID: string; agent: unknown; message?: { id: string } }) => Promise<void>
   "tool.execute.before": (input: { sessionID: string; tool: string; callID: string }, output: { args: unknown }) => Promise<void>
 }
 
-async function plugin(target?: string) {
+async function plugin(target?: string, workspace?: string) {
   const sources = process.env.AETHER_SOURCE ? [path.resolve(process.env.AETHER_SOURCE)] : [
     path.resolve(import.meta.dir, "../../.."), path.resolve(import.meta.dir, "../../Aether"),
   ]
@@ -25,7 +26,7 @@ async function plugin(target?: string) {
   // Exercise the installed plugin itself and real tool.schema implementation;
   // no model, coordinator, configuration read, or permission API is involved.
   const factory = (await import(file)).SuperagentPlugin as (context: { directory: string }) => Promise<Hooks>
-  return factory({ directory })
+  return factory({ directory: workspace ?? directory })
 }
 
 test("resolved primary role blocks direct tools even when the session policy would otherwise allow them", async () => {
@@ -110,3 +111,28 @@ test("an unresponsive optional observer is bounded and cannot break the primary 
     await expect(hooks["tool.execute.before"]({ sessionID: "main", tool: "read", callID: "call" }, { args: {} })).rejects.toThrow("registered tasks")
   } finally { release(); server.stop(true) }
 }, 6000)
+
+test("the default role follows a registered custom master directory only", async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), "superagent-master-"))
+  const master = path.join(directory, "custom", "native-master", "v05")
+  const other = path.join(directory, "other", "native-master", "v05")
+  await writeFile(path.join(directory, "token"), "fixture-token")
+  await writeFile(path.join(directory, "unused-bridge.json"), JSON.stringify({
+    url: "http://127.0.0.1:1", tokenFile: path.join(directory, "token"),
+  }))
+  const server = Bun.serve({ unix: path.join(directory, "control.sock"), async fetch(request) {
+    expect(request.headers.get("Authorization")).toBe("Bearer fixture-token")
+    const body = await request.json()
+    expect(body.name).toBe("owns_directory")
+    return Response.json(body.context.directory === master)
+  } })
+  try {
+    const accepted = {}
+    const ignored = {}
+    await (await plugin(directory, master)).config(accepted)
+    const hooks = await plugin(directory, other)
+    await hooks.config(ignored)
+    expect(accepted).toEqual({ default_agent: "superagent" })
+    expect(ignored).toEqual({})
+  } finally { server.stop(true) }
+})

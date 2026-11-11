@@ -111,16 +111,18 @@ test("setup and CLI start without any Git project, and reject another backend on
   const root = process.env.SUPERAGENT_TEST_ROOT ?? path.join(homedir(), "data/aether-superagent-tests")
   await mkdir(root, { recursive: true })
   const dir = await mkdtemp(path.join(root, "cli-projectless-"))
-  const state = path.join(dir, "state")
+  const data = path.join(dir, "data")
+  const state = path.join(data, "aether", "superagent")
   const config = path.join(dir, "config.json")
   const backend = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => Response.json({ healthy: true }) })
   const reservation = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response() })
   const port = reservation.port!
   reservation.stop(true)
-  const setup = Bun.spawn([process.execPath, path.resolve(import.meta.dir, "../scripts/setup.ts"), "--state", state,
-    "--file", config, "--port", String(port), "--aether", backend.url.origin], { stdin: "ignore", stdout: "pipe", stderr: "pipe" })
+  const setup = Bun.spawn([process.execPath, path.resolve(import.meta.dir, "../scripts/setup.ts"),
+    "--file", config, "--port", String(port), "--aether", backend.url.origin], { env: { ...process.env, XDG_DATA_HOME: data }, stdin: "ignore", stdout: "pipe", stderr: "pipe" })
   expect(await setup.exited).toBe(0)
   const value = JSON.parse(await readFile(config, "utf8"))
+  expect(value.state).toBe(state)
   expect(value.repo).toBeUndefined()
   expect(value.base).toBeUndefined()
   const launch = (name: string) => Bun.spawn([process.execPath, path.resolve(import.meta.dir, "../src/main.ts"), config], {

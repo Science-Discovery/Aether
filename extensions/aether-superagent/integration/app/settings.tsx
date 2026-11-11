@@ -7,23 +7,24 @@ import { createSuperagentClient, type NativeState } from "./client"
 
 export function SettingsSuperagent() {
   const client = createSuperagentClient()
-  const [state, set] = createStore({ native: undefined as NativeState | undefined, minutes: "30", busy: false, error: "", confirm: false })
+  const [state, set] = createStore({ native: undefined as NativeState | undefined, minutes: "30", workdir: "", busy: false, error: "", confirm: false })
   const disabled = () => !client.valid() || state.busy || !state.native?.installed
-  async function load() {
+  async function load(reset = false) {
     const value = await client.request<{ native: NativeState }>("/panel/state")
+    if (reset || !state.native?.workspace) set("workdir", value.native.workspace?.directory ?? "")
     set({ native: value.native, minutes: String(value.native.schedule.minutes) })
   }
   async function refresh() {
     if (state.busy || !client.valid()) return
     set({ busy: true, error: "" })
-    try { await load() }
+    try { await load(true) }
     catch (error) { if (client.valid()) set("error", String(error)) }
     finally { if (client.valid()) set("busy", false) }
   }
-  async function update(body: { enabled?: boolean; schedule?: { enabled: boolean; minutes: number } }) {
+  async function update(body: { enabled?: boolean; schedule?: { enabled: boolean; minutes: number }; workdir?: string }) {
     if (disabled()) return
     set({ busy: true, error: "", confirm: false })
-    try { await client.request("/native/settings", body); await load() }
+    try { await client.request("/native/settings", body); await load(body.workdir !== undefined) }
     catch (error) { if (client.valid()) set("error", String(error)) }
     finally { if (client.valid()) set("busy", false) }
   }
@@ -83,6 +84,20 @@ export function SettingsSuperagent() {
               <Button variant="secondary" disabled={disabled() || state.minutes === String(native().schedule.minutes)} onClick={() => schedule(native().schedule.enabled)} data-testid="superagent-schedule-save">保存间隔</Button>
             </div>
           </div>
+          <Show when={native().workspace}>{(workspace) =>
+            <div class="rounded-lg border border-border-base p-4 flex flex-col gap-3">
+              <h3 class="text-14-medium text-text-strong">工作目录</h3>
+              <p class="text-13-regular text-text-weak">保存后，新建的执行工作区和协调会话使用此目录。已有课题和会话保留原路径。</p>
+              <TextField label="本机绝对路径" value={state.workdir} onChange={(value) => set("workdir", value)}
+                disabled={disabled()} data-testid="superagent-workdir" />
+              <div class="flex flex-wrap gap-2">
+                <Button variant="secondary" disabled={disabled() || !state.workdir.trim() || state.workdir.trim() === workspace().directory}
+                  onClick={() => void update({ workdir: state.workdir.trim() })} data-testid="superagent-workdir-save">保存目录</Button>
+                <Button variant="ghost" disabled={disabled() || workspace().directory === workspace().defaultDirectory}
+                  onClick={() => void update({ workdir: "" })} data-testid="superagent-workdir-reset">恢复默认</Button>
+              </div>
+            </div>
+          }</Show>
           <div class="rounded-lg border border-border-base p-4 flex flex-col gap-4">
             <h3 class="text-14-medium text-text-strong">卸载集成</h3><p class="text-13-regular text-text-weak">移除 Aether 中的 Super-agent 集成，保留研究数据与会话。如果仍有任务运行，请先在工作台停止任务并等待执行结束。</p>
             <Show when={state.confirm} fallback={<Button variant="secondary" disabled={disabled()} onClick={() => set("confirm", true)} data-testid="superagent-uninstall">卸载 Super-agent…</Button>}>

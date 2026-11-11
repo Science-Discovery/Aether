@@ -1,5 +1,4 @@
 {
-  "state": "/absolute/path/to/superagent-state",
   "aether": "http://127.0.0.1:19527",
   "port": 19700,
   "workers": 2

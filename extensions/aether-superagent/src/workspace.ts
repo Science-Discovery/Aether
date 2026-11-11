@@ -1,5 +1,6 @@
 import { mkdir, realpath } from "node:fs/promises"
 import path from "node:path"
+import { homedir } from "node:os"
 import { existsSync, realpathSync, statSync, lstatSync, readdirSync } from "node:fs"
 
 export type Project = { directory: string; repo?: string; base?: string; initialized?: boolean }
@@ -28,15 +29,20 @@ export function canonical(value: string): string {
   return path.join(canonical(parent), path.basename(absolute))
 }
 
+export function stateDirectory(value: string = path.join(process.env.XDG_DATA_HOME || path.join(homedir(), ".local", "share"), "aether", "superagent")) {
+  return canonical(value)
+}
+
+export function contains(parent: string, child: string) {
+  const relative = path.relative(parent, child)
+  return !relative || (!relative.startsWith(`..${path.sep}`) && relative !== ".." && !path.isAbsolute(relative))
+}
+
 export function outside(directory: string, state: string) {
   const source = canonical(directory)
   const target = canonical(state)
-  const contains = (parent: string, child: string) => {
-    const relative = path.relative(parent, child)
-    return !relative || (!relative.startsWith(`..${path.sep}`) && relative !== ".." && !path.isAbsolute(relative))
-  }
   if (contains(source, target) || contains(target, source))
-    throw new Error("Project and coordinator state directories must not contain one another.")
+    throw new Error("Project and coordinator directories must not contain one another.")
 }
 
 const locks = new Map<string, Promise<unknown>>()
@@ -48,9 +54,10 @@ async function serial<T>(key: string, action: () => Promise<T>): Promise<T> {
 }
 
 /** Resolve the live source separately from the worker's isolated Git checkout. */
-export async function resolveProject(value: string, state: string, base?: string): Promise<Project> {
+export async function resolveProject(value: string, state: string, base?: string, worktree?: string): Promise<Project> {
   const directory = canonical(value)
   outside(directory, state)
+  if (worktree) outside(directory, worktree)
   return serial(directory, async () => {
     if (!statSync(directory).isDirectory()) throw new Error("Project is not a directory.")
     let repo: string
@@ -76,6 +83,7 @@ export async function resolveProject(value: string, state: string, base?: string
       repo = directory
     }
     outside(repo, state)
+    if (worktree) outside(repo, worktree)
     const common = await realpath(await git(repo, "rev-parse", "--path-format=absolute", "--git-common-dir"))
     const initialize = async () => {
       try { return await git(repo, "rev-parse", "--verify", `${base ?? "HEAD"}^{commit}`) }

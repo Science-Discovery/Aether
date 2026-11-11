@@ -1,4 +1,7 @@
 import { expect, test } from "bun:test"
+import { mkdtemp, realpath, rm, writeFile } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import path from "node:path"
 import { controlHandler } from "../src/control"
 import { Aether } from "../src/aether"
 import { Engine } from "../src/engine"
@@ -107,4 +110,43 @@ test("panel distinguishes native master activity, missing sessions and backend f
       expect(state.tickets).toHaveLength(0)
     }
   } finally { backend.stop(true); store.db.close() }
+})
+
+test("workspace changes persist without rebinding existing tickets and reject unsafe paths", async () => {
+  const root = await realpath(await mkdtemp(path.join(tmpdir(), "superagent-workdir-")))
+  const cfg = { state: path.join(root, "state"), workers: 2 }
+  const project = path.join(root, "research")
+  const workspace = path.join(root, "custom")
+  const store = new Store(path.join(root, "state.db"))
+  const backend = new Aether("http://127.0.0.1:1")
+  const engine = new Engine(store, backend, cfg)
+  const serve = controlHandler(engine, "token", new NativeCoordinator(engine))
+  const save = (workdir: string) => serve(new Request("http://localhost/native/settings", {
+    method: "POST", headers: { Authorization: "Bearer token", "Content-Type": "application/json" },
+    body: JSON.stringify({ workdir }),
+  }))
+  try {
+    const previous = engine.submit("old", "inspect", undefined, "Old", undefined, project)
+    const original = store.ticket(previous.ticket!)!
+    expect(original.directory).toBe(path.join(cfg.state, "work", original.id))
+    expect((await save(workspace)).ok).toBe(true)
+    const next = engine.submit("new", "inspect", undefined, "New", undefined, project)
+    const ticket = store.ticket(next.ticket!)!
+    expect(ticket.directory).toBe(path.join(workspace, "work", ticket.id))
+    expect((await save(ticket.directory)).status).toBe(400)
+    expect((await save(project)).status).toBe(400)
+    expect((await save("relative")).status).toBe(400)
+    const file = path.join(root, "file")
+    await writeFile(file, "preserve")
+    expect((await save(file)).status).toBe(400)
+    expect(new Engine(store, backend, cfg).workspace()).toBe(workspace)
+    expect(store.ticket(original.id)).toEqual(original)
+    const reset = await save("")
+    expect(reset.ok).toBe(true)
+    expect((await reset.json()).workspace.directory).toBe(cfg.state)
+    expect(store.ticket(ticket.id)).toEqual(ticket)
+  } finally {
+    store.db.close()
+    await rm(root, { recursive: true, force: true })
+  }
 })

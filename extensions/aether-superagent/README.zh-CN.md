@@ -26,11 +26,12 @@ flowchart LR
 
 ```bash
 bun install --frozen-lockfile
-bun run setup --state /absolute/path/to/superagent-state \
-  --aether http://127.0.0.1:19527
+bun run setup --aether http://127.0.0.1:19527
 bun run install:aether --aether /absolute/path/to/Aether --config config.local.json
 bun start config.local.json
 ```
+
+默认数据和工作区根目录为 `$XDG_DATA_HOME/aether/superagent`，未设置该环境变量时为 `~/.local/share/aether/superagent`。安装和启动请使用与 Aether 后端相同的 XDG 环境。安装向导会保存解析后的绝对路径，旧配置中的 `state` 继续有效。
 
 `setup --model provider/model` 可选择模型。API key 始终由 Aether 管理，协调器不保存模型密钥。Aether 开启 Basic 认证时，协调器通过 `AETHER_AUTHORIZATION` 环境变量获得凭据。
 
@@ -41,6 +42,7 @@ bun start config.local.json
 在 **Aether 设置 → Super-agent** 中：
 
 - **启用 Super-agent**：关闭后暂停新派工及通知投递，已执行的工作继续保存和核对结果。读取、停止、核对仍可使用；开关不会强行杀死已有研究计算。
+- **工作目录**：填写协调器所在机器的绝对路径，可随时恢复默认。保存后，新建 worker worktree 和协调会话使用新位置。已有课题与会话保留原路径，数据库与连接配置也留在原数据目录。工作目录应独立于研究项目。
 - **定时检查**：默认关闭，间隔为 1–1440 分钟。开启后允许后台主控检查已有任务、追问和协调；有必要才回到用户主会话汇报。无须汇报时记录 `NO_UPDATE`，不产生用户主会话提醒。
 - **卸载 Super-agent**：二次确认后先冻结调度，再核对活动会话；运行中或执行状态无法确认时拒绝移除，并保持停用。卸载保留会话、研究数据库、任务 worktree 和模型凭据。重新安装后可重新启用，不必删除旧数据。
 
