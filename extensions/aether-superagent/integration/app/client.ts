@@ -3,6 +3,7 @@ import { createStore } from "solid-js/store"
 import { useNavigate } from "@solidjs/router"
 import { base64Encode } from "@opencode-ai/util/encode"
 import { useGlobalSDK } from "@/context/global-sdk"
+import { useGlobalSync } from "@/context/global-sync"
 import { usePlatform } from "@/context/platform"
 import { useServer } from "@/context/server"
 import { useLayout } from "@/context/layout"
@@ -21,6 +22,7 @@ export type NativeState = {
 /** Bind requests and navigation to the backend that mounted this view. */
 export function createSuperagentClient() {
   const sdk = useGlobalSDK()
+  const sync = useGlobalSync()
   const platform = usePlatform()
   const server = useServer()
   const layout = useLayout()
@@ -49,7 +51,10 @@ export function createSuperagentClient() {
       if (!response.ok) throw new Error(result.error ?? `HTTP ${response.status}`)
       return result as T
     },
-    open(target: { directory: string; session: string }) {
+    async open(target: { directory: string; session: string }, master = false) {
+      // The composer persists its initial selection. Load the workspace's agent
+      // order before mounting it for the first time in a coordinator session.
+      if (master && valid()) await sync.project.loadActiveMetadata(target.directory)
       if (!valid()) return
       layout.projects.open(target.directory)
       OpenIntent.mark(key, target.directory)

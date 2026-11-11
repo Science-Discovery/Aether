@@ -61,7 +61,7 @@ export default function SuperagentPanel() {
     set("busy", true); set("error", "")
     try {
       const target = await request<{ directory: string; session: string }>(ticket ? `/tickets/${ticket.id}/open` : "/native/open", ticket ? undefined : {})
-      client.open(target)
+      await client.open(target, !ticket)
     } catch (error) { if (valid()) set("error", String(error)) }
     finally { if (valid()) set("busy", false) }
   }
