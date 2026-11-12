@@ -8,15 +8,51 @@ class GitError extends Error {
   constructor(readonly code: number, message: string) { super(message) }
 }
 
-export async function git(directory: string, ...args: string[]) {
+function environment() {
   const env = { ...process.env, LC_ALL: "C" }
   // Never let an inherited alternate index/worktree redirect project operations.
   for (const key of ["GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_COMMON_DIR", "GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES"])
     delete (env as Record<string, string | undefined>)[key]
-  const child = Bun.spawn(["git", "-C", directory, ...args], { env, stdout: "pipe", stderr: "pipe" })
+  return env
+}
+
+export async function git(directory: string, ...args: string[]) {
+  const child = Bun.spawn(["git", "-C", directory, ...args], { env: environment(), stdout: "pipe", stderr: "pipe" })
   const [code, output, error] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()])
   if (code !== 0) throw new GitError(code, error.trim() || `git exited ${code}`)
   return output.trim()
+}
+
+function absent(directory: string) {
+  for (let parent = directory; ; parent = path.dirname(parent)) {
+    try {
+      const marker = path.join(parent, ".git")
+      const meta = lstatSync(marker)
+      // Git ignores empty .git directories on ancestors; preserve those markers.
+      if (parent === directory || !meta.isDirectory() || readdirSync(marker).length !== 0)
+        throw new Error("Existing Git metadata is invalid; refusing to initialize over it.")
+    } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error }
+    if (path.dirname(parent) === parent) break
+  }
+}
+
+/** Read-only root discovery for synchronous workspace configuration validation. */
+export function projectRoot(value: string) {
+  const directory = canonical(value)
+  try {
+    if (!statSync(directory).isDirectory()) throw new Error("Project is not a directory.")
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return directory
+    throw error
+  }
+  const result = Bun.spawnSync(["git", "-C", directory, "rev-parse", "--show-toplevel"], {
+    env: environment(), stdout: "pipe", stderr: "pipe",
+  })
+  if (result.exitCode === 0) return realpathSync(result.stdout.toString().trim())
+  const message = result.stderr.toString().trim()
+  if (!message.startsWith("fatal: not a git repository")) throw new GitError(result.exitCode, message)
+  absent(directory)
+  return directory
 }
 
 /** Canonicalize existing ancestors, without silently resolving a relative path from cwd. */
@@ -67,17 +103,7 @@ export async function resolveProject(value: string, state: string, base?: string
       if (!(error instanceof GitError) || !error.message.startsWith("fatal: not a git repository")) throw error
       // Only genuine absence permits init; unsafe ownership/corrupt Git metadata
       // and other failures must surface instead of being mistaken for a new repo.
-      for (let parent = directory; ; parent = path.dirname(parent)) {
-        try {
-          const marker = path.join(parent, ".git")
-          const meta = lstatSync(marker)
-          // Git ignores empty .git directories on ancestors. Some environments
-          // deliberately place these at HOME/tmp; leave them entirely alone.
-          if (parent === directory || !meta.isDirectory() || readdirSync(marker).length !== 0)
-            throw new Error("Existing Git metadata is invalid; refusing to initialize over it.")
-        } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error }
-        if (path.dirname(parent) === parent) break
-      }
+      absent(directory)
       await git(directory, "-c", "init.templateDir=", "init")
       initialized = true
       repo = directory

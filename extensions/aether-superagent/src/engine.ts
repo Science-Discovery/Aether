@@ -3,7 +3,7 @@ import { mkdir } from "node:fs/promises"
 import { accessSync, constants, mkdirSync } from "node:fs"
 import { Aether, HttpError, text, type Message, type Model } from "./aether"
 import { Store, id, type Input, type Ticket } from "./store"
-import { canonical, contains, outside, prepare, resolveProject, type Project } from "./workspace"
+import { canonical, contains, outside, prepare, projectRoot, resolveProject, type Project } from "./workspace"
 import { bindReport, initialResearch, parseReport, readReport, workerPrompt, type ReportBinding } from "./research"
 import type { NativeCoordinator } from "./native"
 
@@ -75,13 +75,15 @@ export class Engine {
     const directory = value === "" ? this.config.state : canonical(value)
     if (directory !== this.config.state) {
       outside(directory, this.config.state)
-      if (this.config.repo) outside(this.config.repo, directory)
+      const projects = new Set<string>()
+      if (this.config.repo) projects.add(canonical(this.config.repo))
       for (const ticket of this.store.tickets()) {
         const project = this.project(ticket.id)
-        if (project) outside(project.repo ?? project.directory, directory)
+        if (project) projects.add(canonical(project.repo ?? project.directory))
         if (contains(canonical(ticket.directory), directory))
           throw new Error("工作目录不能设在已有任务或协调会话内。")
       }
+      for (const project of projects) outside(projectRoot(project), directory)
       this.native?.assertWorkspace(directory)
     }
     mkdirSync(directory, { recursive: true, mode: 0o700 })

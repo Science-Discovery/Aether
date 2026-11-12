@@ -51,16 +51,22 @@ export function createSuperagentClient() {
       if (!response.ok) throw new Error(result.error ?? `HTTP ${response.status}`)
       return result as T
     },
-    async open(target: { directory: string; session: string }, master = false) {
+    async open(target: { directory: string; session: string; managed?: boolean }, master = false) {
       // The composer persists its initial selection. Load the workspace's agent
       // order before mounting it for the first time in a coordinator session.
       if (!valid()) return
       if (master) {
         await sync.project.loadActiveMetadata(target.directory)
         if (!valid()) return
-        const [metadata] = sync.peek(target.directory, { bootstrap: false })
-        if (!metadata.modelReady || !metadata.agent.some((agent) => agent.name === "superagent"))
+        const [metadata, setMetadata] = sync.peek(target.directory, { bootstrap: false })
+        const primary = metadata.agent.find((agent) => agent.name === "superagent" && agent.mode !== "subagent" && !agent.hidden)
+        if (!metadata.modelReady || !primary)
           throw new Error("未能加载主控角色，请重试打开主控会话。")
+        // An offline plugin initialization can cache Build as the default. The
+        // composer renders before session preferences arrive, so recover the
+        // intended default only in a coordinator-owned workspace.
+        if (target.managed && metadata.agent[0] !== primary)
+          setMetadata("agent", [primary, ...metadata.agent.filter((agent) => agent.name !== "superagent")])
       }
       layout.projects.open(target.directory)
       OpenIntent.mark(key, target.directory)

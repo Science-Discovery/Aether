@@ -142,8 +142,9 @@ test("source validation rejects invented tool context and open sets native agent
   const bad = context("superagent_status"); bad.callID = "invented"
   await expect(native.state(bad)).rejects.toThrow("tool call")
   const opened = await native.open(); expect(opened.directory).toBe(path.join(config.state, "native-master", "v05"))
+  expect(opened.managed).toBe(true)
   expect(remote.preferences.at(-1)).toEqual({ agent: "superagent" })
-  const again = await native.open(); expect(again.session).toBe(opened.session)
+  const again = await native.open(); expect(again.session).toBe(opened.session); expect(again.managed).toBe(true)
   native.settings({ enabled: false }); remote.busy.add(opened.session)
   await expect(native.assertUninstallable()).rejects.toThrow("still active")
   remote.busy.clear(); await native.assertUninstallable()
@@ -368,4 +369,13 @@ test("observing a background checker cannot replace the user's main conversation
   expect(await native.observe(ctx)).toEqual({ observed: false })
   expect((await native.state()).master?.session).toBe(master.session)
   expect(store.tickets()).toHaveLength(0)
+})
+
+
+test("opening a user-bound project master never claims ownership of its directory", async () => {
+  const ctx = context("superagent_status", "ses_user_project", path.join(root, "user-project"))
+  await native.bind(ctx)
+  const opened = await native.open()
+  expect(opened).toEqual({ session: ctx.sessionID, directory: ctx.directory })
+  expect(Object.hasOwn(opened, "managed")).toBe(false)
 })

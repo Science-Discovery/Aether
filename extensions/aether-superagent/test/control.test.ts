@@ -1,9 +1,10 @@
 import { expect, test } from "bun:test"
-import { mkdtemp, realpath, rm, writeFile } from "node:fs/promises"
+import { mkdtemp, realpath, rm, writeFile, mkdir, access } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
 import { controlHandler } from "../src/control"
 import { Aether } from "../src/aether"
+import { git } from "../src/workspace"
 import { Engine } from "../src/engine"
 import { Store } from "../src/store"
 import { NativeCoordinator } from "../src/native"
@@ -149,4 +150,51 @@ test("workspace changes persist without rebinding existing tickets and reject un
     store.db.close()
     await rm(root, { recursive: true, force: true })
   }
+})
+
+
+test("workspace setter checks actual Git roots for nested defaults and unresolved queued projects before creating directories", async () => {
+  const root = await realpath(await mkdtemp(path.join(tmpdir(), "superagent-root-guard-")))
+  const repo = path.join(root, "repo")
+  const nested = path.join(repo, "analysis")
+  await mkdir(nested, { recursive: true })
+  await git(repo, "init")
+  const invalid = path.join(repo, "coordinator")
+  const cfg = { state: path.join(root, "state"), workers: 1 }
+  const store = new Store(":memory:")
+  try {
+    const backend = new Aether("http://127.0.0.1:1")
+    const defaults = new Engine(store, backend, { ...cfg, repo: nested })
+    expect(() => defaults.setWorkspace(invalid)).toThrow("must not contain")
+    expect(await access(invalid).then(() => true).catch(() => false)).toBe(false)
+    const engine = new Engine(store, backend, cfg)
+    const input = engine.submit("queued", "inspect", undefined, "Queued", undefined, nested)
+    expect(engine.project(input.ticket!)?.repo).toBeUndefined()
+    expect(() => engine.setWorkspace(invalid)).toThrow("must not contain")
+    expect(await access(invalid).then(() => true).catch(() => false)).toBe(false)
+    expect(engine.workspace()).toBe(cfg.state)
+    engine.setWorkspace(path.join(root, "valid"))
+    expect(engine.workspace()).toBe(path.join(root, "valid"))
+  } finally { store.db.close(); await rm(root, { recursive: true, force: true }) }
+})
+
+test("workspace root probe permits missing old projects but does not initialize non-Git or ignore corrupt Git", async () => {
+  const root = await realpath(await mkdtemp(path.join(tmpdir(), "superagent-readonly-root-")))
+  const source = path.join(root, "project")
+  const work = path.join(root, "work")
+  const store = new Store(":memory:")
+  const engine = new Engine(store, new Aether("http://127.0.0.1:1"), { state: path.join(root, "state"), workers: 1 })
+  try {
+    engine.submit("missing", "inspect", undefined, "Missing", undefined, path.join(root, "gone"))
+    engine.setWorkspace(work)
+    await mkdir(source)
+    engine.submit("plain", "inspect", undefined, "Plain", undefined, source)
+    engine.setWorkspace(path.join(root, "work2"))
+    expect(await access(path.join(source, ".git")).then(() => true).catch(() => false)).toBe(false)
+    await writeFile(path.join(source, ".git"), "invalid metadata")
+    const target = path.join(root, "work3")
+    expect(() => engine.setWorkspace(target)).toThrow()
+    expect(await access(target).then(() => true).catch(() => false)).toBe(false)
+    expect(engine.workspace()).toBe(path.join(root, "work2"))
+  } finally { store.db.close(); await rm(root, { recursive: true, force: true }) }
 })

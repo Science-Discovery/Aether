@@ -29,7 +29,7 @@ const tables = { master: "native_master", run: "native_run", outbox: "native_out
 export class NativeCoordinator {
   readonly active = new Map<string, Promise<void>>()
   private ticking = false
-  private opening?: Promise<{ session: string; directory: string }>
+  private opening?: Promise<{ session: string; directory: string; managed?: true }>
 
   constructor(readonly engine: Engine) {
     engine.attachNative(this)
@@ -186,7 +186,7 @@ export class NativeCoordinator {
       await this.engine.aether.request(master.directory, `/session/${master.session}/preference`,
         { agent: "superagent", ...(this.engine.config.model ? { model: this.engine.config.model } : {}) }, "PATCH")
       this.enabled()
-      return { session: master.session, directory: master.directory }
+      return { session: master.session, directory: master.directory, ...(master.managed === true ? { managed: true as const } : {}) }
     }
     this.opening = work().finally(() => { this.opening = undefined })
     return this.opening
