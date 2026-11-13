@@ -268,56 +268,72 @@ test("native permission modes persist per conversation and apply to each followi
   }
 })
 
-test("native Codex continues after legacy discovery and an expired status refresh fails", async ({ page, project }) => {
-  const probes = { legacy: 0, failed: 0, failing: false }
-  await page.clock.install()
-  await page.route(/\/native\/codex(?:\?|$)/, async (route) => {
-    if (probes.failing) {
-      await route.abort("connectionfailed")
-      probes.failed++
-      return
-    }
-    const response = await route.fetch()
-    const data = (await response.json()) as Record<string, unknown>
-    delete data.enabled
-    await route.fulfill({ response, json: data })
-    probes.legacy++
-  })
-  await project.open({ setup: fixture, beforeGoto: configure })
-  await choose(page, "prompt-engine", "Codex")
-  await expect(page.locator('[data-action="prompt-native-model"]')).toHaveText("Native model")
-  await expect.poll(() => probes.legacy).toBeGreaterThan(0)
-  await send(page, "Start with the older Codex discovery response.")
-  const id = sessionIDFromUrl(page.url())
-  if (!id) throw new Error("Native session was not created")
-  project.trackSession(id)
-  await expect(page.getByText("Native response", { exact: true })).toBeVisible()
-  await waitSessionIdle(project.sdk, id)
-  const saved = (await project.sdk.session.get({ sessionID: id })).data
-  expect(saved?.engine?.thread).toBeTruthy()
+for (const failure of ["transport", "discovery"]) {
+  test(`native Codex continues after legacy discovery and an expired ${failure} refresh fails`, async ({
+    page,
+    project,
+  }) => {
+    const probes = { legacy: 0, failed: 0, failing: false }
+    await page.clock.install()
+    await page.route(/\/native\/codex(?:\?|$)/, async (route) => {
+      if (probes.failing && failure === "transport") {
+        await route.abort("connectionfailed")
+        probes.failed++
+        return
+      }
+      const response = await route.fetch()
+      const data = (await response.json()) as Record<string, unknown>
+      if (probes.failing) {
+        await route.fulfill({
+          response,
+          json: { ...data, auth: "unknown", error: "Codex connected, but account or model discovery failed" },
+        })
+        probes.failed++
+        return
+      }
+      delete data.enabled
+      await route.fulfill({ response, json: data })
+      probes.legacy++
+    })
+    await project.open({ setup: fixture, beforeGoto: configure })
+    await choose(page, "prompt-engine", "Codex")
+    await expect(page.locator('[data-action="prompt-native-model"]')).toHaveText("Native model")
+    await expect.poll(() => probes.legacy).toBeGreaterThan(0)
+    await send(page, "Start with the older Codex discovery response.")
+    const id = sessionIDFromUrl(page.url())
+    if (!id) throw new Error("Native session was not created")
+    project.trackSession(id)
+    await expect(page.getByText("Native response", { exact: true })).toBeVisible()
+    await waitSessionIdle(project.sdk, id)
+    const saved = (await project.sdk.session.get({ sessionID: id })).data
+    expect(saved?.engine?.thread).toBeTruthy()
 
-  probes.failing = true
-  await page.clock.fastForward(61_000)
-  await expect.poll(() => probes.failed).toBeGreaterThan(0)
-  await expect(page.locator('[data-action="prompt-native-model"]')).toBeEnabled()
-  await expect(page.locator('[data-action="prompt-native-model"]')).toHaveText("Native model")
-  await expect(page.locator('[data-action="prompt-native-refresh"]')).toHaveCount(0)
-  await send(page, "Continue after a temporary discovery failure.")
-  await waitSessionIdle(project.sdk, id)
-  await expect(page.getByText("Native response", { exact: true })).toHaveCount(2)
-  const messages = (await project.sdk.session.messages({ sessionID: id })).data ?? []
-  expect(messages.filter((message) => message.info.role === "user")).toHaveLength(2)
-  expect(messages.filter((message) => message.info.role === "assistant")).toHaveLength(2)
-  const log = await calls(project.directory)
-  expect(log.filter((call) => call.method === "thread/start")).toHaveLength(1)
-  expect(log.filter((call) => call.method === "turn/start").map((call) => call.params?.threadId)).toEqual([
-    saved?.engine?.thread,
-    saved?.engine?.thread,
-  ])
-  expect((await project.sdk.session.get({ sessionID: id })).data?.engine?.thread).toBe(saved?.engine?.thread)
-  await expect(page.getByText(/Codex is not ready\./)).toHaveCount(0)
-  await expect(page.locator('[data-component="toast"]')).toHaveCount(0)
-})
+    probes.failing = true
+    await page.clock.fastForward(61_000)
+    await expect.poll(() => probes.failed).toBeGreaterThan(0)
+    await expect(page.locator('[data-action="prompt-native-model"]')).toBeEnabled()
+    await expect(page.locator('[data-action="prompt-native-model"]')).toHaveText("Native model")
+    await expect(page.locator('[data-action="prompt-native-refresh"]')).toHaveCount(0)
+    const previous = await promptSend(page)
+    await page.locator(promptSelector).fill("Continue after a temporary discovery failure.")
+    await page.getByRole("button", { name: "Send", exact: true }).click()
+    await expect.poll(async () => (await promptSend(page)).count).toBe(previous.count + 1)
+    await waitSessionIdle(project.sdk, id)
+    await expect(page.getByText("Native response", { exact: true })).toHaveCount(2)
+    const messages = (await project.sdk.session.messages({ sessionID: id })).data ?? []
+    expect(messages.filter((message) => message.info.role === "user")).toHaveLength(2)
+    expect(messages.filter((message) => message.info.role === "assistant")).toHaveLength(2)
+    const log = await calls(project.directory)
+    expect(log.filter((call) => call.method === "thread/start")).toHaveLength(1)
+    expect(log.filter((call) => call.method === "turn/start").map((call) => call.params?.threadId)).toEqual([
+      saved?.engine?.thread,
+      saved?.engine?.thread,
+    ])
+    expect((await project.sdk.session.get({ sessionID: id })).data?.engine?.thread).toBe(saved?.engine?.thread)
+    await expect(page.getByText(/Codex is not ready\./)).toHaveCount(0)
+    await expect(page.locator('[data-component="toast"]')).toHaveCount(0)
+  })
+}
 
 test("native settings repair an unavailable executable and show separate connection and account state", async ({
   page,

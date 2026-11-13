@@ -220,6 +220,75 @@ describe("native connection status", () => {
     expect(probe.fresh()).toBe(true)
   })
 
+  test.each<Partial<NativeCodexStatus>>([
+    { auth: "unknown", error: "Codex connected, but account or model discovery failed" },
+    { models: [], error: "Codex connected, but account or model discovery failed" },
+    { connected: false, auth: "unknown", models: [], error: "Codex app-server could not initialize" },
+  ])("retains a verified catalog after an automatic discovery error: %j", async (failure) => {
+    vi.useFakeTimers()
+    const read = vi
+      .fn()
+      .mockResolvedValueOnce(status())
+      .mockResolvedValue({ ...status(), ...failure })
+    const probe = createRoot((cleanup) => {
+      dispose = cleanup
+      return createNativeStatus({ key: () => "server/path", enabled: () => true, active: () => true, read })
+    })
+    await vi.advanceTimersByTimeAsync(0)
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(probe.data()).toEqual(status())
+    expect(probe.fresh()).toBe(false)
+    expect(probe.error()).toEqual(new Error(failure.error))
+    expect(probe.loading()).toBe(false)
+    await vi.advanceTimersByTimeAsync(120_000)
+    expect(read).toHaveBeenCalledTimes(2)
+    read.mockResolvedValue(status("/recovered"))
+    await probe.refresh()
+    expect(probe.data()?.path).toBe("/recovered")
+    expect(probe.fresh()).toBe(true)
+    expect(probe.error()).toBeUndefined()
+  })
+
+  test.each<Partial<NativeCodexStatus>>([
+    { enabled: false, error: "Codex is disabled" },
+    { installed: false, connected: false, auth: "missing", models: [], error: "Codex executable was not found" },
+    { auth: "missing", error: "Account discovery failed" },
+    { models: [] },
+  ])("accepts authoritative changes during an automatic refresh: %j", async (change) => {
+    vi.useFakeTimers()
+    const data = { ...status(), ...change }
+    const read = vi.fn().mockResolvedValueOnce(status()).mockResolvedValue(data)
+    const probe = createRoot((cleanup) => {
+      dispose = cleanup
+      return createNativeStatus({ key: () => "server/path", enabled: () => true, active: () => true, read })
+    })
+    await vi.advanceTimersByTimeAsync(0)
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(probe.data()).toEqual(data)
+    expect(read).toHaveBeenCalledTimes(2)
+  })
+
+  test("an explicit refresh or configuration change cannot reuse a previously verified catalog", async () => {
+    const [state, setState] = createStore({ key: "old" })
+    const failure = { ...status(), connected: false, auth: "unknown" as const, models: [], error: "Unavailable" }
+    const read = vi.fn().mockResolvedValue(status())
+    const probe = createRoot((cleanup) => {
+      dispose = cleanup
+      return createNativeStatus({ key: () => state.key, enabled: () => true, active: () => true, read })
+    })
+    await vi.waitFor(() => expect(probe.fresh()).toBe(true))
+    read.mockResolvedValue(failure)
+    await probe.refresh()
+    expect(probe.data()).toEqual(failure)
+    read.mockResolvedValue(status())
+    await probe.refresh()
+    read.mockResolvedValue(failure)
+    setState("key", "new")
+    await vi.waitFor(() => expect(probe.loading()).toBe(false))
+    expect(probe.data()).toEqual(failure)
+    expect(probe.data()?.models).toEqual([])
+  })
+
   test("a failed probe is not retried in an endless background loop", async () => {
     vi.useFakeTimers()
     const [state, setState] = createStore({ active: true })
